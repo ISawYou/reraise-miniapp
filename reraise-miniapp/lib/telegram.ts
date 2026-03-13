@@ -6,10 +6,12 @@ export type TelegramWebAppUser = {
 };
 
 export type TelegramWebApp = {
+  initData?: string;
   initDataUnsafe?: {
     user?: TelegramWebAppUser;
   };
   expand?: () => void;
+  ready?: () => void;
 };
 
 declare global {
@@ -36,4 +38,18 @@ export function getTelegramUser(): TelegramWebAppUser | null {
   }
 
   return webApp.initDataUnsafe?.user ?? null;
+}
+
+export function getTelegramDebugInfo() {
+  const webApp = getTelegramWebApp();
+
+  return {
+    hasWindow: typeof window !== "undefined",
+    hasTelegramObject: typeof window !== "undefined" && !!window.Telegram,
+    hasWebApp: !!webApp,
+    hasInitData: !!webApp?.initData,
+    hasInitDataUnsafe: !!webApp?.initDataUnsafe,
+    hasUser: !!webApp?.initDataUnsafe?.user,
+    initDataLength: webApp?.initData?.length ?? 0,
+  };
 }

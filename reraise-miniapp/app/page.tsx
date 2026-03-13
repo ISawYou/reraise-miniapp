@@ -1,26 +1,37 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getTelegramUser, getTelegramWebApp, type TelegramWebAppUser } from "@/lib/telegram";
+import {
+  getTelegramUser,
+  getTelegramWebApp,
+  type TelegramWebAppUser,
+} from "@/lib/telegram";
 
 export default function HomePage() {
   const [user, setUser] = useState<TelegramWebAppUser | null>(null);
+  const [checkedTelegram, setCheckedTelegram] = useState(false);
   const [isInsideTelegram, setIsInsideTelegram] = useState(false);
 
   useEffect(() => {
-    const webApp = getTelegramWebApp();
+    const timer = setTimeout(() => {
+      const webApp = getTelegramWebApp();
 
-    if (webApp) {
-      setIsInsideTelegram(true);
-      webApp.expand?.();
-    }
+      if (webApp) {
+        setIsInsideTelegram(true);
+        webApp.ready?.();
+        webApp.expand?.();
+      }
 
-    const telegramUser = getTelegramUser();
-    setUser(telegramUser);
+      const telegramUser = getTelegramUser();
+      setUser(telegramUser);
+      setCheckedTelegram(true);
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, []);
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-white p-6">
+    <main className="min-h-screen bg-neutral-950 p-6 text-white">
       <div className="mx-auto max-w-md space-y-6">
         <div>
           <h1 className="text-3xl font-bold">ReRaise Poker Club</h1>
@@ -32,22 +43,27 @@ export default function HomePage() {
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
           <h2 className="text-lg font-semibold">Telegram Mini App</h2>
 
-          {!isInsideTelegram && (
+          {!checkedTelegram && (
+            <p className="mt-2 text-sm text-neutral-300">Проверяем Telegram...</p>
+          )}
+
+          {checkedTelegram && !isInsideTelegram && (
             <p className="mt-2 text-sm text-neutral-300">
               Приложение открыто вне Telegram
             </p>
           )}
 
-          {isInsideTelegram && !user && (
+          {checkedTelegram && isInsideTelegram && !user && (
             <p className="mt-2 text-sm text-neutral-300">
-              Telegram открыт, но данные пользователя недоступны
+              Telegram открыт, но данные пользователя пока недоступны
             </p>
           )}
 
           {user && (
             <div className="mt-3 space-y-2 text-sm text-neutral-200">
               <p>
-                <span className="text-neutral-400">first_name:</span> {user.first_name}
+                <span className="text-neutral-400">first_name:</span>{" "}
+                {user.first_name}
               </p>
               <p>
                 <span className="text-neutral-400">username:</span>{" "}
