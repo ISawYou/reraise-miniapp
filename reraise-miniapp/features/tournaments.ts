@@ -35,15 +35,18 @@ export async function registerPlayerForTournament(
   playerId: string,
   tournamentId: string
 ) {
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("registrations")
     .select("*")
     .eq("player_id", playerId)
     .eq("tournament_id", tournamentId)
-    .in("status", ["registered", "waitlist"])
     .maybeSingle();
 
-  if (existing) {
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  if (existing && (existing.status === "registered" || existing.status === "waitlist")) {
     return existing;
   }
 
@@ -73,6 +76,21 @@ export async function registerPlayerForTournament(
 
   const status: RegistrationStatus =
     (count ?? 0) < tournament.max_players ? "registered" : "waitlist";
+
+  if (existing && existing.status === "cancelled") {
+    const { data, error } = await supabase
+      .from("registrations")
+      .update({ status })
+      .eq("id", existing.id)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data;
+  }
 
   const { data, error } = await supabase
     .from("registrations")
