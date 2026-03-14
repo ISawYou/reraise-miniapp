@@ -1,17 +1,39 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getOpenTournaments } from "@/features/tournaments";
+import { getOpenTournaments, registerPlayerForTournament } from "@/features/tournaments";
+import { ensurePlayerFromTelegramUser } from "@/features/auth";
+import { getTelegramUser } from "@/lib/telegram";
 import type { Tournament } from "@/types/domain";
 
 export default function TournamentsPage() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [playerId, setPlayerId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  async function handleRegister(tournamentId: string) {
+    if (!playerId) return;
+
+    try {
+      await registerPlayerForTournament(playerId, tournamentId);
+      alert("Вы записаны на турнир");
+    } catch (err) {
+      alert("Ошибка записи");
+    }
+  }
+
   useEffect(() => {
-    async function loadTournaments() {
+    async function init() {
       try {
+        const telegramUser = getTelegramUser();
+
+        if (telegramUser) {
+          const player = await ensurePlayerFromTelegramUser(telegramUser);
+          setPlayerId(player.id);
+        }
+
         const data = await getOpenTournaments();
         setTournaments(data);
       } catch (err) {
@@ -23,7 +45,7 @@ export default function TournamentsPage() {
       }
     }
 
-    loadTournaments();
+    init();
   }, []);
 
   return (
@@ -57,6 +79,7 @@ export default function TournamentsPage() {
             key={tournament.id}
             className="rounded-xl border border-neutral-800 bg-neutral-900 p-4"
           >
+
             <h2 className="text-lg font-semibold">
               {tournament.title}
             </h2>
@@ -70,6 +93,7 @@ export default function TournamentsPage() {
             </p>
 
             <button
+              onClick={() => handleRegister(tournament.id)}
               className="mt-3 w-full rounded-lg bg-yellow-500 py-2 text-black font-semibold"
             >
               Записаться

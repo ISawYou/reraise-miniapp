@@ -30,3 +30,53 @@ export async function getOpenTournaments(): Promise<Tournament[]> {
 
   return data.map((row) => mapTournamentRow(row as TournamentRow));
 }
+export async function registerPlayerForTournament(
+  playerId: string,
+  tournamentId: string
+) {
+  const { data: existing } = await supabase
+    .from("registrations")
+    .select("*")
+    .eq("player_id", playerId)
+    .eq("tournament_id", tournamentId)
+    .maybeSingle();
+
+  if (existing) {
+    return existing;
+  }
+
+  const { count } = await supabase
+    .from("registrations")
+    .select("*", { count: "exact", head: true })
+    .eq("tournament_id", tournamentId)
+    .in("status", ["registered", "attended"]);
+
+  const { data: tournament } = await supabase
+    .from("tournaments")
+    .select("*")
+    .eq("id", tournamentId)
+    .single();
+
+  if (!tournament) {
+    throw new Error("Tournament not found");
+  }
+
+  const status =
+    (count ?? 0) < tournament.max_players ? "registered" : "waitlist";
+
+  const { data, error } = await supabase
+    .from("registrations")
+    .insert({
+      player_id: playerId,
+      tournament_id: tournamentId,
+      status,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
