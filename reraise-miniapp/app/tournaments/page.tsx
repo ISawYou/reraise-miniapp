@@ -11,6 +11,7 @@ import {
 
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { getTelegramUser } from "@/lib/telegram";
+import { supabase } from "@/lib/supabase";
 
 import type { Tournament, RegistrationStatus } from "@/types/domain";
 
@@ -33,6 +34,24 @@ export default function TournamentsPage() {
   );
 
   const [modalMessage, setModalMessage] = useState<string | null>(null);
+
+  async function refreshPageData(currentPlayerId: string) {
+    const [regs, counts, tournamentsData] = await Promise.all([
+      getPlayerRegistrations(currentPlayerId),
+      getTournamentRegistrationCounts(),
+      getOpenTournaments(),
+    ]);
+
+    const map: Record<string, RegistrationStatus> = {};
+
+    regs.forEach((r: any) => {
+      map[r.tournament_id] = r.status;
+    });
+
+    setRegistrations(map);
+    setRegistrationCounts(counts);
+    setTournaments(tournamentsData);
+  }
 
   async function handleRegister(tournamentId: string) {
     if (!playerId) return;
@@ -65,6 +84,8 @@ export default function TournamentsPage() {
       } else if (result.status === "waitlist") {
         setModalMessage("Вы добавлены в waitlist");
       }
+
+      await refreshPageData(playerId);
     } catch (err) {
       alert("Ошибка записи");
     } finally {
@@ -89,17 +110,12 @@ export default function TournamentsPage() {
       });
 
       if (currentStatus === "registered") {
-        const counts = await getTournamentRegistrationCounts();
-        setRegistrationCounts(counts);
-      }
-
-      if (currentStatus === "waitlist") {
+        setModalMessage("Запись на турнир отменена");
+      } else if (currentStatus === "waitlist") {
         setModalMessage("Вы вышли из waitlist");
       }
 
-      if (currentStatus === "registered") {
-        setModalMessage("Запись на турнир отменена");
-      }
+      await refreshPageData(playerId);
     } catch (err) {
       alert("Ошибка отмены записи");
     } finally {
@@ -112,29 +128,15 @@ export default function TournamentsPage() {
       try {
         const telegramUser = getTelegramUser();
 
-        if (telegramUser) {
-          const player = await ensurePlayerFromTelegramUser(telegramUser);
-
-          setPlayerId(player.id);
-
-          const regs = await getPlayerRegistrations(player.id);
-
-          const map: Record<string, RegistrationStatus> = {};
-
-          regs.forEach((r: any) => {
-            map[r.tournament_id] = r.status;
-          });
-
-          setRegistrations(map);
+        if (!telegramUser) {
+          throw new Error("Telegram user not found");
         }
 
-        const [tournamentsData, countsData] = await Promise.all([
-          getOpenTournaments(),
-          getTournamentRegistrationCounts(),
-        ]);
+        const player = await ensurePlayerFromTelegramUser(telegramUser);
 
-        setTournaments(tournamentsData);
-        setRegistrationCounts(countsData);
+        setPlayerId(player.id);
+
+        await refreshPageData(player.id);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Unknown tournaments error";
@@ -147,6 +149,33 @@ export default function TournamentsPage() {
 
     init();
   }, []);
+
+  useEffect(() => {
+    if (!playerId) return;
+
+    const channel = supabase
+      .channel("registrations-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "registrations",
+        },
+        async () => {
+          try {
+            await refreshPageData(playerId);
+          } catch (err) {
+            console.error("Realtime refresh error:", err);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [playerId]);
 
   function getStatusLabel(tournament: Tournament) {
     const myStatus = registrations[tournament.id];
@@ -217,22 +246,12 @@ export default function TournamentsPage() {
         <div className="mx-auto max-w-md space-y-6">
           <h1 className="text-3xl font-bold">Турниры</h1>
 
-          {loading && (
-            <p className="text-neutral-400">
-              Загружаем турниры...
-            </p>
-          )}
+          {loading && <p className="text-neutral-400">Загружаем турниры...</p>}
 
-          {error && (
-            <p className="text-red-400">
-              {error}
-            </p>
-          )}
+          {error && <p className="text-red-400">{error}</p>}
 
           {!loading && tournaments.length === 0 && (
-            <p className="text-neutral-400">
-              Открытых турниров пока нет
-            </p>
+            <p className="text-neutral-400">Открытых турниров пока нет</p>
           )}
 
           {tournaments.map((tournament) => {
@@ -243,9 +262,7 @@ export default function TournamentsPage() {
                 key={tournament.id}
                 className="rounded-xl border border-neutral-800 bg-neutral-900 p-4"
               >
-                <h2 className="text-lg font-semibold">
-                  {tournament.title}
-                </h2>
+                <h2 className="text-lg font-semibold">{tournament.title}</h2>
 
                 <p className="mt-1 text-sm text-neutral-400">
                   {new Date(tournament.start_at).toLocaleString()}
@@ -269,13 +286,9 @@ export default function TournamentsPage() {
       {modalMessage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-neutral-900 p-5 text-white shadow-xl">
-            <h2 className="text-lg font-semibold">
-              Готово
-            </h2>
+            <h2 className="text-lg font-semibold">Готово</h2>
 
-            <p className="mt-3 text-sm text-neutral-300">
-              {modalMessage}
-            </p>
+            <p className="mt-3 text-sm text-neutral-300">{modalMessage}</p>
 
             <button
               onClick={() => setModalMessage(null)}
