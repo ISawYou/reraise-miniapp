@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getOpenTournaments,
   registerPlayerForTournament,
@@ -34,21 +34,66 @@ export default function TournamentsPage() {
   );
 
   const [modalMessage, setModalMessage] = useState<string | null>(null);
+  const [promotionToast, setPromotionToast] = useState<string | null>(null);
 
-  async function refreshPageData(currentPlayerId: string) {
+  const registrationsRef = useRef<Record<string, RegistrationStatus>>({});
+
+  useEffect(() => {
+    registrationsRef.current = registrations;
+  }, [registrations]);
+
+  useEffect(() => {
+    if (!promotionToast) return;
+
+    const timeout = setTimeout(() => {
+      setPromotionToast(null);
+    }, 4000);
+
+    return () => clearTimeout(timeout);
+  }, [promotionToast]);
+
+  async function refreshPageData(
+    currentPlayerId: string,
+    options?: { showPromotionToast?: boolean }
+  ) {
     const [regs, counts, tournamentsData] = await Promise.all([
       getPlayerRegistrations(currentPlayerId),
       getTournamentRegistrationCounts(),
       getOpenTournaments(),
     ]);
 
-    const map: Record<string, RegistrationStatus> = {};
+    const nextMap: Record<string, RegistrationStatus> = {};
 
     regs.forEach((r: any) => {
-      map[r.tournament_id] = r.status;
+      nextMap[r.tournament_id] = r.status;
     });
 
-    setRegistrations(map);
+    if (options?.showPromotionToast) {
+      const promotedTournamentId = Object.keys(nextMap).find((tournamentId) => {
+        const previousStatus = registrationsRef.current[tournamentId];
+        const nextStatus = nextMap[tournamentId];
+
+        return previousStatus === "waitlist" && nextStatus === "registered";
+      });
+
+      if (promotedTournamentId) {
+        const promotedTournament = tournamentsData.find(
+          (tournament) => tournament.id === promotedTournamentId
+        );
+
+        if (promotedTournament) {
+          setPromotionToast(
+            `🎉 Вы переместились из waitlist в основной список: ${promotedTournament.title}`
+          );
+        } else {
+          setPromotionToast(
+            "🎉 Вы переместились из waitlist в основной список"
+          );
+        }
+      }
+    }
+
+    setRegistrations(nextMap);
     setRegistrationCounts(counts);
     setTournaments(tournamentsData);
   }
@@ -85,7 +130,7 @@ export default function TournamentsPage() {
         setModalMessage("Вы добавлены в waitlist");
       }
 
-      await refreshPageData(playerId);
+      await refreshPageData(playerId, { showPromotionToast: false });
     } catch (err) {
       alert("Ошибка записи");
     } finally {
@@ -115,7 +160,7 @@ export default function TournamentsPage() {
         setModalMessage("Вы вышли из waitlist");
       }
 
-      await refreshPageData(playerId);
+      await refreshPageData(playerId, { showPromotionToast: false });
     } catch (err) {
       alert("Ошибка отмены записи");
     } finally {
@@ -136,7 +181,7 @@ export default function TournamentsPage() {
 
         setPlayerId(player.id);
 
-        await refreshPageData(player.id);
+        await refreshPageData(player.id, { showPromotionToast: false });
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Unknown tournaments error";
@@ -154,7 +199,7 @@ export default function TournamentsPage() {
     if (!playerId) return;
 
     const channel = supabase
-      .channel("registrations-realtime")
+      .channel(`registrations-realtime-${playerId}`)
       .on(
         "postgres_changes",
         {
@@ -164,7 +209,7 @@ export default function TournamentsPage() {
         },
         async () => {
           try {
-            await refreshPageData(playerId);
+            await refreshPageData(playerId, { showPromotionToast: true });
           } catch (err) {
             console.error("Realtime refresh error:", err);
           }
@@ -282,6 +327,14 @@ export default function TournamentsPage() {
           })}
         </div>
       </main>
+
+      {promotionToast && (
+        <div className="fixed left-4 right-4 top-4 z-50 flex justify-center">
+          <div className="w-full max-w-md animate-pulse rounded-2xl border border-green-500/40 bg-green-500/15 px-4 py-3 text-sm font-medium text-green-200 shadow-lg backdrop-blur">
+            {promotionToast}
+          </div>
+        </div>
+      )}
 
       {modalMessage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
