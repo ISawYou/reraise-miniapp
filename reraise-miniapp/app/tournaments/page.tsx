@@ -12,6 +12,7 @@ import {
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { getTelegramUser } from "@/lib/telegram";
 import { supabase } from "@/lib/supabase";
+import { PromotionToast } from "@/components/promotion-toast";
 
 import type { Tournament, RegistrationStatus } from "@/types/domain";
 
@@ -47,7 +48,7 @@ export default function TournamentsPage() {
 
     const timeout = setTimeout(() => {
       setPromotionToast(null);
-    }, 4000);
+    }, 4500);
 
     return () => clearTimeout(timeout);
   }, [promotionToast]);
@@ -328,13 +329,7 @@ export default function TournamentsPage() {
         </div>
       </main>
 
-      {promotionToast && (
-        <div className="fixed left-4 right-4 top-4 z-50 flex justify-center">
-          <div className="w-full max-w-md animate-pulse rounded-2xl border border-green-500/40 bg-green-500/15 px-4 py-3 text-sm font-medium text-green-200 shadow-lg backdrop-blur">
-            {promotionToast}
-          </div>
-        </div>
-      )}
+      {promotionToast && <PromotionToast message={promotionToast} />}
 
       {modalMessage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
