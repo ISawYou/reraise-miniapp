@@ -1,11 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { getMyTournaments } from "@/features/tournaments";
+import {
+  getMyTournaments,
+  getPlayerRegistrations,
+  getOpenTournaments,
+} from "@/features/tournaments";
 import { getTelegramUser } from "@/lib/telegram";
+import { supabase } from "@/lib/supabase";
+import { PromotionToast } from "@/components/promotion-toast";
+import { BottomNav } from "@/components/bottom-nav";
 
-import type { Tournament, Registration } from "@/types/domain";
+import type {
+  Tournament,
+  Registration,
+  RegistrationStatus,
+} from "@/types/domain";
 
 type MyTournamentItem = {
   registration: Registration;
@@ -14,8 +25,67 @@ type MyTournamentItem = {
 
 export default function MyTournamentsPage() {
   const [items, setItems] = useState<MyTournamentItem[]>([]);
+  const [playerId, setPlayerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [promotionToast, setPromotionToast] = useState<string | null>(null);
+
+  const registrationsRef = useRef<Record<string, RegistrationStatus>>({});
+
+  useEffect(() => {
+    if (!promotionToast) return;
+
+    const timeout = setTimeout(() => {
+      setPromotionToast(null);
+    }, 4500);
+
+    return () => clearTimeout(timeout);
+  }, [promotionToast]);
+
+  async function refreshPageData(
+    currentPlayerId: string,
+    options?: { showPromotionToast?: boolean }
+  ) {
+    const [myItems, regs, tournaments] = await Promise.all([
+      getMyTournaments(currentPlayerId),
+      getPlayerRegistrations(currentPlayerId),
+      getOpenTournaments(),
+    ]);
+
+    const nextMap: Record<string, RegistrationStatus> = {};
+
+    regs.forEach((r: any) => {
+      nextMap[r.tournament_id] = r.status;
+    });
+
+    if (options?.showPromotionToast) {
+      const promotedTournamentId = Object.keys(nextMap).find((tournamentId) => {
+        const previousStatus = registrationsRef.current[tournamentId];
+        const nextStatus = nextMap[tournamentId];
+
+        return previousStatus === "waitlist" && nextStatus === "registered";
+      });
+
+      if (promotedTournamentId) {
+        const promotedTournament = tournaments.find(
+          (tournament) => tournament.id === promotedTournamentId
+        );
+
+        if (promotedTournament) {
+          setPromotionToast(
+            `🎉 Вы переместились из waitlist в основной список: ${promotedTournament.title}`
+          );
+        } else {
+          setPromotionToast(
+            "🎉 Вы переместились из waitlist в основной список"
+          );
+        }
+      }
+    }
+
+    registrationsRef.current = nextMap;
+    setItems(myItems);
+  }
 
   useEffect(() => {
     async function init() {
@@ -27,9 +97,9 @@ export default function MyTournamentsPage() {
         }
 
         const player = await ensurePlayerFromTelegramUser(telegramUser);
-        const data = await getMyTournaments(player.id);
+        setPlayerId(player.id);
 
-        setItems(data);
+        await refreshPageData(player.id, { showPromotionToast: false });
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Unknown my tournaments error";
@@ -42,6 +112,33 @@ export default function MyTournamentsPage() {
 
     init();
   }, []);
+
+  useEffect(() => {
+    if (!playerId) return;
+
+    const channel = supabase
+      .channel(`my-tournaments-realtime-${playerId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "registrations",
+        },
+        async () => {
+          try {
+            await refreshPageData(playerId, { showPromotionToast: true });
+          } catch (err) {
+            console.error("My tournaments realtime refresh error:", err);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [playerId]);
 
   const registeredItems = items.filter(
     (item) => item.registration.status === "registered"
@@ -77,36 +174,41 @@ export default function MyTournamentsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-neutral-950 p-6 text-white">
-      <div className="mx-auto max-w-md space-y-6">
-        <h1 className="text-3xl font-bold">Мои турниры</h1>
+    <>
+      <main className="min-h-screen bg-neutral-950 p-6 pb-28 text-white">
+        <div className="mx-auto max-w-md space-y-6">
+          <h1 className="text-3xl font-bold">Мои турниры</h1>
 
-        {loading && (
-          <p className="text-neutral-400">Загружаем ваши турниры...</p>
-        )}
+          {loading && (
+            <p className="text-neutral-400">Загружаем ваши турниры...</p>
+          )}
 
-        {error && <p className="text-red-400">{error}</p>}
+          {error && <p className="text-red-400">{error}</p>}
 
-        {!loading && !error && items.length === 0 && (
-          <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-            <p className="text-neutral-300">У вас пока нет активных записей</p>
-          </div>
-        )}
+          {!loading && !error && items.length === 0 && (
+            <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+              <p className="text-neutral-300">У вас пока нет активных записей</p>
+            </div>
+          )}
 
-        {!loading && !error && registeredItems.length > 0 && (
-          <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Вы зарегистрированы</h2>
-            {registeredItems.map(renderTournamentCard)}
-          </section>
-        )}
+          {!loading && !error && registeredItems.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-xl font-semibold">Вы зарегистрированы</h2>
+              {registeredItems.map(renderTournamentCard)}
+            </section>
+          )}
 
-        {!loading && !error && waitlistItems.length > 0 && (
-          <section className="space-y-3">
-            <h2 className="text-xl font-semibold">Вы в waitlist</h2>
-            {waitlistItems.map(renderTournamentCard)}
-          </section>
-        )}
-      </div>
-    </main>
+          {!loading && !error && waitlistItems.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-xl font-semibold">Вы в waitlist</h2>
+              {waitlistItems.map(renderTournamentCard)}
+            </section>
+          )}
+        </div>
+      </main>
+
+      {promotionToast && <PromotionToast message={promotionToast} />}
+      <BottomNav />
+    </>
   );
 }

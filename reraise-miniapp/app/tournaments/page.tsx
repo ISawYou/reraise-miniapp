@@ -13,6 +13,7 @@ import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { getTelegramUser } from "@/lib/telegram";
 import { supabase } from "@/lib/supabase";
 import { PromotionToast } from "@/components/promotion-toast";
+import { BottomNav } from "@/components/bottom-nav";
 
 import type { Tournament, RegistrationStatus } from "@/types/domain";
 
@@ -288,7 +289,7 @@ export default function TournamentsPage() {
 
   return (
     <>
-      <main className="min-h-screen bg-neutral-950 p-6 text-white">
+      <main className="min-h-screen bg-neutral-950 p-6 pb-28 text-white">
         <div className="mx-auto max-w-md space-y-6">
           <h1 className="text-3xl font-bold">Турниры</h1>
 
@@ -330,7 +331,6 @@ export default function TournamentsPage() {
       </main>
 
       {promotionToast && <PromotionToast message={promotionToast} />}
-
       {modalMessage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-neutral-900 p-5 text-white shadow-xl">
@@ -347,6 +347,7 @@ export default function TournamentsPage() {
           </div>
         </div>
       )}
+      <BottomNav />
     </>
   );
 }
