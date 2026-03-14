@@ -1,5 +1,9 @@
 import { supabase } from "@/lib/supabase";
-import type { Tournament, RegistrationStatus } from "@/types/domain";
+import type {
+  Tournament,
+  RegistrationStatus,
+  Registration,
+} from "@/types/domain";
 import type { TournamentRow, RegistrationRow } from "@/types/database";
 
 function mapTournamentRow(row: TournamentRow): Tournament {
@@ -8,6 +12,16 @@ function mapTournamentRow(row: TournamentRow): Tournament {
     title: row.title,
     start_at: row.start_at,
     max_players: row.max_players,
+    status: row.status,
+    created_at: row.created_at,
+  };
+}
+
+function mapRegistrationRow(row: RegistrationRow): Registration {
+  return {
+    id: row.id,
+    player_id: row.player_id,
+    tournament_id: row.tournament_id,
     status: row.status,
     created_at: row.created_at,
   };
@@ -204,4 +218,53 @@ export async function getTournamentRegistrationCounts() {
   });
 
   return counts;
+}
+
+export async function getTournamentsByIds(
+  tournamentIds: string[]
+): Promise<Tournament[]> {
+  if (tournamentIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("tournaments")
+    .select("*")
+    .in("id", tournamentIds)
+    .order("start_at", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to load tournaments by ids: ${error.message}`);
+  }
+
+  return (data ?? []).map((row) => mapTournamentRow(row as TournamentRow));
+}
+
+export async function getMyTournaments(playerId: string) {
+  const registrations = (await getPlayerRegistrations(playerId)).map((row) =>
+    mapRegistrationRow(row as RegistrationRow)
+  );
+
+  const tournamentIds = registrations.map((registration) => registration.tournament_id);
+  const tournaments = await getTournamentsByIds(tournamentIds);
+
+  const tournamentsMap = new Map(tournaments.map((tournament) => [tournament.id, tournament]));
+
+  return registrations
+    .map((registration) => {
+      const tournament = tournamentsMap.get(registration.tournament_id);
+
+      if (!tournament) {
+        return null;
+      }
+
+      return {
+        registration,
+        tournament,
+      };
+    })
+    .filter(Boolean) as Array<{
+    registration: Registration;
+    tournament: Tournament;
+  }>;
 }
