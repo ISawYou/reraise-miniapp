@@ -80,3 +80,15 @@ export async function registerPlayerForTournament(
 
   return data;
 }
+export async function getPlayerRegistrations(playerId: string) {
+  const { data, error } = await supabase
+    .from("registrations")
+    .select("*")
+    .eq("player_id", playerId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? [];
+}
