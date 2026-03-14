@@ -46,7 +46,10 @@ export async function registerPlayerForTournament(
     throw new Error(existingError.message);
   }
 
-  if (existing && (existing.status === "registered" || existing.status === "waitlist")) {
+  if (
+    existing &&
+    (existing.status === "registered" || existing.status === "waitlist")
+  ) {
     return existing;
   }
 
@@ -181,4 +184,24 @@ export async function getPlayerRegistrations(playerId: string) {
   }
 
   return (data ?? []) as RegistrationRow[];
+}
+
+export async function getTournamentRegistrationCounts() {
+  const { data, error } = await supabase
+    .from("registrations")
+    .select("tournament_id, status")
+    .in("status", ["registered", "attended"]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const counts: Record<string, number> = {};
+
+  (data ?? []).forEach((row) => {
+    const tournamentId = row.tournament_id;
+    counts[tournamentId] = (counts[tournamentId] ?? 0) + 1;
+  });
+
+  return counts;
 }
