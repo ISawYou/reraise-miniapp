@@ -16,6 +16,8 @@ import { supabase } from "@/lib/supabase";
 import { getTelegramUser } from "@/lib/telegram";
 import type { RegistrationStatus, Tournament } from "@/types/domain";
 
+type TabKey = "active" | "completed";
+
 export default function TournamentsPage() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [openTournaments, setOpenTournaments] = useState<Tournament[]>([]);
@@ -26,6 +28,7 @@ export default function TournamentsPage() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [promotionToast, setPromotionToast] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabKey>("active");
 
   const registrationsRef = useRef<Record<string, RegistrationStatus>>({});
 
@@ -201,7 +204,11 @@ export default function TournamentsPage() {
           disabled={isLoading}
           className="rounded-lg bg-yellow-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
         >
-          {isLoading ? "Сохраняем..." : registeredCount >= tournament.max_players ? "В waitlist" : "Записаться"}
+          {isLoading
+            ? "Сохраняем..."
+            : registeredCount >= tournament.max_players
+            ? "В waitlist"
+            : "Записаться"}
         </button>
       );
     }
@@ -276,88 +283,112 @@ export default function TournamentsPage() {
 
         <h1 className="text-2xl font-bold">Турниры</h1>
 
-        <section className="mt-6">
-          <h2 className="text-xl font-semibold">Открытые</h2>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab("active")}
+            className={`rounded-full border px-4 py-3 text-sm font-medium ${
+              activeTab === "active"
+                ? "border-white/20 bg-white/10 text-white"
+                : "border-white/10 bg-transparent text-white/70"
+            }`}
+          >
+            Активные ({openTournaments.length})
+          </button>
 
-          {openTournaments.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-              Сейчас нет открытых турниров
-            </div>
-          ) : (
-            <div className="mt-4 space-y-4">
-              {openTournaments.map((tournament) => {
-                const registeredCount = registrationCounts[tournament.id] ?? 0;
-                const currentStatus = registrationMap[tournament.id];
+          <button
+            type="button"
+            onClick={() => setActiveTab("completed")}
+            className={`rounded-full border px-4 py-3 text-sm font-medium ${
+              activeTab === "completed"
+                ? "border-white/20 bg-white/10 text-white"
+                : "border-white/10 bg-transparent text-white/70"
+            }`}
+          >
+            Прошедшие ({completedTournaments.length})
+          </button>
+        </div>
 
-                return (
-                  <div
-                    key={tournament.id}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
-                  >
-                    <Link href={`/tournaments/${tournament.id}`} className="block">
-                      <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                      <p className="mt-2 text-sm text-white/60">
-                        {new Date(tournament.start_at).toLocaleString("ru-RU")}
-                      </p>
-                      <p className="mt-1 text-sm text-white/60">
-                        Игроков: {registeredCount} / {tournament.max_players}
-                      </p>
-                      <p className="mt-1 text-sm text-white/60">
-                        {currentStatus === "registered"
-                          ? "Статус: вы зарегистрированы"
-                          : currentStatus === "waitlist"
-                          ? "Статус: вы в waitlist"
-                          : registeredCount >= tournament.max_players
-                          ? "Статус: свободных мест нет"
-                          : "Статус: есть свободные места"}
-                      </p>
-                    </Link>
+        {activeTab === "active" ? (
+          <section className="mt-6">
+            {openTournaments.length === 0 ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                Сейчас нет открытых турниров
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {openTournaments.map((tournament) => {
+                  const registeredCount = registrationCounts[tournament.id] ?? 0;
+                  const currentStatus = registrationMap[tournament.id];
 
-                    <div className="mt-4 flex items-center justify-between gap-3">
-                      <Link
-                        href={`/tournaments/${tournament.id}`}
-                        className="text-sm text-white/70 underline underline-offset-4"
-                      >
-                        Открыть турнир
+                  return (
+                    <div
+                      key={tournament.id}
+                      className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                    >
+                      <Link href={`/tournaments/${tournament.id}`} className="block">
+                        <h3 className="text-lg font-semibold">{tournament.title}</h3>
+                        <p className="mt-2 text-sm text-white/60">
+                          {new Date(tournament.start_at).toLocaleString("ru-RU")}
+                        </p>
+                        <p className="mt-1 text-sm text-white/60">
+                          Игроков: {registeredCount} / {tournament.max_players}
+                        </p>
+                        <p className="mt-1 text-sm text-white/60">
+                          {currentStatus === "registered"
+                            ? "Статус: вы зарегистрированы"
+                            : currentStatus === "waitlist"
+                            ? "Статус: вы в waitlist"
+                            : registeredCount >= tournament.max_players
+                            ? "Статус: свободных мест нет"
+                            : "Статус: есть свободные места"}
+                        </p>
                       </Link>
 
-                      {renderActionButton(tournament)}
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <Link
+                          href={`/tournaments/${tournament.id}`}
+                          className="text-sm text-white/70 underline underline-offset-4"
+                        >
+                          Открыть турнир
+                        </Link>
+
+                        {renderActionButton(tournament)}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="mt-8">
-          <h2 className="text-xl font-semibold">Прошедшие</h2>
-
-          {completedTournaments.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-              Пока нет завершённых турниров
-            </div>
-          ) : (
-            <div className="mt-4 space-y-4">
-              {completedTournaments.map((tournament) => (
-                <Link
-                  key={tournament.id}
-                  href={`/tournaments/${tournament.id}`}
-                  className="block rounded-2xl border border-white/10 bg-white/5 p-4"
-                >
-                  <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                  <p className="mt-2 text-sm text-white/60">
-                    {new Date(tournament.start_at).toLocaleString("ru-RU")}
-                  </p>
-                  <p className="mt-1 text-sm text-white/60">Статус: турнир завершён</p>
-                  <p className="mt-3 text-sm text-white/70 underline underline-offset-4">
-                    Открыть результаты
-                  </p>
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        ) : (
+          <section className="mt-6">
+            {completedTournaments.length === 0 ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                Пока нет завершённых турниров
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {completedTournaments.map((tournament) => (
+                  <Link
+                    key={tournament.id}
+                    href={`/tournaments/${tournament.id}`}
+                    className="block rounded-2xl border border-white/10 bg-white/5 p-4"
+                  >
+                    <h3 className="text-lg font-semibold">{tournament.title}</h3>
+                    <p className="mt-2 text-sm text-white/60">
+                      {new Date(tournament.start_at).toLocaleString("ru-RU")}
+                    </p>
+                    <p className="mt-1 text-sm text-white/60">Статус: турнир завершён</p>
+                    <p className="mt-3 text-sm text-white/70 underline underline-offset-4">
+                      Открыть результаты
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </div>
 
       {promotionToast ? <PromotionToast message={promotionToast} /> : null}
