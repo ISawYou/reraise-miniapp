@@ -56,3 +56,11 @@ export type TournamentParticipant = {
   display_name: string;
   rating: number;
 };
+
+export type TournamentResultInput = {
+  player_id: string;
+  place: number;
+  reentries: number;
+  knockouts: number;
+  rating_points: number;
+};

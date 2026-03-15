@@ -27,7 +27,10 @@ export type ResultRow = {
   id: string;
   tournament_id: string;
   player_id: string;
+  season_id: string | null;
   place: number;
+  reentries: number;
+  knockouts: number;
   rating_points: number;
   created_at: string;
 };

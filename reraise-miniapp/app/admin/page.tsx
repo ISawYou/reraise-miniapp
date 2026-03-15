@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { createTournament } from "@/features/tournaments";
+import { createTournament, getOpenTournaments } from "@/features/tournaments";
 import { getTelegramUser } from "@/lib/telegram";
-import type { Player } from "@/types/domain";
+import type { Player, Tournament } from "@/types/domain";
 
 export default function AdminPage() {
   const [player, setPlayer] = useState<Player | null>(null);
@@ -17,26 +17,35 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    async function loadPlayer() {
-      try {
-        const telegramUser = getTelegramUser();
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [tournamentsLoading, setTournamentsLoading] = useState(true);
 
-        if (!telegramUser) {
-          setAccessChecked(true);
-          return;
-        }
+  async function loadAdminData() {
+    try {
+      const telegramUser = getTelegramUser();
 
-        const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
-        setPlayer(ensuredPlayer);
-      } catch (error) {
-        console.error("Admin access check error:", error);
-      } finally {
+      if (!telegramUser) {
         setAccessChecked(true);
+        return;
       }
-    }
 
-    loadPlayer();
+      const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+      setPlayer(ensuredPlayer);
+
+      if (ensuredPlayer.role === "admin") {
+        const nextTournaments = await getOpenTournaments();
+        setTournaments(nextTournaments);
+      }
+    } catch (error) {
+      console.error("Admin access check error:", error);
+    } finally {
+      setAccessChecked(true);
+      setTournamentsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadAdminData();
   }, []);
 
   async function handleCreateTournament() {
@@ -69,6 +78,9 @@ export default function AdminPage() {
       setTitle("");
       setStartAt("");
       setMaxPlayers("20");
+
+      const nextTournaments = await getOpenTournaments();
+      setTournaments(nextTournaments);
     } catch (error) {
       if (error instanceof Error) {
         setMessage(error.message);
@@ -165,6 +177,55 @@ export default function AdminPage() {
             <p className="mt-3 text-sm text-white/80">{message}</p>
           ) : null}
         </div>
+
+        <section className="mt-8">
+          <h2 className="text-xl font-semibold">Открытые турниры</h2>
+
+          {tournamentsLoading ? (
+            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+              Загружаем турниры...
+            </div>
+          ) : tournaments.length === 0 ? (
+            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+              Пока нет открытых турниров
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {tournaments.map((tournament) => (
+                <div
+                  key={tournament.id}
+                  className="rounded-xl border border-white/10 bg-white/5 p-4"
+                >
+                  <p className="text-lg font-semibold">{tournament.title}</p>
+
+                  <p className="mt-2 text-sm text-white/60">
+                    {new Date(tournament.start_at).toLocaleString("ru-RU")}
+                  </p>
+
+                  <p className="mt-1 text-sm text-white/60">
+                    Лимит игроков: {tournament.max_players}
+                  </p>
+
+                  <div className="mt-4 grid grid-cols-1 gap-2">
+                    <Link
+                      href={`/tournaments/${tournament.id}`}
+                      className="rounded-lg border border-white/10 px-3 py-2 text-center text-sm text-white/80"
+                    >
+                      Открыть турнир
+                    </Link>
+
+                    <Link
+                      href={`/admin/results/${tournament.id}`}
+                      className="rounded-lg bg-yellow-500 px-3 py-2 text-center text-sm font-semibold text-black"
+                    >
+                      Внести результаты
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );

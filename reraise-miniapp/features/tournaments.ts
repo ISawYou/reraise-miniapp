@@ -4,6 +4,7 @@ import type {
   RegistrationStatus,
   Registration,
   TournamentParticipant,
+  TournamentResultInput,
 } from "@/types/domain";
 import type { TournamentRow, RegistrationRow } from "@/types/database";
 
@@ -319,8 +320,7 @@ export async function getTournamentParticipants(
       players (
         id,
         username,
-        display_name,
-        rating_points
+        display_name
       )
     `)
     .eq("tournament_id", tournamentId)
@@ -338,6 +338,104 @@ export async function getTournamentParticipants(
     created_at: row.created_at,
     username: row.players?.username ?? null,
     display_name: row.players?.display_name ?? "Игрок",
-    rating: row.players?.rating_points ?? 0,
+    rating: 0,
   }));
+}
+
+export async function getTournamentResultsDraft(tournamentId: string) {
+  const { data, error } = await supabase
+    .from("registrations")
+    .select(`
+      id,
+      status,
+      created_at,
+      tournament_id,
+      player_id,
+      players (
+        id,
+        username,
+        display_name
+      )
+    `)
+    .eq("tournament_id", tournamentId)
+    .in("status", ["registered", "attended"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    registration_id: row.id,
+    player_id: row.player_id,
+    username: row.players?.username ?? null,
+    display_name: row.players?.display_name ?? "Игрок",
+    status: row.status as "registered" | "attended",
+  }));
+}
+
+export async function saveTournamentResults(
+  tournamentId: string,
+  results: TournamentResultInput[]
+) {
+  const { data: tournamentRow, error: tournamentError } = await supabase
+    .from("tournaments")
+    .select("id, season_id")
+    .eq("id", tournamentId)
+    .single();
+
+  if (tournamentError) {
+    throw new Error(tournamentError.message);
+  }
+
+  const { error: deleteError } = await supabase
+    .from("results")
+    .delete()
+    .eq("tournament_id", tournamentId);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+
+  const payload = results.map((item) => ({
+    tournament_id: tournamentId,
+    player_id: item.player_id,
+    season_id: tournamentRow.season_id ?? null,
+    place: item.place,
+    reentries: item.reentries,
+    knockouts: item.knockouts,
+    rating_points: item.rating_points,
+  }));
+
+  const { error: insertError } = await supabase
+    .from("results")
+    .insert(payload);
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  const playerIds = results.map((item) => item.player_id);
+
+  if (playerIds.length > 0) {
+    const { error: registrationsError } = await supabase
+      .from("registrations")
+      .update({ status: "attended" })
+      .eq("tournament_id", tournamentId)
+      .in("player_id", playerIds)
+      .in("status", ["registered", "attended"]);
+
+    if (registrationsError) {
+      throw new Error(registrationsError.message);
+    }
+  }
+
+  const { error: tournamentStatusError } = await supabase
+    .from("tournaments")
+    .update({ status: "completed" })
+    .eq("id", tournamentId);
+
+  if (tournamentStatusError) {
+    throw new Error(tournamentStatusError.message);
+  }
 }
