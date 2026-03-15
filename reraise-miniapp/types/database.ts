@@ -3,9 +3,9 @@ export type PlayerRow = {
   telegram_id: number;
   username: string | null;
   display_name: string;
+  role: "player" | "admin";
   created_at: string;
 };
-
 export type TournamentRow = {
   id: string;
   title: string;

@@ -1,15 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { createTournament } from "@/features/tournaments";
+import { getTelegramUser } from "@/lib/telegram";
+import type { Player } from "@/types/domain";
 
 export default function AdminPage() {
+  const [player, setPlayer] = useState<Player | null>(null);
+  const [accessChecked, setAccessChecked] = useState(false);
+
   const [title, setTitle] = useState("");
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    async function loadPlayer() {
+      try {
+        const telegramUser = getTelegramUser();
+
+        if (!telegramUser) {
+          setAccessChecked(true);
+          return;
+        }
+
+        const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+        setPlayer(ensuredPlayer);
+      } catch (error) {
+        console.error("Admin access check error:", error);
+      } finally {
+        setAccessChecked(true);
+      }
+    }
+
+    loadPlayer();
+  }, []);
 
   async function handleCreateTournament() {
     if (!title.trim()) {
@@ -50,6 +78,38 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (!accessChecked) {
+    return (
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
+        <div className="mx-auto max-w-md">
+          <p className="text-sm text-white/70">Проверяем доступ...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (player?.role !== "admin") {
+    return (
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
+        <div className="mx-auto max-w-md">
+          <Link
+            href="/"
+            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          >
+            ← Назад
+          </Link>
+
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <h1 className="text-xl font-semibold">Доступ запрещен</h1>
+            <p className="mt-2 text-sm text-white/70">
+              Эта страница доступна только администратору.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (

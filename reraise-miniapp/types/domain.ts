@@ -10,11 +10,14 @@ export type TournamentStatus =
   | "closed"
   | "completed";
 
+export type PlayerRole = "player" | "admin";
+
 export type Player = {
   id: string;
   telegram_id: number;
   username: string | null;
   display_name: string;
+  role: PlayerRole;
   created_at: string;
 };
 

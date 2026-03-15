@@ -262,12 +262,14 @@ export default function HomePage() {
               Рейтинг
             </a>
 
+      {player?.role === "admin" ? (
             <a
-              href="/admin"
-              className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
+            href="/admin"
+            className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
             >
               Админ-панель
             </a>
+        ) : null}
           </div>
         </div>
       </main>

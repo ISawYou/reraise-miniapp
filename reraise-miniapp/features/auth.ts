@@ -9,6 +9,7 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     telegram_id: row.telegram_id,
     username: row.username,
     display_name: row.display_name,
+    role: row.role,
     created_at: row.created_at,
   };
 }
