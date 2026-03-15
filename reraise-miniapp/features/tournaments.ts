@@ -264,8 +264,58 @@ export async function getMyTournaments(playerId: string) {
       };
     })
     .filter(Boolean) as Array<{
-    registration: Registration;
+      registration: Registration;
+      tournament: Tournament;
+    }>;
+}
+
+export async function getMyTournamentHistory(playerId: string) {
+  const { data, error } = await supabase
+    .from("results")
+    .select(`
+      player_id,
+      tournament_id,
+      place,
+      knockouts,
+      reentries,
+      rating_points
+    `)
+    .eq("player_id", playerId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const results = data ?? [];
+  const tournamentIds = results.map((row: any) => row.tournament_id);
+  const tournaments = await getTournamentsByIds(tournamentIds);
+  const tournamentsMap = new Map(tournaments.map((tournament) => [tournament.id, tournament]));
+
+  return results
+    .map((row: any) => {
+      const tournament = tournamentsMap.get(row.tournament_id);
+
+      if (!tournament) {
+        return null;
+      }
+
+      return {
+        tournament,
+        result: {
+          player_id: row.player_id,
+          place: row.place,
+          knockouts: row.knockouts,
+          reentries: row.reentries,
+          rating_points: row.rating_points,
+          username: null,
+          display_name: "",
+        } as TournamentResult,
+      };
+    })
+    .filter(Boolean) as Array<{
     tournament: Tournament;
+    result: TournamentResult;
   }>;
 }
 
