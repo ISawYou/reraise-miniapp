@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import {
@@ -10,7 +11,6 @@ import {
 import { getTelegramUser } from "@/lib/telegram";
 import { supabase } from "@/lib/supabase";
 import { PromotionToast } from "@/components/promotion-toast";
-import { BottomNav } from "@/components/bottom-nav";
 
 import type {
   Tournament,
@@ -175,8 +175,15 @@ export default function MyTournamentsPage() {
 
   return (
     <>
-      <main className="min-h-screen bg-neutral-950 p-6 pb-28 text-white">
+      <main className="min-h-screen bg-neutral-950 p-6 text-white">
         <div className="mx-auto max-w-md space-y-6">
+          <Link
+            href="/"
+            className="inline-block text-sm font-medium text-neutral-400"
+          >
+            Назад
+          </Link>
+
           <h1 className="text-3xl font-bold">Мои турниры</h1>
 
           {loading && (
@@ -208,7 +215,6 @@ export default function MyTournamentsPage() {
       </main>
 
       {promotionToast && <PromotionToast message={promotionToast} />}
-      <BottomNav />
     </>
   );
 }

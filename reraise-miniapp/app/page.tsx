@@ -13,7 +13,6 @@ import {
 } from "@/features/tournaments";
 import { supabase } from "@/lib/supabase";
 import { PromotionToast } from "@/components/promotion-toast";
-import { BottomNav } from "@/components/bottom-nav";
 
 import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 
@@ -149,7 +148,7 @@ export default function HomePage() {
 
   return (
     <>
-      <main className="min-h-screen bg-neutral-950 p-6 pb-28 text-white">
+      <main className="min-h-screen bg-neutral-950 p-6 text-white">
         <div className="mx-auto max-w-md space-y-6">
           <div>
             <h1 className="text-3xl font-bold">ReRaise Poker Club</h1>
@@ -274,7 +273,6 @@ export default function HomePage() {
       </main>
 
       {promotionToast && <PromotionToast message={promotionToast} />}
-      <BottomNav />
     </>
   );
 }
