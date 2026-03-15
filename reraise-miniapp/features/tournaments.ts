@@ -268,3 +268,25 @@ export async function getMyTournaments(playerId: string) {
     tournament: Tournament;
   }>;
 }
+export async function createTournament(input: {
+  title: string;
+  start_at: string;
+  max_players: number;
+}) {
+  const { data, error } = await supabase
+    .from("tournaments")
+    .insert({
+      title: input.title,
+      start_at: input.start_at,
+      max_players: input.max_players,
+      status: "open",
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapTournamentRow(data as TournamentRow);
+}
