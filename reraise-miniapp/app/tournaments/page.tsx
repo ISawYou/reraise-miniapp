@@ -198,31 +198,51 @@ export default function TournamentsPage() {
   }, []);
 
   useEffect(() => {
-    if (!playerId) return;
+  if (!playerId) return;
 
-    const channel = supabase
-      .channel(`registrations-realtime-${playerId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "registrations",
-        },
-        async () => {
-          try {
-            await refreshPageData(playerId, { showPromotionToast: true });
-          } catch (err) {
-            console.error("Realtime refresh error:", err);
-          }
+  const registrationsChannel = supabase
+    .channel(`registrations-realtime-${playerId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "registrations",
+      },
+      async () => {
+        try {
+          await refreshPageData(playerId, { showPromotionToast: true });
+        } catch (err) {
+          console.error("Registrations realtime refresh error:", err);
         }
-      )
-      .subscribe();
+      }
+    )
+    .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [playerId]);
+  const tournamentsChannel = supabase
+    .channel(`tournaments-realtime-${playerId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "tournaments",
+      },
+      async () => {
+        try {
+          await refreshPageData(playerId, { showPromotionToast: false });
+        } catch (err) {
+          console.error("Tournaments realtime refresh error:", err);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(registrationsChannel);
+    supabase.removeChannel(tournamentsChannel);
+  };
+}, [playerId]);
 
   function getStatusLabel(tournament: Tournament) {
     const myStatus = registrations[tournament.id];
