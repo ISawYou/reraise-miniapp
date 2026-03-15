@@ -46,3 +46,13 @@ export type Result = {
   rating_points: number;
   created_at: string;
 };
+
+export type TournamentParticipant = {
+  registration_id: string;
+  player_id: string;
+  status: "registered" | "attended";
+  created_at: string;
+  username: string | null;
+  display_name: string;
+  rating: number;
+};

@@ -1,20 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ensurePlayerFromTelegramUser } from "@/features/auth";
+import { getOpenTournaments, getPlayerRegistrations } from "@/features/tournaments";
+import { PromotionToast } from "@/components/promotion-toast";
+import { supabase } from "@/lib/supabase";
 import {
   getTelegramUser,
   getTelegramWebApp,
   type TelegramWebAppUser,
 } from "@/lib/telegram";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import {
-  getPlayerRegistrations,
-  getOpenTournaments,
-} from "@/features/tournaments";
-import { supabase } from "@/lib/supabase";
-import { PromotionToast } from "@/components/promotion-toast";
-
-import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
+import type { Player, Tournament } from "@/types/domain";
 
 export default function HomePage() {
   const [user, setUser] = useState<TelegramWebAppUser | null>(null);
@@ -23,10 +20,10 @@ export default function HomePage() {
   const [isInsideTelegram, setIsInsideTelegram] = useState(false);
   const [playerLoading, setPlayerLoading] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
-
   const [promotionToast, setPromotionToast] = useState<string | null>(null);
+  const [nearestTournament, setNearestTournament] = useState<Tournament | null>(null);
 
-  const registrationsRef = useRef<Record<string, RegistrationStatus>>({});
+  const registrationsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     if (!promotionToast) return;
@@ -38,19 +35,19 @@ export default function HomePage() {
     return () => clearTimeout(timeout);
   }, [promotionToast]);
 
-  async function refreshPromotionState(
+  async function refreshHomeData(
     currentPlayerId: string,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [regs, tournaments] = await Promise.all([
+    const [registrations, tournaments] = await Promise.all([
       getPlayerRegistrations(currentPlayerId),
       getOpenTournaments(),
     ]);
 
-    const nextMap: Record<string, RegistrationStatus> = {};
+    const nextMap: Record<string, string> = {};
 
-    regs.forEach((r: any) => {
-      nextMap[r.tournament_id] = r.status;
+    registrations.forEach((registration) => {
+      nextMap[registration.tournament_id] = registration.status;
     });
 
     if (options?.showPromotionToast) {
@@ -63,20 +60,21 @@ export default function HomePage() {
 
       if (promotedTournamentId) {
         const promotedTournament = tournaments.find(
-          (tournament: Tournament) => tournament.id === promotedTournamentId
+          (tournament) => tournament.id === promotedTournamentId
         );
 
         if (promotedTournament) {
           setPromotionToast(
-            `🎉 Вы переместились из waitlist в основной список: ${promotedTournament.title}`
+            `Вы переместились из waitlist в основной список: ${promotedTournament.title}`
           );
         } else {
-          setPromotionToast("🎉 Вы переместились из waitlist в основной список");
+          setPromotionToast("Вы переместились из waitlist в основной список");
         }
       }
     }
 
     registrationsRef.current = nextMap;
+    setNearestTournament(tournaments[0] ?? null);
   }
 
   useEffect(() => {
@@ -101,7 +99,7 @@ export default function HomePage() {
           const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
           setPlayer(ensuredPlayer);
 
-          await refreshPromotionState(ensuredPlayer.id, {
+          await refreshHomeData(ensuredPlayer.id, {
             showPromotionToast: false,
           });
         }
@@ -120,7 +118,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!player?.id) return;
 
-    const channel = supabase
+    const registrationsChannel = supabase
       .channel(`home-registrations-realtime-${player.id}`)
       .on(
         "postgres_changes",
@@ -131,150 +129,162 @@ export default function HomePage() {
         },
         async () => {
           try {
-            await refreshPromotionState(player.id, {
+            await refreshHomeData(player.id, {
               showPromotionToast: true,
             });
           } catch (error) {
-            console.error("Home realtime refresh error:", error);
+            console.error("Home registrations realtime refresh error:", error);
+          }
+        }
+      )
+      .subscribe();
+
+    const tournamentsChannel = supabase
+      .channel(`home-tournaments-realtime-${player.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "tournaments",
+        },
+        async () => {
+          try {
+            await refreshHomeData(player.id, {
+              showPromotionToast: false,
+            });
+          } catch (error) {
+            console.error("Home tournaments realtime refresh error:", error);
           }
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(registrationsChannel);
+      supabase.removeChannel(tournamentsChannel);
     };
   }, [player?.id]);
 
+  const greetingName = useMemo(() => {
+    if (player?.display_name) return player.display_name;
+    if (user?.first_name) return user.first_name;
+    return "игрок";
+  }, [player?.display_name, user?.first_name]);
+
   return (
-    <>
-      <main className="min-h-screen bg-neutral-950 p-6 text-white">
-        <div className="mx-auto max-w-md space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold">ReRaise Poker Club</h1>
-            <p className="mt-2 text-sm text-neutral-400">
-              Управляемый клубный MVP внутри Telegram
-            </p>
+    <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <div className="mx-auto max-w-md">
+        <header className="mb-6">
+          <p className="text-sm text-white/50">ReRaise Poker Club</p>
+          <h1 className="mt-2 text-3xl font-bold">Главная</h1>
+          <p className="mt-2 text-sm text-white/70">Привет, {greetingName}</p>
+        </header>
+
+        {!checkedTelegram ? (
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+            Проверяем Telegram...
           </div>
-
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-            <h2 className="text-lg font-semibold">Telegram Mini App</h2>
-
-            {!checkedTelegram && (
-              <p className="mt-2 text-sm text-neutral-300">
-                Проверяем Telegram...
-              </p>
-            )}
-
-            {checkedTelegram && !isInsideTelegram && (
-              <p className="mt-2 text-sm text-neutral-300">
-                Приложение открыто вне Telegram
-              </p>
-            )}
-
-            {checkedTelegram && isInsideTelegram && !user && (
-              <p className="mt-2 text-sm text-neutral-300">
-                Telegram открыт, но данные пользователя пока недоступны
-              </p>
-            )}
-
-            {user && (
-              <div className="mt-3 space-y-2 text-sm text-neutral-200">
-                <p>
-                  <span className="text-neutral-400">first_name:</span>{" "}
-                  {user.first_name}
-                </p>
-                <p>
-                  <span className="text-neutral-400">username:</span>{" "}
-                  {user.username ? `@${user.username}` : "не указан"}
-                </p>
-                <p>
-                  <span className="text-neutral-400">telegram id:</span>{" "}
-                  {user.id}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-            <h2 className="text-lg font-semibold">Игрок в базе</h2>
-
-            {playerLoading && (
-              <p className="mt-2 text-sm text-neutral-300">
-                Синхронизируем игрока...
-              </p>
-            )}
-
-            {playerError && (
-              <p className="mt-2 text-sm text-red-400">{playerError}</p>
-            )}
-
-            {!playerLoading && !playerError && !player && (
-              <p className="mt-2 text-sm text-neutral-300">
-                Игрок пока не синхронизирован
-              </p>
-            )}
-
-            {player && (
-              <div className="mt-3 space-y-2 text-sm text-neutral-200">
-                <p>
-                  <span className="text-neutral-400">player id:</span>{" "}
-                  {player.id}
-                </p>
-                <p>
-                  <span className="text-neutral-400">display_name:</span>{" "}
-                  {player.display_name}
-                </p>
-                <p>
-                  <span className="text-neutral-400">username:</span>{" "}
-                  {player.username ? `@${player.username}` : "не указан"}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="grid gap-3">
-            <a
-              href="/tournaments"
-              className="rounded-xl bg-yellow-500 px-4 py-3 text-center font-semibold text-black"
-            >
-              Турниры
-            </a>
-
-            <a
-              href="/my-tournaments"
-              className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
-            >
-              Мои турниры
-            </a>
-
-            <a
-              href="/status"
-              className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
-            >
-              Мой статус
-            </a>
-
-            <a
-              href="/rating"
-              className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
-            >
-              Рейтинг
-            </a>
-
-      {player?.role === "admin" ? (
-            <a
-            href="/admin"
-            className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
-            >
-              Админ-панель
-            </a>
         ) : null}
-          </div>
-        </div>
-      </main>
 
-      {promotionToast && <PromotionToast message={promotionToast} />}
-    </>
+        {checkedTelegram && !isInsideTelegram ? (
+          <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+            Приложение открыто вне Telegram. Полная проверка работает внутри Mini App.
+          </div>
+        ) : null}
+
+        {playerLoading ? (
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+            Синхронизируем игрока...
+          </div>
+        ) : null}
+
+        {playerError ? (
+          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+            {playerError}
+          </div>
+        ) : null}
+
+        {checkedTelegram && isInsideTelegram && !playerLoading && !playerError ? (
+          <>
+            <section className="mt-6">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-2xl font-bold">Ближайший турнир</h2>
+              </div>
+
+              {nearestTournament ? (
+                <Link
+                  href={`/tournaments/${nearestTournament.id}`}
+                  className="block rounded-2xl border border-white/10 bg-gradient-to-br from-red-900/70 to-black p-5 transition active:scale-[0.99]"
+                >
+                  <p className="text-xs uppercase tracking-[0.2em] text-white/50">
+                    Ближайший старт
+                  </p>
+
+                  <h3 className="mt-3 text-3xl font-black uppercase leading-none tracking-wide">
+                    {nearestTournament.title}
+                  </h3>
+
+                  <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/80">
+                    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2">
+                      {new Date(nearestTournament.start_at).toLocaleString("ru-RU")}
+                    </div>
+                    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2">
+                      Лимит: {nearestTournament.max_players}
+                    </div>
+                  </div>
+
+                  <p className="mt-4 text-sm text-white/60">
+                    Нажми, чтобы открыть турнир
+                  </p>
+                </Link>
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-white/60">
+                  Сейчас нет открытых турниров
+                </div>
+              )}
+            </section>
+
+            <section className="mt-6">
+              <h2 className="mb-3 text-xl font-semibold">Меню</h2>
+
+              <div className="grid grid-cols-1 gap-3">
+                <Link
+                  href="/tournaments"
+                  className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
+                >
+                  Турниры
+                </Link>
+
+                <Link
+                  href="/my-tournaments"
+                  className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
+                >
+                  Мои турниры
+                </Link>
+
+                <a
+                  href="#"
+                  className="rounded-xl border border-neutral-700 px-4 py-3 text-center text-white/40"
+                >
+                  Рейтинг
+                </a>
+
+                {player?.role === "admin" ? (
+                  <a
+                    href="/admin"
+                    className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
+                  >
+                    Админ-панель
+                  </a>
+                ) : null}
+              </div>
+            </section>
+          </>
+        ) : null}
+      </div>
+
+      {promotionToast ? <PromotionToast message={promotionToast} /> : null}
+    </main>
   );
 }

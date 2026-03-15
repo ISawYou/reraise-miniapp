@@ -3,6 +3,7 @@ import type {
   Tournament,
   RegistrationStatus,
   Registration,
+  TournamentParticipant,
 } from "@/types/domain";
 import type { TournamentRow, RegistrationRow } from "@/types/database";
 
@@ -289,4 +290,54 @@ export async function createTournament(input: {
   }
 
   return mapTournamentRow(data as TournamentRow);
+}
+export async function getTournamentById(tournamentId: string) {
+  const { data, error } = await supabase
+    .from("tournaments")
+    .select("*")
+    .eq("id", tournamentId)
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapTournamentRow(data as TournamentRow);
+}
+
+export async function getTournamentParticipants(
+  tournamentId: string
+): Promise<TournamentParticipant[]> {
+  const { data, error } = await supabase
+    .from("registrations")
+    .select(`
+      id,
+      status,
+      created_at,
+      tournament_id,
+      player_id,
+      players (
+        id,
+        username,
+        display_name,
+        rating_points
+      )
+    `)
+    .eq("tournament_id", tournamentId)
+    .in("status", ["registered", "attended"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    registration_id: row.id,
+    player_id: row.player_id,
+    status: row.status,
+    created_at: row.created_at,
+    username: row.players?.username ?? null,
+    display_name: row.players?.display_name ?? "Игрок",
+    rating: row.players?.rating_points ?? 0,
+  }));
 }

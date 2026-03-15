@@ -179,9 +179,9 @@ export default function MyTournamentsPage() {
         <div className="mx-auto max-w-md space-y-6">
           <Link
             href="/"
-            className="inline-block text-sm font-medium text-neutral-400"
+            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
-            Назад
+            ← Назад
           </Link>
 
           <h1 className="text-3xl font-bold">Мои турниры</h1>
