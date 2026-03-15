@@ -26,6 +26,7 @@ export type Tournament = {
   title: string;
   start_at: string;
   max_players: number;
+  season_id: string | null;
   status: TournamentStatus;
   created_at: string;
 };
@@ -63,4 +64,14 @@ export type TournamentResultInput = {
   reentries: number;
   knockouts: number;
   rating_points: number;
+};
+
+export type TournamentResult = {
+  player_id: string;
+  place: number;
+  knockouts: number;
+  reentries: number;
+  rating_points: number;
+  username: string | null;
+  display_name: string;
 };

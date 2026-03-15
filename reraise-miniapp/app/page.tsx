@@ -263,12 +263,12 @@ export default function HomePage() {
                   Мои турниры
                 </Link>
 
-                <a
-                  href="#"
-                  className="rounded-xl border border-neutral-700 px-4 py-3 text-center text-white/40"
+                <Link
+                   href="/leaderboard"
+                  className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
                 >
                   Рейтинг
-                </a>
+                </Link>
 
                 {player?.role === "admin" ? (
                   <a

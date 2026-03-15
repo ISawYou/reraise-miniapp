@@ -1,10 +1,12 @@
 import { supabase } from "@/lib/supabase";
 import type {
-  Tournament,
-  RegistrationStatus,
   Registration,
+  RegistrationStatus,
+  Tournament,
   TournamentParticipant,
+  TournamentResult,
   TournamentResultInput,
+  TournamentStatus,
 } from "@/types/domain";
 import type { TournamentRow, RegistrationRow } from "@/types/database";
 
@@ -14,7 +16,8 @@ function mapTournamentRow(row: TournamentRow): Tournament {
     title: row.title,
     start_at: row.start_at,
     max_players: row.max_players,
-    status: row.status,
+    season_id: row.season_id,
+    status: row.status as TournamentStatus,
     created_at: row.created_at,
   };
 }
@@ -275,6 +278,17 @@ export async function createTournament(input: {
   start_at: string;
   max_players: number;
 }) {
+  const { data: activeSeason, error: activeSeasonError } = await supabase
+    .from("seasons")
+    .select("id")
+    .eq("is_active", true)
+    .limit(1)
+    .single();
+
+  if (activeSeasonError) {
+    throw new Error("Активный сезон не найден");
+  }
+
   const { data, error } = await supabase
     .from("tournaments")
     .insert({
@@ -282,6 +296,7 @@ export async function createTournament(input: {
       start_at: input.start_at,
       max_players: input.max_players,
       status: "open",
+      season_id: activeSeason.id,
     })
     .select("*")
     .single();
@@ -309,6 +324,8 @@ export async function getTournamentById(tournamentId: string) {
 export async function getTournamentParticipants(
   tournamentId: string
 ): Promise<TournamentParticipant[]> {
+  const tournament = await getTournamentById(tournamentId);
+
   const { data, error } = await supabase
     .from("registrations")
     .select(`
@@ -331,6 +348,25 @@ export async function getTournamentParticipants(
     throw new Error(error.message);
   }
 
+  let ratingsMap = new Map<string, number>();
+
+  if (tournament.season_id) {
+    const { data: resultsData, error: resultsError } = await supabase
+      .from("results")
+      .select("player_id, rating_points")
+      .eq("season_id", tournament.season_id);
+
+    if (resultsError) {
+      throw new Error(resultsError.message);
+    }
+
+    ratingsMap = (resultsData ?? []).reduce((map, row: any) => {
+      const currentValue = map.get(row.player_id) ?? 0;
+      map.set(row.player_id, currentValue + (row.rating_points ?? 0));
+      return map;
+    }, new Map<string, number>());
+  }
+
   return (data ?? []).map((row: any) => ({
     registration_id: row.id,
     player_id: row.player_id,
@@ -338,10 +374,9 @@ export async function getTournamentParticipants(
     created_at: row.created_at,
     username: row.players?.username ?? null,
     display_name: row.players?.display_name ?? "Игрок",
-    rating: 0,
+    rating: ratingsMap.get(row.player_id) ?? 0,
   }));
 }
-
 export async function getTournamentResultsDraft(tournamentId: string) {
   const { data, error } = await supabase
     .from("registrations")
@@ -438,4 +473,100 @@ export async function saveTournamentResults(
   if (tournamentStatusError) {
     throw new Error(tournamentStatusError.message);
   }
+}
+
+export async function getTournamentResults(
+  tournamentId: string
+): Promise<TournamentResult[]> {
+  const { data, error } = await supabase
+    .from("results")
+    .select(`
+      player_id,
+      place,
+      knockouts,
+      reentries,
+      rating_points,
+      players (
+        username,
+        display_name
+      )
+    `)
+    .eq("tournament_id", tournamentId)
+    .order("place", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row: any) => {
+    const player = Array.isArray(row.players) ? row.players[0] : row.players;
+
+    return {
+      player_id: row.player_id,
+      place: row.place,
+      knockouts: row.knockouts,
+      reentries: row.reentries,
+      rating_points: row.rating_points,
+      username: player?.username ?? null,
+      display_name: player?.display_name ?? "Игрок",
+    };
+  });
+}
+
+export async function getSeasonLeaderboard(seasonId: string) {
+  const { data, error } = await supabase
+    .from("results")
+    .select(`
+      player_id,
+      rating_points,
+      players (
+        username,
+        display_name
+      )
+    `)
+    .eq("season_id", seasonId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const leaderboardMap = new Map<
+    string,
+    { player_id: string; username: string | null; display_name: string; rating: number }
+  >();
+
+  for (const row of data ?? []) {
+    const player = Array.isArray((row as any).players)
+      ? (row as any).players[0]
+      : (row as any).players;
+
+    const existing = leaderboardMap.get(row.player_id);
+
+    if (existing) {
+      existing.rating += row.rating_points ?? 0;
+    } else {
+      leaderboardMap.set(row.player_id, {
+        player_id: row.player_id,
+        username: player?.username ?? null,
+        display_name: player?.display_name ?? "Игрок",
+        rating: row.rating_points ?? 0,
+      });
+    }
+  }
+
+  return Array.from(leaderboardMap.values()).sort((a, b) => b.rating - a.rating);
+}
+export async function getActiveSeason() {
+  const { data, error } = await supabase
+    .from("seasons")
+    .select("*")
+    .eq("is_active", true)
+    .limit(1)
+    .single();
+
+  if (error) {
+    throw new Error("Активный сезон не найден");
+  }
+
+  return data;
 }

@@ -6,12 +6,14 @@ export type PlayerRow = {
   role: "player" | "admin";
   created_at: string;
 };
+
 export type TournamentRow = {
   id: string;
   title: string;
   start_at: string;
   max_players: number;
-  status: "draft" | "open" | "closed" | "completed";
+  season_id: string | null;
+  status: string;
   created_at: string;
 };
 

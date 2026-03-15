@@ -7,6 +7,7 @@ import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import {
   getTournamentById,
   getTournamentParticipants,
+  getTournamentResults,
   getPlayerRegistrations,
   getTournamentRegistrationCounts,
   registerPlayerForTournament,
@@ -17,9 +18,10 @@ import type {
   RegistrationStatus,
   Tournament,
   TournamentParticipant,
+  TournamentResult,
 } from "@/types/domain";
 
-type TabKey = "about" | "participants";
+type TabKey = "about" | "participants" | "results";
 
 export default function TournamentDetailsPage() {
   const params = useParams<{ id: string }>();
@@ -28,6 +30,7 @@ export default function TournamentDetailsPage() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [participants, setParticipants] = useState<TournamentParticipant[]>([]);
+  const [results, setResults] = useState<TournamentResult[]>([]);
   const [registrationStatus, setRegistrationStatus] =
     useState<RegistrationStatus | null>(null);
   const [registeredCount, setRegisteredCount] = useState(0);
@@ -53,6 +56,13 @@ export default function TournamentDetailsPage() {
     setParticipants(participantsData);
     setRegistrationStatus(myRegistration?.status ?? null);
     setRegisteredCount(counts[currentTournamentId] ?? 0);
+
+    if (tournamentData.status === "completed") {
+      const resultsData = await getTournamentResults(currentTournamentId);
+      setResults(resultsData);
+    } else {
+      setResults([]);
+    }
   }
 
   useEffect(() => {
@@ -131,7 +141,7 @@ export default function TournamentDetailsPage() {
   }
 
   function renderActionButton() {
-    if (!tournament) return null;
+    if (!tournament || tournament.status === "completed") return null;
 
     if (!registrationStatus) {
       return (
@@ -177,6 +187,10 @@ export default function TournamentDetailsPage() {
 
   function getStatusText() {
     if (!tournament) return "";
+
+    if (tournament.status === "completed") {
+      return "Статус: турнир завершен";
+    }
 
     if (registrationStatus === "registered") {
       return "Статус: вы зарегистрированы";
@@ -263,14 +277,18 @@ export default function TournamentDetailsPage() {
 
           <button
             type="button"
-            onClick={() => setActiveTab("participants")}
+            onClick={() =>
+              setActiveTab(tournament.status === "completed" ? "results" : "participants")
+            }
             className={`rounded-full border px-4 py-3 text-sm font-medium ${
-              activeTab === "participants"
+              activeTab === "participants" || activeTab === "results"
                 ? "border-white/20 bg-white/10 text-white"
                 : "border-white/10 bg-transparent text-white/70"
             }`}
           >
-            Участники ({participants.length}/{tournament.max_players})
+            {tournament.status === "completed"
+              ? `Результаты (${results.length})`
+              : `Участники (${participants.length}/${tournament.max_players})`}
           </button>
         </div>
 
@@ -297,21 +315,62 @@ export default function TournamentDetailsPage() {
               </div>
             </section>
 
-            <section>
-              <h2 className="text-2xl font-bold">Регистрация</h2>
-              <div className="mt-3 rounded-xl border border-white/10 bg-red-900/30 p-4">
-                <p className="text-sm text-white/80">
-                  Если планы изменились, пожалуйста, отменяйте регистрацию заранее,
-                  чтобы освободить место для игроков из waitlist.
-                </p>
+            {tournament.status !== "completed" ? (
+              <section>
+                <h2 className="text-2xl font-bold">Регистрация</h2>
+                <div className="mt-3 rounded-xl border border-white/10 bg-red-900/30 p-4">
+                  <p className="text-sm text-white/80">
+                    Если планы изменились, пожалуйста, отменяйте регистрацию заранее,
+                    чтобы освободить место для игроков из waitlist.
+                  </p>
 
-                {renderActionButton()}
+                  {renderActionButton()}
 
-                {message ? (
-                  <p className="mt-3 text-sm text-white/80">{message}</p>
-                ) : null}
-              </div>
-            </section>
+                  {message ? (
+                    <p className="mt-3 text-sm text-white/80">{message}</p>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        ) : tournament.status === "completed" ? (
+          <div className="mt-6 rounded-2xl border border-white/10 bg-white/5">
+            <div className="grid grid-cols-[48px_1fr_80px_80px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
+              <div>Место</div>
+              <div>Игрок</div>
+              <div className="text-right">KO</div>
+              <div className="text-right">Очки</div>
+            </div>
+
+            {results.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-white/60">Результаты пока не заполнены</div>
+            ) : (
+              results.map((result) => (
+                <div
+                  key={`${result.player_id}-${result.place}`}
+                  className="grid grid-cols-[48px_1fr_80px_80px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
+                >
+                  <div className="text-sm font-semibold text-white/80">{result.place}</div>
+
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      {result.username ? `@${result.username}` : result.display_name}
+                    </p>
+                    {!result.username ? (
+                      <p className="mt-1 text-xs text-white/50">{result.display_name}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="text-right text-sm font-semibold text-white/80">
+                    {result.knockouts}
+                  </div>
+
+                  <div className="text-right text-sm font-semibold text-white/80">
+                    {result.rating_points}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         ) : (
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/5">
