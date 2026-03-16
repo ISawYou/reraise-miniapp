@@ -24,7 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru">
-      <body className="min-h-screen bg-black text-white antialiased pt-[env(safe-area-inset-top)]">
+      <body className="telegram-app-body min-h-screen bg-black text-white antialiased">
         <Script
           src="https://telegram.org/js/telegram-web-app.js"
           strategy="beforeInteractive"
