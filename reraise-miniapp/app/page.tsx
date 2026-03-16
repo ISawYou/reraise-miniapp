@@ -179,6 +179,9 @@ export default function HomePage() {
           <p className="text-sm text-white/50">ReRaise Poker Club</p>
           <h1 className="mt-2 text-3xl font-bold">Главная</h1>
           <p className="mt-2 text-sm text-white/70">Привет, {greetingName}</p>
+          <p className="text-xs text-neutral-500 mt-1">
+          Добро пожаловать в ReRaise Poker Club
+          </p>
         </header>
 
         {!checkedTelegram ? (
