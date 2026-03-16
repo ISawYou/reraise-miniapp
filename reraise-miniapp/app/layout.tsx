@@ -1,10 +1,19 @@
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import type { Metadata } from "next";
-import Script from "next/script";
+import { TelegramAppShell } from "@/components/telegram-app-shell";
 
 export const metadata: Metadata = {
   title: "ReRaise Poker Club",
-  description: "Telegram Mini App for poker club management",
+  description: "Telegram Mini App for ReRaise Poker Club",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#000000",
 };
 
 export default function RootLayout({
@@ -13,12 +22,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" suppressHydrationWarning>
-      <body suppressHydrationWarning>
-        <Script
-          src="https://telegram.org/js/telegram-web-app.js"
-          strategy="beforeInteractive"
-        />
+    <html lang="ru">
+      <body className="min-h-screen bg-black text-white antialiased">
+        <TelegramAppShell />
         {children}
       </body>
     </html>
