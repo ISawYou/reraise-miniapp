@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ensurePlayerFromTelegramUser, acceptTerms } from "@/features/auth";
+import {
+  ensurePlayerFromTelegramUser,
+  acceptTerms,
+  TERMS_VERSION,
+} from "@/features/auth";
 import { getOpenTournaments, getPlayerRegistrations } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
@@ -120,8 +124,11 @@ export default function HomePage() {
 
     const updatedPlayer = await acceptTerms(player.id);
     setPlayer(updatedPlayer);
-
     setShowTerms(false);
+
+    await refreshHomeData(updatedPlayer.id, {
+      showPromotionToast: false,
+    });
   } catch (error) {
     console.error("Accept terms error:", error);
   } finally {
@@ -150,13 +157,19 @@ export default function HomePage() {
 
           const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
           setPlayer(ensuredPlayer);
-          if (!ensuredPlayer.accepted_terms_at) {
+          if (
+          !ensuredPlayer.accepted_terms_at ||
+          ensuredPlayer.accepted_terms_version !== TERMS_VERSION
+        ) {
           setScrolledToBottom(false);
           setShowTerms(true);
-          }
+        } else {
+          setShowTerms(false);
+
           await refreshHomeData(ensuredPlayer.id, {
             showPromotionToast: false,
           });
+        }
         }
       } catch (error) {
         const message =
@@ -226,7 +239,35 @@ export default function HomePage() {
     if (user?.first_name) return user.first_name;
     return "игрок";
   }, [player?.display_name, user?.first_name]);
+  if (showTerms) {
+  return (
+    <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
+      <div className="mx-auto flex h-full max-w-md flex-col">
+        <h1 className="mb-4 text-xl font-bold">Пользовательское соглашение</h1>
 
+        <div
+          ref={termsRef}
+          className="flex-1 overflow-y-auto rounded-xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-white/85 whitespace-pre-line"
+        >
+          {TERMS_TEXT}
+        </div>
+
+        <button
+          type="button"
+          onClick={handleAcceptTerms}
+          disabled={!scrolledToBottom || termsAcceptedLoading}
+          className="mt-4 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
+        >
+          {termsAcceptedLoading
+            ? "Сохраняем..."
+            : scrolledToBottom
+            ? "Принять"
+            : "Прокрутите до конца"}
+        </button>
+      </div>
+    </main>
+  );
+}
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-md">
@@ -341,12 +382,6 @@ export default function HomePage() {
           </>
         ) : null}
       </div>
-       <div
-  ref={termsRef}
-  className="flex-1 overflow-y-auto rounded-xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-white/85 whitespace-pre-line"
->
-  {TERMS_TEXT}
-</div>
       {promotionToast ? <PromotionToast message={promotionToast} /> : null}
     </main>
   );
