@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
+import { ensurePlayerFromTelegramUser, acceptTerms } from "@/features/auth";
 import { getOpenTournaments, getPlayerRegistrations } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
@@ -11,6 +11,7 @@ import {
   getTelegramWebApp,
   type TelegramWebAppUser,
 } from "@/lib/telegram";
+import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
 
 export default function HomePage() {
@@ -22,8 +23,42 @@ export default function HomePage() {
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [promotionToast, setPromotionToast] = useState<string | null>(null);
   const [nearestTournament, setNearestTournament] = useState<Tournament | null>(null);
+  const [showTerms, setShowTerms] = useState(false);
+  const [termsAcceptedLoading, setTermsAcceptedLoading] = useState(false);
+  const termsRef = useRef<HTMLDivElement | null>(null);
+  const [scrolledToBottom, setScrolledToBottom] = useState(false);
 
   const registrationsRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+  const element = termsRef.current;
+  if (!element || !showTerms) return;
+
+  function checkScrolledToBottom() {
+    const currentElement = termsRef.current;
+    if (!currentElement) return;
+
+    const isScrollable =
+      currentElement.scrollHeight > currentElement.clientHeight + 10;
+
+    if (!isScrollable) {
+      setScrolledToBottom(true);
+      return;
+    }
+
+    if (
+      currentElement.scrollTop + currentElement.clientHeight >=
+      currentElement.scrollHeight - 10
+    ) {
+      setScrolledToBottom(true);
+    }
+  }
+
+  checkScrolledToBottom();
+  element.addEventListener("scroll", checkScrolledToBottom);
+
+  return () => element.removeEventListener("scroll", checkScrolledToBottom);
+}, [showTerms]);
 
   useEffect(() => {
     if (!promotionToast) return;
@@ -77,6 +112,23 @@ export default function HomePage() {
     setNearestTournament(tournaments[0] ?? null);
   }
 
+  async function handleAcceptTerms() {
+  if (!player) return;
+
+  try {
+    setTermsAcceptedLoading(true);
+
+    const updatedPlayer = await acceptTerms(player.id);
+    setPlayer(updatedPlayer);
+
+    setShowTerms(false);
+  } catch (error) {
+    console.error("Accept terms error:", error);
+  } finally {
+    setTermsAcceptedLoading(false);
+  }
+}
+
   useEffect(() => {
     const timer = setTimeout(async () => {
       try {
@@ -98,7 +150,10 @@ export default function HomePage() {
 
           const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
           setPlayer(ensuredPlayer);
-
+          if (!ensuredPlayer.accepted_terms_at) {
+          setScrolledToBottom(false);
+          setShowTerms(true);
+          }
           await refreshHomeData(ensuredPlayer.id, {
             showPromotionToast: false,
           });
@@ -286,7 +341,12 @@ export default function HomePage() {
           </>
         ) : null}
       </div>
-
+       <div
+  ref={termsRef}
+  className="flex-1 overflow-y-auto rounded-xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-white/85 whitespace-pre-line"
+>
+  {TERMS_TEXT}
+</div>
       {promotionToast ? <PromotionToast message={promotionToast} /> : null}
     </main>
   );

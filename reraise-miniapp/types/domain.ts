@@ -17,7 +17,9 @@ export type Player = {
   telegram_id: number;
   username: string | null;
   display_name: string;
-  role: PlayerRole;
+  role: "player" | "admin";
+  accepted_terms_at?: string;
+  accepted_terms_version?: string;
   created_at: string;
 };
 

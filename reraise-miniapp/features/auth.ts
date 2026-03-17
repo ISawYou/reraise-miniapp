@@ -9,7 +9,9 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     telegram_id: row.telegram_id,
     username: row.username,
     display_name: row.display_name,
-    role: row.role,
+    role: row.role as "player" | "admin",
+    accepted_terms_at: row.accepted_terms_at ?? undefined,
+    accepted_terms_version: row.accepted_terms_version ?? undefined,
     created_at: row.created_at,
   };
 }
@@ -69,4 +71,24 @@ export async function ensurePlayerFromTelegramUser(
   }
 
   return createPlayerFromTelegramUser(telegramUser);
+}
+
+export const TERMS_VERSION = "v1";
+
+export async function acceptTerms(playerId: string): Promise<Player> {
+  const { data, error } = await supabase
+    .from("players")
+    .update({
+      accepted_terms_at: new Date().toISOString(),
+      accepted_terms_version: TERMS_VERSION,
+    })
+    .eq("id", playerId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to accept terms: ${error.message}`);
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
 }
