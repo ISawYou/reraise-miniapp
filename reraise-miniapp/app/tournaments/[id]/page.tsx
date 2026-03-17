@@ -144,17 +144,21 @@ export default function TournamentDetailsPage() {
     if (!tournament || tournament.status === "completed") return null;
 
     if (!registrationStatus) {
-      return (
-        <button
-          type="button"
-          onClick={handleRegister}
-          disabled={actionLoading}
-          className="mt-5 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
-        >
-          {actionLoading ? "Сохраняем..." : "Записаться на турнир"}
-        </button>
-      );
-    }
+  return (
+    <button
+      type="button"
+      onClick={handleRegister}
+      disabled={actionLoading}
+      className="mt-5 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
+    >
+      {actionLoading
+        ? "Сохраняем..."
+        : registeredCount >= tournament.max_players
+        ? "Встать в список ожидания"
+        : "Записаться на турнир"}
+    </button>
+  );
+}
 
     if (registrationStatus === "registered") {
       return (

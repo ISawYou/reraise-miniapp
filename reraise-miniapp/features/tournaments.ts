@@ -131,10 +131,21 @@ export async function registerPlayerForTournament(
   playerId: string,
   tournamentId: string
 ) {
-  const existingRegistrations = await getPlayerRegistrations(playerId);
-  const existingRegistration = existingRegistrations.find(
-    (item) => item.tournament_id === tournamentId
-  );
+  const { data: existingRegistrationData, error: existingRegistrationError } = await supabase
+  .from("registrations")
+  .select("*")
+  .eq("player_id", playerId)
+  .eq("tournament_id", tournamentId)
+  .order("created_at", { ascending: false })
+  .limit(1);
+
+if (existingRegistrationError) {
+  throw new Error(existingRegistrationError.message);
+}
+
+const existingRegistration = existingRegistrationData?.[0]
+  ? mapRegistrationRow(existingRegistrationData[0] as RegistrationRow)
+  : null;
 
   if (existingRegistration?.status === "registered") {
     return existingRegistration;
