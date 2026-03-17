@@ -300,7 +300,7 @@ const waitlistParticipants = participants.filter(
           >
             {tournament.status === "completed"
               ? `Результаты (${results.length})`
-              : `Участники (${participants.length}/${tournament.max_players})`}
+              : `Участники (${registeredParticipants.length})`}
           </button>
         </div>
 
