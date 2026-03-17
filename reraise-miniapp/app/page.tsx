@@ -27,6 +27,8 @@ export default function HomePage() {
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [promotionToast, setPromotionToast] = useState<string | null>(null);
   const [nearestTournament, setNearestTournament] = useState<Tournament | null>(null);
+
+  const [initializing, setInitializing] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
   const [termsAcceptedLoading, setTermsAcceptedLoading] = useState(false);
   const termsRef = useRef<HTMLDivElement | null>(null);
@@ -35,33 +37,43 @@ export default function HomePage() {
   const registrationsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-  const element = termsRef.current;
-  if (!element || !showTerms) return;
+  if (!showTerms) return;
 
-  function checkScrolledToBottom() {
-    const currentElement = termsRef.current;
-    if (!currentElement) return;
+  const timer = window.setTimeout(() => {
+    const element = termsRef.current;
+    if (!element) return;
 
-    const isScrollable =
-      currentElement.scrollHeight > currentElement.clientHeight + 10;
+    function checkScrolledToBottom() {
+      const currentElement = termsRef.current;
+      if (!currentElement) return;
 
-    if (!isScrollable) {
-      setScrolledToBottom(true);
-      return;
+      const isScrollable =
+        currentElement.scrollHeight > currentElement.clientHeight + 10;
+
+      if (!isScrollable) {
+        setScrolledToBottom(true);
+        return;
+      }
+
+      if (
+        currentElement.scrollTop + currentElement.clientHeight >=
+        currentElement.scrollHeight - 10
+      ) {
+        setScrolledToBottom(true);
+      }
     }
 
-    if (
-      currentElement.scrollTop + currentElement.clientHeight >=
-      currentElement.scrollHeight - 10
-    ) {
-      setScrolledToBottom(true);
-    }
-  }
+    checkScrolledToBottom();
+    element.addEventListener("scroll", checkScrolledToBottom, { passive: true });
 
-  checkScrolledToBottom();
-  element.addEventListener("scroll", checkScrolledToBottom);
+    return () => {
+      element.removeEventListener("scroll", checkScrolledToBottom);
+    };
+  }, 50);
 
-  return () => element.removeEventListener("scroll", checkScrolledToBottom);
+  return () => {
+    window.clearTimeout(timer);
+  };
 }, [showTerms]);
 
   useEffect(() => {
@@ -177,6 +189,7 @@ export default function HomePage() {
         setPlayerError(message);
       } finally {
         setPlayerLoading(false);
+        setInitializing(false);
       }
     }, 500);
 
@@ -239,15 +252,26 @@ export default function HomePage() {
     if (user?.first_name) return user.first_name;
     return "игрок";
   }, [player?.display_name, user?.first_name]);
+  if (initializing) {
+  return (
+    <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <div className="mx-auto max-w-md">
+        <div className="rounded-xl bg-white/5 p-4 text-sm text-white/70">
+          Загружаем...
+        </div>
+      </div>
+    </main>
+  );
+}
   if (showTerms) {
   return (
     <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
-      <div className="mx-auto flex h-full max-w-md flex-col">
-        <h1 className="mb-4 text-xl font-bold">Пользовательское соглашение</h1>
+      <div className="mx-auto flex h-full max-w-md flex-col gap-4">
+        <h1 className="text-xl font-bold">Пользовательское соглашение</h1>
 
         <div
           ref={termsRef}
-          className="flex-1 overflow-y-auto rounded-xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-white/85 whitespace-pre-line"
+            className="flex-1 overflow-y-auto rounded-xl bg-white/5 p-4 text-sm leading-7 text-white/85 whitespace-pre-line"
         >
           {TERMS_TEXT}
         </div>
@@ -292,7 +316,7 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        {playerLoading ? (
+        {playerLoading && !initializing ? (
           <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
             Синхронизируем игрока...
           </div>
