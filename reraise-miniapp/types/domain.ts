@@ -20,6 +20,9 @@ export type Player = {
   role: "player" | "admin";
   accepted_terms_at?: string;
   accepted_terms_version?: string;
+  profile_completed_at?: string;
+  nickname_status?: "approved" | "pending";
+  pending_display_name?: string;
   created_at: string;
 };
 

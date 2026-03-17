@@ -12,6 +12,9 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     role: row.role as "player" | "admin",
     accepted_terms_at: row.accepted_terms_at ?? undefined,
     accepted_terms_version: row.accepted_terms_version ?? undefined,
+    profile_completed_at: row.profile_completed_at ?? undefined,
+    nickname_status: (row.nickname_status as "approved" | "pending") ?? undefined,
+    pending_display_name: row.pending_display_name ?? undefined,
     created_at: row.created_at,
   };
 }
@@ -91,4 +94,94 @@ export async function acceptTerms(playerId: string): Promise<Player> {
   }
 
   return mapPlayerRowToDomain(data as PlayerRow);
+}
+
+export async function isDisplayNameTaken(
+  displayName: string,
+  currentPlayerId: string
+): Promise<boolean> {
+  const normalizedDisplayName = displayName.trim();
+
+  const { data, error } = await supabase
+    .from("players")
+    .select("id, display_name, pending_display_name")
+    .neq("id", currentPlayerId);
+
+  if (error) {
+    throw new Error(`Failed to check display name: ${error.message}`);
+  }
+
+  return (data ?? []).some((player: any) => {
+    const currentDisplayName = (player.display_name ?? "").trim().toLowerCase();
+    const pendingDisplayName = (player.pending_display_name ?? "").trim().toLowerCase();
+
+    return (
+      currentDisplayName === normalizedDisplayName.toLowerCase() ||
+      pendingDisplayName === normalizedDisplayName.toLowerCase()
+    );
+  });
+}
+
+export async function completeProfile(
+  player: Player,
+  nextDisplayName: string
+): Promise<{
+  player: Player;
+  moderationRequired: boolean;
+}> {
+  const normalizedDisplayName = nextDisplayName.trim();
+
+  if (!normalizedDisplayName) {
+    throw new Error("Введите ник");
+  }
+
+  const baseDisplayName = player.display_name.trim();
+
+  if (normalizedDisplayName.toLowerCase() !== baseDisplayName.toLowerCase()) {
+    const isTaken = await isDisplayNameTaken(normalizedDisplayName, player.id);
+
+    if (isTaken) {
+      throw new Error("Данный ник уже занят");
+    }
+
+    const { data, error } = await supabase
+      .from("players")
+      .update({
+        profile_completed_at: new Date().toISOString(),
+        nickname_status: "pending",
+        pending_display_name: normalizedDisplayName,
+      })
+      .eq("id", player.id)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(`Failed to complete profile: ${error.message}`);
+    }
+
+    return {
+      player: mapPlayerRowToDomain(data as PlayerRow),
+      moderationRequired: true,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("players")
+    .update({
+      profile_completed_at: new Date().toISOString(),
+      nickname_status: "approved",
+      pending_display_name: null,
+    })
+    .eq("id", player.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to complete profile: ${error.message}`);
+  }
+
+  return {
+    player: mapPlayerRowToDomain(data as PlayerRow),
+    moderationRequired: false,
+  };
 }

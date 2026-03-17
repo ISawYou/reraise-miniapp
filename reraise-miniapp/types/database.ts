@@ -6,6 +6,9 @@ export type PlayerRow = {
   role: string;
   accepted_terms_at: string | null;
   accepted_terms_version: string | null;
+  profile_completed_at: string | null;
+  nickname_status: string;
+  pending_display_name: string | null;
   created_at: string;
 };
 

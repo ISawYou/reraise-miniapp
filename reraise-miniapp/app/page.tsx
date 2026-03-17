@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ensurePlayerFromTelegramUser,
   acceptTerms,
+  completeProfile,
   TERMS_VERSION,
 } from "@/features/auth";
 import { getOpenTournaments, getPlayerRegistrations } from "@/features/tournaments";
@@ -34,47 +35,56 @@ export default function HomePage() {
   const termsRef = useRef<HTMLDivElement | null>(null);
   const [scrolledToBottom, setScrolledToBottom] = useState(false);
 
+  const [showProfileSetup, setShowProfileSetup] = useState(false);
+  const [nickname, setNickname] = useState("");
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+
   const registrationsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-  if (!showTerms) return;
+    if (!showTerms) return;
 
-  const timer = window.setTimeout(() => {
-    const element = termsRef.current;
-    if (!element) return;
+    let cleanup: (() => void) | undefined;
 
-    function checkScrolledToBottom() {
-      const currentElement = termsRef.current;
-      if (!currentElement) return;
+    const timer = window.setTimeout(() => {
+      const element = termsRef.current;
+      if (!element) return;
 
-      const isScrollable =
-        currentElement.scrollHeight > currentElement.clientHeight + 10;
+      const checkScrolledToBottom = () => {
+        const currentElement = termsRef.current;
+        if (!currentElement) return;
 
-      if (!isScrollable) {
-        setScrolledToBottom(true);
-        return;
-      }
+        const isScrollable =
+          currentElement.scrollHeight > currentElement.clientHeight + 10;
 
-      if (
-        currentElement.scrollTop + currentElement.clientHeight >=
-        currentElement.scrollHeight - 10
-      ) {
-        setScrolledToBottom(true);
-      }
-    }
+        if (!isScrollable) {
+          setScrolledToBottom(true);
+          return;
+        }
 
-    checkScrolledToBottom();
-    element.addEventListener("scroll", checkScrolledToBottom, { passive: true });
+        if (
+          currentElement.scrollTop + currentElement.clientHeight >=
+          currentElement.scrollHeight - 10
+        ) {
+          setScrolledToBottom(true);
+        }
+      };
+
+      checkScrolledToBottom();
+      element.addEventListener("scroll", checkScrolledToBottom, { passive: true });
+
+      cleanup = () => {
+        element.removeEventListener("scroll", checkScrolledToBottom);
+      };
+    }, 50);
 
     return () => {
-      element.removeEventListener("scroll", checkScrolledToBottom);
+      window.clearTimeout(timer);
+      cleanup?.();
     };
-  }, 50);
-
-  return () => {
-    window.clearTimeout(timer);
-  };
-}, [showTerms]);
+  }, [showTerms]);
 
   useEffect(() => {
     if (!promotionToast) return;
@@ -129,24 +139,65 @@ export default function HomePage() {
   }
 
   async function handleAcceptTerms() {
-  if (!player) return;
+    if (!player) return;
 
-  try {
-    setTermsAcceptedLoading(true);
+    try {
+      setTermsAcceptedLoading(true);
 
-    const updatedPlayer = await acceptTerms(player.id);
-    setPlayer(updatedPlayer);
-    setShowTerms(false);
+      const updatedPlayer = await acceptTerms(player.id);
+      setPlayer(updatedPlayer);
+      setShowTerms(false);
 
-    await refreshHomeData(updatedPlayer.id, {
-      showPromotionToast: false,
-    });
-  } catch (error) {
-    console.error("Accept terms error:", error);
-  } finally {
-    setTermsAcceptedLoading(false);
+      if (!updatedPlayer.profile_completed_at) {
+        setNickname(updatedPlayer.display_name);
+        setProfileError(null);
+        setProfileMessage(null);
+        setShowProfileSetup(true);
+      } else {
+        await refreshHomeData(updatedPlayer.id, {
+          showPromotionToast: false,
+        });
+      }
+    } catch (error) {
+      console.error("Accept terms error:", error);
+    } finally {
+      setTermsAcceptedLoading(false);
+    }
   }
-}
+
+  async function handleCompleteProfile() {
+    if (!player) return;
+
+    try {
+      setProfileLoading(true);
+      setProfileError(null);
+      setProfileMessage(null);
+
+      const result = await completeProfile(player, nickname);
+
+      setPlayer(result.player);
+
+      if (result.moderationRequired) {
+        setProfileMessage(
+          "Имя игрока отправлено на модерацию. Пока используется текущее имя игрока."
+        );
+      }
+
+      setShowProfileSetup(false);
+
+      await refreshHomeData(result.player.id, {
+        showPromotionToast: false,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        setProfileError(error.message);
+      } else {
+        setProfileError("Ошибка регистрации");
+      }
+    } finally {
+      setProfileLoading(false);
+    }
+  }
 
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -169,19 +220,30 @@ export default function HomePage() {
 
           const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
           setPlayer(ensuredPlayer);
-          if (
-          !ensuredPlayer.accepted_terms_at ||
-          ensuredPlayer.accepted_terms_version !== TERMS_VERSION
-        ) {
-          setScrolledToBottom(false);
-          setShowTerms(true);
-        } else {
-          setShowTerms(false);
 
-          await refreshHomeData(ensuredPlayer.id, {
-            showPromotionToast: false,
-          });
-        }
+          if (
+            !ensuredPlayer.accepted_terms_at ||
+            ensuredPlayer.accepted_terms_version !== TERMS_VERSION
+          ) {
+            setScrolledToBottom(false);
+            setShowProfileSetup(false);
+            setShowTerms(true);
+          } else {
+            setShowTerms(false);
+
+            if (!ensuredPlayer.profile_completed_at) {
+              setNickname(ensuredPlayer.display_name);
+              setProfileError(null);
+              setProfileMessage(null);
+              setShowProfileSetup(true);
+            } else {
+              setShowProfileSetup(false);
+
+              await refreshHomeData(ensuredPlayer.id, {
+                showPromotionToast: false,
+              });
+            }
+          }
         }
       } catch (error) {
         const message =
@@ -198,6 +260,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!player?.id) return;
+    if (showTerms || showProfileSetup) return;
 
     const registrationsChannel = supabase
       .channel(`home-registrations-realtime-${player.id}`)
@@ -245,53 +308,98 @@ export default function HomePage() {
       supabase.removeChannel(registrationsChannel);
       supabase.removeChannel(tournamentsChannel);
     };
-  }, [player?.id]);
+  }, [player?.id, showTerms, showProfileSetup]);
 
   const greetingName = useMemo(() => {
     if (player?.display_name) return player.display_name;
     if (user?.first_name) return user.first_name;
     return "игрок";
   }, [player?.display_name, user?.first_name]);
+
   if (initializing) {
-  return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
-      <div className="mx-auto max-w-md">
-        <div className="rounded-xl bg-white/5 p-4 text-sm text-white/70">
-          Загружаем...
+    return (
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
+        <div className="mx-auto max-w-md">
+          <div className="rounded-xl bg-white/5 p-4 text-sm text-white/70">
+            Загружаем...
+          </div>
         </div>
-      </div>
-    </main>
-  );
-}
+      </main>
+    );
+  }
+
   if (showTerms) {
-  return (
-    <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
-      <div className="mx-auto flex h-full max-w-md flex-col gap-4">
-        <h1 className="text-xl font-bold">Пользовательское соглашение</h1>
+    return (
+      <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
+        <div className="mx-auto flex h-full max-w-md flex-col gap-4">
+          <h1 className="text-xl font-bold">Пользовательское соглашение</h1>
 
-        <div
-          ref={termsRef}
+          <div
+            ref={termsRef}
             className="flex-1 overflow-y-auto rounded-xl bg-white/5 p-4 text-sm leading-7 text-white/85 whitespace-pre-line"
-        >
-          {TERMS_TEXT}
-        </div>
+          >
+            {TERMS_TEXT}
+          </div>
 
-        <button
-          type="button"
-          onClick={handleAcceptTerms}
-          disabled={!scrolledToBottom || termsAcceptedLoading}
-          className="mt-4 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
-        >
-          {termsAcceptedLoading
-            ? "Сохраняем..."
-            : scrolledToBottom
-            ? "Принять"
-            : "Прокрутите до конца"}
-        </button>
-      </div>
-    </main>
-  );
-}
+          <button
+            type="button"
+            onClick={handleAcceptTerms}
+            disabled={!scrolledToBottom || termsAcceptedLoading}
+            className="w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
+          >
+            {termsAcceptedLoading
+              ? "Сохраняем..."
+              : scrolledToBottom
+              ? "Принять"
+              : "Прокрутите до конца"}
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  if (showProfileSetup) {
+    return (
+      <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
+        <div className="mx-auto flex h-full max-w-md flex-col justify-center">
+          <div className="rounded-2xl bg-white/5 p-5">
+            <h1 className="text-2xl font-bold">Добро пожаловать</h1>
+            <p className="mt-2 text-sm text-white/70">Введите ник</p>
+
+            <input
+              type="text"
+              value={nickname}
+              onChange={(e) => {
+                setNickname(e.target.value);
+                setProfileError(null);
+                setProfileMessage(null);
+              }}
+              placeholder="Ваш ник"
+              className="mt-4 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none"
+            />
+
+            {profileError ? (
+              <p className="mt-3 text-sm text-red-300">{profileError}</p>
+            ) : null}
+
+            {profileMessage ? (
+              <p className="mt-3 text-sm text-white/80">{profileMessage}</p>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleCompleteProfile}
+              disabled={profileLoading || !nickname.trim()}
+              className="mt-4 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
+            >
+              {profileLoading ? "Сохраняем..." : "Зарегистрироваться"}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-md">
@@ -299,8 +407,8 @@ export default function HomePage() {
           <p className="text-sm text-white/50">ReRaise Poker Club</p>
           <h1 className="mt-2 text-3xl font-bold">Главная</h1>
           <p className="mt-2 text-sm text-white/70">Привет, {greetingName}</p>
-          <p className="text-xs text-neutral-500 mt-1">
-          Добро пожаловать в ReRaise Poker Club
+          <p className="mt-1 text-xs text-neutral-500">
+            Добро пожаловать в ReRaise Poker Club
           </p>
         </header>
 
@@ -387,7 +495,7 @@ export default function HomePage() {
                 </Link>
 
                 <Link
-                   href="/leaderboard"
+                  href="/leaderboard"
                   className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
                 >
                   Рейтинг
@@ -406,6 +514,7 @@ export default function HomePage() {
           </>
         ) : null}
       </div>
+
       {promotionToast ? <PromotionToast message={promotionToast} /> : null}
     </main>
   );
