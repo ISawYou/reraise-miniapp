@@ -39,7 +39,6 @@ export default function HomePage() {
   const [nickname, setNickname] = useState("");
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
-  const [profileMessage, setProfileMessage] = useState<string | null>(null);
 
   const registrationsRef = useRef<Record<string, string>>({});
 
@@ -151,7 +150,6 @@ export default function HomePage() {
       if (!updatedPlayer.profile_completed_at) {
         setNickname(updatedPlayer.display_name);
         setProfileError(null);
-        setProfileMessage(null);
         setShowProfileSetup(true);
       } else {
         await refreshHomeData(updatedPlayer.id, {
@@ -171,17 +169,22 @@ export default function HomePage() {
     try {
       setProfileLoading(true);
       setProfileError(null);
-      setProfileMessage(null);
 
       const result = await completeProfile(player, nickname);
 
       setPlayer(result.player);
 
       if (result.moderationRequired) {
-        setProfileMessage(
+        setShowProfileSetup(false);
+        setPromotionToast(
           "Ник отправлен на модерацию"
         );
-        return; 
+
+        await refreshHomeData(result.player.id, {
+          showPromotionToast: false,
+        });
+
+        return;
       }
 
       setShowProfileSetup(false);
@@ -235,7 +238,6 @@ export default function HomePage() {
             if (!ensuredPlayer.profile_completed_at) {
               setNickname(ensuredPlayer.display_name);
               setProfileError(null);
-              setProfileMessage(null);
               setShowProfileSetup(true);
             } else {
               setShowProfileSetup(false);
@@ -373,7 +375,6 @@ export default function HomePage() {
               onChange={(e) => {
                 setNickname(e.target.value);
                 setProfileError(null);
-                setProfileMessage(null);
               }}
               placeholder="Ваш ник"
               className="mt-4 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none"
@@ -383,9 +384,6 @@ export default function HomePage() {
               <p className="mt-3 text-sm text-red-300">{profileError}</p>
             ) : null}
 
-            {profileMessage ? (
-              <p className="mt-3 text-sm text-white/80">{profileMessage}</p>
-            ) : null}
 
             <button
               type="button"
