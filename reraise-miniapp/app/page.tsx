@@ -179,8 +179,9 @@ export default function HomePage() {
 
       if (result.moderationRequired) {
         setProfileMessage(
-          "Имя игрока отправлено на модерацию. Пока используется текущее имя игрока."
+          "Ник отправлен на модерацию"
         );
+        return; 
       }
 
       setShowProfileSetup(false);
