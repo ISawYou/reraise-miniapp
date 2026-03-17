@@ -371,6 +371,16 @@ export async function createTournament(input: {
   return mapTournamentRow(data as TournamentRow);
 }
 
+export async function deleteTournament(tournamentId: string) {
+  const { error } = await supabase
+    .from("tournaments")
+    .delete()
+    .eq("id", tournamentId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
 export async function getTournamentParticipants(
   tournamentId: string
 ): Promise<TournamentParticipant[]> {

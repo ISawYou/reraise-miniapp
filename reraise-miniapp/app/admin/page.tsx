@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { createTournament, getOpenTournaments } from "@/features/tournaments";
+import {
+  createTournament,
+  deleteTournament,
+  getOpenTournaments,
+} from "@/features/tournaments";
 import { getTelegramUser } from "@/lib/telegram";
 import type { Player, Tournament } from "@/types/domain";
 
@@ -49,6 +53,36 @@ export default function AdminPage() {
   useEffect(() => {
     loadAdminData();
   }, []);
+
+async function handleDeleteTournament(tournamentId: string, tournamentTitle: string) {
+  const isConfirmed = window.confirm(
+    `Вы точно хотите удалить турнир "${tournamentTitle}"?`
+  );
+
+  if (!isConfirmed) {
+    return;
+  }
+
+  try {
+    setLoading(true);
+    setMessage("");
+
+    await deleteTournament(tournamentId);
+
+    setMessage(`Турнир "${tournamentTitle}" удален`);
+
+    const nextTournaments = await getOpenTournaments();
+    setTournaments(nextTournaments);
+  } catch (error) {
+    if (error instanceof Error) {
+      setMessage(error.message);
+    } else {
+      setMessage("Ошибка удаления турнира");
+    }
+  } finally {
+    setLoading(false);
+  }
+}
 
   async function handleCreateTournament() {
     if (!title.trim()) {
@@ -241,20 +275,29 @@ export default function AdminPage() {
                   </p>
 
                   <div className="mt-4 grid grid-cols-1 gap-2">
-                    <Link
-                      href={`/tournaments/${tournament.id}`}
-                      className="rounded-lg border border-white/10 px-3 py-2 text-center text-sm text-white/80"
-                    >
-                      Открыть турнир
-                    </Link>
+                  <Link
+                    href={`/tournaments/${tournament.id}`}
+                    className="rounded-lg border border-white/10 px-3 py-2 text-center text-sm text-white/80"
+                  >
+                    Открыть турнир
+                  </Link>
 
-                    <Link
-                      href={`/admin/results/${tournament.id}`}
-                      className="rounded-lg bg-yellow-500 px-3 py-2 text-center text-sm font-semibold text-black"
-                    >
-                      Внести результаты
-                    </Link>
-                  </div>
+                  <Link
+                    href={`/admin/results/${tournament.id}`}
+                    className="rounded-lg bg-yellow-500 px-3 py-2 text-center text-sm font-semibold text-black"
+                  >
+                    Внести результаты
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTournament(tournament.id, tournament.title)}
+                    disabled={loading}
+                    className="rounded-lg bg-red-600 px-3 py-2 text-center text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    Удалить турнир
+                  </button>
+                </div>
                 </div>
               ))}
             </div>
