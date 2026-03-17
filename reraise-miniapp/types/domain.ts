@@ -29,6 +29,8 @@ export type Tournament = {
   season_id: string | null;
   status: TournamentStatus;
   created_at: string;
+  description?: string
+  location?: string
 };
 
 export type Registration = {

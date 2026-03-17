@@ -17,6 +17,8 @@ function mapTournamentRow(row: TournamentRow): Tournament {
   return {
     id: row.id,
     title: row.title,
+    description: row.description ?? undefined,
+    location: row.location ?? undefined,
     start_at: row.start_at,
     max_players: row.max_players,
     season_id: row.season_id,
@@ -321,6 +323,8 @@ export async function getMyTournamentHistory(playerId: string) {
 
 export async function createTournament(input: {
   title: string;
+  description: string;
+  location: string;
   start_at: string;
   max_players: number;
 }) {
@@ -338,11 +342,13 @@ export async function createTournament(input: {
   const { data, error } = await supabase
     .from("tournaments")
     .insert({
-      title: input.title,
-      start_at: input.start_at,
-      max_players: input.max_players,
-      status: "open",
-      season_id: activeSeason.id,
+        title: input.title,
+        description: input.description,
+        location: input.location,
+        start_at: input.start_at,
+        max_players: input.max_players,
+        status: "open",
+        season_id: activeSeason.id,
     })
     .select("*")
     .single();

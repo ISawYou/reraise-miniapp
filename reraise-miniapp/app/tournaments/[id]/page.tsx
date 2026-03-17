@@ -304,9 +304,20 @@ export default function TournamentDetailsPage() {
             <section>
               <h2 className="text-2xl font-bold">Где</h2>
               <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-base text-white/70">Место проведения добавим следующим шагом</p>
+                <p className="text-base">
+                {tournament.location || "Место не указано"}
+                </p>
               </div>
             </section>
+
+<section>
+  <h2 className="text-2xl font-bold">Описание</h2>
+  <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
+    <p className="text-base text-white/80">
+      {tournament.description || "Описание не добавлено"}
+    </p>
+  </div>
+</section>
 
             <section>
               <h2 className="text-2xl font-bold">Статус</h2>

@@ -12,6 +12,8 @@ export default function AdminPage() {
   const [accessChecked, setAccessChecked] = useState(false);
 
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
   const [loading, setLoading] = useState(false);
@@ -54,6 +56,16 @@ export default function AdminPage() {
       return;
     }
 
+    if (!description.trim()) {
+      setMessage("Введите описание турнира");
+      return;
+    }
+
+    if (!location.trim()) {
+      setMessage("Укажите место проведения");
+      return;
+    }
+
     if (!startAt) {
       setMessage("Выберите дату и время");
       return;
@@ -70,12 +82,16 @@ export default function AdminPage() {
 
       await createTournament({
         title: title.trim(),
+        description: description.trim(),
+        location: location.trim(),
         start_at: new Date(startAt).toISOString(),
         max_players: Number(maxPlayers),
       });
 
       setMessage("Турнир создан");
       setTitle("");
+      setDescription("");
+      setLocation("");
       setStartAt("");
       setMaxPlayers("20");
 
@@ -144,6 +160,24 @@ export default function AdminPage() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Например, Friday Deep Stack"
+            className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
+          />
+
+          <label className="mt-4 block text-sm text-white/80">Описание турнира</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Например, баунти, ребаи разрешены, поздняя регистрация 60 минут"
+            className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
+            rows={4}
+          />
+
+          <label className="mt-4 block text-sm text-white/80">Место проведения</label>
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Например, Poker Loft, Москва-Сити"
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
 

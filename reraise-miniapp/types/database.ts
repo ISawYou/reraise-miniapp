@@ -10,6 +10,8 @@ export type PlayerRow = {
 export type TournamentRow = {
   id: string;
   title: string;
+  description: string | null;
+  location: string | null;
   start_at: string;
   max_players: number;
   season_id: string | null;
