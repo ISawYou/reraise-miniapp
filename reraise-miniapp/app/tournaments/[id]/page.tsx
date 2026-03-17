@@ -40,6 +40,14 @@ export default function TournamentDetailsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const registeredParticipants = participants.filter(
+  (participant) =>
+    participant.status === "registered" || participant.status === "attended"
+);
+
+const waitlistParticipants = participants.filter(
+  (participant) => participant.status === "waitlist"
+);
 
   async function refreshPageData(currentPlayerId: string, currentTournamentId: string) {
     const [tournamentData, participantsData, registrations, counts] = await Promise.all([
@@ -388,17 +396,24 @@ export default function TournamentDetailsPage() {
             )}
           </div>
         ) : (
-          <div className="mt-6 rounded-2xl border border-white/10 bg-white/5">
+          <div className="mt-6 space-y-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5">
+            <div className="border-b border-white/10 px-4 py-3">
+              <p className="text-sm font-semibold text-white/80">
+                Записаны ({registeredParticipants.length})
+              </p>
+            </div>
+
             <div className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
               <div>#</div>
               <div>Ник</div>
               <div className="text-right">Рейтинг</div>
             </div>
 
-            {participants.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-white/60">Пока участников нет</div>
+            {registeredParticipants.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-white/60">Пока записанных участников нет</div>
             ) : (
-              participants.map((participant, index) => (
+              registeredParticipants.map((participant, index) => (
                 <div
                   key={participant.registration_id}
                   className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
@@ -423,6 +438,49 @@ export default function TournamentDetailsPage() {
               ))
             )}
           </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5">
+            <div className="border-b border-white/10 px-4 py-3">
+              <p className="text-sm font-semibold text-white/80">
+                Список ожидания ({waitlistParticipants.length})
+              </p>
+            </div>
+
+            <div className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
+              <div>#</div>
+              <div>Ник</div>
+              <div className="text-right">Рейтинг</div>
+            </div>
+
+            {waitlistParticipants.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-white/60">Список ожидания пуст</div>
+            ) : (
+              waitlistParticipants.map((participant, index) => (
+                <div
+                  key={participant.registration_id}
+                  className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
+                >
+                  <div className="text-sm font-semibold text-white/80">{index + 1}</div>
+
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      {participant.username
+                        ? `@${participant.username}`
+                        : participant.display_name}
+                    </p>
+                    {!participant.username ? (
+                      <p className="mt-1 text-xs text-white/50">{participant.display_name}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="text-right text-sm font-semibold text-white/80">
+                    {participant.rating}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
         )}
       </div>
     </main>

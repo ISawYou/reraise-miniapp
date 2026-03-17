@@ -401,7 +401,7 @@ export async function getTournamentParticipants(
       )
     `)
     .eq("tournament_id", tournamentId)
-    .in("status", ["registered", "attended"])
+    .in("status", ["registered", "attended", "waitlist"])
     .order("created_at", { ascending: true });
 
   if (error) {

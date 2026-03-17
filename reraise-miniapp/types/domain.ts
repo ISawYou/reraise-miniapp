@@ -53,7 +53,7 @@ export type Result = {
 export type TournamentParticipant = {
   registration_id: string;
   player_id: string;
-  status: "registered" | "attended";
+  status: "registered" | "attended" | "waitlist";
   created_at: string;
   username: string | null;
   display_name: string;
