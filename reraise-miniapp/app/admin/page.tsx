@@ -187,6 +187,13 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
         <h1 className="text-2xl font-bold">Админ-панель</h1>
         <p className="mt-2 text-sm text-white/70">Создание турнира</p>
 
+        <Link
+          href="/admin/moderation"
+          className="mt-4 inline-block rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm font-medium text-yellow-300"
+        >
+          Модерация ников
+        </Link>
+
         <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
           <label className="block text-sm text-white/80">Название турнира</label>
           <input

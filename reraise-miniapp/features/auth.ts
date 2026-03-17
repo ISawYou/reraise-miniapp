@@ -185,3 +185,77 @@ export async function completeProfile(
     moderationRequired: false,
   };
 }
+
+// ==========================
+// MODERATION: NICKNAMES
+// ==========================
+
+export async function getPendingNicknames(): Promise<Player[]> {
+  const { data, error } = await supabase
+    .from("players")
+    .select("*")
+    .eq("nickname_status", "pending")
+    .not("pending_display_name", "is", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to fetch pending nicknames: ${error.message}`);
+  }
+
+  return (data ?? []).map((row) => mapPlayerRowToDomain(row as PlayerRow));
+}
+
+export async function approveNickname(playerId: string): Promise<Player> {
+  // сначала получаем игрока
+  const { data: currentPlayer, error: fetchError } = await supabase
+    .from("players")
+    .select("*")
+    .eq("id", playerId)
+    .single();
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch player: ${fetchError.message}`);
+  }
+
+  const newDisplayName = currentPlayer.pending_display_name?.trim();
+
+  if (!newDisplayName) {
+    throw new Error("Нет ника на модерации");
+  }
+
+  // обновляем
+  const { data, error } = await supabase
+    .from("players")
+    .update({
+      display_name: newDisplayName,
+      pending_display_name: null,
+      nickname_status: "approved",
+    })
+    .eq("id", playerId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to approve nickname: ${error.message}`);
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
+}
+
+export async function rejectNickname(playerId: string): Promise<Player> {
+  const { data, error } = await supabase
+    .from("players")
+    .update({
+      pending_display_name: null,
+      nickname_status: "approved",
+    })
+    .eq("id", playerId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to reject nickname: ${error.message}`);
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
+}
