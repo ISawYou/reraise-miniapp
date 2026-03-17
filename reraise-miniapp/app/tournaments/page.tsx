@@ -207,11 +207,11 @@ export default function TournamentsPage() {
           {isLoading
             ? "Сохраняем..."
             : registeredCount >= tournament.max_players
-            ? "В списке ожидания"
+            ? "Встать в список ожидания"
             : "Записаться"}
         </button>
-      );
-    }
+          );
+      }
 
     if (currentStatus === "registered") {
       return (
