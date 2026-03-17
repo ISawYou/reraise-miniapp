@@ -106,7 +106,7 @@ export default function TournamentDetailsPage() {
       if (result.status === "registered") {
         setMessage("Вы записаны на турнир");
       } else if (result.status === "waitlist") {
-        setMessage("Вы добавлены в waitlist");
+        setMessage("Вы добавлены в список ожидания");
       }
 
       await refreshPageData(playerId, tournamentId);
@@ -129,7 +129,7 @@ export default function TournamentDetailsPage() {
       if (registrationStatus === "registered") {
         setMessage("Запись на турнир отменена");
       } else if (registrationStatus === "waitlist") {
-        setMessage("Вы вышли из waitlist");
+        setMessage("Вы вышли из списка ожидания");
       }
 
       await refreshPageData(playerId, tournamentId);
@@ -177,7 +177,7 @@ export default function TournamentDetailsPage() {
           disabled={actionLoading}
           className="mt-5 w-full rounded-xl bg-orange-500 py-3 font-semibold text-white disabled:opacity-60"
         >
-          {actionLoading ? "Сохраняем..." : "Выйти из waitlist"}
+          {actionLoading ? "Сохраняем..." : "Выйти из списка ожидания"}
         </button>
       );
     }
@@ -197,7 +197,7 @@ export default function TournamentDetailsPage() {
     }
 
     if (registrationStatus === "waitlist") {
-      return "Статус: вы в waitlist";
+      return "Статус: вы в списке ожидания";
     }
 
     if (registeredCount >= tournament.max_players) {

@@ -74,10 +74,10 @@ export default function TournamentsPage() {
 
         if (promotedTournament) {
           setPromotionToast(
-            `Вы переместились из waitlist в основной список: ${promotedTournament.title}`
+            `Вы переместились из списка ожидания в основной список: ${promotedTournament.title}`
           );
         } else {
-          setPromotionToast("Вы переместились из waitlist в основной список");
+          setPromotionToast("Вы переместились из списка ожидания в основной список");
         }
       }
     }
@@ -207,7 +207,7 @@ export default function TournamentsPage() {
           {isLoading
             ? "Сохраняем..."
             : registeredCount >= tournament.max_players
-            ? "В waitlist"
+            ? "В списке ожидания"
             : "Записаться"}
         </button>
       );
@@ -234,7 +234,7 @@ export default function TournamentsPage() {
           disabled={isLoading}
           className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
-          {isLoading ? "Сохраняем..." : "Вы в waitlist"}
+          {isLoading ? "Сохраняем..." : "Вы в списке ожидания"}
         </button>
       );
     }
@@ -338,7 +338,7 @@ export default function TournamentsPage() {
                           {currentStatus === "registered"
                             ? "Статус: вы зарегистрированы"
                             : currentStatus === "waitlist"
-                            ? "Статус: вы в waitlist"
+                            ? "Статус: вы в списке ожидания"
                             : registeredCount >= tournament.max_players
                             ? "Статус: свободных мест нет"
                             : "Статус: есть свободные места"}

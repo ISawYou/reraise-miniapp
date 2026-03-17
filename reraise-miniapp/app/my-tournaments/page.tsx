@@ -85,7 +85,7 @@ export default function MyTournamentsPage() {
     }
 
     if (status === "waitlist") {
-      return "Вы в waitlist";
+      return "Вы в списке ожидания";
     }
 
     if (status === "attended") {

@@ -65,10 +65,10 @@ export default function HomePage() {
 
         if (promotedTournament) {
           setPromotionToast(
-            `Вы переместились из waitlist в основной список: ${promotedTournament.title}`
+            `Вы переместились из списка ожидания в основной список: ${promotedTournament.title}`
           );
         } else {
-          setPromotionToast("Вы переместились из waitlist в основной список");
+          setPromotionToast("Вы переместились из списка ожидания в основной список");
         }
       }
     }
