@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ensurePlayerFromTelegramUser,
   getPlayerById,
@@ -35,11 +35,13 @@ export default function PlayerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditingNickname, setIsEditingNickname] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [nickname, setNickname] = useState("");
   const [nicknameLoading, setNicknameLoading] = useState(false);
   const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     async function loadPage() {
@@ -165,6 +167,7 @@ export default function PlayerProfilePage() {
       nextNickname.toLowerCase() === pendingNickname
     ) {
       setIsEditingNickname(false);
+      setIsProfileMenuOpen(false);
       setNicknameError(null);
       setNickname(player.pending_display_name ?? player.display_name);
       return;
@@ -179,6 +182,7 @@ export default function PlayerProfilePage() {
       setPlayer(updatedPlayer);
       setNickname(updatedPlayer.pending_display_name ?? updatedPlayer.display_name);
       setIsEditingNickname(false);
+      setIsProfileMenuOpen(false);
     } catch (err) {
       setNicknameError(
         err instanceof Error ? err.message : "Не удалось обновить ник"
@@ -220,10 +224,25 @@ export default function PlayerProfilePage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-3xl">
-        <Link
-          href="/"
-          className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-        >
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            >
+              ← Назад
+            </Link>
+
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-white/45">
+                Профиль
+              </p>
+              <h1 className="text-lg font-semibold text-white">Профиль</h1>
+            </div>
+          </div>
+        </div>
+
+        <Link href="/" className="hidden">
           ← Назад
         </Link>
 
@@ -240,8 +259,17 @@ export default function PlayerProfilePage() {
             </div>
           )}
 
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarFileChange}
+            disabled={avatarLoading}
+          />
+
           {isOwnProfile ? (
-            <label className="mb-4 inline-flex cursor-pointer rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
+            <label className="hidden">
               <input
                 type="file"
                 accept="image/*"
@@ -256,6 +284,49 @@ export default function PlayerProfilePage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{player.display_name}</h1>
             {isOwnProfile ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileMenuOpen((prev) => !prev)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80"
+                  title="Настройки профиля"
+                  aria-label="Настройки профиля"
+                >
+                  <span className="text-base leading-none">⚙</span>
+                </button>
+
+                {isProfileMenuOpen ? (
+                  <div className="absolute right-0 top-11 z-10 min-w-44 rounded-xl border border-white/10 bg-[#111] p-1.5 shadow-2xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        avatarInputRef.current?.click();
+                      }}
+                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+                    >
+                      {avatarLoading
+                        ? "Загружаем аватар..."
+                        : "Сменить аватар"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        setIsEditingNickname((prev) => !prev);
+                        setNicknameError(null);
+                        setNickname(player.pending_display_name ?? player.display_name);
+                      }}
+                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+                    >
+                      Сменить ник
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {isOwnProfile ? (
               <button
                 type="button"
                 onClick={() => {
@@ -263,7 +334,7 @@ export default function PlayerProfilePage() {
                   setNicknameError(null);
                   setNickname(player.pending_display_name ?? player.display_name);
                 }}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/80"
+                className="hidden"
                 title="Редактировать ник"
               >
                 Изменить ник
@@ -312,6 +383,7 @@ export default function PlayerProfilePage() {
                 type="button"
                 onClick={() => {
                   setIsEditingNickname(false);
+                  setIsProfileMenuOpen(false);
                   setNicknameError(null);
                   setNickname(player.pending_display_name ?? player.display_name);
                 }}
