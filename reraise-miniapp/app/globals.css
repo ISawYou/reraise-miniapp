@@ -64,15 +64,17 @@ a {
 }
 
 .terms-scroll-chip {
-  border: 1px solid rgba(245, 196, 81, 0.24);
-  background: rgba(17, 17, 17, 0.92);
-  color: #f4d06f;
-  padding: 0.75rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(18, 18, 18, 0.74);
+  color: rgba(255, 255, 255, 0.72);
+  padding: 0.45rem 0.8rem;
   border-radius: 999px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  font-size: 0.74rem;
+  font-weight: 500;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
   backdrop-filter: blur(12px);
+  opacity: 0.92;
+  z-index: 2;
 }
 
 .terms-scroll-chip:active {

@@ -349,7 +349,7 @@ export default function HomePage() {
 
   if (showTerms) {
     return (
-      <main className="terms-modal fixed inset-0 z-50 px-4 pb-6 pt-16 text-white">
+      <main className="terms-modal fixed inset-0 z-50 px-4 pb-6 pt-24 text-white">
         <div className="mx-auto flex h-full max-w-md flex-col gap-4">
           <div className="terms-card rounded-[28px] p-5">
             <p className="text-xs uppercase tracking-[0.28em] text-yellow-300/80">
@@ -364,10 +364,10 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="relative flex-1">
+          <div className="relative min-h-0 flex-1">
             <div
               ref={termsRef}
-              className="terms-copy terms-text h-full overflow-y-auto rounded-[24px] p-5 text-sm text-white/85"
+              className="terms-copy terms-text max-h-full overflow-y-auto rounded-[24px] p-5 text-sm text-white/85"
             >
               <div className="terms-content">
                 {termsLines.map((line, index) => {
@@ -430,9 +430,9 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={handleScrollTermsToBottom}
-                className="terms-scroll-chip absolute bottom-4 left-1/2 -translate-x-1/2"
+                className="terms-scroll-chip absolute bottom-3 left-1/2 -translate-x-1/2"
               >
-                Пролистать до конца
+                вниз
               </button>
             ) : null}
           </div>
