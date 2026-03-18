@@ -87,6 +87,10 @@ export default function PlayerProfilePage() {
   const isOwnProfile = viewerId === player?.id;
   const avatarFallback = (player?.display_name?.trim()?.[0] ?? "?").toUpperCase();
   const avatarUrl = isOwnProfile ? telegramPhotoUrl : null;
+  const totalKnockouts = history.reduce(
+    (sum, item) => sum + (item.result.knockouts ?? 0),
+    0
+  );
 
   async function handleNicknameSubmit() {
     if (!player) return;
@@ -176,7 +180,7 @@ export default function PlayerProfilePage() {
             </div>
           )}
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{player.display_name}</h1>
             {isOwnProfile ? (
               <button
@@ -186,22 +190,18 @@ export default function PlayerProfilePage() {
                   setNicknameError(null);
                   setNickname(player.pending_display_name ?? player.display_name);
                 }}
-                className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/70"
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/80"
                 title="Редактировать ник"
               >
-                ✎
+                Изменить ник
               </button>
             ) : null}
           </div>
         </div>
-        <p className="mt-2 text-sm text-white/70">
-          {player.username ? `@${player.username}` : "Без username"}
-        </p>
-
         {player.nickname_status === "pending" && player.pending_display_name ? (
-          <p className="mt-2 text-sm text-yellow-300">
+          <div className="mt-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/65">
             Ник на модерации: {player.pending_display_name}
-          </p>
+          </div>
         ) : null}
 
         {isOwnProfile && isEditingNickname ? (
@@ -246,7 +246,7 @@ export default function PlayerProfilePage() {
           </div>
         ) : null}
 
-        <div className="mt-6 grid grid-cols-2 gap-3">
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <p className="text-sm text-white/60">Рейтинг</p>
             <p className="mt-2 text-2xl font-semibold">{rating}</p>
@@ -256,6 +256,11 @@ export default function PlayerProfilePage() {
             <p className="text-sm text-white/60">Сыграно турниров</p>
             <p className="mt-2 text-2xl font-semibold">{playedCount}</p>
           </div>
+
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p className="text-sm text-white/60">Нокауты</p>
+            <p className="mt-2 text-2xl font-semibold">{totalKnockouts}</p>
+          </div>
         </div>
 
         <section className="mt-8">
@@ -263,7 +268,7 @@ export default function PlayerProfilePage() {
 
           {history.length === 0 ? (
             <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-              Пока нет сыгранных турниров
+              Сыграйте первый турнир, чтобы здесь появилась история
             </div>
           ) : (
             <div className="mt-4 space-y-3">
