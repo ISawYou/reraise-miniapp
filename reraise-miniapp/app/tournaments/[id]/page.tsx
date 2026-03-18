@@ -376,9 +376,12 @@ const waitlistParticipants = participants.filter(
                   <div className="text-sm font-semibold text-white/80">{result.place}</div>
 
                   <div>
-                    <p className="text-sm font-medium text-white">
+                    <Link
+                      href={`/players/${result.player_id}`}
+                      className="text-sm font-medium text-white"
+                    >
                       {result.username ? `@${result.username}` : result.display_name}
-                    </p>
+                    </Link>
                     {!result.username ? (
                       <p className="mt-1 text-xs text-white/50">{result.display_name}</p>
                     ) : null}
@@ -421,11 +424,14 @@ const waitlistParticipants = participants.filter(
                   <div className="text-sm font-semibold text-white/80">{index + 1}</div>
 
                   <div>
-                    <p className="text-sm font-medium text-white">
+                    <Link
+                      href={`/players/${participant.player_id}`}
+                      className="text-sm font-medium text-white"
+                    >
                       {participant.username
                         ? `@${participant.username}`
                         : participant.display_name}
-                    </p>
+                    </Link>
                     {!participant.username ? (
                       <p className="mt-1 text-xs text-white/50">{participant.display_name}</p>
                     ) : null}
@@ -463,11 +469,14 @@ const waitlistParticipants = participants.filter(
                   <div className="text-sm font-semibold text-white/80">{index + 1}</div>
 
                   <div>
-                    <p className="text-sm font-medium text-white">
+                    <Link
+                      href={`/players/${participant.player_id}`}
+                      className="text-sm font-medium text-white"
+                    >
                       {participant.username
                         ? `@${participant.username}`
                         : participant.display_name}
-                    </p>
+                    </Link>
                     {!participant.username ? (
                       <p className="mt-1 text-xs text-white/50">{participant.display_name}</p>
                     ) : null}

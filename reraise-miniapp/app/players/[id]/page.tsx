@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getPlayerById } from "@/features/auth";
+import { ensurePlayerFromTelegramUser, getPlayerById } from "@/features/auth";
 import {
   getPlayedTournamentsCount,
   getPlayerRating,
   getPlayerTournamentHistory,
 } from "@/features/tournaments";
+import { getTelegramUser } from "@/lib/telegram";
 import type { Player, Tournament, TournamentResult } from "@/types/domain";
 
 type HistoryItem = {
@@ -20,6 +21,7 @@ export default function PlayerProfilePage() {
   const params = useParams<{ id: string }>();
   const playerId = params?.id;
 
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
   const [rating, setRating] = useState(0);
   const [playedCount, setPlayedCount] = useState(0);
@@ -32,6 +34,13 @@ export default function PlayerProfilePage() {
       try {
         if (!playerId) {
           throw new Error("Player id not found");
+        }
+
+        const telegramUser = getTelegramUser();
+
+        if (telegramUser) {
+          const ensuredViewer = await ensurePlayerFromTelegramUser(telegramUser);
+          setViewerId(ensuredViewer.id);
         }
 
         const [playerData, playerRating, tournamentsCount, playerHistory] =
@@ -61,6 +70,8 @@ export default function PlayerProfilePage() {
 
     loadPage();
   }, [playerId]);
+
+  const isOwnProfile = viewerId === player?.id;
 
   if (loading) {
     return (
@@ -101,7 +112,18 @@ export default function PlayerProfilePage() {
           ← Назад
         </Link>
 
-        <h1 className="text-2xl font-bold">{player.display_name}</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">{player.display_name}</h1>
+          {isOwnProfile ? (
+            <button
+              type="button"
+              className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/70"
+              title="Скоро здесь будет изменение ника"
+            >
+              ✎
+            </button>
+          ) : null}
+        </div>
         <p className="mt-2 text-sm text-white/70">
           {player.username ? `@${player.username}` : "Без username"}
         </p>

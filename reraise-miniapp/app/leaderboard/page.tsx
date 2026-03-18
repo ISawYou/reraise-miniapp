@@ -90,8 +90,9 @@ export default function LeaderboardPage() {
             <div className="px-4 py-6 text-sm text-white/60">Пока нет рейтинга</div>
           ) : (
             rows.map((row, index) => (
-              <div
+              <Link
                 key={row.player_id}
+                href={`/players/${row.player_id}`}
                 className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
               >
                 <div className="text-sm font-semibold text-white/80">{index + 1}</div>
@@ -108,7 +109,7 @@ export default function LeaderboardPage() {
                 <div className="text-right text-sm font-semibold text-white/80">
                   {row.rating}
                 </div>
-              </div>
+              </Link>
             ))
           )}
         </div>

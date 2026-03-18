@@ -479,6 +479,15 @@ export default function HomePage() {
               <h2 className="mb-3 text-xl font-semibold">Меню</h2>
 
               <div className="grid grid-cols-1 gap-3">
+                {player ? (
+                  <Link
+                    href={`/players/${player.id}`}
+                    className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
+                  >
+                    Профиль
+                  </Link>
+                ) : null}
+
                 <Link
                   href="/tournaments"
                   className="rounded-xl border border-neutral-700 px-4 py-3 text-center"
