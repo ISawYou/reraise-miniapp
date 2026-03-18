@@ -22,7 +22,7 @@ type HistoryItem = {
   result: TournamentResult;
 };
 
-function SettingsIcon() {
+function PencilIcon() {
   return (
     <svg
       aria-hidden="true"
@@ -34,15 +34,9 @@ function SettingsIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <circle cx="12" cy="12" r="3.25" />
-      <path d="M12 2.75v2.1" />
-      <path d="M12 19.15v2.1" />
-      <path d="M4.75 12h2.1" />
-      <path d="M17.15 12h2.1" />
-      <path d="m5.95 5.95 1.5 1.5" />
-      <path d="m16.55 16.55 1.5 1.5" />
-      <path d="m16.55 7.45 1.5-1.5" />
-      <path d="m5.95 18.05 1.5-1.5" />
+      <path d="M12 20h9" />
+      <path d="m16.5 3.5 4 4" />
+      <path d="M18.75 2.25a2.12 2.12 0 1 1 3 3L8 19l-4 1 1-4Z" />
     </svg>
   );
 }
@@ -330,7 +324,7 @@ export default function PlayerProfilePage() {
                 }}
                 className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/85"
               >
-                <SettingsIcon />
+                <PencilIcon />
                 Сменить ник
               </button>
             </div>
