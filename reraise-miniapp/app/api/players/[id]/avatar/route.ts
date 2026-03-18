@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "crypto";
+import { createHmac } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -23,6 +23,12 @@ function validateTelegramInitData(initData: string) {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
 
+  console.info("Avatar upload initData received", {
+    initDataLength: initData.length,
+    hasHash: Boolean(hash),
+    hasUser: params.has("user"),
+  });
+
   if (!hash) {
     throw new Error("Telegram hash is missing");
   }
@@ -33,7 +39,7 @@ function validateTelegramInitData(initData: string) {
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
 
-  const secret = createHash("sha256").update(botToken).digest();
+  const secret = createHmac("sha256", "WebAppData").update(botToken).digest();
   const expectedHash = createHmac("sha256", secret)
     .update(dataCheckString)
     .digest("hex");
