@@ -65,16 +65,22 @@ a {
 
 .terms-scroll-chip {
   border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(18, 18, 18, 0.74);
-  color: rgba(255, 255, 255, 0.72);
-  padding: 0.45rem 0.8rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: rgba(16, 16, 16, 0.82);
+  padding: 0.55rem 0.95rem;
   border-radius: 999px;
-  font-size: 0.74rem;
-  font-weight: 500;
+  min-width: 2.7rem;
+  min-height: 2.7rem;
+  font-size: 1rem;
+  line-height: 1;
+  font-weight: 700;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
   backdrop-filter: blur(12px);
   opacity: 0.92;
   z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .terms-scroll-chip:active {

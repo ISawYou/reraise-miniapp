@@ -431,8 +431,9 @@ export default function HomePage() {
                 type="button"
                 onClick={handleScrollTermsToBottom}
                 className="terms-scroll-chip absolute bottom-3 left-1/2 -translate-x-1/2"
+                aria-label="Прокрутить соглашение вниз"
               >
-                вниз
+                ↓
               </button>
             ) : null}
           </div>
