@@ -1,15 +1,7 @@
 @import "tailwindcss";
 
-@font-face {
-  font-family: "Onest";
-  src: local("Onest");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
-  --font-ui: "Onest", Arial, Helvetica, sans-serif;
+  --font-ui: Arial, Helvetica, sans-serif;
   --terms-surface: rgba(255, 255, 255, 0.06);
   --terms-border: rgba(255, 255, 255, 0.12);
 }
