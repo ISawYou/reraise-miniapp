@@ -234,9 +234,6 @@ export default function PlayerProfilePage() {
             </Link>
 
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-white/45">
-                Профиль
-              </p>
               <h1 className="text-lg font-semibold text-white">Профиль</h1>
             </div>
           </div>
@@ -284,7 +281,7 @@ export default function PlayerProfilePage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{player.display_name}</h1>
             {isOwnProfile ? (
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsProfileMenuOpen((prev) => !prev)}
@@ -292,11 +289,30 @@ export default function PlayerProfilePage() {
                   title="Настройки профиля"
                   aria-label="Настройки профиля"
                 >
-                  <span className="text-base leading-none">⚙</span>
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="h-[18px] w-[18px]"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="3.25" />
+                    <path d="M12 2.75v2.1" />
+                    <path d="M12 19.15v2.1" />
+                    <path d="M4.75 12h2.1" />
+                    <path d="M17.15 12h2.1" />
+                    <path d="m5.95 5.95 1.5 1.5" />
+                    <path d="m16.55 16.55 1.5 1.5" />
+                    <path d="m16.55 7.45 1.5-1.5" />
+                    <path d="m5.95 18.05 1.5-1.5" />
+                  </svg>
                 </button>
 
                 {isProfileMenuOpen ? (
-                  <div className="absolute right-0 top-11 z-10 min-w-44 rounded-xl border border-white/10 bg-[#111] p-1.5 shadow-2xl">
+                  <div className="absolute left-0 top-[calc(100%+0.5rem)] z-10 w-40 rounded-xl border border-white/10 bg-[#111] p-1.5 shadow-2xl">
                     <button
                       type="button"
                       onClick={() => {
