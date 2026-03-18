@@ -7,16 +7,14 @@ import {
   ensurePlayerFromTelegramUser,
   getPlayerById,
   submitNicknameForModeration,
-  updatePlayerCustomAvatar,
 } from "@/features/auth";
 import {
   getPlayedTournamentsCount,
   getPlayerRating,
   getPlayerTournamentHistory,
 } from "@/features/tournaments";
-import { getTelegramUser } from "@/lib/telegram";
+import { getTelegramUser, getTelegramWebApp } from "@/lib/telegram";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
-import { supabase } from "@/lib/supabase";
 import type { Player, Tournament, TournamentResult } from "@/types/domain";
 
 type HistoryItem = {
@@ -25,7 +23,7 @@ type HistoryItem = {
 };
 
 export default function PlayerProfilePage() {
-  const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
+  const MAX_AVATAR_SIZE_BYTES = 20 * 1024 * 1024;
   const params = useParams<{ id: string }>();
   const playerId = params?.id;
 
@@ -111,7 +109,7 @@ export default function PlayerProfilePage() {
     }
 
     if (file.size > MAX_AVATAR_SIZE_BYTES) {
-      setAvatarError("Файл слишком большой. Максимум 5 МБ");
+      setAvatarError("Файл слишком большой. Максимум 20 МБ");
       return;
     }
 
@@ -119,23 +117,28 @@ export default function PlayerProfilePage() {
       setAvatarLoading(true);
       setAvatarError(null);
 
-      const filePath = `${player.id}/avatar`;
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, file, {
-          upsert: true,
-          contentType: file.type,
-        });
+      const telegramInitData = getTelegramWebApp()?.initData;
 
-      if (uploadError) {
-        throw new Error(uploadError.message);
+      if (!telegramInitData) {
+        throw new Error("Не удалось получить данные Telegram");
       }
 
-      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-      const versionedUrl = `${data.publicUrl}?v=${Date.now()}`;
-      const updatedPlayer = await updatePlayerCustomAvatar(player.id, versionedUrl);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("telegramInitData", telegramInitData);
 
-      setPlayer(updatedPlayer);
+      const response = await fetch(`/api/players/${player.id}/avatar`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Не удалось загрузить аватар");
+      }
+
+      setPlayer(payload.player);
     } catch (err) {
       setAvatarError(
         err instanceof Error ? err.message : "Не удалось загрузить аватар"
