@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { getActiveSeason, getSeasonLeaderboard } from "@/features/tournaments";
+import { getTelegramUser } from "@/lib/telegram";
 
 type LeaderboardRow = {
   player_id: string;
@@ -16,12 +18,30 @@ export default function LeaderboardPage() {
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
+  const [currentPlayerPhotoUrl, setCurrentPlayerPhotoUrl] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     async function loadLeaderboard() {
       try {
+        const telegramUser = getTelegramUser();
+
+        if (telegramUser) {
+          const ensuredViewer = await ensurePlayerFromTelegramUser(telegramUser);
+          setCurrentPlayerId(ensuredViewer.id);
+          setCurrentPlayerPhotoUrl(
+            (telegramUser as { photo_url?: string }).photo_url ?? null
+          );
+        }
+
         const activeSeason = await getActiveSeason();
-        setSeasonTitle(activeSeason.title);
+        setSeasonTitle(
+          typeof activeSeason.number === "number"
+            ? `Сезон ${activeSeason.number}`
+            : "Активный сезон"
+        );
 
         const leaderboard = await getSeasonLeaderboard(activeSeason.id);
         setRows(leaderboard);
@@ -97,13 +117,20 @@ export default function LeaderboardPage() {
               >
                 <div className="text-sm font-semibold text-white/80">{index + 1}</div>
 
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    {row.username ? `@${row.username}` : row.display_name}
-                  </p>
-                  {!row.username ? (
-                    <p className="mt-1 text-xs text-white/50">{row.display_name}</p>
-                  ) : null}
+                <div className="flex items-center gap-3">
+                  {row.player_id === currentPlayerId && currentPlayerPhotoUrl ? (
+                    <img
+                      src={currentPlayerPhotoUrl}
+                      alt={row.display_name}
+                      className="h-10 w-10 rounded-full border border-white/10 object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white/80">
+                      {(row.display_name.trim()[0] ?? "?").toUpperCase()}
+                    </div>
+                  )}
+
+                  <p className="text-sm font-medium text-white">{row.display_name}</p>
                 </div>
 
                 <div className="text-right text-sm font-semibold text-white/80">
