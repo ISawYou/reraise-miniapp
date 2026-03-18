@@ -45,6 +45,13 @@ export default function HomePage() {
     return TERMS_TEXT.split("\n").map((line) => line.trim());
   }, []);
 
+  function formatTermsLine(line: string) {
+    return line.replace(
+      /\b(и|а|но|в|с|к|у|о|от|до|за|из|на|по|под|при|без|для)\s+/gi,
+      "$1\u00A0"
+    );
+  }
+
   useEffect(() => {
     if (!showTerms) return;
 
@@ -388,41 +395,41 @@ export default function HomePage() {
                     line.length < 40;
                   const isListLead = /:\s*$/.test(line);
 
-                  if (isMainTitle) {
-                    return (
-                      <p key={index} className="terms-main-title">
-                        {line}
-                      </p>
-                    );
-                  }
+                if (isMainTitle) {
+                  return (
+                    <p key={index} className="terms-main-title">
+                      {formatTermsLine(line)}
+                    </p>
+                  );
+                }
 
-                  if (isSubtitle) {
-                    return (
-                      <p key={index} className="terms-subtitle">
-                        {line}
-                      </p>
-                    );
-                  }
+                if (isSubtitle) {
+                  return (
+                    <p key={index} className="terms-subtitle">
+                      {formatTermsLine(line)}
+                    </p>
+                  );
+                }
 
-                  if (isSectionTitle) {
-                    return (
-                      <h3 key={index} className="terms-section-title">
-                        {line}
-                      </h3>
-                    );
-                  }
+                if (isSectionTitle) {
+                  return (
+                    <h3 key={index} className="terms-section-title">
+                      {formatTermsLine(line)}
+                    </h3>
+                  );
+                }
 
                   return (
                     <p
                       key={index}
-                      className={
-                        isListLead ? "terms-paragraph terms-lead" : "terms-paragraph"
-                      }
-                    >
-                      {line}
-                    </p>
-                  );
-                })}
+                    className={
+                      isListLead ? "terms-paragraph terms-lead" : "terms-paragraph"
+                    }
+                  >
+                    {formatTermsLine(line)}
+                  </p>
+                );
+              })}
               </div>
             </div>
 
@@ -430,10 +437,10 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={handleScrollTermsToBottom}
-                className="terms-scroll-chip absolute bottom-3 left-1/2 -translate-x-1/2"
+                className="terms-scroll-chip absolute bottom-3 left-1/2"
                 aria-label="Прокрутить соглашение вниз"
               >
-                ↓
+                ˅
               </button>
             ) : null}
           </div>
