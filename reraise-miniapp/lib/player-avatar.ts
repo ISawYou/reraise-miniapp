@@ -5,7 +5,7 @@ export type AvatarSource = {
 };
 
 function isTelegramPlaceholderAvatar(url: string) {
-  return /^https:\/\/t\.me\/i\/userpic\//i.test(url) || /\.svg(?:\?.*)?$/i.test(url);
+  return /^https:\/\/t\.me\/i\/userpic\//i.test(url);
 }
 
 export function getPlayerAvatarUrl(player: AvatarSource | null | undefined) {
