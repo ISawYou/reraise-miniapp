@@ -204,6 +204,50 @@ export async function completeProfile(
   };
 }
 
+export async function submitNicknameForModeration(
+  player: Player,
+  nextDisplayName: string
+): Promise<Player> {
+  const normalizedDisplayName = nextDisplayName.trim();
+
+  if (!normalizedDisplayName) {
+    throw new Error("Введите ник");
+  }
+
+  const baseDisplayName = player.display_name.trim().toLowerCase();
+  const pendingDisplayName = player.pending_display_name?.trim().toLowerCase();
+  const nextNormalizedLower = normalizedDisplayName.toLowerCase();
+
+  if (
+    nextNormalizedLower === baseDisplayName ||
+    nextNormalizedLower === pendingDisplayName
+  ) {
+    return player;
+  }
+
+  const isTaken = await isDisplayNameTaken(normalizedDisplayName, player.id);
+
+  if (isTaken) {
+    throw new Error("Данный ник уже занят");
+  }
+
+  const { data, error } = await supabase
+    .from("players")
+    .update({
+      nickname_status: "pending",
+      pending_display_name: normalizedDisplayName,
+    })
+    .eq("id", player.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to submit nickname for moderation: ${error.message}`);
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
+}
+
 // ==========================
 // MODERATION: NICKNAMES
 // ==========================
