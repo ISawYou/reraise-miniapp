@@ -332,6 +332,41 @@ export async function getMyTournamentHistory(playerId: string) {
   }>;
 }
 
+export async function getPlayerTournamentHistory(playerId: string) {
+  return getMyTournamentHistory(playerId);
+}
+
+export async function getPlayerRating(playerId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("results")
+    .select("rating_points")
+    .eq("player_id", playerId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).reduce(
+    (sum, row: any) => sum + (row.rating_points ?? 0),
+    0
+  );
+}
+
+export async function getPlayedTournamentsCount(
+  playerId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("results")
+    .select("*", { count: "exact", head: true })
+    .eq("player_id", playerId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return count ?? 0;
+}
+
 export async function createTournament(input: {
   title: string;
   description: string;

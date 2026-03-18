@@ -39,6 +39,24 @@ export async function getPlayerByTelegramId(
   return mapPlayerRowToDomain(data as PlayerRow);
 }
 
+export async function getPlayerById(playerId: string): Promise<Player | null> {
+  const { data, error } = await supabase
+    .from("players")
+    .select("*")
+    .eq("id", playerId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to fetch player: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
+}
+
 export async function createPlayerFromTelegramUser(
   telegramUser: TelegramWebAppUser
 ): Promise<Player> {
