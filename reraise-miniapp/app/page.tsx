@@ -41,6 +41,9 @@ export default function HomePage() {
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const registrationsRef = useRef<Record<string, string>>({});
+  const termsLines = useMemo(() => {
+    return TERMS_TEXT.split("\n").map((line) => line.trim());
+  }, []);
 
   useEffect(() => {
     if (!showTerms) return;
@@ -161,6 +164,19 @@ export default function HomePage() {
     } finally {
       setTermsAcceptedLoading(false);
     }
+  }
+
+  function handleScrollTermsToBottom() {
+    const element = termsRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    element.scrollTo({
+      top: element.scrollHeight,
+      behavior: "smooth",
+    });
   }
 
   async function handleCompleteProfile() {
@@ -333,7 +349,7 @@ export default function HomePage() {
 
   if (showTerms) {
     return (
-      <main className="terms-modal fixed inset-0 z-50 px-4 py-6 text-white">
+      <main className="terms-modal fixed inset-0 z-50 px-4 pb-6 pt-16 text-white">
         <div className="mx-auto flex h-full max-w-md flex-col gap-4">
           <div className="terms-card rounded-[28px] p-5">
             <p className="text-xs uppercase tracking-[0.28em] text-yellow-300/80">
@@ -343,30 +359,102 @@ export default function HomePage() {
               Пользовательское соглашение
             </h1>
             <p className="mt-3 text-sm leading-6 text-white/70">
-              Перед началом использования Mini App ознакомьтесь с правилами клуба
-              и подтвердите согласие после прочтения текста до конца.
+              Перед началом использования приложения ознакомьтесь с правилами
+              игрового пространства.
             </p>
           </div>
 
-          <div
-            ref={termsRef}
-            className="terms-copy flex-1 overflow-y-auto rounded-[24px] p-5 text-sm leading-7 text-white/85 whitespace-pre-line"
-          >
-            {TERMS_TEXT}
+          <div className="relative flex-1">
+            <div
+              ref={termsRef}
+              className="terms-copy terms-text h-full overflow-y-auto rounded-[24px] p-5 text-sm text-white/85"
+            >
+              <div className="terms-content">
+                {termsLines.map((line, index) => {
+                  if (!line || line === "---") {
+                    return line === "---" ? (
+                      <div key={index} className="terms-divider" />
+                    ) : (
+                      <div key={index} className="terms-gap" />
+                    );
+                  }
+
+                  const isMainTitle = index === 0;
+                  const isSubtitle = line.startsWith("(") && line.endsWith(")");
+                  const isSectionTitle =
+                    !/^\d+\.\d+\./.test(line) &&
+                    !line.includes("—") &&
+                    !line.includes("вЂ”") &&
+                    line.length < 40;
+                  const isListLead = /:\s*$/.test(line);
+
+                  if (isMainTitle) {
+                    return (
+                      <p key={index} className="terms-main-title">
+                        {line}
+                      </p>
+                    );
+                  }
+
+                  if (isSubtitle) {
+                    return (
+                      <p key={index} className="terms-subtitle">
+                        {line}
+                      </p>
+                    );
+                  }
+
+                  if (isSectionTitle) {
+                    return (
+                      <h3 key={index} className="terms-section-title">
+                        {line}
+                      </h3>
+                    );
+                  }
+
+                  return (
+                    <p
+                      key={index}
+                      className={
+                        isListLead ? "terms-paragraph terms-lead" : "terms-paragraph"
+                      }
+                    >
+                      {line}
+                    </p>
+                  );
+                })}
+              </div>
+            </div>
+
+            {!scrolledToBottom ? (
+              <button
+                type="button"
+                onClick={handleScrollTermsToBottom}
+                className="terms-scroll-chip absolute bottom-4 left-1/2 -translate-x-1/2"
+              >
+                Пролистать до конца
+              </button>
+            ) : null}
           </div>
 
-          <button
-            type="button"
-            onClick={handleAcceptTerms}
-            disabled={!scrolledToBottom || termsAcceptedLoading}
-            className="w-full rounded-[20px] bg-yellow-500 py-4 text-base font-semibold text-black shadow-[0_10px_30px_rgba(245,196,81,0.22)] disabled:opacity-40"
-          >
-            {termsAcceptedLoading
-              ? "Сохраняем..."
-              : scrolledToBottom
-              ? "Принять"
-              : "Прокрутите до конца"}
-          </button>
+          <div className="terms-actions">
+            <p className="text-center text-xs text-white/50">
+              Кнопка станет активной после прочтения соглашения
+            </p>
+
+            <button
+              type="button"
+              onClick={handleAcceptTerms}
+              disabled={!scrolledToBottom || termsAcceptedLoading}
+              className="w-full rounded-[20px] bg-yellow-500 py-4 text-base font-semibold text-black shadow-[0_10px_30px_rgba(245,196,81,0.22)] disabled:opacity-40"
+            >
+              {termsAcceptedLoading
+                ? "Сохраняем..."
+                : scrolledToBottom
+                ? "Принять"
+                : "Прокрутите до конца"}
+            </button>
+          </div>
         </div>
       </main>
     );
