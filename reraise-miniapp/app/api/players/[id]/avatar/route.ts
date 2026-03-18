@@ -134,9 +134,10 @@ export async function POST(
 
     return NextResponse.json({ player: updatedPlayer });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
-
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Avatar upload route error:", error);
+    return NextResponse.json(
+      { error: "Сервер не настроен для загрузки аватаров" },
+      { status: 500 }
+    );
   }
 }

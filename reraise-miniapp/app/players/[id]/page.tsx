@@ -135,7 +135,11 @@ export default function PlayerProfilePage() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "Не удалось загрузить аватар");
+        throw new Error(
+          response.status >= 500
+            ? "Сервер не настроен для загрузки аватаров"
+            : payload.error ?? "Не удалось загрузить аватар"
+        );
       }
 
       setPlayer(payload.player);
