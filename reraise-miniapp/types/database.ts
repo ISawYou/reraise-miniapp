@@ -3,6 +3,9 @@ export type PlayerRow = {
   telegram_id: number;
   username: string | null;
   display_name: string;
+  telegram_avatar_url: string | null;
+  custom_avatar_url: string | null;
+  avatar_updated_at: string | null;
   role: string;
   accepted_terms_at: string | null;
   accepted_terms_version: string | null;

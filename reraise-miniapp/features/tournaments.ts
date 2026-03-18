@@ -132,20 +132,20 @@ export async function registerPlayerForTournament(
   tournamentId: string
 ) {
   const { data: existingRegistrationData, error: existingRegistrationError } = await supabase
-  .from("registrations")
-  .select("*")
-  .eq("player_id", playerId)
-  .eq("tournament_id", tournamentId)
-  .order("created_at", { ascending: false })
-  .limit(1);
+    .from("registrations")
+    .select("*")
+    .eq("player_id", playerId)
+    .eq("tournament_id", tournamentId)
+    .order("created_at", { ascending: false })
+    .limit(1);
 
-if (existingRegistrationError) {
-  throw new Error(existingRegistrationError.message);
-}
+  if (existingRegistrationError) {
+    throw new Error(existingRegistrationError.message);
+  }
 
-const existingRegistration = existingRegistrationData?.[0]
-  ? mapRegistrationRow(existingRegistrationData[0] as RegistrationRow)
-  : null;
+  const existingRegistration = existingRegistrationData?.[0]
+    ? mapRegistrationRow(existingRegistrationData[0] as RegistrationRow)
+    : null;
 
   if (existingRegistration?.status === "registered") {
     return existingRegistration;
@@ -327,9 +327,9 @@ export async function getMyTournamentHistory(playerId: string) {
       };
     })
     .filter(Boolean) as Array<{
-    tournament: Tournament;
-    result: TournamentResult;
-  }>;
+      tournament: Tournament;
+      result: TournamentResult;
+    }>;
 }
 
 export async function getPlayerTournamentHistory(playerId: string) {
@@ -382,19 +382,19 @@ export async function createTournament(input: {
     .single();
 
   if (activeSeasonError) {
-    throw new Error("Активный сезон не найден");
+    throw new Error("РђРєС‚РёРІРЅС‹Р№ СЃРµР·РѕРЅ РЅРµ РЅР°Р№РґРµРЅ");
   }
 
   const { data, error } = await supabase
     .from("tournaments")
     .insert({
-        title: input.title,
-        description: input.description,
-        location: input.location,
-        start_at: input.start_at,
-        max_players: input.max_players,
-        status: "open",
-        season_id: activeSeason.id,
+      title: input.title,
+      description: input.description,
+      location: input.location,
+      start_at: input.start_at,
+      max_players: input.max_players,
+      status: "open",
+      season_id: activeSeason.id,
     })
     .select("*")
     .single();
@@ -446,6 +446,7 @@ export async function deleteTournament(tournamentId: string) {
     throw new Error(error.message);
   }
 }
+
 export async function getTournamentParticipants(
   tournamentId: string
 ): Promise<TournamentParticipant[]> {
@@ -501,7 +502,7 @@ export async function getTournamentParticipants(
       status: row.status,
       created_at: row.created_at,
       username: player?.username ?? null,
-      display_name: player?.display_name ?? "Игрок",
+      display_name: player?.display_name ?? "РРіСЂРѕРє",
       rating: ratingsMap.get(row.player_id) ?? 0,
     };
   });
@@ -537,7 +538,7 @@ export async function getTournamentResultsDraft(tournamentId: string) {
       registration_id: row.id,
       player_id: row.player_id,
       username: player?.username ?? null,
-      display_name: player?.display_name ?? "Игрок",
+      display_name: player?.display_name ?? "РРіСЂРѕРє",
       status: row.status as "registered" | "attended",
     };
   });
@@ -642,7 +643,7 @@ export async function getTournamentResults(
       reentries: row.reentries,
       rating_points: row.rating_points,
       username: player?.username ?? null,
-      display_name: player?.display_name ?? "Игрок",
+      display_name: player?.display_name ?? "РРіСЂРѕРє",
     };
   });
 }
@@ -655,7 +656,9 @@ export async function getSeasonLeaderboard(seasonId: string) {
       rating_points,
       players (
         username,
-        display_name
+        display_name,
+        telegram_avatar_url,
+        custom_avatar_url
       )
     `)
     .eq("season_id", seasonId);
@@ -666,7 +669,14 @@ export async function getSeasonLeaderboard(seasonId: string) {
 
   const leaderboardMap = new Map<
     string,
-    { player_id: string; username: string | null; display_name: string; rating: number }
+    {
+      player_id: string;
+      username: string | null;
+      display_name: string;
+      telegram_avatar_url: string | null;
+      custom_avatar_url: string | null;
+      rating: number;
+    }
   >();
 
   for (const row of data ?? []) {
@@ -682,7 +692,9 @@ export async function getSeasonLeaderboard(seasonId: string) {
       leaderboardMap.set(row.player_id, {
         player_id: row.player_id,
         username: player?.username ?? null,
-        display_name: player?.display_name ?? "Игрок",
+        display_name: player?.display_name ?? "РРіСЂРѕРє",
+        telegram_avatar_url: player?.telegram_avatar_url ?? null,
+        custom_avatar_url: player?.custom_avatar_url ?? null,
         rating: row.rating_points ?? 0,
       });
     }
@@ -700,7 +712,7 @@ export async function getActiveSeason() {
     .single();
 
   if (error) {
-    throw new Error("Активный сезон не найден");
+    throw new Error("РђРєС‚РёРІРЅС‹Р№ СЃРµР·РѕРЅ РЅРµ РЅР°Р№РґРµРЅ");
   }
 
   return data;

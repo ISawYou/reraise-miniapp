@@ -9,6 +9,9 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     telegram_id: row.telegram_id,
     username: row.username,
     display_name: row.display_name,
+    telegram_avatar_url: row.telegram_avatar_url ?? undefined,
+    custom_avatar_url: row.custom_avatar_url ?? undefined,
+    avatar_updated_at: row.avatar_updated_at ?? undefined,
     role: row.role as "player" | "admin",
     accepted_terms_at: row.accepted_terms_at ?? undefined,
     accepted_terms_version: row.accepted_terms_version ?? undefined,
@@ -17,6 +20,10 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     pending_display_name: row.pending_display_name ?? undefined,
     created_at: row.created_at,
   };
+}
+
+function getTelegramAvatarUrl(telegramUser: TelegramWebAppUser): string | null {
+  return (telegramUser as { photo_url?: string }).photo_url ?? null;
 }
 
 export async function getPlayerByTelegramId(
@@ -71,6 +78,7 @@ export async function createPlayerFromTelegramUser(
       telegram_id: telegramUser.id,
       username: telegramUser.username ?? null,
       display_name: displayName,
+      telegram_avatar_url: getTelegramAvatarUrl(telegramUser),
     })
     .select("*")
     .single();
@@ -88,10 +96,53 @@ export async function ensurePlayerFromTelegramUser(
   const existingPlayer = await getPlayerByTelegramId(telegramUser.id);
 
   if (existingPlayer) {
+    const nextTelegramAvatarUrl = getTelegramAvatarUrl(telegramUser);
+
+    if (
+      nextTelegramAvatarUrl &&
+      existingPlayer.telegram_avatar_url !== nextTelegramAvatarUrl
+    ) {
+      const { data, error } = await supabase
+        .from("players")
+        .update({
+          telegram_avatar_url: nextTelegramAvatarUrl,
+        })
+        .eq("id", existingPlayer.id)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw new Error(`Failed to sync telegram avatar: ${error.message}`);
+      }
+
+      return mapPlayerRowToDomain(data as PlayerRow);
+    }
+
     return existingPlayer;
   }
 
   return createPlayerFromTelegramUser(telegramUser);
+}
+
+export async function updatePlayerCustomAvatar(
+  playerId: string,
+  customAvatarUrl: string
+): Promise<Player> {
+  const { data, error } = await supabase
+    .from("players")
+    .update({
+      custom_avatar_url: customAvatarUrl,
+      avatar_updated_at: new Date().toISOString(),
+    })
+    .eq("id", playerId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to update custom avatar: ${error.message}`);
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export const TERMS_VERSION = "v1";
@@ -268,7 +319,6 @@ export async function getPendingNicknames(): Promise<Player[]> {
 }
 
 export async function approveNickname(playerId: string): Promise<Player> {
-  // сначала получаем игрока
   const { data: currentPlayer, error: fetchError } = await supabase
     .from("players")
     .select("*")
@@ -285,7 +335,6 @@ export async function approveNickname(playerId: string): Promise<Player> {
     throw new Error("Нет ника на модерации");
   }
 
-  // обновляем
   const { data, error } = await supabase
     .from("players")
     .update({

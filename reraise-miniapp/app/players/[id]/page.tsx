@@ -7,6 +7,7 @@ import {
   ensurePlayerFromTelegramUser,
   getPlayerById,
   submitNicknameForModeration,
+  updatePlayerCustomAvatar,
 } from "@/features/auth";
 import {
   getPlayedTournamentsCount,
@@ -14,6 +15,8 @@ import {
   getPlayerTournamentHistory,
 } from "@/features/tournaments";
 import { getTelegramUser } from "@/lib/telegram";
+import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import { supabase } from "@/lib/supabase";
 import type { Player, Tournament, TournamentResult } from "@/types/domain";
 
 type HistoryItem = {
@@ -22,11 +25,11 @@ type HistoryItem = {
 };
 
 export default function PlayerProfilePage() {
+  const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
   const params = useParams<{ id: string }>();
   const playerId = params?.id;
 
   const [viewerId, setViewerId] = useState<string | null>(null);
-  const [telegramPhotoUrl, setTelegramPhotoUrl] = useState<string | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
   const [rating, setRating] = useState(0);
   const [playedCount, setPlayedCount] = useState(0);
@@ -37,6 +40,8 @@ export default function PlayerProfilePage() {
   const [nickname, setNickname] = useState("");
   const [nicknameLoading, setNicknameLoading] = useState(false);
   const [nicknameError, setNicknameError] = useState<string | null>(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadPage() {
@@ -46,18 +51,18 @@ export default function PlayerProfilePage() {
         }
 
         const telegramUser = getTelegramUser();
+        let ensuredViewer: Player | null = null;
 
         if (telegramUser) {
-          const ensuredViewer = await ensurePlayerFromTelegramUser(telegramUser);
+          ensuredViewer = await ensurePlayerFromTelegramUser(telegramUser);
           setViewerId(ensuredViewer.id);
-          setTelegramPhotoUrl(
-            (telegramUser as { photo_url?: string }).photo_url ?? null
-          );
         }
 
         const [playerData, playerRating, tournamentsCount, playerHistory] =
           await Promise.all([
-            getPlayerById(playerId),
+            ensuredViewer?.id === playerId
+              ? Promise.resolve(ensuredViewer)
+              : getPlayerById(playerId),
             getPlayerRating(playerId),
             getPlayedTournamentsCount(playerId),
             getPlayerTournamentHistory(playerId),
@@ -85,12 +90,60 @@ export default function PlayerProfilePage() {
   }, [playerId]);
 
   const isOwnProfile = viewerId === player?.id;
-  const avatarFallback = (player?.display_name?.trim()?.[0] ?? "?").toUpperCase();
-  const avatarUrl = isOwnProfile ? telegramPhotoUrl : null;
+  const avatarFallback = getPlayerAvatarFallback(player);
+  const avatarUrl = getPlayerAvatarUrl(player);
   const totalKnockouts = history.reduce(
     (sum, item) => sum + (item.result.knockouts ?? 0),
     0
   );
+
+  async function handleAvatarFileChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !player || !isOwnProfile) return;
+
+    if (!file.type.startsWith("image/")) {
+      setAvatarError("Можно загрузить только изображение");
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_SIZE_BYTES) {
+      setAvatarError("Файл слишком большой. Максимум 5 МБ");
+      return;
+    }
+
+    try {
+      setAvatarLoading(true);
+      setAvatarError(null);
+
+      const filePath = `${player.id}/avatar`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(filePath, file, {
+          upsert: true,
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+
+      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
+      const versionedUrl = `${data.publicUrl}?v=${Date.now()}`;
+      const updatedPlayer = await updatePlayerCustomAvatar(player.id, versionedUrl);
+
+      setPlayer(updatedPlayer);
+    } catch (err) {
+      setAvatarError(
+        err instanceof Error ? err.message : "Не удалось загрузить аватар"
+      );
+    } finally {
+      setAvatarLoading(false);
+    }
+  }
 
   async function handleNicknameSubmit() {
     if (!player) return;
@@ -180,6 +233,19 @@ export default function PlayerProfilePage() {
             </div>
           )}
 
+          {isOwnProfile ? (
+            <label className="mb-4 inline-flex cursor-pointer rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarFileChange}
+                disabled={avatarLoading}
+              />
+              {avatarLoading ? "Загружаем аватар..." : "Загрузить аватар"}
+            </label>
+          ) : null}
+
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{player.display_name}</h1>
             {isOwnProfile ? (
@@ -202,6 +268,10 @@ export default function PlayerProfilePage() {
           <div className="mt-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/65">
             Ник на модерации: {player.pending_display_name}
           </div>
+        ) : null}
+
+        {avatarError ? (
+          <p className="mt-3 text-sm text-red-300">{avatarError}</p>
         ) : null}
 
         {isOwnProfile && isEditingNickname ? (

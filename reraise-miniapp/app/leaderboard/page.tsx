@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { getActiveSeason, getSeasonLeaderboard } from "@/features/tournaments";
-import { getTelegramUser } from "@/lib/telegram";
+import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 
 type LeaderboardRow = {
   player_id: string;
   username: string | null;
   display_name: string;
+  telegram_avatar_url: string | null;
+  custom_avatar_url: string | null;
   rating: number;
 };
 
@@ -18,24 +19,10 @@ export default function LeaderboardPage() {
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
-  const [currentPlayerPhotoUrl, setCurrentPlayerPhotoUrl] = useState<string | null>(
-    null
-  );
 
   useEffect(() => {
     async function loadLeaderboard() {
       try {
-        const telegramUser = getTelegramUser();
-
-        if (telegramUser) {
-          const ensuredViewer = await ensurePlayerFromTelegramUser(telegramUser);
-          setCurrentPlayerId(ensuredViewer.id);
-          setCurrentPlayerPhotoUrl(
-            (telegramUser as { photo_url?: string }).photo_url ?? null
-          );
-        }
-
         const activeSeason = await getActiveSeason();
         setSeasonTitle(
           typeof activeSeason.number === "number"
@@ -118,15 +105,15 @@ export default function LeaderboardPage() {
                 <div className="text-sm font-semibold text-white/80">{index + 1}</div>
 
                 <div className="flex items-center gap-3">
-                  {row.player_id === currentPlayerId && currentPlayerPhotoUrl ? (
+                  {getPlayerAvatarUrl(row) ? (
                     <img
-                      src={currentPlayerPhotoUrl}
+                      src={getPlayerAvatarUrl(row) ?? ""}
                       alt={row.display_name}
                       className="h-10 w-10 rounded-full border border-white/10 object-cover"
                     />
                   ) : (
                     <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white/80">
-                      {(row.display_name.trim()[0] ?? "?").toUpperCase()}
+                      {getPlayerAvatarFallback(row)}
                     </div>
                   )}
 
