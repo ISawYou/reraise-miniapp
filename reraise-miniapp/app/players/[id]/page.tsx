@@ -22,6 +22,50 @@ type HistoryItem = {
   result: TournamentResult;
 };
 
+function SettingsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="3.25" />
+      <path d="M12 2.75v2.1" />
+      <path d="M12 19.15v2.1" />
+      <path d="M4.75 12h2.1" />
+      <path d="M17.15 12h2.1" />
+      <path d="m5.95 5.95 1.5 1.5" />
+      <path d="m16.55 16.55 1.5 1.5" />
+      <path d="m16.55 7.45 1.5-1.5" />
+      <path d="m5.95 18.05 1.5-1.5" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <circle cx="9" cy="10" r="1.5" />
+      <path d="m20.5 16.5-5.25-5.25L6 20.5" />
+    </svg>
+  );
+}
+
 export default function PlayerProfilePage() {
   const MAX_AVATAR_SIZE_BYTES = 20 * 1024 * 1024;
   const params = useParams<{ id: string }>();
@@ -35,7 +79,6 @@ export default function PlayerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditingNickname, setIsEditingNickname] = useState(false);
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [nickname, setNickname] = useState("");
   const [nicknameLoading, setNicknameLoading] = useState(false);
   const [nicknameError, setNicknameError] = useState<string | null>(null);
@@ -167,7 +210,6 @@ export default function PlayerProfilePage() {
       nextNickname.toLowerCase() === pendingNickname
     ) {
       setIsEditingNickname(false);
-      setIsProfileMenuOpen(false);
       setNicknameError(null);
       setNickname(player.pending_display_name ?? player.display_name);
       return;
@@ -182,7 +224,6 @@ export default function PlayerProfilePage() {
       setPlayer(updatedPlayer);
       setNickname(updatedPlayer.pending_display_name ?? updatedPlayer.display_name);
       setIsEditingNickname(false);
-      setIsProfileMenuOpen(false);
     } catch (err) {
       setNicknameError(
         err instanceof Error ? err.message : "Не удалось обновить ник"
@@ -265,84 +306,21 @@ export default function PlayerProfilePage() {
             disabled={avatarLoading}
           />
 
-          {isOwnProfile ? (
-            <label className="hidden">
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleAvatarFileChange}
-                disabled={avatarLoading}
-              />
-              {avatarLoading ? "Загружаем аватар..." : "Загрузить аватар"}
-            </label>
-          ) : null}
-
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{player.display_name}</h1>
-            {isOwnProfile ? (
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsProfileMenuOpen((prev) => !prev)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80"
-                  title="Настройки профиля"
-                  aria-label="Настройки профиля"
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    className="h-[18px] w-[18px]"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="12" cy="12" r="3.25" />
-                    <path d="M12 2.75v2.1" />
-                    <path d="M12 19.15v2.1" />
-                    <path d="M4.75 12h2.1" />
-                    <path d="M17.15 12h2.1" />
-                    <path d="m5.95 5.95 1.5 1.5" />
-                    <path d="m16.55 16.55 1.5 1.5" />
-                    <path d="m16.55 7.45 1.5-1.5" />
-                    <path d="m5.95 18.05 1.5-1.5" />
-                  </svg>
-                </button>
+          </div>
 
-                {isProfileMenuOpen ? (
-                  <div className="absolute left-0 top-[calc(100%+0.5rem)] z-10 w-40 rounded-xl border border-white/10 bg-[#111] p-1.5 shadow-2xl">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsProfileMenuOpen(false);
-                        avatarInputRef.current?.click();
-                      }}
-                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
-                    >
-                      {avatarLoading
-                        ? "Загружаем аватар..."
-                        : "Сменить аватар"}
-                    </button>
+          {isOwnProfile ? (
+            <div className="mt-4 flex w-full flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/85"
+              >
+                <ImageIcon />
+                {avatarLoading ? "Загружаем аватар..." : "Сменить аватар"}
+              </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsProfileMenuOpen(false);
-                        setIsEditingNickname((prev) => !prev);
-                        setNicknameError(null);
-                        setNickname(player.pending_display_name ?? player.display_name);
-                      }}
-                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
-                    >
-                      Сменить ник
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {isOwnProfile ? (
               <button
                 type="button"
                 onClick={() => {
@@ -350,13 +328,13 @@ export default function PlayerProfilePage() {
                   setNicknameError(null);
                   setNickname(player.pending_display_name ?? player.display_name);
                 }}
-                className="hidden"
-                title="Редактировать ник"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/85"
               >
-                Изменить ник
+                <SettingsIcon />
+                Сменить ник
               </button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
         {player.nickname_status === "pending" && player.pending_display_name ? (
           <div className="mt-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/65">
@@ -399,7 +377,6 @@ export default function PlayerProfilePage() {
                 type="button"
                 onClick={() => {
                   setIsEditingNickname(false);
-                  setIsProfileMenuOpen(false);
                   setNicknameError(null);
                   setNickname(player.pending_display_name ?? player.display_name);
                 }}
