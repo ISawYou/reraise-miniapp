@@ -54,35 +54,38 @@ export default function AdminPage() {
     loadAdminData();
   }, []);
 
-async function handleDeleteTournament(tournamentId: string, tournamentTitle: string) {
-  const isConfirmed = window.confirm(
-    `Вы точно хотите удалить турнир "${tournamentTitle}"?`
-  );
+  async function handleDeleteTournament(
+    tournamentId: string,
+    tournamentTitle: string
+  ) {
+    const isConfirmed = window.confirm(
+      `Вы точно хотите удалить турнир "${tournamentTitle}"?`
+    );
 
-  if (!isConfirmed) {
-    return;
-  }
-
-  try {
-    setLoading(true);
-    setMessage("");
-
-    await deleteTournament(tournamentId);
-
-    setMessage(`Турнир "${tournamentTitle}" удален`);
-
-    const nextTournaments = await getOpenTournaments();
-    setTournaments(nextTournaments);
-  } catch (error) {
-    if (error instanceof Error) {
-      setMessage(error.message);
-    } else {
-      setMessage("Ошибка удаления турнира");
+    if (!isConfirmed) {
+      return;
     }
-  } finally {
-    setLoading(false);
+
+    try {
+      setLoading(true);
+      setMessage("");
+
+      await deleteTournament(tournamentId);
+
+      setMessage(`Турнир "${tournamentTitle}" удален`);
+
+      const nextTournaments = await getOpenTournaments();
+      setTournaments(nextTournaments);
+    } catch (error) {
+      if (error instanceof Error) {
+        setMessage(error.message);
+      } else {
+        setMessage("Ошибка удаления турнира");
+      }
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
   async function handleCreateTournament() {
     if (!title.trim()) {
@@ -145,7 +148,7 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
   if (!accessChecked) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
-        <div className="mx-auto max-w-md">
+        <div className="mx-auto max-w-3xl">
           <p className="text-sm text-white/70">Проверяем доступ...</p>
         </div>
       </main>
@@ -155,7 +158,7 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
   if (player?.role !== "admin") {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
-        <div className="mx-auto max-w-md">
+        <div className="mx-auto max-w-3xl">
           <Link
             href="/"
             className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
@@ -176,7 +179,7 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
 
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
-      <div className="mx-auto max-w-md">
+      <div className="mx-auto max-w-3xl">
         <Link
           href="/"
           className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
@@ -185,17 +188,69 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
         </Link>
 
         <h1 className="text-2xl font-bold">Админ-панель</h1>
-        <p className="mt-2 text-sm text-white/70">Создание турнира</p>
+        <p className="mt-2 text-sm text-white/70">
+          Управление турнирами и модерацией клуба
+        </p>
 
-        <Link
-          href="/admin/moderation"
-          className="mt-4 inline-block rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm font-medium text-yellow-300"
+        {message ? (
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+            {message}
+          </div>
+        ) : null}
+
+        <section className="mt-6 grid gap-4 md:grid-cols-3">
+          <Link
+            href="/admin/moderation"
+            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
+              MN
+            </div>
+            <h2 className="mt-4 text-lg font-semibold">Модерация ников</h2>
+            <p className="mt-2 text-sm text-white/70">
+              Проверка и одобрение новых ников игроков
+            </p>
+          </Link>
+
+          <a
+            href="#create-tournament"
+            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
+              CT
+            </div>
+            <h2 className="mt-4 text-lg font-semibold">Создание турнира</h2>
+            <p className="mt-2 text-sm text-white/70">
+              Создание нового турнира с базовыми настройками
+            </p>
+          </a>
+
+          <a
+            href="#tournament-management"
+            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
+              MT
+            </div>
+            <h2 className="mt-4 text-lg font-semibold">Модерация турниров</h2>
+            <p className="mt-2 text-sm text-white/70">
+              Открытие, редактирование, результаты и удаление турниров
+            </p>
+          </a>
+        </section>
+
+        <section
+          id="create-tournament"
+          className="mt-8 rounded-xl border border-white/10 bg-white/5 p-4"
         >
-          Модерация ников
-        </Link>
+          <h2 className="text-xl font-semibold">Создание турнира</h2>
+          <p className="mt-2 text-sm text-white/70">
+            Заполните базовые параметры нового турнира
+          </p>
 
-        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-          <label className="block text-sm text-white/80">Название турнира</label>
+          <label className="mt-4 block text-sm text-white/80">
+            Название турнира
+          </label>
           <input
             type="text"
             value={title}
@@ -204,7 +259,9 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
 
-          <label className="mt-4 block text-sm text-white/80">Описание турнира</label>
+          <label className="mt-4 block text-sm text-white/80">
+            Описание турнира
+          </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -213,7 +270,9 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
             rows={4}
           />
 
-          <label className="mt-4 block text-sm text-white/80">Место проведения</label>
+          <label className="mt-4 block text-sm text-white/80">
+            Место проведения
+          </label>
           <input
             type="text"
             value={location}
@@ -230,7 +289,9 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
 
-          <label className="mt-4 block text-sm text-white/80">Лимит игроков</label>
+          <label className="mt-4 block text-sm text-white/80">
+            Лимит игроков
+          </label>
           <input
             type="number"
             min="1"
@@ -247,21 +308,23 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
           >
             {loading ? "Создаем..." : "Создать турнир"}
           </button>
+        </section>
 
-          {message ? (
-            <p className="mt-3 text-sm text-white/80">{message}</p>
-          ) : null}
-        </div>
-
-        <section className="mt-8">
-          <h2 className="text-xl font-semibold">Открытые турниры</h2>
+        <section
+          id="tournament-management"
+          className="mt-8 rounded-xl border border-white/10 bg-white/5 p-4"
+        >
+          <h2 className="text-xl font-semibold">Модерация турниров</h2>
+          <p className="mt-2 text-sm text-white/70">
+            Управление открытыми турнирами
+          </p>
 
           {tournamentsLoading ? (
-            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+            <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-white/70">
               Загружаем турниры...
             </div>
           ) : tournaments.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+            <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-white/70">
               Пока нет открытых турниров
             </div>
           ) : (
@@ -269,7 +332,7 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
               {tournaments.map((tournament) => (
                 <div
                   key={tournament.id}
-                  className="rounded-xl border border-white/10 bg-white/5 p-4"
+                  className="rounded-xl border border-white/10 bg-black/20 p-4"
                 >
                   <p className="text-lg font-semibold">{tournament.title}</p>
 
@@ -278,33 +341,46 @@ async function handleDeleteTournament(tournamentId: string, tournamentTitle: str
                   </p>
 
                   <p className="mt-1 text-sm text-white/60">
+                    Место: {tournament.location ?? "Не указано"}
+                  </p>
+
+                  <p className="mt-1 text-sm text-white/60">
                     Лимит игроков: {tournament.max_players}
                   </p>
 
-                  <div className="mt-4 grid grid-cols-1 gap-2">
-                  <Link
-                    href={`/tournaments/${tournament.id}`}
-                    className="rounded-lg border border-white/10 px-3 py-2 text-center text-sm text-white/80"
-                  >
-                    Открыть турнир
-                  </Link>
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Link
+                      href={`/tournaments/${tournament.id}`}
+                      className="rounded-lg border border-white/10 px-3 py-2 text-center text-sm text-white/80"
+                    >
+                      Открыть турнир
+                    </Link>
 
-                  <Link
-                    href={`/admin/results/${tournament.id}`}
-                    className="rounded-lg bg-yellow-500 px-3 py-2 text-center text-sm font-semibold text-black"
-                  >
-                    Внести результаты
-                  </Link>
+                    <Link
+                      href={`/admin/tournaments/${tournament.id}/edit`}
+                      className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-center text-sm font-semibold text-yellow-300"
+                    >
+                      Редактировать
+                    </Link>
 
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteTournament(tournament.id, tournament.title)}
-                    disabled={loading}
-                    className="rounded-lg bg-red-600 px-3 py-2 text-center text-sm font-semibold text-white disabled:opacity-60"
-                  >
-                    Удалить турнир
-                  </button>
-                </div>
+                    <Link
+                      href={`/admin/results/${tournament.id}`}
+                      className="rounded-lg bg-yellow-500 px-3 py-2 text-center text-sm font-semibold text-black"
+                    >
+                      Внести результаты
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDeleteTournament(tournament.id, tournament.title)
+                      }
+                      disabled={loading}
+                      className="rounded-lg bg-red-600 px-3 py-2 text-center text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      Удалить турнир
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

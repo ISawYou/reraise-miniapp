@@ -371,6 +371,36 @@ export async function createTournament(input: {
   return mapTournamentRow(data as TournamentRow);
 }
 
+export async function updateTournament(
+  tournamentId: string,
+  input: {
+    title: string;
+    description: string;
+    location: string;
+    start_at: string;
+    max_players: number;
+  }
+) {
+  const { data, error } = await supabase
+    .from("tournaments")
+    .update({
+      title: input.title,
+      description: input.description,
+      location: input.location,
+      start_at: input.start_at,
+      max_players: input.max_players,
+    })
+    .eq("id", tournamentId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapTournamentRow(data as TournamentRow);
+}
+
 export async function deleteTournament(tournamentId: string) {
   const { error } = await supabase
     .from("tournaments")
