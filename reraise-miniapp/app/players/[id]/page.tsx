@@ -74,7 +74,7 @@ export default function PlayerProfilePage() {
         setHistory(playerHistory);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РїСЂРѕС„РёР»СЏ"
+          err instanceof Error ? err.message : "Ошибка загрузки профиля"
         );
       } finally {
         setLoading(false);
@@ -128,7 +128,7 @@ export default function PlayerProfilePage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
-          <p className="text-sm text-white/70">Р—Р°РіСЂСѓР¶Р°РµРј РїСЂРѕС„РёР»СЊ РёРіСЂРѕРєР°...</p>
+          <p className="text-sm text-white/70">Загружаем профиль игрока...</p>
         </div>
       </main>
     );
@@ -142,11 +142,11 @@ export default function PlayerProfilePage() {
             href="/"
             className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
-            в†ђ РќР°Р·Р°Рґ
+            ← Назад
           </Link>
 
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-            {error ?? "РџСЂРѕС„РёР»СЊ РёРіСЂРѕРєР° РЅРµ РЅР°Р№РґРµРЅ"}
+            {error ?? "Профиль игрока не найден"}
           </div>
         </div>
       </main>
@@ -160,7 +160,7 @@ export default function PlayerProfilePage() {
           href="/"
           className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
         >
-          в†ђ РќР°Р·Р°Рґ
+          ← Назад
         </Link>
 
         <div className="flex flex-col items-start">
@@ -189,13 +189,13 @@ export default function PlayerProfilePage() {
                 className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/70"
                 title="Редактировать ник"
               >
-                вњЋ
+                ✎
               </button>
             ) : null}
           </div>
         </div>
         <p className="mt-2 text-sm text-white/70">
-          {player.username ? `@${player.username}` : "Р‘РµР· username"}
+          {player.username ? `@${player.username}` : "Без username"}
         </p>
 
         {player.nickname_status === "pending" && player.pending_display_name ? (
@@ -248,22 +248,22 @@ export default function PlayerProfilePage() {
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <p className="text-sm text-white/60">Р РµР№С‚РёРЅРі</p>
+            <p className="text-sm text-white/60">Рейтинг</p>
             <p className="mt-2 text-2xl font-semibold">{rating}</p>
           </div>
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <p className="text-sm text-white/60">РЎС‹РіСЂР°РЅРѕ С‚СѓСЂРЅРёСЂРѕРІ</p>
+            <p className="text-sm text-white/60">Сыграно турниров</p>
             <p className="mt-2 text-2xl font-semibold">{playedCount}</p>
           </div>
         </div>
 
         <section className="mt-8">
-          <h2 className="text-xl font-semibold">РСЃС‚РѕСЂРёСЏ С‚СѓСЂРЅРёСЂРѕРІ</h2>
+          <h2 className="text-xl font-semibold">История турниров</h2>
 
           {history.length === 0 ? (
             <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-              РџРѕРєР° РЅРµС‚ СЃС‹РіСЂР°РЅРЅС‹С… С‚СѓСЂРЅРёСЂРѕРІ
+              Пока нет сыгранных турниров
             </div>
           ) : (
             <div className="mt-4 space-y-3">
@@ -278,9 +278,9 @@ export default function PlayerProfilePage() {
                   </p>
 
                   <div className="mt-3 grid grid-cols-3 gap-3 text-sm text-white/80">
-                    <div>РњРµСЃС‚Рѕ: {item.result.place}</div>
-                    <div>РќРѕРєР°СѓС‚С‹: {item.result.knockouts}</div>
-                    <div>РћС‡РєРё: {item.result.rating_points}</div>
+                    <div>Место: {item.result.place}</div>
+                    <div>Нокауты: {item.result.knockouts}</div>
+                    <div>Очки: {item.result.rating_points}</div>
                   </div>
                 </div>
               ))}
