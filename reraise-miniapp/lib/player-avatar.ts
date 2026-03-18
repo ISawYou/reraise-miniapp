@@ -4,12 +4,27 @@ export type AvatarSource = {
   telegram_avatar_url?: string | null;
 };
 
+function isTelegramPlaceholderAvatar(url: string) {
+  return /^https:\/\/t\.me\/i\/userpic\//i.test(url) || /\.svg(?:\?.*)?$/i.test(url);
+}
+
 export function getPlayerAvatarUrl(player: AvatarSource | null | undefined) {
   if (!player) {
     return null;
   }
 
-  return player.custom_avatar_url ?? player.telegram_avatar_url ?? null;
+  if (player.custom_avatar_url) {
+    return player.custom_avatar_url;
+  }
+
+  if (
+    player.telegram_avatar_url &&
+    !isTelegramPlaceholderAvatar(player.telegram_avatar_url)
+  ) {
+    return player.telegram_avatar_url;
+  }
+
+  return null;
 }
 
 export function getPlayerAvatarFallback(player: AvatarSource | null | undefined) {
