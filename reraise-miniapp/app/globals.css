@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Onest";
+  src: local("Onest");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-ui: "Onest", Arial, Helvetica, sans-serif;
+  --terms-surface: rgba(255, 255, 255, 0.06);
+  --terms-border: rgba(255, 255, 255, 0.12);
+}
+
 html,
 body {
   margin: 0;
@@ -9,7 +23,7 @@ body {
 body {
   background: #0a0a0a;
   color: white;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
 }
 
 a {
@@ -19,6 +33,27 @@ a {
 
 * {
   box-sizing: border-box;
+}
+
+.terms-modal {
+  background:
+    radial-gradient(circle at top, rgba(245, 196, 81, 0.22), transparent 36%),
+    linear-gradient(180deg, #120f0c 0%, #050505 100%);
+}
+
+.terms-card {
+  border: 1px solid var(--terms-border);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.08),
+    rgba(255, 255, 255, 0.04)
+  );
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+}
+
+.terms-copy {
+  border: 1px solid var(--terms-border);
+  background: var(--terms-surface);
 }
 
 /* Telegram Mini App safe area fix */

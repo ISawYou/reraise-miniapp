@@ -333,13 +333,24 @@ export default function HomePage() {
 
   if (showTerms) {
     return (
-      <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
+      <main className="terms-modal fixed inset-0 z-50 px-4 py-6 text-white">
         <div className="mx-auto flex h-full max-w-md flex-col gap-4">
-          <h1 className="text-xl font-bold">Пользовательское соглашение</h1>
+          <div className="terms-card rounded-[28px] p-5">
+            <p className="text-xs uppercase tracking-[0.28em] text-yellow-300/80">
+              ReRaise Poker Club
+            </p>
+            <h1 className="mt-3 text-3xl font-bold leading-tight">
+              Пользовательское соглашение
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-white/70">
+              Перед началом использования Mini App ознакомьтесь с правилами клуба
+              и подтвердите согласие после прочтения текста до конца.
+            </p>
+          </div>
 
           <div
             ref={termsRef}
-            className="flex-1 overflow-y-auto rounded-xl bg-white/5 p-4 text-sm leading-7 text-white/85 whitespace-pre-line"
+            className="terms-copy flex-1 overflow-y-auto rounded-[24px] p-5 text-sm leading-7 text-white/85 whitespace-pre-line"
           >
             {TERMS_TEXT}
           </div>
@@ -348,7 +359,7 @@ export default function HomePage() {
             type="button"
             onClick={handleAcceptTerms}
             disabled={!scrolledToBottom || termsAcceptedLoading}
-            className="w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
+            className="w-full rounded-[20px] bg-yellow-500 py-4 text-base font-semibold text-black shadow-[0_10px_30px_rgba(245,196,81,0.22)] disabled:opacity-40"
           >
             {termsAcceptedLoading
               ? "Сохраняем..."
