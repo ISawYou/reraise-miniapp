@@ -259,17 +259,17 @@ export default function PlayerProfilePage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-6 flex items-center justify-between gap-4">
+        <div className="mb-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+              className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-white/85"
             >
               ← Назад
             </Link>
 
             <div>
-              <h1 className="text-lg font-semibold text-white">Профиль</h1>
+              <h1 className="text-xl font-semibold text-white">Профиль</h1>
             </div>
           </div>
         </div>
@@ -283,10 +283,10 @@ export default function PlayerProfilePage() {
             <img
               src={avatarUrl}
               alt={player.display_name}
-              className="mb-4 h-20 w-20 rounded-full border border-white/10 object-cover"
+              className="mb-5 h-20 w-20 rounded-full border border-white/10 object-cover"
             />
           ) : (
-            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/5 text-2xl font-bold text-white/80">
+            <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-2xl font-bold text-white/80">
               {avatarFallback}
             </div>
           )}
@@ -305,11 +305,11 @@ export default function PlayerProfilePage() {
           </div>
 
           {isOwnProfile ? (
-            <div className="mt-4 flex w-full flex-wrap gap-3">
+            <div className="mt-5 flex w-full flex-wrap gap-3">
               <button
                 type="button"
                 onClick={() => avatarInputRef.current?.click()}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/85"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-4 py-2.5 text-sm text-white/85"
               >
                 <ImageIcon />
                 {avatarLoading ? "Загружаем аватар..." : "Сменить аватар"}
@@ -322,7 +322,7 @@ export default function PlayerProfilePage() {
                   setNicknameError(null);
                   setNickname(player.pending_display_name ?? player.display_name);
                 }}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/85"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-4 py-2.5 text-sm text-white/85"
               >
                 <PencilIcon />
                 Сменить ник
@@ -331,7 +331,7 @@ export default function PlayerProfilePage() {
           ) : null}
         </div>
         {player.nickname_status === "pending" && player.pending_display_name ? (
-          <div className="mt-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/65">
+          <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/60">
             Ник на модерации: {player.pending_display_name}
           </div>
         ) : null}
@@ -341,7 +341,7 @@ export default function PlayerProfilePage() {
         ) : null}
 
         {isOwnProfile && isEditingNickname ? (
-          <div className="mt-4 max-w-md rounded-xl border border-white/10 bg-white/5 p-4">
+          <div className="mt-5 max-w-md rounded-2xl border border-white/10 bg-white/[0.05] p-4">
             <input
               type="text"
               value={nickname}
@@ -350,7 +350,7 @@ export default function PlayerProfilePage() {
                 setNicknameError(null);
               }}
               placeholder="Новый ник"
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none"
+              className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none"
             />
 
             {nicknameError ? (
@@ -362,7 +362,7 @@ export default function PlayerProfilePage() {
                 type="button"
                 onClick={handleNicknameSubmit}
                 disabled={nicknameLoading || !nickname.trim()}
-                className="rounded-xl bg-yellow-500 px-4 py-3 font-semibold text-black disabled:opacity-40"
+                className="rounded-full bg-yellow-500 px-4 py-3 font-semibold text-black disabled:opacity-40"
               >
                 {nicknameLoading ? "Сохраняем..." : "Отправить"}
               </button>
@@ -374,7 +374,7 @@ export default function PlayerProfilePage() {
                   setNicknameError(null);
                   setNickname(player.pending_display_name ?? player.display_name);
                 }}
-                className="rounded-xl border border-white/10 px-4 py-3 text-white/80"
+                className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-white/80"
               >
                 Отмена
               </button>
@@ -382,18 +382,18 @@ export default function PlayerProfilePage() {
           </div>
         ) : null}
 
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+        <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
             <p className="text-sm text-white/60">Рейтинг</p>
             <p className="mt-2 text-2xl font-semibold">{rating}</p>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
             <p className="text-sm text-white/60">Сыграно турниров</p>
             <p className="mt-2 text-2xl font-semibold">{playedCount}</p>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
             <p className="text-sm text-white/60">Нокауты</p>
             <p className="mt-2 text-2xl font-semibold">{totalKnockouts}</p>
           </div>
@@ -411,7 +411,7 @@ export default function PlayerProfilePage() {
               {history.map((item) => (
                 <div
                   key={`${item.tournament.id}-${item.result.player_id}`}
-                  className="rounded-xl border border-white/10 bg-white/5 p-4"
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5"
                 >
                   <p className="text-lg font-semibold">{item.tournament.title}</p>
                   <p className="mt-1 text-sm text-white/60">
