@@ -263,7 +263,7 @@ export default function PlayerProfilePage() {
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-white/85"
+              className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
             >
               ← Назад
             </Link>
