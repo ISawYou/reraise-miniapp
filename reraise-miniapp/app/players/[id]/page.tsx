@@ -9,17 +9,36 @@ import {
   submitNicknameForModeration,
 } from "@/features/auth";
 import {
+  getMyTournaments,
   getPlayedTournamentsCount,
   getPlayerRating,
   getPlayerTournamentHistory,
 } from "@/features/tournaments";
 import { getTelegramUser, getTelegramWebApp } from "@/lib/telegram";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
-import type { Player, Tournament, TournamentResult } from "@/types/domain";
+import type {
+  Player,
+  RegistrationStatus,
+  Tournament,
+  TournamentResult,
+} from "@/types/domain";
+
+type TabKey = "upcoming" | "past";
 
 type HistoryItem = {
   tournament: Tournament;
   result: TournamentResult;
+};
+
+type UpcomingTournamentItem = {
+  registration: {
+    id: string;
+    player_id: string;
+    tournament_id: string;
+    status: RegistrationStatus;
+    created_at: string;
+  };
+  tournament: Tournament;
 };
 
 function PencilIcon() {
@@ -69,6 +88,10 @@ export default function PlayerProfilePage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [rating, setRating] = useState(0);
   const [playedCount, setPlayedCount] = useState(0);
+  const [activeTab, setActiveTab] = useState<TabKey>("upcoming");
+  const [upcomingTournaments, setUpcomingTournaments] = useState<
+    UpcomingTournamentItem[]
+  >([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,15 +118,21 @@ export default function PlayerProfilePage() {
           setViewerId(ensuredViewer.id);
         }
 
-        const [playerData, playerRating, tournamentsCount, playerHistory] =
-          await Promise.all([
-            ensuredViewer?.id === playerId
-              ? Promise.resolve(ensuredViewer)
-              : getPlayerById(playerId),
-            getPlayerRating(playerId),
-            getPlayedTournamentsCount(playerId),
-            getPlayerTournamentHistory(playerId),
-          ]);
+        const [
+          playerData,
+          playerRating,
+          tournamentsCount,
+          playerHistory,
+          myTournaments,
+        ] = await Promise.all([
+          ensuredViewer?.id === playerId
+            ? Promise.resolve(ensuredViewer)
+            : getPlayerById(playerId),
+          getPlayerRating(playerId),
+          getPlayedTournamentsCount(playerId),
+          getPlayerTournamentHistory(playerId),
+          getMyTournaments(playerId),
+        ]);
 
         if (!playerData) {
           throw new Error("Player not found");
@@ -113,7 +142,22 @@ export default function PlayerProfilePage() {
         setNickname(playerData.pending_display_name ?? playerData.display_name);
         setRating(playerRating);
         setPlayedCount(tournamentsCount);
-        setHistory(playerHistory);
+        setHistory(
+          playerHistory.sort(
+            (a, b) =>
+              new Date(b.tournament.start_at).getTime() -
+              new Date(a.tournament.start_at).getTime()
+          )
+        );
+        setUpcomingTournaments(
+          myTournaments
+            .filter((item) => item.tournament.status !== "completed")
+            .sort(
+              (a, b) =>
+                new Date(a.tournament.start_at).getTime() -
+                new Date(b.tournament.start_at).getTime()
+            )
+        );
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Ошибка загрузки профиля"
@@ -133,6 +177,22 @@ export default function PlayerProfilePage() {
     (sum, item) => sum + (item.result.knockouts ?? 0),
     0
   );
+
+  function getStatusText(status: RegistrationStatus) {
+    if (status === "registered") {
+      return "Вы зарегистрированы";
+    }
+
+    if (status === "waitlist") {
+      return "Вы в списке ожидания";
+    }
+
+    if (status === "attended") {
+      return "Вы участвовали";
+    }
+
+    return status;
+  }
 
   async function handleAvatarFileChange(
     event: React.ChangeEvent<HTMLInputElement>
@@ -330,6 +390,7 @@ export default function PlayerProfilePage() {
             </div>
           ) : null}
         </div>
+
         {player.nickname_status === "pending" && player.pending_display_name ? (
           <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/60">
             Ник на модерации: {player.pending_display_name}
@@ -400,31 +461,99 @@ export default function PlayerProfilePage() {
         </div>
 
         <section className="mt-8">
-          <h2 className="text-xl font-semibold">История турниров</h2>
+          <h2 className="text-xl font-semibold">Турниры</h2>
 
-          {history.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-              Сыграйте первый турнир, чтобы здесь появилась история
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setActiveTab("upcoming")}
+              className={`rounded-full border px-4 py-3 text-sm font-medium ${
+                activeTab === "upcoming"
+                  ? "border-white/20 bg-white/10 text-white"
+                  : "border-white/10 bg-transparent text-white/70"
+              }`}
+            >
+              Активные ({upcomingTournaments.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("past")}
+              className={`rounded-full border px-4 py-3 text-sm font-medium ${
+                activeTab === "past"
+                  ? "border-white/20 bg-white/10 text-white"
+                  : "border-white/10 bg-transparent text-white/70"
+              }`}
+            >
+              Прошедшие ({history.length})
+            </button>
+          </div>
+
+          {activeTab === "upcoming" ? (
+            <div className="mt-4">
+              {upcomingTournaments.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                  Пока нет активных турниров
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {upcomingTournaments.map((item) => (
+                    <Link
+                      key={item.registration.id}
+                      href={`/tournaments/${item.tournament.id}`}
+                      className="block rounded-2xl border border-white/10 bg-white/[0.05] p-4"
+                    >
+                      <h3 className="text-lg font-semibold">
+                        {item.tournament.title}
+                      </h3>
+
+                      <p className="mt-2 text-sm text-white/60">
+                        {new Date(item.tournament.start_at).toLocaleString("ru-RU")}
+                      </p>
+
+                      <p className="mt-1 text-sm text-white/60">
+                        Статус: {getStatusText(item.registration.status)}
+                      </p>
+
+                      <p className="mt-3 text-sm text-white/70 underline underline-offset-4">
+                        Открыть турнир
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
-            <div className="mt-4 space-y-3">
-              {history.map((item) => (
-                <div
-                  key={`${item.tournament.id}-${item.result.player_id}`}
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5"
-                >
-                  <p className="text-lg font-semibold">{item.tournament.title}</p>
-                  <p className="mt-1 text-sm text-white/60">
-                    {new Date(item.tournament.start_at).toLocaleString("ru-RU")}
-                  </p>
-
-                  <div className="mt-3 grid grid-cols-3 gap-3 text-sm text-white/80">
-                    <div>Место: {item.result.place}</div>
-                    <div>Нокауты: {item.result.knockouts}</div>
-                    <div>Очки: {item.result.rating_points}</div>
-                  </div>
+            <div className="mt-4">
+              {history.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                  Пока нет завершённых турниров
                 </div>
-              ))}
+              ) : (
+                <div className="space-y-4">
+                  {history.map((item) => (
+                    <Link
+                      key={`${item.tournament.id}-${item.result.player_id}`}
+                      href={`/tournaments/${item.tournament.id}`}
+                      className="block rounded-2xl border border-white/10 bg-white/[0.05] p-4"
+                    >
+                      <h3 className="text-lg font-semibold">
+                        {item.tournament.title}
+                      </h3>
+
+                      <p className="mt-2 text-sm text-white/60">
+                        {new Date(item.tournament.start_at).toLocaleString("ru-RU")}
+                      </p>
+
+                      <div className="mt-3 grid grid-cols-3 gap-3 text-sm text-white/80">
+                        <div>Место: {item.result.place}</div>
+                        <div>Нокауты: {item.result.knockouts}</div>
+                        <div>Очки: {item.result.rating_points}</div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </section>
