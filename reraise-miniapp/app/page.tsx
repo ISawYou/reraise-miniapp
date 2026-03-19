@@ -611,6 +611,13 @@ export default function HomePage() {
                   Рейтинг
                 </Link>
 
+                <Link
+                  href="/faq"
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
+                >
+                  FAQ
+                </Link>
+
                 {player?.role === "admin" ? (
                   <a
                     href="/admin"
