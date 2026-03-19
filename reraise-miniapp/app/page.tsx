@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -49,7 +49,7 @@ export default function HomePage() {
 
   function formatTermsLine(line: string) {
     return line.replace(
-      /\b(и|а|но|в|с|к|у|о|от|до|за|из|на|по|под|при|без|для)\s+/gi,
+      /\b(Рё|Р°|РЅРѕ|РІ|СЃ|Рє|Сѓ|Рѕ|РѕС‚|РґРѕ|Р·Р°|РёР·|РЅР°|РїРѕ|РїРѕРґ|РїСЂРё|Р±РµР·|РґР»СЏ)\s+/gi,
       "$1\u00A0"
     );
   }
@@ -137,10 +137,10 @@ export default function HomePage() {
 
         if (promotedTournament) {
           setPromotionToast(
-            `Вы переместились из списка ожидания в основной список: ${promotedTournament.title}`
+            `Р’С‹ РїРµСЂРµРјРµСЃС‚РёР»РёСЃСЊ РёР· СЃРїРёСЃРєР° РѕР¶РёРґР°РЅРёСЏ РІ РѕСЃРЅРѕРІРЅРѕР№ СЃРїРёСЃРѕРє: ${promotedTournament.title}`
           );
         } else {
-          setPromotionToast("Вы переместились из списка ожидания в основной список");
+          setPromotionToast("Р’С‹ РїРµСЂРµРјРµСЃС‚РёР»РёСЃСЊ РёР· СЃРїРёСЃРєР° РѕР¶РёРґР°РЅРёСЏ РІ РѕСЃРЅРѕРІРЅРѕР№ СЃРїРёСЃРѕРє");
         }
       }
     }
@@ -201,7 +201,7 @@ export default function HomePage() {
 
       if (result.moderationRequired) {
         setShowProfileSetup(false);
-        setPromotionToast("Ник отправлен на модерацию");
+        setPromotionToast("РќРёРє РѕС‚РїСЂР°РІР»РµРЅ РЅР° РјРѕРґРµСЂР°С†РёСЋ");
 
         await refreshHomeData(result.player.id, {
           showPromotionToast: false,
@@ -219,7 +219,7 @@ export default function HomePage() {
       if (error instanceof Error) {
         setProfileError(error.message);
       } else {
-        setProfileError("Ошибка регистрации");
+        setProfileError("РћС€РёР±РєР° СЂРµРіРёСЃС‚СЂР°С†РёРё");
       }
     } finally {
       setProfileLoading(false);
@@ -339,7 +339,7 @@ export default function HomePage() {
   const greetingName = useMemo(() => {
     if (player?.display_name) return player.display_name;
     if (user?.first_name) return user.first_name;
-    return "игрок";
+    return "РёРіСЂРѕРє";
   }, [player?.display_name, user?.first_name]);
 
   if (initializing) {
@@ -347,7 +347,7 @@ export default function HomePage() {
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
           <div className="rounded-xl bg-white/5 p-4 text-sm text-white/70">
-            Загружаем...
+            Р—Р°РіСЂСѓР¶Р°РµРј...
           </div>
         </div>
       </main>
@@ -360,14 +360,14 @@ export default function HomePage() {
         <div className="mx-auto flex h-full max-w-md flex-col gap-4">
           <div className="terms-card rounded-[28px] p-5">
             <p className="text-xs uppercase tracking-[0.28em] text-yellow-300/80">
-              ReRaise Poker Club
+            Игровое пространство RERAISE
             </p>
             <h1 className="mt-3 text-3xl font-bold leading-tight">
-              Пользовательское соглашение
+              РџРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРµ СЃРѕРіР»Р°С€РµРЅРёРµ
             </h1>
             <p className="mt-3 text-sm leading-6 text-white/70">
-              Перед началом использования приложения ознакомьтесь с правилами
-              игрового пространства.
+              РџРµСЂРµРґ РЅР°С‡Р°Р»РѕРј РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ РїСЂРёР»РѕР¶РµРЅРёСЏ РѕР·РЅР°РєРѕРјСЊС‚РµСЃСЊ СЃ РїСЂР°РІРёР»Р°РјРё
+              РёРіСЂРѕРІРѕРіРѕ РїСЂРѕСЃС‚СЂР°РЅСЃС‚РІР°.
             </p>
           </div>
 
@@ -390,8 +390,8 @@ export default function HomePage() {
                   const isSubtitle = line.startsWith("(") && line.endsWith(")");
                   const isSectionTitle =
                     !/^\d+\.\d+\./.test(line) &&
-                    !line.includes("—") &&
-                    !line.includes("–") &&
+                    !line.includes("вЂ”") &&
+                    !line.includes("вЂ“") &&
                     line.length < 40;
                   const isListLead = /:\s*$/.test(line);
 
@@ -438,16 +438,16 @@ export default function HomePage() {
                 type="button"
                 onClick={handleScrollTermsToBottom}
                 className="terms-scroll-chip absolute bottom-3 left-1/2"
-                aria-label="Прокрутить соглашение вниз"
+                aria-label="РџСЂРѕРєСЂСѓС‚РёС‚СЊ СЃРѕРіР»Р°С€РµРЅРёРµ РІРЅРёР·"
               >
-                ↓
+                в†“
               </button>
             ) : null}
           </div>
 
           <div className="terms-actions">
             <p className="text-center text-xs text-white/50">
-              Кнопка станет активной после прочтения соглашения
+              РљРЅРѕРїРєР° СЃС‚Р°РЅРµС‚ Р°РєС‚РёРІРЅРѕР№ РїРѕСЃР»Рµ РїСЂРѕС‡С‚РµРЅРёСЏ СЃРѕРіР»Р°С€РµРЅРёСЏ
             </p>
 
             <button
@@ -457,10 +457,10 @@ export default function HomePage() {
               className="w-full rounded-[20px] bg-yellow-500 py-4 text-base font-semibold text-black shadow-[0_10px_30px_rgba(245,196,81,0.22)] disabled:opacity-40"
             >
               {termsAcceptedLoading
-                ? "Сохраняем..."
+                ? "РЎРѕС…СЂР°РЅСЏРµРј..."
                 : scrolledToBottom
-                  ? "Принять"
-                  : "Прокрутите до конца"}
+                  ? "РџСЂРёРЅСЏС‚СЊ"
+                  : "РџСЂРѕРєСЂСѓС‚РёС‚Рµ РґРѕ РєРѕРЅС†Р°"}
             </button>
           </div>
         </div>
@@ -473,8 +473,8 @@ export default function HomePage() {
       <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
         <div className="mx-auto flex h-full max-w-md flex-col justify-center">
           <div className="rounded-2xl bg-white/5 p-5">
-            <h1 className="text-xl font-semibold">Добро пожаловать</h1>
-            <p className="mt-3 text-sm text-white/75">Введите ник</p>
+            <h1 className="text-xl font-semibold">Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ</h1>
+            <p className="mt-3 text-sm text-white/75">Р’РІРµРґРёС‚Рµ РЅРёРє</p>
 
             <input
               type="text"
@@ -483,7 +483,7 @@ export default function HomePage() {
                 setNickname(e.target.value);
                 setProfileError(null);
               }}
-              placeholder="Ваш ник"
+              placeholder="Р’Р°С€ РЅРёРє"
               className="mt-4 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none"
             />
 
@@ -497,7 +497,7 @@ export default function HomePage() {
               disabled={profileLoading || !nickname.trim()}
               className="mt-4 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
             >
-              {profileLoading ? "Сохраняем..." : "Зарегистрироваться"}
+              {profileLoading ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊСЃСЏ"}
             </button>
           </div>
         </div>
@@ -510,31 +510,31 @@ export default function HomePage() {
       <div className="mx-auto max-w-md">
         <header className="mb-8">
           <p className="text-xs uppercase tracking-[0.18em] text-white/40">
-            ReRaise Poker Club
+            Игровое пространство RERAISE
           </p>
-          <h1 className="mt-3 text-4xl font-bold tracking-tight">Главная</h1>
-          <p className="mt-3 text-sm text-white/75">Привет, {greetingName}</p>
+          <h1 className="mt-3 text-4xl font-bold tracking-tight">Р“Р»Р°РІРЅР°СЏ</h1>
+          <p className="mt-3 text-sm text-white/75">РџСЂРёРІРµС‚, {greetingName}</p>
           <p className="mt-1 text-xs text-white/45">
-            Добро пожаловать в ReRaise Poker Club
+            Добро пожаловать в ReRaise
           </p>
         </header>
 
         {!checkedTelegram ? (
           <div className="rounded-xl border border-white/10 bg-white/[0.05] p-4 text-sm text-white/70">
-            Проверяем Telegram...
+            РџСЂРѕРІРµСЂСЏРµРј Telegram...
           </div>
         ) : null}
 
         {checkedTelegram && !isInsideTelegram ? (
           <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">
-            Приложение открыто вне Telegram. Полная проверка работает внутри Mini
+            РџСЂРёР»РѕР¶РµРЅРёРµ РѕС‚РєСЂС‹С‚Рѕ РІРЅРµ Telegram. РџРѕР»РЅР°СЏ РїСЂРѕРІРµСЂРєР° СЂР°Р±РѕС‚Р°РµС‚ РІРЅСѓС‚СЂРё Mini
             App.
           </div>
         ) : null}
 
         {playerLoading && !initializing ? (
           <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-sm text-white/70">
-            Синхронизируем игрока...
+            РЎРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј РёРіСЂРѕРєР°...
           </div>
         ) : null}
 
@@ -548,7 +548,7 @@ export default function HomePage() {
           <>
             <section className="mt-6">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-xl font-semibold">Ближайший турнир</h2>
+                <h2 className="text-xl font-semibold">Р‘Р»РёР¶Р°Р№С€РёР№ С‚СѓСЂРЅРёСЂ</h2>
               </div>
 
               {nearestTournament ? (
@@ -557,7 +557,7 @@ export default function HomePage() {
                   className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 transition active:scale-[0.99]"
                 >
                   <p className="text-xs uppercase tracking-[0.18em] text-white/45">
-                    Ближайший старт
+                    Р‘Р»РёР¶Р°Р№С€РёР№ СЃС‚Р°СЂС‚
                   </p>
 
                   <h3 className="mt-3 text-3xl font-black uppercase leading-none tracking-wide">
@@ -569,23 +569,23 @@ export default function HomePage() {
                       {new Date(nearestTournament.start_at).toLocaleString("ru-RU")}
                     </div>
                     <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                      Лимит: {nearestTournament.max_players}
+                      Р›РёРјРёС‚: {nearestTournament.max_players}
                     </div>
                   </div>
 
                   <p className="mt-4 text-sm text-white/55">
-                    Нажми, чтобы открыть турнир
+                    РќР°Р¶РјРё, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ С‚СѓСЂРЅРёСЂ
                   </p>
                 </Link>
               ) : (
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
-                  Сейчас нет открытых турниров
+                  РЎРµР№С‡Р°СЃ РЅРµС‚ РѕС‚РєСЂС‹С‚С‹С… С‚СѓСЂРЅРёСЂРѕРІ
                 </div>
               )}
             </section>
 
             <section className="mt-6">
-              <h2 className="mb-3 text-xl font-semibold">Меню</h2>
+              <h2 className="mb-3 text-xl font-semibold">РњРµРЅСЋ</h2>
 
               <div className="grid grid-cols-1 gap-3">
                 {player ? (
@@ -593,7 +593,7 @@ export default function HomePage() {
                     href={`/players/${player.id}`}
                     className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
                   >
-                    Профиль
+                    РџСЂРѕС„РёР»СЊ
                   </Link>
                 ) : null}
 
@@ -601,21 +601,21 @@ export default function HomePage() {
                   href="/tournaments"
                   className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
                 >
-                  Турниры
+                  РўСѓСЂРЅРёСЂС‹
                 </Link>
 
                 <Link
                   href="/my-tournaments"
                   className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
                 >
-                  Мои турниры
+                  РњРѕРё С‚СѓСЂРЅРёСЂС‹
                 </Link>
 
                 <Link
                   href="/leaderboard"
                   className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
                 >
-                  Рейтинг
+                  Р РµР№С‚РёРЅРі
                 </Link>
 
                 {player?.role === "admin" ? (
@@ -623,7 +623,7 @@ export default function HomePage() {
                     href="/admin"
                     className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
                   >
-                    Админ-панель
+                    РђРґРјРёРЅ-РїР°РЅРµР»СЊ
                   </a>
                 ) : null}
               </div>
