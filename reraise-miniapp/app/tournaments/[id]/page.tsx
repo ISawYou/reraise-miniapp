@@ -112,14 +112,14 @@ const waitlistParticipants = participants.filter(
       const result = await registerPlayerForTournament(playerId, tournamentId);
 
       if (result.status === "registered") {
-        setMessage("Р’С‹ Р·Р°РїРёСЃР°РЅС‹ РЅР° С‚СѓСЂРЅРёСЂ");
+        setMessage("Вы записаны на турнир");
       } else if (result.status === "waitlist") {
-        setMessage("Р’С‹ РґРѕР±Р°РІР»РµРЅС‹ РІ СЃРїРёСЃРѕРє РѕР¶РёРґР°РЅРёСЏ");
+        setMessage("Вы добавлены в список ожидания");
       }
 
       await refreshPageData(playerId, tournamentId);
     } catch (err) {
-      setMessage("РћС€РёР±РєР° Р·Р°РїРёСЃРё");
+      setMessage("Ошибка записи");
     } finally {
       setActionLoading(false);
     }
@@ -135,14 +135,14 @@ const waitlistParticipants = participants.filter(
       await cancelPlayerRegistration(playerId, tournamentId);
 
       if (registrationStatus === "registered") {
-        setMessage("Р—Р°РїРёСЃСЊ РЅР° С‚СѓСЂРЅРёСЂ РѕС‚РјРµРЅРµРЅР°");
+        setMessage("Запись на турнир отменена");
       } else if (registrationStatus === "waitlist") {
-        setMessage("Р’С‹ РІС‹С€Р»Рё РёР· СЃРїРёСЃРєР° РѕР¶РёРґР°РЅРёСЏ");
+        setMessage("Вы вышли из списка ожидания");
       }
 
       await refreshPageData(playerId, tournamentId);
     } catch (err) {
-      setMessage("РћС€РёР±РєР° РѕС‚РјРµРЅС‹ Р·Р°РїРёСЃРё");
+      setMessage("Ошибка отмены записи");
     } finally {
       setActionLoading(false);
     }
@@ -160,10 +160,10 @@ const waitlistParticipants = participants.filter(
       className="mt-5 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
     >
       {actionLoading
-        ? "РЎРѕС…СЂР°РЅСЏРµРј..."
+        ? "Сохраняем..."
         : registeredCount >= tournament.max_players
-        ? "Р’СЃС‚Р°С‚СЊ РІ СЃРїРёСЃРѕРє РѕР¶РёРґР°РЅРёСЏ"
-        : "Р—Р°РїРёСЃР°С‚СЊСЃСЏ РЅР° С‚СѓСЂРЅРёСЂ"}
+        ? "Встать в список ожидания"
+        : "Записаться на турнир"}
     </button>
   );
 }
@@ -176,7 +176,7 @@ const waitlistParticipants = participants.filter(
           disabled={actionLoading}
           className="mt-5 w-full rounded-xl bg-green-600 py-3 font-semibold text-white disabled:opacity-60"
         >
-          {actionLoading ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "РћС‚РјРµРЅРёС‚СЊ Р·Р°РїРёСЃСЊ"}
+          {actionLoading ? "Сохраняем..." : "Отменить запись"}
         </button>
       );
     }
@@ -189,7 +189,7 @@ const waitlistParticipants = participants.filter(
           disabled={actionLoading}
           className="mt-5 w-full rounded-xl bg-orange-500 py-3 font-semibold text-white disabled:opacity-60"
         >
-          {actionLoading ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "Р’С‹Р№С‚Рё РёР· СЃРїРёСЃРєР° РѕР¶РёРґР°РЅРёСЏ"}
+          {actionLoading ? "Сохраняем..." : "Выйти из списка ожидания"}
         </button>
       );
     }
@@ -201,29 +201,29 @@ const waitlistParticipants = participants.filter(
     if (!tournament) return "";
 
     if (tournament.status === "completed") {
-      return "РЎС‚Р°С‚СѓСЃ: С‚СѓСЂРЅРёСЂ Р·Р°РІРµСЂС€РµРЅ";
+      return "Статус: турнир завершен";
     }
 
     if (registrationStatus === "registered") {
-      return "РЎС‚Р°С‚СѓСЃ: РІС‹ Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅС‹";
+      return "Статус: вы зарегистрированы";
     }
 
     if (registrationStatus === "waitlist") {
-      return "РЎС‚Р°С‚СѓСЃ: РІС‹ РІ СЃРїРёСЃРєРµ РѕР¶РёРґР°РЅРёСЏ";
+      return "Статус: вы в списке ожидания";
     }
 
     if (registeredCount >= tournament.max_players) {
-      return "РЎС‚Р°С‚СѓСЃ: СЃРІРѕР±РѕРґРЅС‹С… РјРµСЃС‚ РЅРµС‚";
+      return "Статус: свободных мест нет";
     }
 
-    return "РЎС‚Р°С‚СѓСЃ: РµСЃС‚СЊ СЃРІРѕР±РѕРґРЅС‹Рµ РјРµСЃС‚Р°";
+    return "Статус: есть свободные места";
   }
 
   if (loading) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
-          <p className="text-sm text-white/70">Р—Р°РіСЂСѓР¶Р°РµРј С‚СѓСЂРЅРёСЂ...</p>
+          <p className="text-sm text-white/70">Загружаем турнир...</p>
         </div>
       </main>
     );
@@ -237,11 +237,11 @@ const waitlistParticipants = participants.filter(
             href="/tournaments"
             className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
-            в†ђ РќР°Р·Р°Рґ
+            ← Назад
           </Link>
 
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-            {error ?? "РўСѓСЂРЅРёСЂ РЅРµ РЅР°Р№РґРµРЅ"}
+            {error ?? "Турнир не найден"}
           </div>
         </div>
       </main>
@@ -255,11 +255,11 @@ const waitlistParticipants = participants.filter(
           href="/tournaments"
           className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
         >
-          в†ђ РќР°Р·Р°Рґ
+          ← Назад
         </Link>
 
         <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-red-900/60 to-black p-5">
-          <p className="text-sm text-white/60">РўСѓСЂРЅРёСЂ</p>
+          <p className="text-sm text-white/60">Турнир</p>
           <h1 className="mt-2 text-3xl font-black uppercase tracking-wide">
             {tournament.title}
           </h1>
@@ -284,7 +284,7 @@ const waitlistParticipants = participants.filter(
                 : "border-white/10 bg-transparent text-white/70"
             }`}
           >
-            Рћ С‚СѓСЂРЅРёСЂРµ
+            О турнире
           </button>
 
           <button
@@ -299,40 +299,40 @@ const waitlistParticipants = participants.filter(
             }`}
           >
             {tournament.status === "completed"
-              ? `Р РµР·СѓР»СЊС‚Р°С‚С‹ (${results.length})`
-              : `РЈС‡Р°СЃС‚РЅРёРєРё (${registeredParticipants.length})`}
+              ? `Результаты (${results.length})`
+              : `Участники (${registeredParticipants.length})`}
           </button>
         </div>
 
         {activeTab === "about" ? (
           <div className="mt-6 space-y-6">
             <section>
-              <h2 className="text-2xl font-bold">РљРѕРіРґР°</h2>
+              <h2 className="text-2xl font-bold">Когда</h2>
               <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
                 <p className="text-base">{new Date(tournament.start_at).toLocaleString("ru-RU")}</p>
               </div>
             </section>
 
             <section>
-              <h2 className="text-2xl font-bold">Р“РґРµ</h2>
+              <h2 className="text-2xl font-bold">Где</h2>
               <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
                 <p className="text-base">
-                {tournament.location || "РњРµСЃС‚Рѕ РЅРµ СѓРєР°Р·Р°РЅРѕ"}
+                {tournament.location || "Место не указано"}
                 </p>
               </div>
             </section>
 
 <section>
-  <h2 className="text-2xl font-bold">РћРїРёСЃР°РЅРёРµ</h2>
+  <h2 className="text-2xl font-bold">Описание</h2>
   <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
     <p className="text-base text-white/80">
-      {tournament.description || "РћРїРёСЃР°РЅРёРµ РЅРµ РґРѕР±Р°РІР»РµРЅРѕ"}
+      {tournament.description || "Описание не добавлено"}
     </p>
   </div>
 </section>
 
             <section>
-              <h2 className="text-2xl font-bold">РЎС‚Р°С‚СѓСЃ</h2>
+              <h2 className="text-2xl font-bold">Статус</h2>
               <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
                 <p className="text-base">{getStatusText()}</p>
               </div>
@@ -340,10 +340,10 @@ const waitlistParticipants = participants.filter(
 
             {tournament.status !== "completed" ? (
               <section>
-                <h2 className="text-2xl font-bold">Р РµРіРёСЃС‚СЂР°С†РёСЏ</h2>
+                <h2 className="text-2xl font-bold">Регистрация</h2>
                 <div className="mt-3 rounded-xl border border-white/10 bg-red-900/30 p-4">
                   <p className="text-sm text-white/80">
-                    Р•СЃР»Рё РїР»Р°РЅС‹ РёР·РјРµРЅРёР»РёСЃСЊ, РїРѕР¶Р°Р»СѓР№СЃС‚Р°, РѕС‚РјРµРЅСЏР№С‚Рµ СЂРµРіРёСЃС‚СЂР°С†РёСЋ Р·Р°СЂР°РЅРµРµ,
+                    Если планы изменились, пожалуйста, отменяйте регистрацию заранее,
                     чтобы освободить место для игроков из списка ожидания.
                   </p>
 
@@ -359,14 +359,14 @@ const waitlistParticipants = participants.filter(
         ) : tournament.status === "completed" ? (
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/5">
             <div className="grid grid-cols-[48px_1fr_80px_80px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
-              <div>РњРµСЃС‚Рѕ</div>
-              <div>РРіСЂРѕРє</div>
+              <div>Место</div>
+              <div>Игрок</div>
               <div className="text-right">KO</div>
-              <div className="text-right">РћС‡РєРё</div>
+              <div className="text-right">Очки</div>
             </div>
 
             {results.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-white/60">Р РµР·СѓР»СЊС‚Р°С‚С‹ РїРѕРєР° РЅРµ Р·Р°РїРѕР»РЅРµРЅС‹</div>
+              <div className="px-4 py-6 text-sm text-white/60">Результаты пока не заполнены</div>
             ) : (
               results.map((result) => (
                 <div
@@ -403,18 +403,18 @@ const waitlistParticipants = participants.filter(
           <div className="rounded-2xl border border-white/10 bg-white/5">
             <div className="border-b border-white/10 px-4 py-3">
               <p className="text-sm font-semibold text-white/80">
-                Р—Р°РїРёСЃР°РЅС‹ ({registeredParticipants.length})
+                Записаны ({registeredParticipants.length})
               </p>
             </div>
 
             <div className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
               <div>#</div>
-              <div>РќРёРє</div>
-              <div className="text-right">Р РµР№С‚РёРЅРі</div>
+              <div>Ник</div>
+              <div className="text-right">Рейтинг</div>
             </div>
 
             {registeredParticipants.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-white/60">РџРѕРєР° Р·Р°РїРёСЃР°РЅРЅС‹С… СѓС‡Р°СЃС‚РЅРёРєРѕРІ РЅРµС‚</div>
+              <div className="px-4 py-6 text-sm text-white/60">Пока записанных участников нет</div>
             ) : (
               registeredParticipants.map((participant, index) => (
                 <div
@@ -428,13 +428,8 @@ const waitlistParticipants = participants.filter(
                       href={`/players/${participant.player_id}`}
                       className="text-sm font-medium text-white"
                     >
-                      {participant.username
-                        ? `@${participant.username}`
-                        : participant.display_name}
+                      {participant.display_name}
                     </Link>
-                    {!participant.username ? (
-                      <p className="mt-1 text-xs text-white/50">{participant.display_name}</p>
-                    ) : null}
                   </div>
 
                   <div className="text-right text-sm font-semibold text-white/80">
@@ -445,23 +440,21 @@ const waitlistParticipants = participants.filter(
             )}
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5">
-            <div className="border-b border-white/10 px-4 py-3">
-              <p className="text-sm font-semibold text-white/80">
-                РЎРїРёСЃРѕРє РѕР¶РёРґР°РЅРёСЏ ({waitlistParticipants.length})
-              </p>
-            </div>
+          {waitlistParticipants.length > 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-white/5">
+              <div className="border-b border-white/10 px-4 py-3">
+                <p className="text-sm font-semibold text-white/80">
+                  Список ожидания ({waitlistParticipants.length})
+                </p>
+              </div>
 
-            <div className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
-              <div>#</div>
-              <div>РќРёРє</div>
-              <div className="text-right">Р РµР№С‚РёРЅРі</div>
-            </div>
+              <div className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
+                <div>#</div>
+                <div>Ник</div>
+                <div className="text-right">Рейтинг</div>
+              </div>
 
-            {waitlistParticipants.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-white/60">РЎРїРёСЃРѕРє РѕР¶РёРґР°РЅРёСЏ РїСѓСЃС‚</div>
-            ) : (
-              waitlistParticipants.map((participant, index) => (
+              {waitlistParticipants.map((participant, index) => (
                 <div
                   key={participant.registration_id}
                   className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
@@ -473,22 +466,17 @@ const waitlistParticipants = participants.filter(
                       href={`/players/${participant.player_id}`}
                       className="text-sm font-medium text-white"
                     >
-                      {participant.username
-                        ? `@${participant.username}`
-                        : participant.display_name}
+                      {participant.display_name}
                     </Link>
-                    {!participant.username ? (
-                      <p className="mt-1 text-xs text-white/50">{participant.display_name}</p>
-                    ) : null}
                   </div>
 
                   <div className="text-right text-sm font-semibold text-white/80">
                     {participant.rating}
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          ) : null}
         </div>
         )}
       </div>
