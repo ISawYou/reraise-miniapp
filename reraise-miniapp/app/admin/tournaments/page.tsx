@@ -7,6 +7,16 @@ import { deleteTournament, getOpenTournaments } from "@/features/tournaments";
 import { getTelegramUser } from "@/lib/telegram";
 import type { Player, Tournament } from "@/types/domain";
 
+function formatDateTimeWithoutSeconds(date: string) {
+  return new Date(date).toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function AdminTournamentsPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
@@ -152,7 +162,7 @@ export default function AdminTournamentsPage() {
                 <p className="text-lg font-semibold">{tournament.title}</p>
 
                 <p className="mt-2 text-sm text-white/60">
-                  {new Date(tournament.start_at).toLocaleString("ru-RU")}
+                  {formatDateTimeWithoutSeconds(tournament.start_at)}
                 </p>
 
                 <p className="mt-1 text-sm text-white/60">

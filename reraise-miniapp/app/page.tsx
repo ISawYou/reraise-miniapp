@@ -120,6 +120,16 @@ function CrownIcon() {
   );
 }
 
+function formatDateTimeWithoutSeconds(date: string) {
+  return new Date(date).toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function HomePage() {
   const [user, setUser] = useState<TelegramWebAppUser | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
@@ -696,7 +706,7 @@ export default function HomePage() {
 
                   <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/80">
                     <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                      {new Date(nearestTournament.start_at).toLocaleString("ru-RU")}
+                      {formatDateTimeWithoutSeconds(nearestTournament.start_at)}
                     </div>
                     <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
                       Лимит: {nearestTournament.max_players}
