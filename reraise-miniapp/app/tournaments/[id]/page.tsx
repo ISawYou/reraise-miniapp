@@ -424,11 +424,13 @@ const waitlistParticipants = participants.filter(
           </h1>
 
           <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/80">
-            <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2">
-              {formatTournamentDate(tournament.start_at)}
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
+              <CalendarIcon />
+              <span>{formatTournamentDate(tournament.start_at)}</span>
             </div>
-            <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2">
-              {registeredCount} / {tournament.max_players}
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
+              <UserIcon />
+              <span>{registeredCount} / {tournament.max_players}</span>
             </div>
           </div>
         </div>
@@ -469,7 +471,7 @@ const waitlistParticipants = participants.filter(
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <div className="flex items-center gap-2 text-sm text-white/60">
                   <CalendarIcon />
-                  <span>Время</span>
+                  <span>Начало</span>
                 </div>
                 <p className="mt-6 text-lg font-semibold text-white">
                   {tournamentDateParts?.date}
