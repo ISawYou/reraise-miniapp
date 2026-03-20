@@ -23,7 +23,7 @@ function ArrowUpRightIcon() {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="h-4 w-4"
+      className="h-4 w-5"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -278,7 +278,7 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleRegister(tournament.id)}
           disabled={isLoading}
-          className="w-full rounded-full bg-yellow-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+          className="w-full rounded-2xl bg-yellow-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
         >
           {isLoading
             ? "Сохраняем..."
@@ -295,7 +295,7 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleCancel(tournament.id)}
           disabled={isLoading}
-          className="w-full rounded-full bg-green-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+          className="w-full rounded-2xl bg-green-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
         >
           {isLoading ? "Сохраняем..." : "Вы записаны"}
         </button>
@@ -308,7 +308,7 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleCancel(tournament.id)}
           disabled={isLoading}
-          className="w-full rounded-full bg-orange-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+          className="w-full rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
         >
           {isLoading ? "Сохраняем..." : "Вы в списке ожидания"}
         </button>
@@ -400,19 +400,16 @@ export default function TournamentsPage() {
                   const registeredCount = registrationCounts[tournament.id] ?? 0;
 
                   return (
-                    <div
+                    <Link
                       key={tournament.id}
-                      className="rounded-3xl border border-white/10 bg-white/[0.05] p-5"
+                      href={`/tournaments/${tournament.id}`}
+                      className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                        <Link
-                          href={`/tournaments/${tournament.id}`}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60"
-                          aria-label="Открыть турнир"
-                        >
+                        <div className="inline-flex items-center text-white/55">
                           <ArrowUpRightIcon />
-                        </Link>
+                        </div>
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
@@ -427,9 +424,11 @@ export default function TournamentsPage() {
                       </div>
 
                       <div className="mt-4">
-                        {renderActionButton(tournament)}
+                        <div onClick={(event) => event.preventDefault()}>
+                          {renderActionButton(tournament)}
+                        </div>
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
@@ -451,7 +450,7 @@ export default function TournamentsPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                      <div className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-white/45">
+                      <div className="inline-flex items-center text-white/45">
                         <ArrowUpRightIcon />
                       </div>
                     </div>
