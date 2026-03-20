@@ -100,7 +100,7 @@ function SupportIcon() {
   );
 }
 
-function CrownIcon() {
+function ShieldIcon() {
   return (
     <svg
       aria-hidden="true"
@@ -112,12 +112,9 @@ function CrownIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-        <path d="M5 18h14" />
-        <path d="M6 18 7.5 10.5 12 14l4.5-3.5L18 18" />
-        <circle cx="7.5" cy="10.5" r="0.9" />
-        <circle cx="12" cy="14" r="0.9" />
-        <circle cx="16.5" cy="10.5" r="0.9" />
-      </svg>
+      <path d="M12 3.75 6.5 6v5.25c0 4 2.55 6.7 5.5 8 2.95-1.3 5.5-4 5.5-8V6Z" />
+      <path d="M9.5 11.75 11.25 13.5 14.75 10" />
+    </svg>
   );
 }
 
@@ -777,7 +774,7 @@ export default function HomePage() {
                   className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-2 text-white/65">
-                    <CrownIcon />
+                    <ShieldIcon />
                     <span className="text-sm">Управление</span>
                   </div>
                   <p className="mt-6 text-2xl font-semibold">Админ-панель</p>

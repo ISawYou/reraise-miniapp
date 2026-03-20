@@ -91,6 +91,22 @@ function formatTournamentDate(date: string) {
   });
 }
 
+function formatTournamentDateParts(date: string) {
+  const value = new Date(date);
+
+  return {
+    date: value.toLocaleDateString("ru-RU", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }),
+    time: value.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  };
+}
+
 export default function TournamentDetailsPage() {
   const params = useParams<{ id: string }>();
   const tournamentId = params?.id;
@@ -108,6 +124,9 @@ export default function TournamentDetailsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const tournamentDateParts = tournament
+    ? formatTournamentDateParts(tournament.start_at)
+    : null;
   const registeredParticipants = participants.filter(
   (participant) =>
     participant.status === "registered" || participant.status === "attended"
@@ -244,7 +263,7 @@ const waitlistParticipants = participants.filter(
           disabled={actionLoading}
           className="mt-5 w-full rounded-xl bg-green-600 py-3 font-semibold text-white disabled:opacity-60"
         >
-          {actionLoading ? "Сохраняем..." : "Отменить запись"}
+          {actionLoading ? "Сохраняем..." : "Вы записаны"}
         </button>
       );
     }
@@ -356,17 +375,20 @@ const waitlistParticipants = participants.filter(
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <div className="flex items-center gap-2 text-sm text-white/60">
                   <CalendarIcon />
-                  <span>Когда</span>
+                  <span>Время</span>
                 </div>
                 <p className="mt-6 text-lg font-semibold text-white">
-                  {formatTournamentDate(tournament.start_at)}
+                  {tournamentDateParts?.date}
+                </p>
+                <p className="mt-2 text-base text-white/65">
+                  {tournamentDateParts?.time}
                 </p>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <div className="flex items-center gap-2 text-sm text-white/60">
                   <PinIcon />
-                  <span>Где</span>
+                  <span>Место</span>
                 </div>
                 <p className="mt-6 text-lg font-semibold text-white">
                   {tournament.location || "Место не указано"}
@@ -388,12 +410,11 @@ const waitlistParticipants = participants.filter(
               <section className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <h2 className="text-2xl font-bold">Регистрация</h2>
                 <div className="mt-4 rounded-2xl border border-white/10 bg-red-900/20 p-4">
-                  <p className="text-sm leading-6 text-white/75">
-                    Если планы изменились, пожалуйста, отменяйте регистрацию заранее,
-                    чтобы освободить место для игроков из списка ожидания.
-                  </p>
-
                   {renderActionButton()}
+
+                  <p className="mt-3 text-sm text-white/70">
+                    Если планы изменились, отмените запись заранее.
+                  </p>
 
                   {message ? (
                     <p className="mt-3 text-sm text-white/70">{message}</p>
