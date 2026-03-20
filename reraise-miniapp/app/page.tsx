@@ -95,7 +95,25 @@ function SupportIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M7 18.5H5.5A2.5 2.5 0 0 1 3 16V8.5A2.5 2.5 0 0 1 5.5 6H18a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H11l-4 3Z" />
+      <path d="M5.75 6.25h12.5A2.75 2.75 0 0 1 21 9v6a2.75 2.75 0 0 1-2.75 2.75H11l-4.25 3v-3H5.75A2.75 2.75 0 0 1 3 15V9a2.75 2.75 0 0 1 2.75-2.75Z" />
+    </svg>
+  );
+}
+
+function CrownIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m4 18 1.5-8 4.25 3L12 6l2.25 7 4.25-3L20 18Z" />
+      <path d="M4 18h16" />
     </svg>
   );
 }
@@ -593,37 +611,40 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-md">
-        <header className="mb-8 flex items-start justify-between gap-4">
+        <header className="mb-8">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-white/40">
               Игровое пространство RERAISE
             </p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight">Главная</h1>
-            <p className="mt-3 text-sm text-white/75">Привет, {greetingName}</p>
+            <div className="mt-3 flex items-center justify-between gap-4">
+              <h1 className="text-4xl font-bold tracking-tight">Главная</h1>
+
+              {player ? (
+                <Link
+                  href={`/players/${player.id}`}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-2 text-sm text-white/85"
+                >
+                  {homeAvatarUrl ? (
+                    <img
+                      src={homeAvatarUrl}
+                      alt={greetingName}
+                      className="h-7 w-7 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.08] text-xs font-semibold text-white/80">
+                      {homeAvatarFallback}
+                    </div>
+                  )}
+                  <span className="pr-1">Профиль</span>
+                </Link>
+              ) : null}
+            </div>
+
+            <p className="mt-4 text-sm text-white/75">Привет, {greetingName}</p>
             <p className="mt-1 text-xs text-white/45">
               Добро пожаловать в ReRaise
             </p>
           </div>
-
-          {player ? (
-            <Link
-              href={`/players/${player.id}`}
-              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-2 text-sm text-white/85"
-            >
-              {homeAvatarUrl ? (
-                <img
-                  src={homeAvatarUrl}
-                  alt={greetingName}
-                  className="h-7 w-7 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.08] text-xs font-semibold text-white/80">
-                  {homeAvatarFallback}
-                </div>
-              )}
-              <span className="pr-1">Профиль</span>
-            </Link>
-          ) : null}
         </header>
 
         {!checkedTelegram ? (
@@ -736,20 +757,20 @@ export default function HomePage() {
               </div>
             </section>
 
-            <section className="mt-6">
-              <h2 className="mb-3 text-xl font-semibold">Меню</h2>
-
-              <div className="grid grid-cols-1 gap-3">
-                {player?.role === "admin" ? (
-                  <a
-                    href="/admin"
-                    className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
-                  >
-                    Админ-панель
-                  </a>
-                ) : null}
-              </div>
-            </section>
+            {player?.role === "admin" ? (
+              <section className="mt-6">
+                <a
+                  href="/admin"
+                  className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-2 text-white/65">
+                    <CrownIcon />
+                    <span className="text-sm">Управление</span>
+                  </div>
+                  <p className="mt-6 text-2xl font-semibold">Админ-панель</p>
+                </a>
+              </section>
+            ) : null}
           </>
         ) : null}
       </div>
