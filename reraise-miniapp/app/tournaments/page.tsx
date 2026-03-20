@@ -30,30 +30,48 @@ function ArrowUpRightIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M7 17 17 7" />
-      <path d="M9 7h8v8" />
+      <path d="M5 12h13" />
+      <path d="m14 7 4 5-4 5" />
     </svg>
   );
 }
 
-function getTournamentStatusLabel(
-  currentStatus: RegistrationStatus | null,
-  registeredCount: number,
-  maxPlayers: number
-) {
-  if (currentStatus === "registered") {
-    return "Вы зарегистрированы";
-  }
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+      <path d="M7.5 3.5v3" />
+      <path d="M16.5 3.5v3" />
+      <path d="M3.5 9.5h17" />
+    </svg>
+  );
+}
 
-  if (currentStatus === "waitlist") {
-    return "Список ожидания";
-  }
-
-  if (registeredCount >= maxPlayers) {
-    return "Свободных мест нет";
-  }
-
-  return "Есть свободные места";
+function UserIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="8" r="3.25" />
+      <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
 }
 
 function formatTournamentDate(date: string) {
@@ -260,7 +278,7 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleRegister(tournament.id)}
           disabled={isLoading}
-          className="rounded-full bg-yellow-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
+          className="w-full rounded-full bg-yellow-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
         >
           {isLoading
             ? "Сохраняем..."
@@ -277,7 +295,7 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleCancel(tournament.id)}
           disabled={isLoading}
-          className="rounded-full bg-green-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+          className="w-full rounded-full bg-green-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
         >
           {isLoading ? "Сохраняем..." : "Вы записаны"}
         </button>
@@ -290,7 +308,7 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleCancel(tournament.id)}
           disabled={isLoading}
-          className="rounded-full bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+          className="w-full rounded-full bg-orange-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
         >
           {isLoading ? "Сохраняем..." : "Вы в списке ожидания"}
         </button>
@@ -316,7 +334,7 @@ export default function TournamentsPage() {
         <div className="mx-auto max-w-md">
           <Link
             href="/"
-            className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
+            className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/60"
           >
             ← Назад
           </Link>
@@ -380,47 +398,35 @@ export default function TournamentsPage() {
               <div className="space-y-4">
                 {openTournaments.map((tournament) => {
                   const registeredCount = registrationCounts[tournament.id] ?? 0;
-                  const currentStatus = registrationMap[tournament.id];
 
                   return (
                     <div
                       key={tournament.id}
                       className="rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                     >
-                      <Link href={`/tournaments/${tournament.id}`} className="block">
-                        <div className="flex items-start justify-between gap-3">
-                          <h3 className="text-lg font-semibold">
-                            {tournament.title}
-                          </h3>
-                          <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-white/55">
-                            {getTournamentStatusLabel(
-                              currentStatus,
-                              registeredCount,
-                              tournament.max_players
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
-                          <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                            {formatTournamentDate(tournament.start_at)}
-                          </div>
-                          <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                            Игроков: {registeredCount} / {tournament.max_players}
-                          </div>
-                        </div>
-                      </Link>
-
-                      <div className="mt-4 flex items-center justify-between gap-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="text-lg font-semibold">{tournament.title}</h3>
                         <Link
                           href={`/tournaments/${tournament.id}`}
-                          className="inline-flex items-center gap-1 text-sm text-white/65"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60"
                           aria-label="Открыть турнир"
                         >
-                          <span>Открыть</span>
                           <ArrowUpRightIcon />
                         </Link>
+                      </div>
 
+                      <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+                          <CalendarIcon />
+                          <span>{formatTournamentDate(tournament.start_at)}</span>
+                        </div>
+                        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+                          <UserIcon />
+                          <span>{registeredCount} / {tournament.max_players}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
                         {renderActionButton(tournament)}
                       </div>
                     </div>
@@ -445,16 +451,13 @@ export default function TournamentsPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                      <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-white/45">
-                        Турнир завершён
+                      <div className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-white/45">
+                        <ArrowUpRightIcon />
                       </div>
                     </div>
-                    <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
-                      {formatTournamentDate(tournament.start_at)}
-                    </div>
-                    <div className="mt-4 inline-flex items-center gap-1 text-sm text-white/55">
-                      <span>Открыть результаты</span>
-                      <ArrowUpRightIcon />
+                    <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
+                      <CalendarIcon />
+                      <span>{formatTournamentDate(tournament.start_at)}</span>
                     </div>
                   </Link>
                 ))}
