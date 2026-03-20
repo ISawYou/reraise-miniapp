@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { PromotionToast } from "@/components/promotion-toast";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import {
   cancelPlayerRegistration,
@@ -11,7 +12,6 @@ import {
   getTournamentRegistrationCounts,
   registerPlayerForTournament,
 } from "@/features/tournaments";
-import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
 import { getTelegramUser } from "@/lib/telegram";
 import type { RegistrationStatus, Tournament } from "@/types/domain";
@@ -21,9 +21,15 @@ type TabKey = "active" | "completed";
 export default function TournamentsPage() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [openTournaments, setOpenTournaments] = useState<Tournament[]>([]);
-  const [completedTournaments, setCompletedTournaments] = useState<Tournament[]>([]);
-  const [registrationMap, setRegistrationMap] = useState<Record<string, RegistrationStatus>>({});
-  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
+  const [completedTournaments, setCompletedTournaments] = useState<Tournament[]>(
+    []
+  );
+  const [registrationMap, setRegistrationMap] = useState<
+    Record<string, RegistrationStatus>
+  >({});
+  const [registrationCounts, setRegistrationCounts] = useState<
+    Record<string, number>
+  >({});
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,12 +66,14 @@ export default function TournamentsPage() {
     });
 
     if (options?.showPromotionToast) {
-      const promotedTournamentId = Object.keys(nextRegistrationMap).find((tournamentId) => {
-        const previousStatus = registrationsRef.current[tournamentId];
-        const nextStatus = nextRegistrationMap[tournamentId];
+      const promotedTournamentId = Object.keys(nextRegistrationMap).find(
+        (tournamentId) => {
+          const previousStatus = registrationsRef.current[tournamentId];
+          const nextStatus = nextRegistrationMap[tournamentId];
 
-        return previousStatus === "waitlist" && nextStatus === "registered";
-      });
+          return previousStatus === "waitlist" && nextStatus === "registered";
+        }
+      );
 
       if (promotedTournamentId) {
         const promotedTournament = openData.find(
@@ -77,7 +85,9 @@ export default function TournamentsPage() {
             `Вы переместились из списка ожидания в основной список: ${promotedTournament.title}`
           );
         } else {
-          setPromotionToast("Вы переместились из списка ожидания в основной список");
+          setPromotionToast(
+            "Вы переместились из списка ожидания в основной список"
+          );
         }
       }
     }
@@ -202,16 +212,16 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleRegister(tournament.id)}
           disabled={isLoading}
-          className="rounded-lg bg-yellow-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+          className="rounded-full bg-yellow-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
         >
           {isLoading
             ? "Сохраняем..."
             : registeredCount >= tournament.max_players
-            ? "Встать в список ожидания"
-            : "Записаться"}
+              ? "Встать в список ожидания"
+              : "Записаться"}
         </button>
-          );
-      }
+      );
+    }
 
     if (currentStatus === "registered") {
       return (
@@ -219,7 +229,7 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleCancel(tournament.id)}
           disabled={isLoading}
-          className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="rounded-full bg-green-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
         >
           {isLoading ? "Сохраняем..." : "Вы записаны"}
         </button>
@@ -232,7 +242,7 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleCancel(tournament.id)}
           disabled={isLoading}
-          className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="rounded-full bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
         >
           {isLoading ? "Сохраняем..." : "Вы в списке ожидания"}
         </button>
@@ -258,12 +268,12 @@ export default function TournamentsPage() {
         <div className="mx-auto max-w-md">
           <Link
             href="/"
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
           >
             ← Назад
           </Link>
 
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
             {error}
           </div>
         </div>
@@ -276,21 +286,21 @@ export default function TournamentsPage() {
       <div className="mx-auto max-w-md">
         <Link
           href="/"
-          className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
         >
           ← Назад
         </Link>
 
-        <h1 className="text-2xl font-bold">Турниры</h1>
+        <h1 className="mt-6 text-3xl font-bold tracking-tight">Турниры</h1>
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="mt-5 grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => setActiveTab("active")}
-            className={`rounded-full border px-4 py-3 text-sm font-medium ${
+            className={`rounded-full border px-4 py-3 text-sm font-medium transition ${
               activeTab === "active"
-                ? "border-white/20 bg-white/10 text-white"
-                : "border-white/10 bg-transparent text-white/70"
+                ? "border-white/15 bg-white/[0.08] text-white"
+                : "border-white/10 bg-transparent text-white/60"
             }`}
           >
             Активные ({openTournaments.length})
@@ -299,10 +309,10 @@ export default function TournamentsPage() {
           <button
             type="button"
             onClick={() => setActiveTab("completed")}
-            className={`rounded-full border px-4 py-3 text-sm font-medium ${
+            className={`rounded-full border px-4 py-3 text-sm font-medium transition ${
               activeTab === "completed"
-                ? "border-white/20 bg-white/10 text-white"
-                : "border-white/10 bg-transparent text-white/70"
+                ? "border-white/15 bg-white/[0.08] text-white"
+                : "border-white/10 bg-transparent text-white/60"
             }`}
           >
             Прошедшие ({completedTournaments.length})
@@ -312,7 +322,7 @@ export default function TournamentsPage() {
         {activeTab === "active" ? (
           <section className="mt-6">
             {openTournaments.length === 0 ? (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
                 Сейчас нет открытых турниров
               </div>
             ) : (
@@ -324,31 +334,35 @@ export default function TournamentsPage() {
                   return (
                     <div
                       key={tournament.id}
-                      className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                      className="rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                     >
                       <Link href={`/tournaments/${tournament.id}`} className="block">
                         <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                        <p className="mt-2 text-sm text-white/60">
-                          {new Date(tournament.start_at).toLocaleString("ru-RU")}
-                        </p>
-                        <p className="mt-1 text-sm text-white/60">
-                          Игроков: {registeredCount} / {tournament.max_players}
-                        </p>
-                        <p className="mt-1 text-sm text-white/60">
+
+                        <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
+                          <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+                            {new Date(tournament.start_at).toLocaleString("ru-RU")}
+                          </div>
+                          <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+                            Игроков: {registeredCount} / {tournament.max_players}
+                          </div>
+                        </div>
+
+                        <p className="mt-4 text-sm text-white/60">
                           {currentStatus === "registered"
                             ? "Статус: вы зарегистрированы"
                             : currentStatus === "waitlist"
-                            ? "Статус: вы в списке ожидания"
-                            : registeredCount >= tournament.max_players
-                            ? "Статус: свободных мест нет"
-                            : "Статус: есть свободные места"}
+                              ? "Статус: вы в списке ожидания"
+                              : registeredCount >= tournament.max_players
+                                ? "Статус: свободных мест нет"
+                                : "Статус: есть свободные места"}
                         </p>
                       </Link>
 
-                      <div className="mt-4 flex items-center justify-between gap-3">
+                      <div className="mt-5 flex items-center justify-between gap-3">
                         <Link
                           href={`/tournaments/${tournament.id}`}
-                          className="text-sm text-white/70 underline underline-offset-4"
+                          className="text-sm text-white/65 underline underline-offset-4"
                         >
                           Открыть турнир
                         </Link>
@@ -364,7 +378,7 @@ export default function TournamentsPage() {
         ) : (
           <section className="mt-6">
             {completedTournaments.length === 0 ? (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
                 Пока нет завершённых турниров
               </div>
             ) : (
@@ -373,14 +387,16 @@ export default function TournamentsPage() {
                   <Link
                     key={tournament.id}
                     href={`/tournaments/${tournament.id}`}
-                    className="block rounded-2xl border border-white/10 bg-white/5 p-4"
+                    className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                   >
                     <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                    <p className="mt-2 text-sm text-white/60">
+                    <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
                       {new Date(tournament.start_at).toLocaleString("ru-RU")}
+                    </div>
+                    <p className="mt-3 text-sm text-white/60">
+                      Статус: турнир завершён
                     </p>
-                    <p className="mt-1 text-sm text-white/60">Статус: турнир завершён</p>
-                    <p className="mt-3 text-sm text-white/70 underline underline-offset-4">
+                    <p className="mt-4 text-sm text-white/70 underline underline-offset-4">
                       Открыть результаты
                     </p>
                   </Link>

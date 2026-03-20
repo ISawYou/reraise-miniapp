@@ -112,7 +112,9 @@ function CrownIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="m4 18 1.5-8 4.25 3L12 6l2.25 7 4.25-3L20 18Z" />
+      <path d="M4 18 6.5 9.5 12 14l5.5-4.5L20 18" />
+      <path d="M6.5 9.5 9 14" />
+      <path d="M17.5 9.5 15 14" />
       <path d="M4 18h16" />
     </svg>
   );
@@ -758,7 +760,7 @@ export default function HomePage() {
             </section>
 
             {player?.role === "admin" ? (
-              <section className="mt-6">
+              <section className="mt-4">
                 <a
                   href="/admin"
                   className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
