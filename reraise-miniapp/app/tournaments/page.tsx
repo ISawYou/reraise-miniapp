@@ -18,6 +18,44 @@ import type { RegistrationStatus, Tournament } from "@/types/domain";
 
 type TabKey = "active" | "completed";
 
+function ArrowUpRightIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 17 17 7" />
+      <path d="M9 7h8v8" />
+    </svg>
+  );
+}
+
+function getTournamentStatusLabel(
+  currentStatus: RegistrationStatus | null,
+  registeredCount: number,
+  maxPlayers: number
+) {
+  if (currentStatus === "registered") {
+    return "Вы зарегистрированы";
+  }
+
+  if (currentStatus === "waitlist") {
+    return "Список ожидания";
+  }
+
+  if (registeredCount >= maxPlayers) {
+    return "Свободных мест нет";
+  }
+
+  return "Есть свободные места";
+}
+
 function formatTournamentDate(date: string) {
   return new Date(date).toLocaleString("ru-RU", {
     year: "numeric",
@@ -296,12 +334,15 @@ export default function TournamentsPage() {
       <div className="mx-auto max-w-md">
         <Link
           href="/"
-          className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
+          className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/60"
         >
           ← Назад
         </Link>
 
         <h1 className="mt-6 text-3xl font-bold tracking-tight">Турниры</h1>
+        <p className="mt-2 text-sm text-white/45">
+          Активные и завершённые события
+        </p>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           <button
@@ -347,9 +388,20 @@ export default function TournamentsPage() {
                       className="rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                     >
                       <Link href={`/tournaments/${tournament.id}`} className="block">
-                        <h3 className="text-lg font-semibold">{tournament.title}</h3>
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="text-lg font-semibold">
+                            {tournament.title}
+                          </h3>
+                          <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-white/55">
+                            {getTournamentStatusLabel(
+                              currentStatus,
+                              registeredCount,
+                              tournament.max_players
+                            )}
+                          </div>
+                        </div>
 
-                        <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
+                        <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
                           <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
                             {formatTournamentDate(tournament.start_at)}
                           </div>
@@ -357,24 +409,16 @@ export default function TournamentsPage() {
                             Игроков: {registeredCount} / {tournament.max_players}
                           </div>
                         </div>
-
-                        <p className="mt-4 text-sm text-white/60">
-                          {currentStatus === "registered"
-                            ? "Статус: вы зарегистрированы"
-                            : currentStatus === "waitlist"
-                              ? "Статус: вы в списке ожидания"
-                              : registeredCount >= tournament.max_players
-                                ? "Статус: свободных мест нет"
-                                : "Статус: есть свободные места"}
-                        </p>
                       </Link>
 
-                      <div className="mt-5 flex items-center justify-between gap-3">
+                      <div className="mt-4 flex items-center justify-between gap-3">
                         <Link
                           href={`/tournaments/${tournament.id}`}
-                          className="text-sm text-white/65 underline underline-offset-4"
+                          className="inline-flex items-center gap-1 text-sm text-white/65"
+                          aria-label="Открыть турнир"
                         >
-                          Открыть турнир
+                          <span>Открыть</span>
+                          <ArrowUpRightIcon />
                         </Link>
 
                         {renderActionButton(tournament)}
@@ -399,16 +443,19 @@ export default function TournamentsPage() {
                     href={`/tournaments/${tournament.id}`}
                     className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                   >
-                    <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                    <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-lg font-semibold">{tournament.title}</h3>
+                      <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-white/45">
+                        Турнир завершён
+                      </div>
+                    </div>
+                    <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
                       {formatTournamentDate(tournament.start_at)}
                     </div>
-                    <p className="mt-3 text-sm text-white/60">
-                      Статус: турнир завершён
-                    </p>
-                    <p className="mt-4 text-sm text-white/70 underline underline-offset-4">
-                      Открыть результаты
-                    </p>
+                    <div className="mt-4 inline-flex items-center gap-1 text-sm text-white/55">
+                      <span>Открыть результаты</span>
+                      <ArrowUpRightIcon />
+                    </div>
                   </Link>
                 ))}
               </div>
