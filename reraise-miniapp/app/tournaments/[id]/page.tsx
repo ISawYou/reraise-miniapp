@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import {
@@ -191,6 +191,7 @@ function ParticipantRow({
 
 export default function TournamentDetailsPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const tournamentId = params?.id;
 
   const [playerId, setPlayerId] = useState<string | null>(null);
@@ -217,6 +218,15 @@ export default function TournamentDetailsPage() {
 const waitlistParticipants = participants.filter(
   (participant) => participant.status === "waitlist"
 );
+
+  function handleBack() {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    router.push("/tournaments");
+  }
 
   async function refreshPageData(currentPlayerId: string, currentTournamentId: string) {
     const [tournamentData, participantsData, registrations, counts] = await Promise.all([
@@ -380,12 +390,13 @@ const waitlistParticipants = participants.filter(
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
-          <Link
-            href="/tournaments"
+          <button
+            type="button"
+            onClick={handleBack}
             className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
             ← Назад
-          </Link>
+          </button>
 
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
             {error ?? "Турнир не найден"}
@@ -398,12 +409,13 @@ const waitlistParticipants = participants.filter(
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-md">
-        <Link
-          href="/tournaments"
+        <button
+          type="button"
+          onClick={handleBack}
           className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
         >
           ← Назад
-        </Link>
+        </button>
 
         <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-red-900/60 to-black p-5">
           <p className="text-sm text-white/60">Турнир</p>

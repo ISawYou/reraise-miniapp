@@ -8,7 +8,11 @@ import {
   completeProfile,
   TERMS_VERSION,
 } from "@/features/auth";
-import { getOpenTournaments, getPlayerRegistrations } from "@/features/tournaments";
+import {
+  getOpenTournaments,
+  getPlayerRegistrations,
+  getTournamentRegistrationCounts,
+} from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
 import {
@@ -128,6 +132,44 @@ function formatDateTimeWithoutSeconds(date: string) {
   });
 }
 
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+      <path d="M7.5 3.5v3" />
+      <path d="M16.5 3.5v3" />
+      <path d="M3.5 9.5h17" />
+    </svg>
+  );
+}
+
+function UserIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="8" r="3.25" />
+      <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
+}
+
 export default function HomePage() {
   const [user, setUser] = useState<TelegramWebAppUser | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
@@ -139,6 +181,8 @@ export default function HomePage() {
   const [nearestTournament, setNearestTournament] = useState<Tournament | null>(
     null
   );
+  const [nearestTournamentRegisteredCount, setNearestTournamentRegisteredCount] =
+    useState(0);
 
   const [initializing, setInitializing] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
@@ -220,9 +264,10 @@ export default function HomePage() {
     currentPlayerId: string,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments] = await Promise.all([
+    const [registrations, tournaments, counts] = await Promise.all([
       getPlayerRegistrations(currentPlayerId),
       getOpenTournaments(),
+      getTournamentRegistrationCounts(),
     ]);
 
     const nextMap: Record<string, string> = {};
@@ -256,6 +301,9 @@ export default function HomePage() {
 
     registrationsRef.current = nextMap;
     setNearestTournament(tournaments[0] ?? null);
+    setNearestTournamentRegisteredCount(
+      tournaments[0] ? (counts[tournaments[0].id] ?? 0) : 0
+    );
   }
 
   async function handleAcceptTerms() {
@@ -703,11 +751,17 @@ export default function HomePage() {
                   </h3>
 
                   <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/80">
-                    <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                      {formatDateTimeWithoutSeconds(nearestTournament.start_at)}
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+                      <CalendarIcon />
+                      <span>
+                        {formatDateTimeWithoutSeconds(nearestTournament.start_at)}
+                      </span>
                     </div>
-                    <div className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                      Лимит: {nearestTournament.max_players}
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+                      <UserIcon />
+                      <span>
+                        {nearestTournamentRegisteredCount} / {nearestTournament.max_players}
+                      </span>
                     </div>
                   </div>
 
