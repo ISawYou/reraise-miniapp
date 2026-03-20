@@ -19,6 +19,51 @@ import {
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
 
+function TournamentIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+      <path d="M7.5 3.5v3" />
+      <path d="M16.5 3.5v3" />
+      <path d="M3.5 9.5h17" />
+      <path d="M8 13h3" />
+      <path d="M13 13h3" />
+      <path d="M8 16h3" />
+    </svg>
+  );
+}
+
+function TrophyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 4.5h8v3.75a4 4 0 0 1-8 0Z" />
+      <path d="M10 16.5h4" />
+      <path d="M12 12.25v4.25" />
+      <path d="M6 6H4.75A1.75 1.75 0 0 0 3 7.75v.5A3.75 3.75 0 0 0 6.75 12H8" />
+      <path d="M18 6h1.25A1.75 1.75 0 0 1 21 7.75v.5A3.75 3.75 0 0 1 17.25 12H16" />
+      <path d="M9 20h6" />
+    </svg>
+  );
+}
+
 export default function HomePage() {
   const [user, setUser] = useState<TelegramWebAppUser | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
@@ -584,6 +629,32 @@ export default function HomePage() {
               )}
             </section>
 
+            <section className="mt-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Link
+                  href="/tournaments"
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-2 text-white/65">
+                    <TournamentIcon />
+                    <span className="text-sm">Турниры</span>
+                  </div>
+                  <p className="mt-6 text-2xl font-semibold">Расписание</p>
+                </Link>
+
+                <Link
+                  href="/leaderboard"
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-2 text-white/65">
+                    <TrophyIcon />
+                    <span className="text-sm">Рейтинг</span>
+                  </div>
+                  <p className="mt-6 text-2xl font-semibold">Игроков</p>
+                </Link>
+              </div>
+            </section>
+
             <section className="mt-6">
               <h2 className="mb-3 text-xl font-semibold">Меню</h2>
 
@@ -596,20 +667,6 @@ export default function HomePage() {
                     Профиль
                   </Link>
                 ) : null}
-
-                <Link
-                  href="/tournaments"
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
-                >
-                  Турниры
-                </Link>
-
-                <Link
-                  href="/leaderboard"
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
-                >
-                  Рейтинг
-                </Link>
 
                 <Link
                   href="/faq"
