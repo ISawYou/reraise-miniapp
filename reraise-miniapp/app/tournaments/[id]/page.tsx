@@ -99,6 +99,24 @@ function StarIcon() {
   );
 }
 
+function UserIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="8" r="3.25" />
+      <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
+}
+
 function formatTournamentDate(date: string) {
   return new Date(date).toLocaleString("ru-RU", {
     year: "numeric",
@@ -473,7 +491,7 @@ const waitlistParticipants = participants.filter(
             {tournament.status !== "completed" ? (
               <section className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <h2 className="text-2xl font-bold">Регистрация</h2>
-                <div className="mt-4">
+                <div className="mt-3">
                   {renderActionButton()}
 
                   <p className="mt-3 text-sm text-white/65">
@@ -533,9 +551,10 @@ const waitlistParticipants = participants.filter(
           <div className="mt-6 space-y-4">
           <div className="rounded-3xl border border-white/10 bg-white/[0.05]">
             <div className="border-b border-white/10 px-4 py-3">
-              <p className="text-sm font-semibold text-white/80">
-                Игроки ({registeredParticipants.length})
-              </p>
+              <div className="flex items-center gap-2 text-sm font-semibold text-white/80">
+                <UserIcon />
+                <span>{registeredParticipants.length}</span>
+              </div>
             </div>
 
             {registeredParticipants.length > 0 ? (
