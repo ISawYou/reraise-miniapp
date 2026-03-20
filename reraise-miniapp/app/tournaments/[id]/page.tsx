@@ -182,7 +182,7 @@ function ParticipantRow({
         </div>
       </div>
 
-      <div className="shrink-0 text-right text-sm font-semibold text-white/80">
+      <div className="shrink-0 pr-2 text-right text-sm font-semibold text-white/80">
         {participant.rating}
       </div>
     </div>
@@ -554,9 +554,9 @@ const waitlistParticipants = participants.filter(
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/45">
                 <div className="flex items-center gap-1 pl-9">
                   <UserIcon />
-                  <span>Игрок</span>
+                  <span>Игроки</span>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 pr-2">
                   <StarIcon />
                   <span>Рейтинг</span>
                 </div>

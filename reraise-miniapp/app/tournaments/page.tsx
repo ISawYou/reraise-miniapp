@@ -23,15 +23,15 @@ function ArrowUpRightIcon() {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="h-4 w-5"
+      className="h-[18px] w-7"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M5 12h13" />
-      <path d="m14 7 4 5-4 5" />
+      <path d="M3.5 12h15.5" />
+      <path d="m14 7 5 5-5 5" />
     </svg>
   );
 }
