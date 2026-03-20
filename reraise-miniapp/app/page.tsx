@@ -64,6 +64,42 @@ function TrophyIcon() {
   );
 }
 
+function InfoIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 10.5v5" />
+      <path d="M12 7.5h.01" />
+    </svg>
+  );
+}
+
+function SupportIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 18.5H5.5A2.5 2.5 0 0 1 3 16V8.5A2.5 2.5 0 0 1 5.5 6H18a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H11l-4 3Z" />
+    </svg>
+  );
+}
+
 export default function HomePage() {
   const [user, setUser] = useState<TelegramWebAppUser | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
@@ -387,6 +423,10 @@ export default function HomePage() {
     return "игрок";
   }, [player?.display_name, user?.first_name]);
 
+  const homeAvatarUrl =
+    player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null;
+  const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
+
   if (initializing) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
@@ -553,15 +593,37 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-md">
-        <header className="mb-8">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/40">
-            Игровое пространство RERAISE
-          </p>
-          <h1 className="mt-3 text-4xl font-bold tracking-tight">Главная</h1>
-          <p className="mt-3 text-sm text-white/75">Привет, {greetingName}</p>
-          <p className="mt-1 text-xs text-white/45">
-            Добро пожаловать в ReRaise
-          </p>
+        <header className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-white/40">
+              Игровое пространство RERAISE
+            </p>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight">Главная</h1>
+            <p className="mt-3 text-sm text-white/75">Привет, {greetingName}</p>
+            <p className="mt-1 text-xs text-white/45">
+              Добро пожаловать в ReRaise
+            </p>
+          </div>
+
+          {player ? (
+            <Link
+              href={`/players/${player.id}`}
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-2 text-sm text-white/85"
+            >
+              {homeAvatarUrl ? (
+                <img
+                  src={homeAvatarUrl}
+                  alt={greetingName}
+                  className="h-7 w-7 rounded-full object-cover"
+                />
+              ) : (
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.08] text-xs font-semibold text-white/80">
+                  {homeAvatarFallback}
+                </div>
+              )}
+              <span className="pr-1">Профиль</span>
+            </Link>
+          ) : null}
         </header>
 
         {!checkedTelegram ? (
@@ -637,9 +699,9 @@ export default function HomePage() {
                 >
                   <div className="flex items-center gap-2 text-white/65">
                     <TournamentIcon />
-                    <span className="text-sm">Турниры</span>
+                    <span className="text-sm">Расписание</span>
                   </div>
-                  <p className="mt-6 text-2xl font-semibold">Расписание</p>
+                  <p className="mt-6 text-2xl font-semibold">Турниры</p>
                 </Link>
 
                 <Link
@@ -648,10 +710,29 @@ export default function HomePage() {
                 >
                   <div className="flex items-center gap-2 text-white/65">
                     <TrophyIcon />
-                    <span className="text-sm">Рейтинг</span>
+                    <span className="text-sm">Топ игроков</span>
                   </div>
-                  <p className="mt-6 text-2xl font-semibold">Игроков</p>
+                  <p className="mt-6 text-2xl font-semibold">Рейтинг</p>
                 </Link>
+
+                <Link
+                  href="/faq"
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-2 text-white/65">
+                    <InfoIcon />
+                    <span className="text-sm">Ответы</span>
+                  </div>
+                  <p className="mt-6 text-2xl font-semibold">FAQ</p>
+                </Link>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-white">
+                  <div className="flex items-center gap-2 text-white/65">
+                    <SupportIcon />
+                    <span className="text-sm">На связи</span>
+                  </div>
+                  <p className="mt-6 text-2xl font-semibold">Поддержка</p>
+                </div>
               </div>
             </section>
 
@@ -659,22 +740,6 @@ export default function HomePage() {
               <h2 className="mb-3 text-xl font-semibold">Меню</h2>
 
               <div className="grid grid-cols-1 gap-3">
-                {player ? (
-                  <Link
-                    href={`/players/${player.id}`}
-                    className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
-                  >
-                    Профиль
-                  </Link>
-                ) : null}
-
-                <Link
-                  href="/faq"
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-left text-white/85"
-                >
-                  FAQ
-                </Link>
-
                 {player?.role === "admin" ? (
                   <a
                     href="/admin"
