@@ -326,7 +326,7 @@ const waitlistParticipants = participants.filter(
       type="button"
       onClick={handleRegister}
       disabled={actionLoading}
-      className="mt-5 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
+      className="mt-3 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
     >
       {actionLoading
         ? "Сохраняем..."
@@ -343,7 +343,7 @@ const waitlistParticipants = participants.filter(
           type="button"
           onClick={handleCancel}
           disabled={actionLoading}
-          className="mt-5 w-full rounded-xl bg-green-600 py-3 font-semibold text-white disabled:opacity-60"
+          className="mt-3 w-full rounded-xl bg-green-600 py-3 font-semibold text-white disabled:opacity-60"
         >
           {actionLoading ? "Сохраняем..." : "Вы записаны"}
         </button>
@@ -356,7 +356,7 @@ const waitlistParticipants = participants.filter(
           type="button"
           onClick={handleCancel}
           disabled={actionLoading}
-          className="mt-5 w-full rounded-xl bg-orange-500 py-3 font-semibold text-white disabled:opacity-60"
+          className="mt-3 w-full rounded-xl bg-orange-500 py-3 font-semibold text-white disabled:opacity-60"
         >
           {actionLoading ? "Сохраняем..." : "Выйти из списка ожидания"}
         </button>
@@ -550,16 +550,12 @@ const waitlistParticipants = participants.filter(
         ) : (
           <div className="mt-6 space-y-4">
           <div className="rounded-3xl border border-white/10 bg-white/[0.05]">
-            <div className="border-b border-white/10 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white/80">
-                <UserIcon />
-                <span>{registeredParticipants.length}</span>
-              </div>
-            </div>
-
             {registeredParticipants.length > 0 ? (
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/45">
-                <div className="pl-9">Игрок</div>
+                <div className="flex items-center gap-1 pl-9">
+                  <UserIcon />
+                  <span>Игрок</span>
+                </div>
                 <div className="flex items-center gap-1">
                   <StarIcon />
                   <span>Рейтинг</span>
