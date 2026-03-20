@@ -463,7 +463,9 @@ export async function getTournamentParticipants(
       players (
         id,
         username,
-        display_name
+        display_name,
+        telegram_avatar_url,
+        custom_avatar_url
       )
     `)
     .eq("tournament_id", tournamentId)
@@ -502,6 +504,8 @@ export async function getTournamentParticipants(
       status: row.status,
       created_at: row.created_at,
       username: player?.username ?? null,
+      telegram_avatar_url: player?.telegram_avatar_url ?? undefined,
+      custom_avatar_url: player?.custom_avatar_url ?? undefined,
       display_name: player?.display_name ?? "РРіСЂРѕРє",
       rating: ratingsMap.get(row.player_id) ?? 0,
     };

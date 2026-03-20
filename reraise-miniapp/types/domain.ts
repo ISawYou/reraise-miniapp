@@ -65,6 +65,8 @@ export type TournamentParticipant = {
   created_at: string;
   username: string | null;
   display_name: string;
+  telegram_avatar_url?: string;
+  custom_avatar_url?: string;
   rating: number;
 };
 

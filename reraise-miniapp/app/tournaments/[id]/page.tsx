@@ -13,6 +13,7 @@ import {
   registerPlayerForTournament,
   cancelPlayerRegistration,
 } from "@/features/tournaments";
+import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { getTelegramUser } from "@/lib/telegram";
 import type {
   RegistrationStatus,
@@ -81,6 +82,23 @@ function NoteIcon() {
   );
 }
 
+function StarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m12 4 2.45 4.96 5.47.8-3.96 3.86.94 5.45L12 16.5l-4.9 2.57.94-5.45L4.08 9.76l5.47-.8Z" />
+    </svg>
+  );
+}
+
 function formatTournamentDate(date: string) {
   return new Date(date).toLocaleString("ru-RU", {
     year: "numeric",
@@ -105,6 +123,58 @@ function formatTournamentDateParts(date: string) {
       minute: "2-digit",
     }),
   };
+}
+
+function ParticipantRow({
+  participant,
+  index,
+}: {
+  participant: TournamentParticipant;
+  index: number;
+}) {
+  const avatarUrl = getPlayerAvatarUrl(participant);
+  const avatarFallback = getPlayerAvatarFallback(participant);
+
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-4 last:border-b-0">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex w-6 shrink-0 justify-center text-sm font-semibold text-white/45">
+          {index + 1}
+        </div>
+
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={participant.display_name}
+            className="h-10 w-10 rounded-full border border-white/10 object-cover"
+          />
+        ) : (
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/80">
+            {avatarFallback}
+          </div>
+        )}
+
+        <div className="min-w-0">
+          <Link
+            href={`/players/${participant.player_id}`}
+            className="block truncate text-sm font-medium text-white"
+          >
+            {participant.display_name}
+          </Link>
+        </div>
+      </div>
+
+      <div className="shrink-0 text-right">
+        <div className="flex items-center justify-end gap-1 text-xs text-white/45">
+          <StarIcon />
+          <span>Рейтинг</span>
+        </div>
+        <p className="mt-1 text-sm font-semibold text-white/80">
+          {participant.rating}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function TournamentDetailsPage() {
@@ -467,80 +537,40 @@ const waitlistParticipants = participants.filter(
           </div>
         ) : (
           <div className="mt-6 space-y-4">
-          <div className="rounded-2xl border border-white/10 bg-white/5">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.05]">
             <div className="border-b border-white/10 px-4 py-3">
               <p className="text-sm font-semibold text-white/80">
                 Записаны ({registeredParticipants.length})
               </p>
             </div>
 
-            <div className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
-              <div>#</div>
-              <div>Ник</div>
-              <div className="text-right">Рейтинг</div>
-            </div>
-
             {registeredParticipants.length === 0 ? (
               <div className="px-4 py-6 text-sm text-white/60">Пока записанных участников нет</div>
             ) : (
               registeredParticipants.map((participant, index) => (
-                <div
+                <ParticipantRow
                   key={participant.registration_id}
-                  className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
-                >
-                  <div className="text-sm font-semibold text-white/80">{index + 1}</div>
-
-                  <div>
-                    <Link
-                      href={`/players/${participant.player_id}`}
-                      className="text-sm font-medium text-white"
-                    >
-                      {participant.display_name}
-                    </Link>
-                  </div>
-
-                  <div className="text-right text-sm font-semibold text-white/80">
-                    {participant.rating}
-                  </div>
-                </div>
+                  participant={participant}
+                  index={index}
+                />
               ))
             )}
           </div>
 
           {waitlistParticipants.length > 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-white/5">
+            <div className="rounded-3xl border border-white/10 bg-white/[0.05]">
               <div className="border-b border-white/10 px-4 py-3">
                 <p className="text-sm font-semibold text-white/80">
                   Список ожидания ({waitlistParticipants.length})
                 </p>
               </div>
 
-              <div className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
-                <div>#</div>
-                <div>Ник</div>
-                <div className="text-right">Рейтинг</div>
-              </div>
-
               {waitlistParticipants.map((participant, index) => (
-                <div
+                <ParticipantRow
                   key={participant.registration_id}
-                  className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
-                >
-                  <div className="text-sm font-semibold text-white/80">{index + 1}</div>
-
-                  <div>
-                    <Link
-                      href={`/players/${participant.player_id}`}
-                      className="text-sm font-medium text-white"
-                    >
-                      {participant.display_name}
-                    </Link>
-                  </div>
-
-                  <div className="text-right text-sm font-semibold text-white/80">
-                    {participant.rating}
-                  </div>
-                </div>
+                  participant={participant}
+                  index={index}
+                />
               ))}
             </div>
           ) : null}
