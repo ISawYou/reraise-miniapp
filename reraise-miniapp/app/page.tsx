@@ -112,11 +112,12 @@ function CrownIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M4 18 6.5 9.5 12 14l5.5-4.5L20 18" />
-      <path d="M6.5 9.5 9 14" />
-      <path d="M17.5 9.5 15 14" />
-      <path d="M4 18h16" />
-    </svg>
+        <path d="M5 18h14" />
+        <path d="M6 18 7.5 10.5 12 14l4.5-3.5L18 18" />
+        <circle cx="7.5" cy="10.5" r="0.9" />
+        <circle cx="12" cy="14" r="0.9" />
+        <circle cx="16.5" cy="10.5" r="0.9" />
+      </svg>
   );
 }
 

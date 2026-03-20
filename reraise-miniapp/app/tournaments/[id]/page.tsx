@@ -23,6 +23,74 @@ import type {
 
 type TabKey = "about" | "participants" | "results";
 
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+      <path d="M7.5 3.5v3" />
+      <path d="M16.5 3.5v3" />
+      <path d="M3.5 9.5h17" />
+    </svg>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 20s6-4.35 6-10a6 6 0 1 0-12 0c0 5.65 6 10 6 10Z" />
+      <circle cx="12" cy="10" r="2.25" />
+    </svg>
+  );
+}
+
+function NoteIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 4.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V6A1.5 1.5 0 0 1 7.5 4.5Z" />
+      <path d="M14 4.5V9h4" />
+      <path d="M9 12.5h6" />
+      <path d="M9 16h4.5" />
+    </svg>
+  );
+}
+
+function formatTournamentDate(date: string) {
+  return new Date(date).toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function TournamentDetailsPage() {
   const params = useParams<{ id: string }>();
   const tournamentId = params?.id;
@@ -197,28 +265,6 @@ const waitlistParticipants = participants.filter(
     return null;
   }
 
-  function getStatusText() {
-    if (!tournament) return "";
-
-    if (tournament.status === "completed") {
-      return "Статус: турнир завершен";
-    }
-
-    if (registrationStatus === "registered") {
-      return "Статус: вы зарегистрированы";
-    }
-
-    if (registrationStatus === "waitlist") {
-      return "Статус: вы в списке ожидания";
-    }
-
-    if (registeredCount >= tournament.max_players) {
-      return "Статус: свободных мест нет";
-    }
-
-    return "Статус: есть свободные места";
-  }
-
   if (loading) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
@@ -264,9 +310,9 @@ const waitlistParticipants = participants.filter(
             {tournament.title}
           </h1>
 
-          <div className="mt-4 flex gap-2 text-sm text-white/80">
+          <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/80">
             <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2">
-              {new Date(tournament.start_at).toLocaleString("ru-RU")}
+              {formatTournamentDate(tournament.start_at)}
             </div>
             <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2">
               {registeredCount} / {tournament.max_players}
@@ -306,43 +352,43 @@ const waitlistParticipants = participants.filter(
 
         {activeTab === "about" ? (
           <div className="mt-6 space-y-6">
-            <section>
-              <h2 className="text-2xl font-bold">Когда</h2>
-              <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-base">{new Date(tournament.start_at).toLocaleString("ru-RU")}</p>
+            <section className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
+                <div className="flex items-center gap-2 text-sm text-white/60">
+                  <CalendarIcon />
+                  <span>Когда</span>
+                </div>
+                <p className="mt-6 text-lg font-semibold text-white">
+                  {formatTournamentDate(tournament.start_at)}
+                </p>
               </div>
-            </section>
 
-            <section>
-              <h2 className="text-2xl font-bold">Где</h2>
-              <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-base">
-                {tournament.location || "Место не указано"}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
+                <div className="flex items-center gap-2 text-sm text-white/60">
+                  <PinIcon />
+                  <span>Где</span>
+                </div>
+                <p className="mt-6 text-lg font-semibold text-white">
+                  {tournament.location || "Место не указано"}
                 </p>
               </div>
             </section>
 
-<section>
-  <h2 className="text-2xl font-bold">Описание</h2>
-  <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
-    <p className="text-base text-white/80">
-      {tournament.description || "Описание не добавлено"}
-    </p>
-  </div>
-</section>
-
-            <section>
-              <h2 className="text-2xl font-bold">Статус</h2>
-              <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-base">{getStatusText()}</p>
+            <section className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
+              <div className="flex items-center gap-2 text-sm text-white/60">
+                <NoteIcon />
+                <span>Описание</span>
               </div>
+              <p className="mt-4 text-base leading-7 text-white/80">
+                {tournament.description || "Описание не добавлено"}
+              </p>
             </section>
 
             {tournament.status !== "completed" ? (
-              <section>
+              <section className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <h2 className="text-2xl font-bold">Регистрация</h2>
-                <div className="mt-3 rounded-xl border border-white/10 bg-red-900/30 p-4">
-                  <p className="text-sm text-white/80">
+                <div className="mt-4 rounded-2xl border border-white/10 bg-red-900/20 p-4">
+                  <p className="text-sm leading-6 text-white/75">
                     Если планы изменились, пожалуйста, отменяйте регистрацию заранее,
                     чтобы освободить место для игроков из списка ожидания.
                   </p>
@@ -350,7 +396,7 @@ const waitlistParticipants = participants.filter(
                   {renderActionButton()}
 
                   {message ? (
-                    <p className="mt-3 text-sm text-white/80">{message}</p>
+                    <p className="mt-3 text-sm text-white/70">{message}</p>
                   ) : null}
                 </div>
               </section>
