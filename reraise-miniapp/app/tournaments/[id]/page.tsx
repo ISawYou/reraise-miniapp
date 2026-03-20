@@ -164,14 +164,8 @@ function ParticipantRow({
         </div>
       </div>
 
-      <div className="shrink-0 text-right">
-        <div className="flex items-center justify-end gap-1 text-xs text-white/45">
-          <StarIcon />
-          <span>Рейтинг</span>
-        </div>
-        <p className="mt-1 text-sm font-semibold text-white/80">
-          {participant.rating}
-        </p>
+      <div className="shrink-0 text-right text-sm font-semibold text-white/80">
+        {participant.rating}
       </div>
     </div>
   );
@@ -479,10 +473,10 @@ const waitlistParticipants = participants.filter(
             {tournament.status !== "completed" ? (
               <section className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
                 <h2 className="text-2xl font-bold">Регистрация</h2>
-                <div className="mt-4 rounded-2xl border border-white/10 bg-red-900/20 p-4">
+                <div className="mt-4">
                   {renderActionButton()}
 
-                  <p className="mt-3 text-sm text-white/70">
+                  <p className="mt-3 text-sm text-white/65">
                     Если планы изменились, отмените запись заранее.
                   </p>
 
@@ -540,9 +534,19 @@ const waitlistParticipants = participants.filter(
           <div className="rounded-3xl border border-white/10 bg-white/[0.05]">
             <div className="border-b border-white/10 px-4 py-3">
               <p className="text-sm font-semibold text-white/80">
-                Записаны ({registeredParticipants.length})
+                Игроки ({registeredParticipants.length})
               </p>
             </div>
+
+            {registeredParticipants.length > 0 ? (
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/45">
+                <div className="pl-9">Игрок</div>
+                <div className="flex items-center gap-1">
+                  <StarIcon />
+                  <span>Рейтинг</span>
+                </div>
+              </div>
+            ) : null}
 
             {registeredParticipants.length === 0 ? (
               <div className="px-4 py-6 text-sm text-white/60">Пока записанных участников нет</div>
