@@ -692,7 +692,7 @@ export default function HomePage() {
               {nearestTournament ? (
                 <Link
                   href={`/tournaments/${nearestTournament.id}`}
-                  className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 transition active:scale-[0.99]"
+                  className="block rounded-3xl border border-white/10 bg-gradient-to-br from-red-900/60 to-black p-5 transition active:scale-[0.99]"
                 >
                   <p className="text-xs uppercase tracking-[0.18em] text-white/45">
                     Ближайший старт
