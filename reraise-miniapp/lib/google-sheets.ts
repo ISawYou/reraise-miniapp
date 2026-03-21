@@ -2,9 +2,23 @@ import { google } from "googleapis";
 
 type SheetCellValue = string | number | boolean | null;
 
+function normalizePrivateKey(rawValue: string | undefined) {
+  if (!rawValue) {
+    return rawValue;
+  }
+
+  const trimmed = rawValue.trim();
+  const unwrapped =
+    trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? trimmed.slice(1, -1)
+      : trimmed;
+
+  return unwrapped.replace(/\\n/g, "\n");
+}
+
 function getGoogleSheetsClient() {
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-  const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  const privateKey = normalizePrivateKey(process.env.GOOGLE_PRIVATE_KEY);
 
   if (!clientEmail || !privateKey) {
     throw new Error("Google Sheets environment variables are not configured");
