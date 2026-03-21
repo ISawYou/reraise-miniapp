@@ -733,17 +733,13 @@ export default function HomePage() {
         {checkedTelegram && isInsideTelegram && !playerLoading && !playerError ? (
           <>
             <section className="mt-6">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-xl font-semibold">Ближайший турнир</h2>
-              </div>
-
               {nearestTournament ? (
                 <Link
                   href={`/tournaments/${nearestTournament.id}`}
                   className="block rounded-3xl border border-white/10 bg-gradient-to-br from-red-900/60 to-black p-5 transition active:scale-[0.99]"
                 >
                   <p className="text-xs uppercase tracking-[0.18em] text-white/45">
-                    Ближайший старт
+                    Ближайший турнир
                   </p>
 
                   <h3 className="mt-3 text-3xl font-black uppercase leading-none tracking-wide">
