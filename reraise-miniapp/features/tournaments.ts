@@ -19,6 +19,7 @@ function mapTournamentRow(row: TournamentRow): Tournament {
     title: row.title,
     description: row.description ?? undefined,
     location: row.location ?? undefined,
+    google_sheet_tab_name: row.google_sheet_tab_name ?? null,
     start_at: row.start_at,
     max_players: row.max_players,
     season_id: row.season_id,
@@ -280,6 +281,61 @@ export async function getMyTournaments(playerId: string) {
       registration: Registration;
       tournament: Tournament;
     }>;
+}
+
+export async function getTournamentSheetExportData(tournamentId: string) {
+  const tournament = await getTournamentById(tournamentId);
+
+  const { data, error } = await supabase
+    .from("registrations")
+    .select(
+      `
+      id,
+      status,
+      created_at,
+      player_id,
+      players (
+        id,
+        username,
+        display_name
+      )
+    `
+    )
+    .eq("tournament_id", tournamentId)
+    .in("status", ["registered", "waitlist", "attended"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return {
+    tournament,
+    rows: (data ?? []).map((row: any) => {
+      const player = Array.isArray(row.players) ? row.players[0] : row.players;
+
+      return {
+        player_id: row.player_id,
+        display_name: player?.display_name ?? "Игрок",
+        username: player?.username ?? null,
+        registration_status: row.status,
+      };
+    }),
+  };
+}
+
+export async function setTournamentGoogleSheetTabName(
+  tournamentId: string,
+  tabName: string
+) {
+  const { error } = await supabase
+    .from("tournaments")
+    .update({ google_sheet_tab_name: tabName })
+    .eq("id", tournamentId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 export async function getMyTournamentHistory(playerId: string) {

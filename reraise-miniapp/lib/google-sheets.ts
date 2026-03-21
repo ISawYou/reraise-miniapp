@@ -1,0 +1,102 @@
+import { google } from "googleapis";
+
+type SheetCellValue = string | number | boolean | null;
+
+function getGoogleSheetsClient() {
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+  if (!clientEmail || !privateKey) {
+    throw new Error("Google Sheets environment variables are not configured");
+  }
+
+  const auth = new google.auth.JWT({
+    email: clientEmail,
+    key: privateKey,
+    scopes: [
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive",
+    ],
+  });
+
+  return google.sheets({ version: "v4", auth });
+}
+
+export function getSpreadsheetId() {
+  const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+
+  if (!spreadsheetId) {
+    throw new Error("GOOGLE_SHEETS_SPREADSHEET_ID is not configured");
+  }
+
+  return spreadsheetId;
+}
+
+export async function ensureSpreadsheetTab(tabName: string) {
+  const sheets = getGoogleSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const existingSheet = spreadsheet.data.sheets?.find(
+    (sheet) => sheet.properties?.title === tabName
+  );
+
+  if (existingSheet?.properties?.sheetId != null) {
+    return {
+      sheetId: existingSheet.properties.sheetId,
+      tabName,
+    };
+  }
+
+  const createResponse = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title: tabName,
+            },
+          },
+        },
+      ],
+    },
+  });
+
+  const sheetId =
+    createResponse.data.replies?.[0]?.addSheet?.properties?.sheetId;
+
+  if (sheetId == null) {
+    throw new Error("Failed to create spreadsheet tab");
+  }
+
+  return {
+    sheetId,
+    tabName,
+  };
+}
+
+export async function replaceSpreadsheetTabValues(
+  tabName: string,
+  values: SheetCellValue[][]
+) {
+  const sheets = getGoogleSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: `${tabName}!A:Z`,
+  });
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${tabName}!A1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values,
+    },
+  });
+}
+
+export function buildSpreadsheetTabUrl(sheetId: number) {
+  return `https://docs.google.com/spreadsheets/d/${getSpreadsheetId()}/edit#gid=${sheetId}`;
+}

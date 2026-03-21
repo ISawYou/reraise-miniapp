@@ -20,6 +20,7 @@ export type TournamentRow = {
   title: string;
   description: string | null;
   location: string | null;
+  google_sheet_tab_name: string | null;
   start_at: string;
   max_players: number;
   season_id: string | null;

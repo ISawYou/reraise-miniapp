@@ -22,6 +22,9 @@ export default function AdminTournamentsPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [exportingTournamentId, setExportingTournamentId] = useState<string | null>(
+    null
+  );
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +89,40 @@ export default function AdminTournamentsPage() {
       setError(nextMessage);
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  async function handleExportTournamentSheet(
+    tournamentId: string,
+    tournamentTitle: string
+  ) {
+    try {
+      setExportingTournamentId(tournamentId);
+      setMessage(null);
+      setError(null);
+
+      const response = await fetch(
+        `/api/admin/tournaments/${tournamentId}/export-sheet`,
+        {
+          method: "POST",
+        }
+      );
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Не удалось экспортировать турнир");
+      }
+
+      setMessage(`Google Sheets обновлен для турнира "${tournamentTitle}"`);
+      window.open(payload.url, "_blank", "noopener,noreferrer");
+      await loadTournaments();
+    } catch (err) {
+      const nextMessage =
+        err instanceof Error ? err.message : "Ошибка экспорта Google Sheets";
+      setError(nextMessage);
+    } finally {
+      setExportingTournamentId(null);
     }
   }
 
@@ -174,6 +211,19 @@ export default function AdminTournamentsPage() {
                 </p>
 
                 <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleExportTournamentSheet(tournament.id, tournament.title)
+                    }
+                    disabled={exportingTournamentId === tournament.id}
+                    className="rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-center text-sm font-semibold text-blue-200 disabled:opacity-60"
+                  >
+                    {exportingTournamentId === tournament.id
+                      ? "Экспортируем..."
+                      : "Экспорт в GS"}
+                  </button>
+
                   <Link
                     href={`/tournaments/${tournament.id}`}
                     className="rounded-lg border border-white/10 px-3 py-2 text-center text-sm text-white/80"
@@ -201,7 +251,7 @@ export default function AdminTournamentsPage() {
                       handleDeleteTournament(tournament.id, tournament.title)
                     }
                     disabled={actionLoading}
-                    className="rounded-lg bg-red-600 px-3 py-2 text-center text-sm font-semibold text-white disabled:opacity-60"
+                    className="rounded-lg bg-red-600 px-3 py-2 text-center text-sm font-semibold text-white disabled:opacity-60 sm:col-span-2"
                   >
                     Удалить турнир
                   </button>

@@ -39,6 +39,7 @@ export type Tournament = {
   created_at: string;
   description?: string
   location?: string
+  google_sheet_tab_name?: string | null;
 };
 
 export type Registration = {
