@@ -85,7 +85,7 @@ function EditBadge({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white"
+      className="inline-flex h-9 w-9 appearance-none items-center justify-center rounded-full border-0 bg-black/60 text-white outline-none ring-0"
     >
       <PencilIcon />
     </button>
@@ -406,12 +406,12 @@ export default function PlayerProfilePage() {
 
           <div className="min-w-0 flex-1">
             <div className="relative inline-block max-w-full">
-              <h2 className="truncate pr-9 text-2xl font-bold">
+              <h2 className="truncate pr-8 text-2xl font-bold">
                 {player.display_name}
               </h2>
 
               {isOwnProfile ? (
-                <div className="absolute right-0 -top-1">
+                <div className="absolute -right-1 -top-2">
                   <EditBadge
                     onClick={() => {
                       setIsEditingNickname((prev) => !prev);
