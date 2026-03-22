@@ -467,20 +467,24 @@ export default function PlayerProfilePage() {
 
         <div className="mt-7 space-y-3">
           <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-sm text-white/60">Рейтинг</p>
-                <p className="mt-2 text-2xl font-semibold">{rating}</p>
+            <p className="text-sm font-medium uppercase tracking-[0.18em] text-white/45">
+              Статистика
+            </p>
+
+            <div className="mt-5 grid grid-cols-3 gap-4">
+              <div className="text-center">
+                <p className="text-2xl font-semibold text-white">{rating}</p>
+                <p className="mt-2 text-sm text-white/55">Рейтинг</p>
               </div>
 
-              <div className="border-l border-white/10 pl-4">
-                <p className="text-sm text-white/60">Сыграно турниров</p>
-                <p className="mt-2 text-2xl font-semibold">{playedCount}</p>
+              <div className="border-l border-white/10 pl-4 text-center">
+                <p className="text-2xl font-semibold text-white">{playedCount}</p>
+                <p className="mt-2 text-sm text-white/55">Турниры</p>
               </div>
 
-              <div className="border-l border-white/10 pl-4">
-                <p className="text-sm text-white/60">Нокауты</p>
-                <p className="mt-2 text-2xl font-semibold">{totalKnockouts}</p>
+              <div className="border-l border-white/10 pl-4 text-center">
+                <p className="text-2xl font-semibold text-white">{totalKnockouts}</p>
+                <p className="mt-2 text-sm text-white/55">Нокауты</p>
               </div>
             </div>
           </div>
