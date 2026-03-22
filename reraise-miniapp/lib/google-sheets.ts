@@ -89,6 +89,10 @@ export async function ensureSpreadsheetTab(tabName: string) {
   };
 }
 
+export async function ensureReadmeTab() {
+  return ensureSpreadsheetTab("README");
+}
+
 export async function replaceSpreadsheetTabValues(
   tabName: string,
   values: SheetCellValue[][]
@@ -107,6 +111,160 @@ export async function replaceSpreadsheetTabValues(
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values,
+    },
+  });
+}
+
+export async function applyTournamentSheetFormatting(tabName: string) {
+  const sheets = getGoogleSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const targetSheet = spreadsheet.data.sheets?.find(
+    (sheet) => sheet.properties?.title === tabName
+  );
+
+  const sheetId = targetSheet?.properties?.sheetId;
+
+  if (sheetId == null) {
+    throw new Error(`Spreadsheet tab "${tabName}" not found`);
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          updateSheetProperties: {
+            properties: {
+              sheetId,
+              gridProperties: {
+                frozenRowCount: 13,
+              },
+            },
+            fields: "gridProperties.frozenRowCount",
+          },
+        },
+        {
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: 0,
+              endRowIndex: 5,
+              startColumnIndex: 0,
+              endColumnIndex: 2,
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: {
+                  red: 0.08,
+                  green: 0.08,
+                  blue: 0.08,
+                },
+                textFormat: {
+                  bold: true,
+                },
+              },
+            },
+            fields: "userEnteredFormat(backgroundColor,textFormat.bold)",
+          },
+        },
+        {
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: 6,
+              endRowIndex: 12,
+              startColumnIndex: 0,
+              endColumnIndex: 9,
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: {
+                  red: 0.96,
+                  green: 0.97,
+                  blue: 1,
+                },
+                textFormat: {
+                  foregroundColor: {
+                    red: 0.12,
+                    green: 0.18,
+                    blue: 0.28,
+                  },
+                },
+                wrapStrategy: "WRAP",
+              },
+            },
+            fields:
+              "userEnteredFormat(backgroundColor,textFormat.foregroundColor,wrapStrategy)",
+          },
+        },
+        {
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: 12,
+              endRowIndex: 13,
+              startColumnIndex: 0,
+              endColumnIndex: 9,
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: {
+                  red: 0.86,
+                  green: 0.9,
+                  blue: 0.96,
+                },
+                textFormat: {
+                  bold: true,
+                },
+              },
+            },
+            fields: "userEnteredFormat(backgroundColor,textFormat.bold)",
+          },
+        },
+        {
+          updateDimensionProperties: {
+            range: {
+              sheetId,
+              dimension: "COLUMNS",
+              startIndex: 0,
+              endIndex: 1,
+            },
+            properties: {
+              pixelSize: 180,
+            },
+            fields: "pixelSize",
+          },
+        },
+        {
+          updateDimensionProperties: {
+            range: {
+              sheetId,
+              dimension: "COLUMNS",
+              startIndex: 1,
+              endIndex: 3,
+            },
+            properties: {
+              pixelSize: 180,
+            },
+            fields: "pixelSize",
+          },
+        },
+        {
+          updateDimensionProperties: {
+            range: {
+              sheetId,
+              dimension: "COLUMNS",
+              startIndex: 3,
+              endIndex: 9,
+            },
+            properties: {
+              pixelSize: 130,
+            },
+            fields: "pixelSize",
+          },
+        },
+      ],
     },
   });
 }
