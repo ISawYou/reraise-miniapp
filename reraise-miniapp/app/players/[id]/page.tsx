@@ -14,8 +14,8 @@ import {
   getPlayerRating,
   getPlayerTournamentHistory,
 } from "@/features/tournaments";
-import { getTelegramUser, getTelegramWebApp } from "@/lib/telegram";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import { getTelegramUser, getTelegramWebApp } from "@/lib/telegram";
 import type {
   Player,
   RegistrationStatus,
@@ -75,6 +75,28 @@ function ImageIcon() {
       <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
       <circle cx="9" cy="10" r="1.5" />
       <path d="m20.5 16.5-5.25-5.25L6 20.5" />
+    </svg>
+  );
+}
+
+function TrophyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 4.5h8v3.75a4 4 0 0 1-8 0Z" />
+      <path d="M10 16.5h4" />
+      <path d="M12 12.25v4.25" />
+      <path d="M6 6H4.75A1.75 1.75 0 0 0 3 7.75v.5A3.75 3.75 0 0 0 6.75 12H8" />
+      <path d="M18 6h1.25A1.75 1.75 0 0 1 21 7.75v.5A3.75 3.75 0 0 1 17.25 12H16" />
+      <path d="M9 20h6" />
     </svg>
   );
 }
@@ -443,21 +465,40 @@ export default function PlayerProfilePage() {
           </div>
         ) : null}
 
-        <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-            <p className="text-sm text-white/60">Рейтинг</p>
-            <p className="mt-2 text-2xl font-semibold">{rating}</p>
+        <div className="mt-7 space-y-3">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-white/60">Рейтинг</p>
+                <p className="mt-2 text-2xl font-semibold">{rating}</p>
+              </div>
+
+              <div className="border-l border-white/10 pl-4">
+                <p className="text-sm text-white/60">Сыграно турниров</p>
+                <p className="mt-2 text-2xl font-semibold">{playedCount}</p>
+              </div>
+
+              <div className="border-l border-white/10 pl-4">
+                <p className="text-sm text-white/60">Нокауты</p>
+                <p className="mt-2 text-2xl font-semibold">{totalKnockouts}</p>
+              </div>
+            </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-            <p className="text-sm text-white/60">Сыграно турниров</p>
-            <p className="mt-2 text-2xl font-semibold">{playedCount}</p>
-          </div>
+          <Link
+            href={`/players/${player.id}/achievements`}
+            className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"
+          >
+            <div>
+              <div className="flex items-center gap-2 text-sm text-white/60">
+                <TrophyIcon />
+                <span>Профиль</span>
+              </div>
+              <p className="mt-3 text-2xl font-semibold">Достижения</p>
+            </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-            <p className="text-sm text-white/60">Нокауты</p>
-            <p className="mt-2 text-2xl font-semibold">{totalKnockouts}</p>
-          </div>
+            <span className="text-white/45">→</span>
+          </Link>
         </div>
 
         <section className="mt-8">
