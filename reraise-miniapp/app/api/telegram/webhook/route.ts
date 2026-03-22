@@ -37,7 +37,7 @@ export async function POST(request: Request) {
           chat_id: chatId,
           text: "Открыть приложение можно по кнопке ниже.",
           reply_markup: {
-            keyboard: [
+            inline_keyboard: [
               [
                 {
                   text: "Открыть приложение",
@@ -47,7 +47,6 @@ export async function POST(request: Request) {
                 },
               ],
             ],
-            resize_keyboard: true,
           },
         }),
       });
