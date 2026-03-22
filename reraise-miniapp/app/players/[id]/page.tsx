@@ -47,14 +47,9 @@ function PencilIcon() {
       aria-hidden="true"
       viewBox="0 0 24 24"
       className="h-[18px] w-[18px]"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
     >
-      <path d="M3 21h6" />
-      <path d="M14.7 4.3a1 1 0 0 1 1.4 0l3.6 3.6a1 1 0 0 1 0 1.4L8 21H4v-4Z" />
+      <path d="M16.86 3.49a2 2 0 0 1 2.83 0l.82.82a2 2 0 0 1 0 2.83l-10 10A2 2 0 0 1 9.1 17.7l-3.34.84a1 1 0 0 1-1.22-1.22l.84-3.34a2 2 0 0 1 .54-.95Z" />
     </svg>
   );
 }
@@ -90,7 +85,7 @@ function EditBadge({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.1] text-white"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white"
     >
       <PencilIcon />
     </button>
@@ -376,7 +371,7 @@ export default function PlayerProfilePage() {
           ← Назад
         </Link>
 
-        <div className="flex items-start gap-4">
+        <div className="flex items-center gap-4">
           <div className="relative">
             {avatarUrl ? (
               <img
@@ -409,12 +404,12 @@ export default function PlayerProfilePage() {
             disabled={avatarLoading}
           />
 
-          <div className="min-w-0 flex-1 pt-2">
-            <div className="relative min-w-0 pr-12">
+          <div className="min-w-0 flex-1">
+            <div className="relative inline-flex max-w-full pr-12">
               <h2 className="truncate text-2xl font-bold">{player.display_name}</h2>
 
               {isOwnProfile ? (
-                <div className="absolute right-0 top-0">
+                <div className="absolute -right-1 -top-1">
                   <EditBadge
                     onClick={() => {
                       setIsEditingNickname((prev) => !prev);
@@ -482,7 +477,7 @@ export default function PlayerProfilePage() {
         ) : null}
 
         <div className="mt-7 space-y-3">
-          <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.05] px-5 pb-5 pt-4">
             <p className="text-2xl font-semibold text-white">
               Статистика
             </p>
