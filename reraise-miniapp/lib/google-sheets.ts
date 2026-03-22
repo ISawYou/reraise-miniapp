@@ -138,7 +138,7 @@ export async function applyTournamentSheetFormatting(tabName: string) {
             properties: {
               sheetId,
               gridProperties: {
-                frozenRowCount: 13,
+                frozenRowCount: 7,
               },
             },
             fields: "gridProperties.frozenRowCount",
@@ -155,17 +155,19 @@ export async function applyTournamentSheetFormatting(tabName: string) {
             },
             cell: {
               userEnteredFormat: {
-                backgroundColor: {
-                  red: 0.08,
-                  green: 0.08,
-                  blue: 0.08,
-                },
                 textFormat: {
                   bold: true,
+                  foregroundColor: {
+                    red: 0.1,
+                    green: 0.1,
+                    blue: 0.1,
+                  },
                 },
+                wrapStrategy: "WRAP",
               },
             },
-            fields: "userEnteredFormat(backgroundColor,textFormat.bold)",
+            fields:
+              "userEnteredFormat(textFormat.bold,textFormat.foregroundColor,wrapStrategy)",
           },
         },
         {
@@ -173,53 +175,30 @@ export async function applyTournamentSheetFormatting(tabName: string) {
             range: {
               sheetId,
               startRowIndex: 6,
-              endRowIndex: 12,
+              endRowIndex: 7,
               startColumnIndex: 0,
               endColumnIndex: 9,
             },
             cell: {
               userEnteredFormat: {
                 backgroundColor: {
-                  red: 0.96,
-                  green: 0.97,
-                  blue: 1,
+                  red: 0.92,
+                  green: 0.95,
+                  blue: 0.99,
                 },
                 textFormat: {
+                  bold: true,
                   foregroundColor: {
-                    red: 0.12,
-                    green: 0.18,
-                    blue: 0.28,
+                    red: 0.1,
+                    green: 0.1,
+                    blue: 0.1,
                   },
                 },
                 wrapStrategy: "WRAP",
               },
             },
             fields:
-              "userEnteredFormat(backgroundColor,textFormat.foregroundColor,wrapStrategy)",
-          },
-        },
-        {
-          repeatCell: {
-            range: {
-              sheetId,
-              startRowIndex: 12,
-              endRowIndex: 13,
-              startColumnIndex: 0,
-              endColumnIndex: 9,
-            },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: {
-                  red: 0.86,
-                  green: 0.9,
-                  blue: 0.96,
-                },
-                textFormat: {
-                  bold: true,
-                },
-              },
-            },
-            fields: "userEnteredFormat(backgroundColor,textFormat.bold)",
+              "userEnteredFormat(backgroundColor,textFormat.bold,textFormat.foregroundColor,wrapStrategy)",
           },
         },
         {
