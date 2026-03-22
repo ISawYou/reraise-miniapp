@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 type FaqArticleSection = {
   title: string;
@@ -568,10 +567,10 @@ function renderSections(sections: FaqArticleSection[]) {
 }
 
 export default function FaqPage() {
-  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<FaqTabKey>("general");
 
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
     const tab = searchParams.get("tab");
 
     if (
@@ -582,7 +581,7 @@ export default function FaqPage() {
     ) {
       setActiveTab(tab);
     }
-  }, [searchParams]);
+  }, []);
 
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
