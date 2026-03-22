@@ -85,7 +85,7 @@ function EditBadge({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white"
     >
       <PencilIcon />
     </button>
@@ -405,11 +405,13 @@ export default function PlayerProfilePage() {
           />
 
           <div className="min-w-0 flex-1">
-            <div className="relative inline-block max-w-full pr-10">
-              <h2 className="truncate text-2xl font-bold">{player.display_name}</h2>
+            <div className="relative inline-block max-w-full">
+              <h2 className="truncate pr-9 text-2xl font-bold">
+                {player.display_name}
+              </h2>
 
               {isOwnProfile ? (
-                <div className="absolute -right-3 -top-2">
+                <div className="absolute right-0 -top-1">
                   <EditBadge
                     onClick={() => {
                       setIsEditingNickname((prev) => !prev);
@@ -502,7 +504,7 @@ export default function PlayerProfilePage() {
 
           <Link
             href={`/players/${player.id}/achievements`}
-            className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"
+            className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"
           >
             <p className="text-2xl font-semibold text-white">Достижения</p>
 
