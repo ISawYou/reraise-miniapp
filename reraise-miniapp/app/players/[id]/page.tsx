@@ -85,7 +85,7 @@ function EditBadge({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
     >
       <PencilIcon />
     </button>
@@ -405,11 +405,11 @@ export default function PlayerProfilePage() {
           />
 
           <div className="min-w-0 flex-1">
-            <div className="relative inline-flex max-w-full pr-12">
+            <div className="relative inline-block max-w-full pr-10">
               <h2 className="truncate text-2xl font-bold">{player.display_name}</h2>
 
               {isOwnProfile ? (
-                <div className="absolute -right-1 -top-1">
+                <div className="absolute -right-3 -top-2">
                   <EditBadge
                     onClick={() => {
                       setIsEditingNickname((prev) => !prev);
@@ -502,17 +502,22 @@ export default function PlayerProfilePage() {
 
           <Link
             href={`/players/${player.id}/achievements`}
-            className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"
+            className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"
           >
-            <div>
-              <div className="flex items-center gap-2 text-sm text-white/60">
-                <TrophyIcon />
-                <span>Профиль</span>
-              </div>
-              <p className="mt-3 text-2xl font-semibold">Достижения</p>
-            </div>
+            <p className="text-2xl font-semibold text-white">Достижения</p>
 
-            <span className="text-white/45">→</span>
+            <div className="mt-5 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80">
+                <TrophyIcon />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-white/70">0/10</p>
+                <div className="mt-2 h-2 rounded-full bg-white/[0.08]">
+                  <div className="h-2 w-0 rounded-full bg-white" />
+                </div>
+              </div>
+            </div>
           </Link>
         </div>
 
