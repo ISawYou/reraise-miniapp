@@ -79,6 +79,25 @@ function ImageIcon() {
   );
 }
 
+function EditBadge({
+  onClick,
+  label,
+}: {
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-white/85"
+    >
+      <PencilIcon />
+    </button>
+  );
+}
+
 function TrophyIcon() {
   return (
     <svg
@@ -341,37 +360,46 @@ export default function PlayerProfilePage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
-            >
-              ← Назад
-            </Link>
+        <div className="mb-8">
+          <Link
+            href="/"
+            className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
+          >
+            ← Назад
+          </Link>
 
-            <div>
-              <h1 className="text-xl font-semibold text-white">Профиль</h1>
-            </div>
-          </div>
+          <h1 className="mt-6 text-3xl font-bold tracking-tight text-white">
+            Профиль
+          </h1>
         </div>
 
         <Link href="/" className="hidden">
           ← Назад
         </Link>
 
-        <div className="flex flex-col items-start">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={player.display_name}
-              className="mb-5 h-20 w-20 rounded-full border border-white/10 object-cover"
-            />
-          ) : (
-            <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-2xl font-bold text-white/80">
-              {avatarFallback}
-            </div>
-          )}
+        <div className="flex items-start gap-4">
+          <div className="relative">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={player.display_name}
+                className="h-20 w-20 rounded-full border border-white/10 object-cover"
+              />
+            ) : (
+              <div className="flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-2xl font-bold text-white/80">
+                {avatarFallback}
+              </div>
+            )}
+
+            {isOwnProfile ? (
+              <div className="absolute -right-2 -top-2">
+                <EditBadge
+                  onClick={() => avatarInputRef.current?.click()}
+                  label="Сменить аватар"
+                />
+              </div>
+            ) : null}
+          </div>
 
           <input
             ref={avatarInputRef}
@@ -382,35 +410,22 @@ export default function PlayerProfilePage() {
             disabled={avatarLoading}
           />
 
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">{player.display_name}</h1>
-          </div>
+          <div className="flex min-w-0 flex-1 items-start justify-between gap-3 pt-2">
+            <div className="min-w-0">
+              <h2 className="truncate text-2xl font-bold">{player.display_name}</h2>
+            </div>
 
-          {isOwnProfile ? (
-            <div className="mt-5 flex w-full flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => avatarInputRef.current?.click()}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-4 py-2.5 text-sm text-white/85"
-              >
-                <ImageIcon />
-                {avatarLoading ? "Загружаем аватар..." : "Сменить аватар"}
-              </button>
-
-              <button
-                type="button"
+            {isOwnProfile ? (
+              <EditBadge
                 onClick={() => {
                   setIsEditingNickname((prev) => !prev);
                   setNicknameError(null);
                   setNickname(player.pending_display_name ?? player.display_name);
                 }}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-4 py-2.5 text-sm text-white/85"
-              >
-                <PencilIcon />
-                Сменить ник
-              </button>
-            </div>
-          ) : null}
+                label="Сменить ник"
+              />
+            ) : null}
+          </div>
         </div>
 
         {player.nickname_status === "pending" && player.pending_display_name ? (
@@ -467,7 +482,7 @@ export default function PlayerProfilePage() {
 
         <div className="mt-7 space-y-3">
           <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
-            <p className="text-sm font-medium uppercase tracking-[0.18em] text-white/45">
+            <p className="text-xl font-semibold text-white">
               Статистика
             </p>
 
