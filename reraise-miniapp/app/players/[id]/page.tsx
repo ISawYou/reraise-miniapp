@@ -46,16 +46,15 @@ function PencilIcon() {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="h-4 w-4"
+      className="h-[18px] w-[18px]"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M12 20h9" />
-      <path d="m16.5 3.5 4 4" />
-      <path d="M18.75 2.25a2.12 2.12 0 1 1 3 3L8 19l-4 1 1-4Z" />
+      <path d="M3 21h6" />
+      <path d="M14.7 4.3a1 1 0 0 1 1.4 0l3.6 3.6a1 1 0 0 1 0 1.4L8 21H4v-4Z" />
     </svg>
   );
 }
@@ -91,7 +90,7 @@ function EditBadge({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-white/85"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.1] text-white"
     >
       <PencilIcon />
     </button>
@@ -410,21 +409,23 @@ export default function PlayerProfilePage() {
             disabled={avatarLoading}
           />
 
-          <div className="flex min-w-0 flex-1 items-start justify-between gap-3 pt-2">
-            <div className="min-w-0">
+          <div className="min-w-0 flex-1 pt-2">
+            <div className="relative min-w-0 pr-12">
               <h2 className="truncate text-2xl font-bold">{player.display_name}</h2>
-            </div>
 
-            {isOwnProfile ? (
-              <EditBadge
-                onClick={() => {
-                  setIsEditingNickname((prev) => !prev);
-                  setNicknameError(null);
-                  setNickname(player.pending_display_name ?? player.display_name);
-                }}
-                label="Сменить ник"
-              />
-            ) : null}
+              {isOwnProfile ? (
+                <div className="absolute right-0 top-0">
+                  <EditBadge
+                    onClick={() => {
+                      setIsEditingNickname((prev) => !prev);
+                      setNicknameError(null);
+                      setNickname(player.pending_display_name ?? player.display_name);
+                    }}
+                    label="Сменить ник"
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -482,7 +483,7 @@ export default function PlayerProfilePage() {
 
         <div className="mt-7 space-y-3">
           <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
-            <p className="text-xl font-semibold text-white">
+            <p className="text-2xl font-semibold text-white">
               Статистика
             </p>
 
