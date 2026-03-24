@@ -212,6 +212,15 @@ export default function PlayerProfilePage() {
     (sum, item) => sum + (item.result.knockouts ?? 0),
     0
   );
+  const winsCount = history.filter((item) => item.result.place === 1).length;
+  const completedAchievementsCount = [
+    playedCount >= 1,
+    playedCount >= 10,
+    winsCount >= 1,
+  ].filter(Boolean).length;
+  const achievementsProgressPercent = Math.round(
+    (completedAchievementsCount / 3) * 100
+  );
 
   function getStatusText(status: RegistrationStatus) {
     if (status === "registered") {
@@ -514,9 +523,14 @@ export default function PlayerProfilePage() {
               </div>
 
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-white/70">0/10</p>
+                <p className="text-sm font-medium text-white/70">
+                  {completedAchievementsCount}/3
+                </p>
                 <div className="mt-2 h-2 rounded-full bg-white/[0.08]">
-                  <div className="h-2 w-0 rounded-full bg-white" />
+                  <div
+                    className="h-2 rounded-full bg-white"
+                    style={{ width: `${achievementsProgressPercent}%` }}
+                  />
                 </div>
               </div>
             </div>

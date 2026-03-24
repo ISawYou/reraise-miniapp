@@ -146,7 +146,7 @@ export default function PlayerAchievementsPage() {
 
         <h1 className="mt-6 text-3xl font-bold tracking-tight">Достижения</h1>
         <p className="mt-2 text-sm text-white/45">
-          Прогресс игрока по достижениям
+          Текущий прогресс
         </p>
 
         <div className="mt-6 space-y-3">
