@@ -14,6 +14,7 @@ import {
   getPlayerRating,
   getPlayerTournamentHistory,
 } from "@/features/tournaments";
+import { getPlayerAchievements } from "@/features/achievements";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { getTelegramUser, getTelegramWebApp } from "@/lib/telegram";
 import type {
@@ -136,6 +137,7 @@ export default function PlayerProfilePage() {
   const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -159,6 +161,7 @@ export default function PlayerProfilePage() {
           tournamentsCount,
           playerHistory,
           myTournaments,
+          achievementRows,
         ] = await Promise.all([
           ensuredViewer?.id === playerId
             ? Promise.resolve(ensuredViewer)
@@ -167,6 +170,7 @@ export default function PlayerProfilePage() {
           getPlayedTournamentsCount(playerId),
           getPlayerTournamentHistory(playerId),
           getMyTournaments(playerId),
+          getPlayerAchievements(playerId),
         ]);
 
         if (!playerData) {
@@ -193,6 +197,9 @@ export default function PlayerProfilePage() {
                 new Date(b.tournament.start_at).getTime()
             )
         );
+        setCompletedAchievementsCount(
+          achievementRows.filter((row) => row.completed_at).length
+        );
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Ошибка загрузки профиля"
@@ -212,12 +219,6 @@ export default function PlayerProfilePage() {
     (sum, item) => sum + (item.result.knockouts ?? 0),
     0
   );
-  const winsCount = history.filter((item) => item.result.place === 1).length;
-  const completedAchievementsCount = [
-    playedCount >= 1,
-    playedCount >= 10,
-    winsCount >= 1,
-  ].filter(Boolean).length;
   const achievementsProgressPercent = Math.round(
     (completedAchievementsCount / 3) * 100
   );

@@ -3,13 +3,11 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import {
-  getPlayedTournamentsCount,
-  getPlayerTournamentHistory,
-} from "@/features/tournaments";
+import { getPlayerAchievements } from "@/features/achievements";
 
 type AchievementView = {
   id: string;
+  code: string;
   title: string;
   description: string;
   current: number;
@@ -81,8 +79,9 @@ export default function PlayerAchievementsPage() {
   const playerId = params?.id;
 
   const [loading, setLoading] = useState(true);
-  const [playedCount, setPlayedCount] = useState(0);
-  const [winsCount, setWinsCount] = useState(0);
+  const [achievementProgress, setAchievementProgress] = useState<
+    Record<string, number>
+  >({});
 
   useEffect(() => {
     async function loadAchievements() {
@@ -92,13 +91,13 @@ export default function PlayerAchievementsPage() {
       }
 
       try {
-        const [played, history] = await Promise.all([
-          getPlayedTournamentsCount(playerId),
-          getPlayerTournamentHistory(playerId),
-        ]);
-
-        setPlayedCount(played);
-        setWinsCount(history.filter((item) => item.result.place === 1).length);
+        const rows = await getPlayerAchievements(playerId);
+        setAchievementProgress(
+          rows.reduce<Record<string, number>>((acc, row) => {
+            acc[row.achievement_code] = row.current_value;
+            return acc;
+          }, {})
+        );
       } finally {
         setLoading(false);
       }
@@ -110,25 +109,28 @@ export default function PlayerAchievementsPage() {
   const achievements: AchievementView[] = [
     {
       id: "first-tournament",
+      code: "first_tournament",
       title: "Дебют",
       description: "Сыграть 1 турнир",
-      current: Math.min(playedCount, 1),
+      current: Math.min(achievementProgress.first_tournament ?? 0, 1),
       target: 1,
       icon: <PlayIcon />,
     },
     {
       id: "ten-tournaments",
+      code: "ten_tournaments",
       title: "В игре",
       description: "Сыграть 10 турниров",
-      current: Math.min(playedCount, 10),
+      current: Math.min(achievementProgress.ten_tournaments ?? 0, 10),
       target: 10,
       icon: <StackIcon />,
     },
     {
       id: "first-win",
+      code: "first_win",
       title: "Первая победа",
       description: "Победить в одном турнире",
-      current: Math.min(winsCount, 1),
+      current: Math.min(achievementProgress.first_win ?? 0, 1),
       target: 1,
       icon: <TrophyIcon />,
     },

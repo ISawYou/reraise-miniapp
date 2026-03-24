@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { syncPlayersAchievements } from "@/features/achievements";
 import type {
   Registration,
   RegistrationStatus,
@@ -667,6 +668,10 @@ export async function saveTournamentResults(
 
   if (tournamentStatusError) {
     throw new Error(tournamentStatusError.message);
+  }
+
+  if (playerIds.length > 0) {
+    await syncPlayersAchievements(playerIds);
   }
 }
 

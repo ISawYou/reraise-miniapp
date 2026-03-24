@@ -88,3 +88,12 @@ export type TournamentResult = {
   username: string | null;
   display_name: string;
 };
+
+export type PlayerAchievement = {
+  id: string;
+  player_id: string;
+  achievement_code: string;
+  current_value: number;
+  completed_at: string | null;
+  updated_at: string;
+};

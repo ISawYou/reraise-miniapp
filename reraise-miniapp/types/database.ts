@@ -47,3 +47,12 @@ export type ResultRow = {
   rating_points: number;
   created_at: string;
 };
+
+export type PlayerAchievementRow = {
+  id: string;
+  player_id: string;
+  achievement_code: string;
+  current_value: number;
+  completed_at: string | null;
+  updated_at: string;
+};
