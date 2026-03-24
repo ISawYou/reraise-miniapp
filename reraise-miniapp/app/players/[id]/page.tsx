@@ -125,6 +125,24 @@ function TrophyIcon() {
   );
 }
 
+function ArrowRightIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-[18px] w-7"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.5 12h15.5" />
+      <path d="m14 7 5 5-5 5" />
+    </svg>
+  );
+}
+
 export default function PlayerProfilePage() {
   const MAX_AVATAR_SIZE_BYTES = 20 * 1024 * 1024;
   const params = useParams<{ id: string }>();
@@ -591,9 +609,15 @@ export default function PlayerProfilePage() {
                       href={`/tournaments/${item.tournament.id}`}
                       className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                     >
-                      <h3 className="text-lg font-semibold">
-                        {item.tournament.title}
-                      </h3>
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="text-lg font-semibold">
+                          {item.tournament.title}
+                        </h3>
+
+                        <div className="inline-flex items-center text-white/45">
+                          <ArrowRightIcon />
+                        </div>
+                      </div>
 
                       <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
                         {formatDateTimeWithoutSeconds(item.tournament.start_at)}
@@ -602,10 +626,6 @@ export default function PlayerProfilePage() {
                       <div className="mt-3 text-sm text-white/60">
                         {getStatusText(item.registration.status)}
                       </div>
-
-                      <p className="mt-4 text-sm text-white/70 underline underline-offset-4">
-                        Открыть турнир
-                      </p>
                     </Link>
                   ))}
                 </div>
