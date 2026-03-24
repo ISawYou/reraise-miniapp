@@ -235,7 +235,7 @@ export default function PlayerProfilePage() {
 
   function getStatusText(status: RegistrationStatus) {
     if (status === "registered") {
-      return "Вы зарегистрированы";
+      return "Вы записаны";
     }
 
     if (status === "waitlist") {
@@ -599,7 +599,7 @@ export default function PlayerProfilePage() {
                         {formatDateTimeWithoutSeconds(item.tournament.start_at)}
                       </div>
 
-                      <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white/60">
+                      <div className="mt-3 text-sm text-white/60">
                         {getStatusText(item.registration.status)}
                       </div>
 
