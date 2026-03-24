@@ -74,6 +74,42 @@ function TrophyIcon() {
   );
 }
 
+function UserIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="8" r="3.25" />
+      <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
+}
+
+function AwardIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="8.5" r="3.5" />
+      <path d="M9.5 12.5 8 20l4-2 4 2-1.5-7.5" />
+    </svg>
+  );
+}
+
 export default function PlayerAchievementsPage() {
   const params = useParams<{ id: string }>();
   const playerId = params?.id;
@@ -133,6 +169,24 @@ export default function PlayerAchievementsPage() {
       current: Math.min(achievementProgress.first_win ?? 0, 1),
       target: 1,
       icon: <TrophyIcon />,
+    },
+    {
+      id: "rookie-rating",
+      code: "rookie_100_rating",
+      title: "Новичок",
+      description: "Набрать 100 очков",
+      current: Math.min(achievementProgress.rookie_100_rating ?? 0, 100),
+      target: 100,
+      icon: <UserIcon />,
+    },
+    {
+      id: "pro-rating",
+      code: "pro_1000_rating",
+      title: "Профи",
+      description: "Набрать 1000 очков",
+      current: Math.min(achievementProgress.pro_1000_rating ?? 0, 1000),
+      target: 1000,
+      icon: <AwardIcon />,
     },
   ];
 

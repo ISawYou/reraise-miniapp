@@ -6,6 +6,8 @@ const ACHIEVEMENT_TARGETS = {
   first_tournament: 1,
   ten_tournaments: 10,
   first_win: 1,
+  rookie_100_rating: 100,
+  pro_1000_rating: 1000,
 } as const;
 
 function mapPlayerAchievementRow(row: PlayerAchievementRow): PlayerAchievement {
@@ -35,7 +37,11 @@ export async function getPlayerAchievements(playerId: string) {
 }
 
 async function getPlayerAchievementStats(playerId: string) {
-  const [{ count: playedCount, error: playedError }, { data: winsData, error: winsError }] =
+  const [
+    { count: playedCount, error: playedError },
+    { data: winsData, error: winsError },
+    { data: ratingData, error: ratingError },
+  ] =
     await Promise.all([
       supabase
         .from("results")
@@ -46,6 +52,10 @@ async function getPlayerAchievementStats(playerId: string) {
         .select("id")
         .eq("player_id", playerId)
         .eq("place", 1),
+      supabase
+        .from("results")
+        .select("rating_points")
+        .eq("player_id", playerId),
     ]);
 
   if (playedError) {
@@ -55,6 +65,15 @@ async function getPlayerAchievementStats(playerId: string) {
   if (winsError) {
     throw new Error(winsError.message);
   }
+
+  if (ratingError) {
+    throw new Error(ratingError.message);
+  }
+
+  const ratingTotal = (ratingData ?? []).reduce(
+    (sum, row: any) => sum + (row.rating_points ?? 0),
+    0
+  );
 
   return {
     first_tournament: Math.min(
@@ -68,6 +87,14 @@ async function getPlayerAchievementStats(playerId: string) {
     first_win: Math.min(
       (winsData ?? []).length,
       ACHIEVEMENT_TARGETS.first_win
+    ),
+    rookie_100_rating: Math.min(
+      ratingTotal,
+      ACHIEVEMENT_TARGETS.rookie_100_rating
+    ),
+    pro_1000_rating: Math.min(
+      ratingTotal,
+      ACHIEVEMENT_TARGETS.pro_1000_rating
     ),
   };
 }

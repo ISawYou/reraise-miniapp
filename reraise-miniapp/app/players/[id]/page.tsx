@@ -220,7 +220,7 @@ export default function PlayerProfilePage() {
     0
   );
   const achievementsProgressPercent = Math.round(
-    (completedAchievementsCount / 3) * 100
+    (completedAchievementsCount / 5) * 100
   );
 
   function getStatusText(status: RegistrationStatus) {
@@ -525,7 +525,7 @@ export default function PlayerProfilePage() {
 
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-white/70">
-                  {completedAchievementsCount}/3
+                  {completedAchievementsCount}/5
                 </p>
                 <div className="mt-2 h-2 rounded-full bg-white/[0.08]">
                   <div
