@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-const WEB_APP_URL = "https://poker-app-psi-livid.vercel.app/";
+const WEB_APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ?? "https://poker-app-psi-livid.vercel.app/";
 
 type TelegramWebhookUpdate = {
   message?: {
@@ -27,10 +28,8 @@ type TelegramWebhookUpdate = {
   };
 };
 
-// NOTE: In-memory Maps reset on serverless cold start — acceptable for MVP.
-// Maps user chat_id -> "awaiting_message" support session state
+// NOTE: In-memory maps reset on serverless cold start - acceptable for MVP.
 const supportSessions = new Map<number, "awaiting_message">();
-// Maps forwarded message_id in admin chat -> original user chat_id
 const forwardedMessageMap = new Map<number, number>();
 
 async function sendMessage(
@@ -47,6 +46,7 @@ async function sendMessage(
       body: JSON.stringify({ chat_id: chatId, text, ...extraBody }),
     }
   );
+
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Telegram sendMessage failed: ${errorText}`);
@@ -71,10 +71,12 @@ async function forwardMessage(
       }),
     }
   );
+
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Telegram forwardMessage failed: ${errorText}`);
   }
+
   const result = (await response.json()) as { result?: { message_id: number } };
   return result.result?.message_id ?? 0;
 }
@@ -101,26 +103,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // TEMP: log chat info to find SUPPORT_ADMIN_CHAT_ID
     const chatType = message?.chat?.type;
     const chatTitle = message?.chat?.title;
     if (chatType === "group" || chatType === "supergroup") {
-      console.log(`[webhook] GROUP chat_id=${chatId} type=${chatType} title="${chatTitle}"`);
+      console.log(
+        `[webhook] GROUP chat_id=${chatId} type=${chatType} title="${chatTitle}"`
+      );
     } else {
       console.log(`[webhook] chat_id=${chatId} type=${chatType ?? "unknown"}`);
     }
 
-    // Handle messages from admin chat (replies to forwarded support messages)
     if (adminChatId && chatId === Number(adminChatId)) {
       const replyTo = message?.reply_to_message;
       if (replyTo) {
-        // Look up original user by forwarded message_id stored in our map
         let originalUserChatId = forwardedMessageMap.get(replyTo.message_id);
 
-        // Fallback: try forward_origin for when map was lost (cold start)
         if (!originalUserChatId) {
-          originalUserChatId =
-            replyTo.forward_origin?.sender_user?.id;
+          originalUserChatId = replyTo.forward_origin?.sender_user?.id;
         }
 
         if (originalUserChatId && text) {
@@ -139,20 +138,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // Handle /start command
     if (text?.startsWith("/start")) {
       const param = text.slice("/start".length).trim();
 
       if (param === "support") {
-        // Deep link support: /start support
         supportSessions.set(chatId, "awaiting_message");
         await sendMessage(
           token,
           chatId,
-          "Опишите вашу проблему или вопрос, и мы ответим как можно скорее."
+          "Опишите ваш вопрос или проблему, и мы передадим сообщение администраторам."
         );
       } else {
-        // Default /start — show "Открыть приложение" button
         supportSessions.delete(chatId);
         const response = await fetch(
           `https://api.telegram.org/bot${token}/sendMessage`,
@@ -184,7 +180,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // Handle user messages when in support session
     if (supportSessions.get(chatId) === "awaiting_message") {
       if (!adminChatId) {
         await sendMessage(token, chatId, "Поддержка временно недоступна.");
@@ -193,7 +188,6 @@ export async function POST(request: Request) {
       }
 
       try {
-        // Cap forwardedMessageMap to prevent memory leaks
         if (forwardedMessageMap.size > 1000) {
           forwardedMessageMap.clear();
         }
@@ -227,7 +221,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // Ignore all other messages from non-admin chats outside support session
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[webhook] Unhandled error:", err);

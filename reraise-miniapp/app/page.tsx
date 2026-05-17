@@ -1154,18 +1154,18 @@ export default function HomePage() {
                 </Link>
 
                 <button
-                    type="button"
-                    onClick={() => {
-                      const url = "https://t.me/dont_worry_club_bot?start=support";
-                      const webApp = getTelegramWebApp();
-                      if (webApp?.openTelegramLink) {
-                        webApp.openTelegramLink(url);
-                      } else {
-                        window.open(url, "_blank", "noopener,noreferrer");
-                      }
-                    }}
-                    className="w-full rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-left text-white transition active:scale-[0.99]"
-                  >
+                  type="button"
+                  onClick={() => {
+                    const url = "https://t.me/ReRaise_Poker_Bot?start=support";
+                    const webApp = getTelegramWebApp();
+                    if (webApp?.openTelegramLink) {
+                      webApp.openTelegramLink(url);
+                    } else {
+                      window.open(url, "_blank", "noopener,noreferrer");
+                    }
+                  }}
+                  className="w-full rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-left text-white transition active:scale-[0.99]"
+                >
                     <div className="flex items-center gap-2 text-white/65">
                       <SupportIcon />
                       <span className="text-sm">На связи</span>
