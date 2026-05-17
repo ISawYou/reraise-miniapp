@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { createTournament } from "@/features/tournaments";
+import { fetchAdminJson } from "@/lib/client-request";
 import { getTelegramUser } from "@/lib/telegram";
-import type { Player } from "@/types/domain";
+import type { Player, TournamentKind } from "@/types/domain";
 
 export default function AdminTournamentCreatePage() {
   const [player, setPlayer] = useState<Player | null>(null);
@@ -16,6 +16,7 @@ export default function AdminTournamentCreatePage() {
   const [location, setLocation] = useState("");
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
+  const [kind, setKind] = useState<TournamentKind>("free");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,9 +33,7 @@ export default function AdminTournamentCreatePage() {
         const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
         setPlayer(ensuredPlayer);
       } catch (err) {
-        const nextMessage =
-          err instanceof Error ? err.message : "Ошибка загрузки страницы";
-        setError(nextMessage);
+        setError(err instanceof Error ? err.message : "Ошибка загрузки страницы");
       } finally {
         setAccessChecked(true);
       }
@@ -74,12 +73,19 @@ export default function AdminTournamentCreatePage() {
       setMessage(null);
       setError(null);
 
-      await createTournament({
-        title: title.trim(),
-        description: description.trim(),
-        location: location.trim(),
-        start_at: new Date(startAt).toISOString(),
-        max_players: Number(maxPlayers),
+      await fetchAdminJson<{ tournament: unknown }>("/api/admin/tournaments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim(),
+          location: location.trim(),
+          start_at: new Date(startAt).toISOString(),
+          max_players: Number(maxPlayers),
+          kind,
+        }),
       });
 
       setMessage("Турнир создан");
@@ -88,10 +94,9 @@ export default function AdminTournamentCreatePage() {
       setLocation("");
       setStartAt("");
       setMaxPlayers("20");
+      setKind("free");
     } catch (err) {
-      const nextMessage =
-        err instanceof Error ? err.message : "Ошибка создания турнира";
-      setError(nextMessage);
+      setError(err instanceof Error ? err.message : "Ошибка создания турнира");
     } finally {
       setLoading(false);
     }
@@ -195,6 +200,17 @@ export default function AdminTournamentCreatePage() {
             onChange={(e) => setStartAt(e.target.value)}
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
+
+          <label className="mt-4 block text-sm text-white/80">Тип турнира</label>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as TournamentKind)}
+            className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
+          >
+            <option value="free">Бесплатный турнир</option>
+            <option value="paid">Платный турнир</option>
+            <option value="cash">Кэш-игра</option>
+          </select>
 
           <label className="mt-4 block text-sm text-white/80">
             Лимит игроков

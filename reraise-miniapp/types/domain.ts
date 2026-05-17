@@ -11,12 +11,15 @@ export type TournamentStatus =
   | "completed";
 
 export type PlayerRole = "player" | "admin";
+export type TournamentKind = "free" | "paid" | "cash";
 
 export type Player = {
   id: string;
-  telegram_id: number;
+  telegram_id: number | null;
+  email?: string | null;
   username: string | null;
   display_name: string;
+  admin_display_name?: string;
   telegram_avatar_url?: string;
   custom_avatar_url?: string;
   avatar_updated_at?: string;
@@ -26,6 +29,9 @@ export type Player = {
   profile_completed_at?: string;
   nickname_status?: "approved" | "pending";
   pending_display_name?: string;
+  can_access_free?: boolean;
+  can_access_paid?: boolean;
+  can_access_cash?: boolean;
   created_at: string;
 };
 
@@ -34,6 +40,7 @@ export type Tournament = {
   title: string;
   start_at: string;
   max_players: number;
+  kind: TournamentKind;
   season_id: string | null;
   status: TournamentStatus;
   created_at: string;
@@ -87,6 +94,22 @@ export type TournamentResult = {
   rating_points: number;
   username: string | null;
   display_name: string;
+};
+
+export type TournamentLiveEntry = {
+  id: string;
+  tournament_id: string;
+  registration_id: string;
+  player_id: string;
+  display_name: string;
+  username: string | null;
+  registration_status: "registered" | "attended";
+  arrived: boolean;
+  rebuys: number;
+  addons: number;
+  knockouts: number;
+  place: number | null;
+  sheet_row_number: number | null;
 };
 
 export type PlayerAchievement = {

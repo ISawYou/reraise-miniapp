@@ -25,8 +25,8 @@ export default function LeaderboardPage() {
       try {
         const activeSeason = await getActiveSeason();
         setSeasonTitle(
-          typeof activeSeason.number === "number"
-            ? `Сезон ${activeSeason.number}`
+          typeof activeSeason.title === "string" && activeSeason.title.trim()
+            ? activeSeason.title
             : "Активный сезон"
         );
 

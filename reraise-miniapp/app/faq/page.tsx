@@ -595,7 +595,7 @@ export default function FaqPage() {
 
         <header className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6">
           <p className="text-xs uppercase tracking-[0.24em] text-white/45">
-            ReRaise
+            Don't worry club
           </p>
           <h1 className="mt-3 text-3xl font-semibold leading-tight">FAQ</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/65">

@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ensurePlayerFromTelegramUser,
+  ensurePlayerFromEmail,
+  linkEmailToPlayer,
   acceptTerms,
   completeProfile,
   TERMS_VERSION,
 } from "@/features/auth";
 import {
-  getOpenTournaments,
+  getVisibleOpenTournamentsForPlayer,
   getPlayerRegistrations,
   getTournamentRegistrationCounts,
 } from "@/features/tournaments";
@@ -18,10 +20,23 @@ import { supabase } from "@/lib/supabase";
 import {
   getTelegramUser,
   getTelegramWebApp,
+  isTelegramMiniAppContext,
   type TelegramWebAppUser,
 } from "@/lib/telegram";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
+
+function getTournamentKindLabel(kind: Tournament["kind"]) {
+  if (kind === "paid") {
+    return "Платный";
+  }
+
+  if (kind === "cash") {
+    return "Кэш";
+  }
+
+  return "Бесплатный";
+}
 
 function TournamentIcon() {
   return (
@@ -183,6 +198,14 @@ export default function HomePage() {
   );
   const [nearestTournamentRegisteredCount, setNearestTournamentRegisteredCount] =
     useState(0);
+  const [nearestPaidTournament, setNearestPaidTournament] =
+    useState<Tournament | null>(null);
+  const [nearestPaidTournamentRegisteredCount, setNearestPaidTournamentRegisteredCount] =
+    useState(0);
+  const [nearestCashTournament, setNearestCashTournament] =
+    useState<Tournament | null>(null);
+  const [nearestCashTournamentRegisteredCount, setNearestCashTournamentRegisteredCount] =
+    useState(0);
 
   const [initializing, setInitializing] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
@@ -194,6 +217,14 @@ export default function HomePage() {
   const [nickname, setNickname] = useState("");
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+
+  const [showEmailLinkModal, setShowEmailLinkModal] = useState(false);
+  const [emailLinkStep, setEmailLinkStep] = useState<"email" | "code">("email");
+  const [emailLinkEmail, setEmailLinkEmail] = useState("");
+  const [emailLinkCode, setEmailLinkCode] = useState("");
+  const [emailLinkLoading, setEmailLinkLoading] = useState(false);
+  const [emailLinkError, setEmailLinkError] = useState<string | null>(null);
+  const [emailLinkResendCooldown, setEmailLinkResendCooldown] = useState(0);
 
   const registrationsRef = useRef<Record<string, string>>({});
   const termsLines = useMemo(() => {
@@ -260,13 +291,46 @@ export default function HomePage() {
     return () => clearTimeout(timeout);
   }, [promotionToast]);
 
+  useEffect(() => {
+    const container = document.createElement("div");
+    container.style.display = "none";
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.setAttribute("data-telegram-login", "DontWorryClubBot");
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-request-access", "write");
+    container.appendChild(script);
+    document.body.appendChild(container);
+    return () => { document.body.removeChild(container); };
+  }, []);
+
+  function handleTelegramLogin() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tg = (window as any).Telegram?.Login;
+    if (tg) {
+      tg.auth(
+        { bot_id: 8707145223, request_access: "write" },
+        (data: Record<string, unknown> | false) => {
+          if (!data) return;
+          const params = new URLSearchParams();
+          for (const [key, value] of Object.entries(data)) {
+            if (value !== undefined && value !== null) params.set(key, String(value));
+          }
+          window.location.href = `/api/auth/telegram/callback?${params.toString()}`;
+        }
+      );
+    } else {
+      window.location.href = "/api/auth/telegram";
+    }
+  }
+
   async function refreshHomeData(
-    currentPlayerId: string,
+    currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
     const [registrations, tournaments, counts] = await Promise.all([
-      getPlayerRegistrations(currentPlayerId),
-      getOpenTournaments(),
+      getPlayerRegistrations(currentPlayer.id),
+      getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
     ]);
 
@@ -299,10 +363,25 @@ export default function HomePage() {
         }
       }
 
+    const nextNearestFreeTournament =
+      tournaments.find((tournament) => tournament.kind === "free") ?? null;
+    const nextNearestPaidTournament =
+      tournaments.find((tournament) => tournament.kind === "paid") ?? null;
+    const nextNearestCashTournament =
+      tournaments.find((tournament) => tournament.kind === "cash") ?? null;
+
     registrationsRef.current = nextMap;
-    setNearestTournament(tournaments[0] ?? null);
+    setNearestTournament(nextNearestFreeTournament);
     setNearestTournamentRegisteredCount(
-      tournaments[0] ? (counts[tournaments[0].id] ?? 0) : 0
+      nextNearestFreeTournament ? (counts[nextNearestFreeTournament.id] ?? 0) : 0
+    );
+    setNearestPaidTournament(nextNearestPaidTournament);
+    setNearestPaidTournamentRegisteredCount(
+      nextNearestPaidTournament ? (counts[nextNearestPaidTournament.id] ?? 0) : 0
+    );
+    setNearestCashTournament(nextNearestCashTournament);
+    setNearestCashTournamentRegisteredCount(
+      nextNearestCashTournament ? (counts[nextNearestCashTournament.id] ?? 0) : 0
     );
   }
 
@@ -321,7 +400,7 @@ export default function HomePage() {
         setProfileError(null);
         setShowProfileSetup(true);
       } else {
-        await refreshHomeData(updatedPlayer.id, {
+        await refreshHomeData(updatedPlayer, {
           showPromotionToast: false,
         });
       }
@@ -360,7 +439,7 @@ export default function HomePage() {
         setShowProfileSetup(false);
         setPromotionToast("Ник отправлен на модерацию");
 
-        await refreshHomeData(result.player.id, {
+        await refreshHomeData(result.player, {
           showPromotionToast: false,
         });
 
@@ -369,7 +448,7 @@ export default function HomePage() {
 
       setShowProfileSetup(false);
 
-      await refreshHomeData(result.player.id, {
+      await refreshHomeData(result.player, {
         showPromotionToast: false,
       });
     } catch (error) {
@@ -383,6 +462,90 @@ export default function HomePage() {
     }
   }
 
+  function handleEmailLinkDismiss() {
+    try {
+      window.sessionStorage.setItem("dwc.email.link.dismissed", "1");
+    } catch {}
+    setShowEmailLinkModal(false);
+  }
+
+  function startEmailLinkResendCooldown() {
+    setEmailLinkResendCooldown(60);
+    const interval = setInterval(() => {
+      setEmailLinkResendCooldown((v) => {
+        if (v <= 1) { clearInterval(interval); return 0; }
+        return v - 1;
+      });
+    }, 1000);
+  }
+
+  async function handleEmailLinkRequestCode(e: React.FormEvent) {
+    e.preventDefault();
+    const normalized = emailLinkEmail.trim().toLowerCase();
+    if (!normalized) return;
+    setEmailLinkLoading(true);
+    setEmailLinkError(null);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: normalized,
+      options: { shouldCreateUser: true },
+    });
+    setEmailLinkLoading(false);
+    if (error) {
+      console.error("[emailLink] signInWithOtp failed:", {
+        message: error.message,
+        status: error.status,
+        code: (error as unknown as Record<string, unknown>).code ?? null,
+      });
+      setEmailLinkError("Не удалось отправить код. Попробуйте снова.");
+      return;
+    }
+    setEmailLinkStep("code");
+    startEmailLinkResendCooldown();
+  }
+
+  async function handleEmailLinkVerifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!player) return;
+    const normalized = emailLinkEmail.trim().toLowerCase();
+    setEmailLinkLoading(true);
+    setEmailLinkError(null);
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email: normalized,
+      token: emailLinkCode.trim(),
+      type: "email",
+    });
+    if (verifyError) {
+      setEmailLinkLoading(false);
+      setEmailLinkError("Неверный или истёкший код.");
+      return;
+    }
+    try {
+      const updatedPlayer = await linkEmailToPlayer(player.id, normalized);
+      setPlayer(updatedPlayer);
+      setShowEmailLinkModal(false);
+    } catch (err) {
+      setEmailLinkError(err instanceof Error ? err.message : "Ошибка привязки email.");
+    } finally {
+      setEmailLinkLoading(false);
+    }
+  }
+
+  async function handleEmailLinkResend() {
+    if (emailLinkResendCooldown > 0) return;
+    setEmailLinkLoading(true);
+    setEmailLinkError(null);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: emailLinkEmail.trim().toLowerCase(),
+      options: { shouldCreateUser: true },
+    });
+    setEmailLinkLoading(false);
+    if (error) {
+      setEmailLinkError("Не удалось отправить код повторно.");
+      return;
+    }
+    startEmailLinkResendCooldown();
+  }
+
   useEffect(() => {
     const timer = setTimeout(async () => {
       try {
@@ -392,6 +555,10 @@ export default function HomePage() {
           setIsInsideTelegram(true);
           webApp.ready?.();
           webApp.expand?.();
+        }
+
+        if (!webApp && isTelegramMiniAppContext()) {
+          setIsInsideTelegram(true);
         }
 
         const telegramUser = getTelegramUser();
@@ -422,9 +589,80 @@ export default function HomePage() {
             } else {
               setShowProfileSetup(false);
 
-              await refreshHomeData(ensuredPlayer.id, {
+              await refreshHomeData(ensuredPlayer, {
                 showPromotionToast: false,
               });
+
+              // try {
+              //   const dismissed = window.sessionStorage.getItem("dwc.email.link.dismissed");
+              //   if (!ensuredPlayer.email && !dismissed) {
+              //     setShowEmailLinkModal(true);
+              //   }
+              // } catch {}
+            }
+          }
+        } else {
+          const { data: { session } } = await supabase.auth.getSession();
+
+          if (session?.user?.email) {
+            setPlayerLoading(true);
+            setPlayerError(null);
+
+            const webPlayer = await ensurePlayerFromEmail(session.user.email);
+            setPlayer(webPlayer);
+
+            if (
+              !webPlayer.accepted_terms_at ||
+              webPlayer.accepted_terms_version !== TERMS_VERSION
+            ) {
+              setScrolledToBottom(false);
+              setShowProfileSetup(false);
+              setShowTerms(true);
+            } else {
+              setShowTerms(false);
+
+              if (!webPlayer.profile_completed_at) {
+                setNickname(webPlayer.display_name);
+                setProfileError(null);
+                setShowProfileSetup(true);
+              } else {
+                setShowProfileSetup(false);
+
+                await refreshHomeData(webPlayer, {
+                  showPromotionToast: false,
+                });
+              }
+            }
+          } else {
+            const meRes = await fetch("/api/auth/me").catch(() => null);
+
+            if (meRes?.ok) {
+              const data = (await meRes.json()) as { player: Player };
+              const cookiePlayer = data.player;
+              setPlayer(cookiePlayer);
+
+              if (
+                !cookiePlayer.accepted_terms_at ||
+                cookiePlayer.accepted_terms_version !== TERMS_VERSION
+              ) {
+                setScrolledToBottom(false);
+                setShowProfileSetup(false);
+                setShowTerms(true);
+              } else {
+                setShowTerms(false);
+
+                if (!cookiePlayer.profile_completed_at) {
+                  setNickname(cookiePlayer.display_name);
+                  setProfileError(null);
+                  setShowProfileSetup(true);
+                } else {
+                  setShowProfileSetup(false);
+
+                  await refreshHomeData(cookiePlayer, {
+                    showPromotionToast: false,
+                  });
+                }
+              }
             }
           }
         }
@@ -456,7 +694,7 @@ export default function HomePage() {
         },
         async () => {
           try {
-            await refreshHomeData(player.id, {
+            await refreshHomeData(player, {
               showPromotionToast: true,
             });
           } catch (error) {
@@ -477,7 +715,7 @@ export default function HomePage() {
         },
         async () => {
           try {
-            await refreshHomeData(player.id, {
+            await refreshHomeData(player, {
               showPromotionToast: false,
             });
           } catch (error) {
@@ -491,7 +729,7 @@ export default function HomePage() {
       supabase.removeChannel(registrationsChannel);
       supabase.removeChannel(tournamentsChannel);
     };
-  }, [player?.id, showTerms, showProfileSetup]);
+  }, [player, player?.id, showTerms, showProfileSetup]);
 
   const greetingName = useMemo(() => {
     if (player?.display_name) return player.display_name;
@@ -502,6 +740,58 @@ export default function HomePage() {
   const homeAvatarUrl =
     player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null;
   const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
+  const showTournamentKindTag = Boolean(
+    player?.can_access_paid || player?.can_access_cash
+  );
+  const showAnyTournamentCard = Boolean(
+    nearestTournament ||
+      (player?.can_access_paid && nearestPaidTournament) ||
+      (player?.can_access_cash && nearestCashTournament)
+  );
+
+  function renderTournamentCard(
+    tournament: Tournament,
+    registeredCount: number,
+    title: string,
+    gradientClassName: string
+  ) {
+    return (
+      <Link
+        href={`/tournaments/${tournament.id}`}
+        className={`block rounded-3xl border border-white/10 ${gradientClassName} p-5 transition active:scale-[0.99]`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/45">
+            {title}
+          </p>
+          {showTournamentKindTag ? (
+            <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/85">
+              {getTournamentKindLabel(tournament.kind)}
+            </span>
+          ) : null}
+        </div>
+
+        <h3 className="mt-3 text-3xl font-black uppercase leading-none tracking-wide">
+          {tournament.title}
+        </h3>
+
+        <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/80">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+            <CalendarIcon />
+            <span>{formatDateTimeWithoutSeconds(tournament.start_at)}</span>
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+            <UserIcon />
+            <span>
+              {registeredCount} / {tournament.max_players}
+            </span>
+          </div>
+        </div>
+
+        <p className="mt-4 text-sm text-white/55">Нажми, чтобы открыть турнир</p>
+      </Link>
+    );
+  }
 
   if (initializing) {
     return (
@@ -521,7 +811,7 @@ export default function HomePage() {
         <div className="mx-auto flex h-full max-w-md flex-col gap-4">
           <div className="terms-card rounded-[28px] p-5">
             <p className="text-xs uppercase tracking-[0.28em] text-yellow-300/80">
-              Игровое пространство RERAISE
+              Игровое пространство DWC
             </p>
             <h1 className="mt-3 text-3xl font-bold leading-tight">
               Пользовательское соглашение
@@ -551,8 +841,6 @@ export default function HomePage() {
                   const isSubtitle = line.startsWith("(") && line.endsWith(")");
                   const isSectionTitle =
                     !/^\d+\.\d+\./.test(line) &&
-                    !line.includes("вЂ”") &&
-                    !line.includes("вЂ“") &&
                     line.length < 40;
                   const isListLead = /:\s*$/.test(line);
 
@@ -629,6 +917,50 @@ export default function HomePage() {
     );
   }
 
+  if (!player) {
+    return (
+      <main className="fixed inset-0 bg-black px-4 py-6 text-white">
+        <div className="mx-auto flex h-full max-w-md flex-col justify-center">
+          <div className="mb-8">
+            <p className="text-xs uppercase tracking-[0.18em] text-white/40">
+              Игровое пространство DWC
+            </p>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight">
+              Don&apos;t Worry Club
+            </h1>
+          </div>
+          <div className="rounded-2xl bg-white/5 p-5">
+            {playerError ? (
+              <p className="mb-3 text-sm text-red-300">{playerError}</p>
+            ) : (
+              <p className="mb-3 text-sm text-white/70">
+                Войдите, чтобы продолжить
+              </p>
+            )}
+            <Link
+              href="/login"
+              className="block w-full rounded-xl bg-yellow-500 py-3 text-center font-semibold text-black"
+            >
+              Войти через email
+            </Link>
+            <div className="mt-4 flex items-center gap-3">
+              <div className="flex-1 border-t border-white/10" />
+              <span className="text-xs text-white/40">или</span>
+              <div className="flex-1 border-t border-white/10" />
+            </div>
+            <button
+              type="button"
+              onClick={handleTelegramLogin}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] py-3 text-sm font-semibold text-white"
+            >
+              Войти через Telegram
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   if (showProfileSetup) {
     return (
       <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
@@ -672,7 +1004,7 @@ export default function HomePage() {
         <header className="mb-8">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-white/40">
-              Игровое пространство RERAISE
+              Игровое пространство DWC
             </p>
             <div className="mt-3 flex items-center justify-between gap-4">
               <h1 className="text-4xl font-bold tracking-tight">Главная</h1>
@@ -700,7 +1032,7 @@ export default function HomePage() {
 
             <p className="mt-4 text-sm text-white/75">Привет, {greetingName}</p>
             <p className="mt-1 text-xs text-white/45">
-              Добро пожаловать в ReRaise
+              Добро пожаловать в Don't worry club
             </p>
           </div>
         </header>
@@ -711,10 +1043,29 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        {checkedTelegram && !isInsideTelegram ? (
-          <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">
-            Приложение открыто вне Telegram. Полная проверка работает внутри Mini
-            App.
+        {checkedTelegram && !isInsideTelegram && !player && !playerLoading ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p className="text-sm text-white/70">
+              Войдите, чтобы продолжить
+            </p>
+            <Link
+              href="/login"
+              className="mt-3 block w-full rounded-xl bg-yellow-500 py-3 text-center font-semibold text-black"
+            >
+              Войти через email
+            </Link>
+            <div className="mt-4 flex items-center gap-3">
+              <div className="flex-1 border-t border-white/10" />
+              <span className="text-xs text-white/40">или</span>
+              <div className="flex-1 border-t border-white/10" />
+            </div>
+            <button
+              type="button"
+              onClick={handleTelegramLogin}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] py-3 text-sm font-semibold text-white"
+            >
+              Войти через Telegram
+            </button>
           </div>
         ) : null}
 
@@ -730,46 +1081,41 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        {checkedTelegram && isInsideTelegram && !playerLoading && !playerError ? (
+        {checkedTelegram && !!player && !playerLoading && !playerError ? (
           <>
-            <section className="mt-6">
-              {nearestTournament ? (
-                <Link
-                  href={`/tournaments/${nearestTournament.id}`}
-                  className="block rounded-3xl border border-white/10 bg-gradient-to-br from-red-900/60 to-black p-5 transition active:scale-[0.99]"
-                >
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/45">
-                    Ближайший турнир
-                  </p>
+            <section className="mt-6 space-y-4">
+              {nearestTournament
+                ? renderTournamentCard(
+                    nearestTournament,
+                    nearestTournamentRegisteredCount,
+                    "Ближайший турнир",
+                    "bg-gradient-to-br from-emerald-700/45 to-black"
+                  )
+                : null}
 
-                  <h3 className="mt-3 text-3xl font-black uppercase leading-none tracking-wide">
-                    {nearestTournament.title}
-                  </h3>
+              {player?.can_access_paid && nearestPaidTournament
+                ? renderTournamentCard(
+                    nearestPaidTournament,
+                    nearestPaidTournamentRegisteredCount,
+                    "Ближайший платный",
+                    "bg-gradient-to-br from-amber-700/35 to-black"
+                  )
+                : null}
 
-                  <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/80">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                      <CalendarIcon />
-                      <span>
-                        {formatDateTimeWithoutSeconds(nearestTournament.start_at)}
-                      </span>
-                    </div>
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                      <UserIcon />
-                      <span>
-                        {nearestTournamentRegisteredCount} / {nearestTournament.max_players}
-                      </span>
-                    </div>
-                  </div>
+              {player?.can_access_cash && nearestCashTournament
+                ? renderTournamentCard(
+                    nearestCashTournament,
+                    nearestCashTournamentRegisteredCount,
+                    "Ближайший кэш",
+                    "bg-gradient-to-br from-cyan-700/30 to-black"
+                  )
+                : null}
 
-                  <p className="mt-4 text-sm text-white/55">
-                    Нажми, чтобы открыть турнир
-                  </p>
-                </Link>
-              ) : (
+              {!showAnyTournamentCard ? (
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
                   Сейчас нет открытых турниров
                 </div>
-              )}
+              ) : null}
             </section>
 
             <section className="mt-4">
@@ -807,13 +1153,25 @@ export default function HomePage() {
                   <p className="mt-6 text-2xl font-semibold">FAQ</p>
                 </Link>
 
-                <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-white">
-                  <div className="flex items-center gap-2 text-white/65">
-                    <SupportIcon />
-                    <span className="text-sm">На связи</span>
-                  </div>
-                  <p className="mt-6 text-2xl font-semibold">Поддержка</p>
-                </div>
+                <button
+                    type="button"
+                    onClick={() => {
+                      const url = "https://t.me/dont_worry_club_bot?start=support";
+                      const webApp = getTelegramWebApp();
+                      if (webApp?.openTelegramLink) {
+                        webApp.openTelegramLink(url);
+                      } else {
+                        window.open(url, "_blank", "noopener,noreferrer");
+                      }
+                    }}
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-left text-white transition active:scale-[0.99]"
+                  >
+                    <div className="flex items-center gap-2 text-white/65">
+                      <SupportIcon />
+                      <span className="text-sm">На связи</span>
+                    </div>
+                    <p className="mt-6 text-2xl font-semibold">Поддержка</p>
+                  </button>
               </div>
             </section>
 
@@ -836,6 +1194,92 @@ export default function HomePage() {
       </div>
 
       {promotionToast ? <PromotionToast message={promotionToast} /> : null}
+
+      {showEmailLinkModal ? (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/60"
+            onClick={handleEmailLinkDismiss}
+          />
+          <div className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl bg-[#111] px-5 pb-10 pt-5">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="font-semibold">Добавьте email</p>
+              <button
+                type="button"
+                onClick={handleEmailLinkDismiss}
+                className="text-sm text-white/40"
+              >
+                Позже
+              </button>
+            </div>
+
+            {emailLinkStep === "email" ? (
+              <form onSubmit={handleEmailLinkRequestCode}>
+                <p className="mb-4 text-sm text-white/60">
+                  Чтобы входить в приложение без Telegram и не потерять доступ к профилю
+                </p>
+                <input
+                  type="email"
+                  value={emailLinkEmail}
+                  onChange={(e) => { setEmailLinkEmail(e.target.value); setEmailLinkError(null); }}
+                  placeholder="your@email.com"
+                  autoComplete="email"
+                  inputMode="email"
+                  disabled={emailLinkLoading}
+                  className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white placeholder-white/30 outline-none focus:border-white/30 disabled:opacity-50"
+                />
+                {emailLinkError ? (
+                  <p className="mt-2 text-sm text-red-300">{emailLinkError}</p>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={emailLinkLoading || !emailLinkEmail.trim()}
+                  className="mt-3 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
+                >
+                  {emailLinkLoading ? "Отправляем..." : "Получить код"}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleEmailLinkVerifyCode}>
+                <p className="mb-4 text-sm text-white/60">
+                  Код отправлен на{" "}
+                  <span className="text-white">{emailLinkEmail}</span>
+                </p>
+                <input
+                  type="text"
+                  value={emailLinkCode}
+                  onChange={(e) => { setEmailLinkCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setEmailLinkError(null); }}
+                  placeholder="Код из письма"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  disabled={emailLinkLoading}
+                  className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-center text-2xl tracking-[0.5em] text-white placeholder-white/20 outline-none focus:border-white/30 disabled:opacity-50"
+                />
+                {emailLinkError ? (
+                  <p className="mt-2 text-sm text-red-300">{emailLinkError}</p>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={emailLinkLoading || emailLinkCode.length < 6}
+                  className="mt-3 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
+                >
+                  {emailLinkLoading ? "Проверяем..." : "Подтвердить"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleEmailLinkResend}
+                  disabled={emailLinkLoading || emailLinkResendCooldown > 0}
+                  className="mt-3 w-full text-sm text-white/40 disabled:opacity-40"
+                >
+                  {emailLinkResendCooldown > 0
+                    ? `Отправить повторно (${emailLinkResendCooldown}с)`
+                    : "Отправить код повторно"}
+                </button>
+              </form>
+            )}
+          </div>
+        </>
+      ) : null}
     </main>
   );
 }

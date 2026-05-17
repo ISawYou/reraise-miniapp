@@ -7,8 +7,10 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
   return {
     id: row.id,
     telegram_id: row.telegram_id,
+    email: row.email ?? undefined,
     username: row.username,
     display_name: row.display_name,
+    admin_display_name: row.admin_display_name ?? undefined,
     telegram_avatar_url: row.telegram_avatar_url ?? undefined,
     custom_avatar_url: row.custom_avatar_url ?? undefined,
     avatar_updated_at: row.avatar_updated_at ?? undefined,
@@ -18,6 +20,9 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     profile_completed_at: row.profile_completed_at ?? undefined,
     nickname_status: (row.nickname_status as "approved" | "pending") ?? undefined,
     pending_display_name: row.pending_display_name ?? undefined,
+    can_access_free: row.can_access_free,
+    can_access_paid: row.can_access_paid,
+    can_access_cash: row.can_access_cash,
     created_at: row.created_at,
   };
 }
@@ -366,6 +371,84 @@ export async function rejectNickname(playerId: string): Promise<Player> {
 
   if (error) {
     throw new Error(`Failed to reject nickname: ${error.message}`);
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
+}
+
+// ==========================
+// WEB AUTH (email)
+// ==========================
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export async function getPlayerByEmail(email: string): Promise<Player | null> {
+  const normalized = normalizeEmail(email);
+
+  const { data, error } = await supabase
+    .from("players")
+    .select("*")
+    .eq("email", normalized)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to fetch player by email: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
+}
+
+export async function ensurePlayerFromEmail(email: string): Promise<Player> {
+  const normalized = normalizeEmail(email);
+  const existing = await getPlayerByEmail(normalized);
+
+  if (existing) {
+    return existing;
+  }
+
+  const localPart = normalized.split("@")[0] ?? "player";
+  const displayName = localPart.replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, "") || "Игрок";
+
+  const { data, error } = await supabase
+    .from("players")
+    .insert({
+      email: normalized,
+      display_name: displayName,
+      telegram_id: null,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create player from email: ${error.message}`);
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
+}
+
+export async function linkEmailToPlayer(playerId: string, email: string): Promise<Player> {
+  const normalized = normalizeEmail(email);
+  const existing = await getPlayerByEmail(normalized);
+
+  if (existing && existing.id !== playerId) {
+    throw new Error("Этот email уже привязан к другому игроку");
+  }
+
+  const { data, error } = await supabase
+    .from("players")
+    .update({ email: normalized })
+    .eq("id", playerId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to link email to player: ${error.message}`);
   }
 
   return mapPlayerRowToDomain(data as PlayerRow);

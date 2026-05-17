@@ -106,6 +106,32 @@ export default function AdminPage() {
           </Link>
 
           <Link
+            href="/admin/player-access"
+            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
+              DP
+            </div>
+            <h2 className="mt-4 text-lg font-semibold">Доступы игроков</h2>
+            <p className="mt-2 text-sm text-white/70">
+              Выдача доступа к турнирам и кэш-играм
+            </p>
+          </Link>
+
+          <Link
+            href="/admin/tournament-notifications"
+            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
+              RU
+            </div>
+            <h2 className="mt-4 text-lg font-semibold">Рассылка уведомлений</h2>
+            <p className="mt-2 text-sm text-white/70">
+              Отправка сообщений игрокам по выбранному турниру
+            </p>
+          </Link>
+
+          <Link
             href="/admin/tournaments"
             className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
           >

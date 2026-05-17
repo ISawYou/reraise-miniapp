@@ -4,6 +4,14 @@
   --font-ui: Arial, Helvetica, sans-serif;
   --terms-surface: rgba(255, 255, 255, 0.06);
   --terms-border: rgba(255, 255, 255, 0.12);
+  --tg-safe-area-inset-top: 0px;
+  --tg-safe-area-inset-bottom: 0px;
+  --tg-safe-area-inset-left: 0px;
+  --tg-safe-area-inset-right: 0px;
+  --tg-content-safe-area-inset-top: 0px;
+  --tg-content-safe-area-inset-bottom: 0px;
+  --tg-content-safe-area-inset-left: 0px;
+  --tg-content-safe-area-inset-right: 0px;
 }
 
 html,
@@ -139,14 +147,51 @@ a {
 /* Telegram Mini App safe area fix */
 
 .telegram-app-body {
-  padding-top: calc(env(safe-area-inset-top, 0px) + 44px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.telegram-app-safe-area {
+  padding-top: calc(
+    var(--tg-safe-area-inset-top, env(safe-area-inset-top, 0px)) +
+    var(--tg-content-safe-area-inset-top, 0px)
+  );
+  padding-right: max(
+    var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)),
+    var(--tg-content-safe-area-inset-right, 0px)
+  );
+  padding-bottom: max(
+    var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)),
+    var(--tg-content-safe-area-inset-bottom, 0px)
+  );
+  padding-left: max(
+    var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)),
+    var(--tg-content-safe-area-inset-left, 0px)
+  );
+}
+
+.telegram-top-action {
+  margin-top: 0.5rem;
 }
 
 /* старые iOS */
 @supports (padding-top: constant(safe-area-inset-top)) {
-  .telegram-app-body {
-    padding-top: calc(constant(safe-area-inset-top) + 44px);
-    padding-bottom: constant(safe-area-inset-bottom);
+  .telegram-app-safe-area {
+    padding-top: calc(
+      var(--tg-safe-area-inset-top, constant(safe-area-inset-top)) +
+      var(--tg-content-safe-area-inset-top, 0px)
+    );
+    padding-right: max(
+      var(--tg-safe-area-inset-right, constant(safe-area-inset-right)),
+      var(--tg-content-safe-area-inset-right, 0px)
+    );
+    padding-bottom: max(
+      var(--tg-safe-area-inset-bottom, constant(safe-area-inset-bottom)),
+      var(--tg-content-safe-area-inset-bottom, 0px)
+    );
+    padding-left: max(
+      var(--tg-safe-area-inset-left, constant(safe-area-inset-left)),
+      var(--tg-content-safe-area-inset-left, 0px)
+    );
   }
 }

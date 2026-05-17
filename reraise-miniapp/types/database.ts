@@ -1,8 +1,10 @@
 export type PlayerRow = {
   id: string;
-  telegram_id: number;
+  telegram_id: number | null;
+  email: string | null;
   username: string | null;
   display_name: string;
+  admin_display_name: string | null;
   telegram_avatar_url: string | null;
   custom_avatar_url: string | null;
   avatar_updated_at: string | null;
@@ -12,6 +14,9 @@ export type PlayerRow = {
   profile_completed_at: string | null;
   nickname_status: string;
   pending_display_name: string | null;
+  can_access_free: boolean;
+  can_access_paid: boolean;
+  can_access_cash: boolean;
   created_at: string;
 };
 
@@ -23,6 +28,7 @@ export type TournamentRow = {
   google_sheet_tab_name: string | null;
   start_at: string;
   max_players: number;
+  kind: "free" | "paid" | "cash";
   season_id: string | null;
   status: string;
   created_at: string;
@@ -46,6 +52,21 @@ export type ResultRow = {
   knockouts: number;
   rating_points: number;
   created_at: string;
+};
+
+export type TournamentLiveEntryRow = {
+  id: string;
+  tournament_id: string;
+  player_id: string;
+  registration_id: string;
+  arrived: boolean;
+  rebuys: number;
+  addons: number;
+  knockouts: number;
+  place: number | null;
+  sheet_row_number: number | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type PlayerAchievementRow = {

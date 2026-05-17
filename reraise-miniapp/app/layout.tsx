@@ -11,8 +11,8 @@ const onest = Onest({
 });
 
 export const metadata: Metadata = {
-  title: "ReRaise Poker Club",
-  description: "Telegram Mini App for ReRaise Poker Club",
+  title: "Don't worry club",
+  description: "Telegram Mini App for Don't worry club",
 };
 
 export const viewport: Viewport = {
@@ -39,7 +39,7 @@ export default function RootLayout({
           strategy="beforeInteractive"
         />
         <TelegramAppShell />
-        {children}
+        <div className="telegram-app-safe-area min-h-screen">{children}</div>
       </body>
     </html>
   );

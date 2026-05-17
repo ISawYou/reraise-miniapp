@@ -5,11 +5,21 @@ import {
 } from "@/features/tournaments";
 import {
   applyTournamentSheetFormatting,
+  appendReportRow,
   buildSpreadsheetTabUrl,
-  ensureSpreadsheetTab,
   ensureReadmeTab,
+  ensureSpreadsheetTab,
   replaceSpreadsheetTabValues,
 } from "@/lib/google-sheets";
+
+type FreeSheetRowInput = {
+  player_id: string;
+  arrived: boolean;
+  rebuys: number;
+  addons: number;
+  knockouts: number;
+  place: number | null;
+};
 
 function buildTabName(title: string, startAt: string, tournamentId: string) {
   const date = new Date(startAt);
@@ -25,56 +35,110 @@ function buildTabName(title: string, startAt: string, tournamentId: string) {
   return `${day}.${month} | ${shortTitle} | ${tournamentId.slice(0, 4)}`;
 }
 
+function formatTournamentDate(date: string) {
+  return new Date(date).toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getFreeTournamentStatusLabel(status: string) {
+  if (status === "open") {
+    return "Открыт";
+  }
+
+  if (status === "closed") {
+    return "Закрыт";
+  }
+
+  if (status === "completed") {
+    return "Завершен";
+  }
+
+  return "Черновик";
+}
+
 function buildReadmeSheetValues() {
   return [
-    ["README — Google Sheets для турнирного администратора"],
+    ["README - Google Sheets для турнирного администратора"],
     [],
     ["Что делает этот файл"],
     [
-      "В этой таблице администратор на площадке отмечает, кто реально сыграл, считает повторные входы, нокауты и итоговые места.",
+      "В этой таблице администратор на площадке заполняет игровые данные и итоговые места участников турнира.",
     ],
     [],
     ["Какие листы в таблице"],
-    ["README — инструкция"],
-    ["Листы турниров — рабочие таблицы по каждому турниру"],
-    [],
-    ["Какие колонки можно редактировать"],
-    ["Пришел"],
-    ["Re-entry"],
-    ["Нокауты"],
-    ["Место"],
-    ["Комментарий"],
-    [],
-    ["Какие колонки нельзя менять"],
-    ["Player ID"],
-    ["Ник"],
-    ["Telegram"],
-    ["Статус регистрации"],
-    [],
-    ["Правила заполнения"],
-    ["Пришел: ставьте TRUE или Да только если игрок реально сделал хотя бы один вход в турнир."],
-    ["Если игрок зарегистрирован, но не приехал или не сыграл ни одного входа, Пришел не заполняйте."],
-    ["Если игрок был в waitlist, но по факту сел в турнир и сыграл, тоже ставьте Пришел = TRUE / Да."],
-    ["Re-entry: количество повторных входов. Если повторных входов не было, ставьте 0."],
-    ["Нокауты: количество выбитых игроков. Если нокаутов не было, ставьте 0."],
-    ["Место: итоговое место игрока, когда турнир завершен или место уже известно."],
+    ["README - инструкция"],
+    ["Листы турниров - рабочие таблицы по каждому турниру"],
     [],
     ["Важно"],
     ["Не удаляйте строки и не меняйте Player ID"],
     ["Повторная выгрузка того же турнира обновляет тот же лист, а не создает новый."],
-    ["README также переиспользуется и обновляется, а не создается заново."],
   ];
 }
 
-function buildSheetValues(
-  exportData: Awaited<ReturnType<typeof getTournamentSheetExportData>>
+function buildFreeSheetValues(
+  exportData: Awaited<ReturnType<typeof getTournamentSheetExportData>>,
+  rows?: FreeSheetRowInput[],
+  entryPrice = 0,
+  addonPrice = 0,
+  bountyPrice = 0
+) {
+  const rowsMap = new Map((rows ?? []).map((row) => [row.player_id, row]));
+
+  return [
+    ["Tournament ID", exportData.tournament.id],
+    ["", "", "Название", exportData.tournament.title, entryPrice, addonPrice, bountyPrice],
+    ["", "", "Дата", formatTournamentDate(exportData.tournament.start_at), "Entry price", "Addon price", "Bounty price"],
+    ["", "", "Локация", exportData.tournament.location ?? ""],
+    ["", "", "Статус", getFreeTournamentStatusLabel(exportData.tournament.status)],
+    [],
+    [
+      "Player ID",
+      "System",
+      "Ник",
+      "Telegram",
+      "Статус регистрации",
+      "Пришел",
+      "Re-buy",
+      "Addon",
+      "Nok",
+      "Место",
+    ],
+    ...exportData.rows.map((row) => {
+      const values = rowsMap.get(row.player_id);
+
+      return [
+        row.player_id,
+        row.username ?? "",
+        row.display_name,
+        row.username ? `@${row.username}` : "",
+        row.registration_status,
+        values?.arrived ?? false,
+        values?.rebuys ?? 0,
+        values?.addons ?? 0,
+        values?.knockouts ?? 0,
+        values?.place ?? "",
+      ];
+    }),
+  ];
+}
+
+function buildLiveSheetValues(
+  exportData: Awaited<ReturnType<typeof getTournamentSheetExportData>>,
+  entryPrice = 0,
+  addonPrice = 0,
+  bountyPrice = 0
 ) {
   return [
     ["Tournament ID", exportData.tournament.id],
-    ["Название", exportData.tournament.title],
-    ["Дата", exportData.tournament.start_at],
-    ["Локация", exportData.tournament.location ?? ""],
-    ["Статус", exportData.tournament.status],
+    ["", "", "Название", exportData.tournament.title, entryPrice, addonPrice, bountyPrice],
+    ["", "", "Дата", exportData.tournament.start_at, "Entry price", "Addon price", "Bounty price"],
+    ["", "", "Локация", exportData.tournament.location ?? ""],
+    ["", "", "Статус", exportData.tournament.status],
     [],
     [
       "Player ID",
@@ -101,33 +165,74 @@ function buildSheetValues(
   ];
 }
 
+export async function syncTournamentSheet(
+  tournamentId: string,
+  rows?: FreeSheetRowInput[],
+  entryPrice = 0,
+  addonPrice = 0,
+  bountyPrice = 0
+) {
+  const exportData = await getTournamentSheetExportData(tournamentId);
+  const tabName =
+    exportData.tournament.google_sheet_tab_name?.trim() ||
+    buildTabName(
+      exportData.tournament.title,
+      exportData.tournament.start_at,
+      exportData.tournament.id
+    );
+
+  await ensureReadmeTab();
+  await replaceSpreadsheetTabValues("README", buildReadmeSheetValues());
+
+  const sheet = await ensureSpreadsheetTab(tabName);
+  if (sheet.created) {
+    try {
+      await appendReportRow(exportData.tournament.title, tabName);
+    } catch (error) {
+      console.error("Failed to append row to Лист1", error);
+    }
+  }
+  const values =
+    exportData.tournament.kind === "free"
+      ? buildFreeSheetValues(exportData, rows, entryPrice, addonPrice, bountyPrice)
+      : buildLiveSheetValues(exportData, entryPrice, addonPrice, bountyPrice);
+
+  await replaceSpreadsheetTabValues(tabName, values);
+  await applyTournamentSheetFormatting(tabName, exportData.rows.length);
+  await setTournamentGoogleSheetTabName(tournamentId, tabName);
+
+  return {
+    tabName,
+    url: buildSpreadsheetTabUrl(sheet.sheetId),
+  };
+}
+
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await context.params;
-    const exportData = await getTournamentSheetExportData(id);
-    const tabName =
-      exportData.tournament.google_sheet_tab_name?.trim() ||
-      buildTabName(
-        exportData.tournament.title,
-        exportData.tournament.start_at,
-        exportData.tournament.id
-      );
+    const body = (await request.json().catch(() => null)) as
+      | {
+          rows?: FreeSheetRowInput[];
+          entryPrice?: number;
+          addonPrice?: number;
+          bountyPrice?: number;
+        }
+      | null;
 
-    await ensureReadmeTab();
-    await replaceSpreadsheetTabValues("README", buildReadmeSheetValues());
-
-    const sheet = await ensureSpreadsheetTab(tabName);
-    await replaceSpreadsheetTabValues(tabName, buildSheetValues(exportData));
-    await applyTournamentSheetFormatting(tabName);
-    await setTournamentGoogleSheetTabName(id, tabName);
+    const result = await syncTournamentSheet(
+      id,
+      body?.rows,
+      body?.entryPrice ?? 0,
+      body?.addonPrice ?? 0,
+      body?.bountyPrice ?? 0
+    );
 
     return NextResponse.json({
       ok: true,
-      tabName,
-      url: buildSpreadsheetTabUrl(sheet.sheetId),
+      ...result,
     });
   } catch (error) {
     return NextResponse.json(

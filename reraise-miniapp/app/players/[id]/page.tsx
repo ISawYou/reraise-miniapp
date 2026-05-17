@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   ensurePlayerFromTelegramUser,
+  ensurePlayerFromEmail,
   getPlayerById,
   submitNicknameForModeration,
 } from "@/features/auth";
@@ -13,9 +14,11 @@ import {
   getPlayedTournamentsCount,
   getPlayerRating,
   getPlayerTournamentHistory,
+  getTournamentRegistrationCounts,
 } from "@/features/tournaments";
 import { getPlayerAchievements } from "@/features/achievements";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import { supabase } from "@/lib/supabase";
 import { getTelegramUser, getTelegramWebApp } from "@/lib/telegram";
 import type {
   Player,
@@ -50,6 +53,18 @@ function formatDateTimeWithoutSeconds(date: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getTournamentKindLabel(kind: Tournament["kind"]) {
+  if (kind === "paid") {
+    return "Платный";
+  }
+
+  if (kind === "cash") {
+    return "Кэш";
+  }
+
+  return "Бесплатный";
 }
 
 function PencilIcon() {
@@ -152,6 +167,9 @@ export default function PlayerProfilePage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [rating, setRating] = useState(0);
   const [playedCount, setPlayedCount] = useState(0);
+  const [registrationCounts, setRegistrationCounts] = useState<
+    Record<string, number>
+  >({});
   const [activeTab, setActiveTab] = useState<TabKey>("upcoming");
   const [upcomingTournaments, setUpcomingTournaments] = useState<
     UpcomingTournamentItem[]
@@ -181,6 +199,12 @@ export default function PlayerProfilePage() {
         if (telegramUser) {
           ensuredViewer = await ensurePlayerFromTelegramUser(telegramUser);
           setViewerId(ensuredViewer.id);
+        } else {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user?.email) {
+            ensuredViewer = await ensurePlayerFromEmail(session.user.email);
+            setViewerId(ensuredViewer.id);
+          }
         }
 
         const [
@@ -190,6 +214,7 @@ export default function PlayerProfilePage() {
           playerHistory,
           myTournaments,
           achievementRows,
+          counts,
         ] = await Promise.all([
           ensuredViewer?.id === playerId
             ? Promise.resolve(ensuredViewer)
@@ -199,6 +224,7 @@ export default function PlayerProfilePage() {
           getPlayerTournamentHistory(playerId),
           getMyTournaments(playerId),
           getPlayerAchievements(playerId),
+          getTournamentRegistrationCounts(),
         ]);
 
         if (!playerData) {
@@ -225,6 +251,7 @@ export default function PlayerProfilePage() {
                 new Date(b.tournament.start_at).getTime()
             )
         );
+        setRegistrationCounts(counts);
         setCompletedAchievementsCount(
           achievementRows.filter((row) => row.completed_at).length
         );
@@ -249,6 +276,9 @@ export default function PlayerProfilePage() {
   );
   const achievementsProgressPercent = Math.round(
     (completedAchievementsCount / 5) * 100
+  );
+  const showTournamentKindTags = Boolean(
+    player?.can_access_paid || player?.can_access_cash
   );
 
   function getStatusText(status: RegistrationStatus) {
@@ -461,6 +491,9 @@ export default function PlayerProfilePage() {
                 </div>
               ) : null}
             </div>
+            {isOwnProfile && player.email ? (
+              <p className="mt-1 truncate text-sm text-white/45">{player.email}</p>
+            ) : null}
           </div>
         </div>
 
@@ -610,17 +643,29 @@ export default function PlayerProfilePage() {
                       className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <h3 className="text-lg font-semibold">
-                          {item.tournament.title}
-                        </h3>
+                        <div className="min-w-0">
+                          <h3 className="text-lg font-semibold">
+                            {item.tournament.title}
+                          </h3>
+                          {showTournamentKindTags ? (
+                            <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
+                              {getTournamentKindLabel(item.tournament.kind)}
+                            </span>
+                          ) : null}
+                        </div>
 
                         <div className="inline-flex items-center text-white/45">
                           <ArrowRightIcon />
                         </div>
                       </div>
 
-                      <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
-                        {formatDateTimeWithoutSeconds(item.tournament.start_at)}
+                      <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
+                        <div className="inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+                          {formatDateTimeWithoutSeconds(item.tournament.start_at)}
+                        </div>
+                        <div className="inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+                          {registrationCounts[item.tournament.id] ?? 0} / {item.tournament.max_players}
+                        </div>
                       </div>
 
                       <div className="mt-3 text-sm text-white/60">
@@ -645,9 +690,16 @@ export default function PlayerProfilePage() {
                       href={`/tournaments/${item.tournament.id}`}
                       className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
                     >
-                      <h3 className="text-lg font-semibold">
-                        {item.tournament.title}
-                      </h3>
+                      <div className="min-w-0">
+                        <h3 className="text-lg font-semibold">
+                          {item.tournament.title}
+                        </h3>
+                        {showTournamentKindTags ? (
+                          <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
+                            {getTournamentKindLabel(item.tournament.kind)}
+                          </span>
+                        ) : null}
+                      </div>
 
                       <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
                         {formatDateTimeWithoutSeconds(item.tournament.start_at)}

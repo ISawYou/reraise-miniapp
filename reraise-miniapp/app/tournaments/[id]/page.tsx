@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
+import { ensurePlayerFromTelegramUser, ensurePlayerFromEmail } from "@/features/auth";
 import {
-  getTournamentById,
+  getVisibleTournamentByIdForPlayer,
   getTournamentParticipants,
   getTournamentResults,
   getPlayerRegistrations,
@@ -14,8 +14,10 @@ import {
   cancelPlayerRegistration,
 } from "@/features/tournaments";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import { supabase } from "@/lib/supabase";
 import { getTelegramUser } from "@/lib/telegram";
 import type {
+  Player,
   RegistrationStatus,
   Tournament,
   TournamentParticipant,
@@ -23,6 +25,18 @@ import type {
 } from "@/types/domain";
 
 type TabKey = "about" | "participants" | "results";
+
+function getTournamentKindLabel(kind: Tournament["kind"]) {
+  if (kind === "paid") {
+    return "Платный";
+  }
+
+  if (kind === "cash") {
+    return "Кэш";
+  }
+
+  return "Бесплатный";
+}
 
 function CalendarIcon() {
   return (
@@ -194,7 +208,7 @@ export default function TournamentDetailsPage() {
   const router = useRouter();
   const tournamentId = params?.id;
 
-  const [playerId, setPlayerId] = useState<string | null>(null);
+  const [player, setPlayer] = useState<Player | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [participants, setParticipants] = useState<TournamentParticipant[]>([]);
   const [results, setResults] = useState<TournamentResult[]>([]);
@@ -218,6 +232,9 @@ export default function TournamentDetailsPage() {
 const waitlistParticipants = participants.filter(
   (participant) => participant.status === "waitlist"
 );
+  const showTournamentKindTag = Boolean(
+    player?.can_access_paid || player?.can_access_cash
+  );
 
   function handleBack() {
     if (typeof window !== "undefined" && window.history.length > 1) {
@@ -228,11 +245,11 @@ const waitlistParticipants = participants.filter(
     router.push("/tournaments");
   }
 
-  async function refreshPageData(currentPlayerId: string, currentTournamentId: string) {
+  async function refreshPageData(currentPlayer: Player, currentTournamentId: string) {
     const [tournamentData, participantsData, registrations, counts] = await Promise.all([
-      getTournamentById(currentTournamentId),
+      getVisibleTournamentByIdForPlayer(currentTournamentId, currentPlayer),
       getTournamentParticipants(currentTournamentId),
-      getPlayerRegistrations(currentPlayerId),
+      getPlayerRegistrations(currentPlayer.id),
       getTournamentRegistrationCounts(),
     ]);
 
@@ -260,15 +277,21 @@ const waitlistParticipants = participants.filter(
         }
 
         const telegramUser = getTelegramUser();
+        let currentPlayer: Player;
 
-        if (!telegramUser) {
-          throw new Error("Telegram user not found");
+        if (telegramUser) {
+          currentPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+        } else {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user?.email) {
+            throw new Error("Необходимо войти в систему");
+          }
+          currentPlayer = await ensurePlayerFromEmail(session.user.email);
         }
 
-        const player = await ensurePlayerFromTelegramUser(telegramUser);
-        setPlayerId(player.id);
+        setPlayer(currentPlayer);
 
-        await refreshPageData(player.id, tournamentId);
+        await refreshPageData(currentPlayer, tournamentId);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Unknown tournament details error";
@@ -282,13 +305,13 @@ const waitlistParticipants = participants.filter(
   }, [tournamentId]);
 
   async function handleRegister() {
-    if (!playerId || !tournamentId) return;
+    if (!player?.id || !tournamentId) return;
 
     try {
       setActionLoading(true);
       setMessage(null);
 
-      const result = await registerPlayerForTournament(playerId, tournamentId);
+      const result = await registerPlayerForTournament(player.id, tournamentId);
 
       if (result.status === "registered") {
         setMessage("Вы записаны на турнир");
@@ -296,7 +319,7 @@ const waitlistParticipants = participants.filter(
         setMessage("Вы добавлены в список ожидания");
       }
 
-      await refreshPageData(playerId, tournamentId);
+      await refreshPageData(player, tournamentId);
     } catch (err) {
       setMessage("Ошибка записи");
     } finally {
@@ -305,13 +328,13 @@ const waitlistParticipants = participants.filter(
   }
 
   async function handleCancel() {
-    if (!playerId || !tournamentId) return;
+    if (!player?.id || !tournamentId) return;
 
     try {
       setActionLoading(true);
       setMessage(null);
 
-      await cancelPlayerRegistration(playerId, tournamentId);
+      await cancelPlayerRegistration(player.id, tournamentId);
 
       if (registrationStatus === "registered") {
         setMessage("Запись на турнир отменена");
@@ -319,7 +342,7 @@ const waitlistParticipants = participants.filter(
         setMessage("Вы вышли из списка ожидания");
       }
 
-      await refreshPageData(playerId, tournamentId);
+      await refreshPageData(player, tournamentId);
     } catch (err) {
       setMessage("Ошибка отмены записи");
     } finally {
@@ -393,7 +416,7 @@ const waitlistParticipants = participants.filter(
           <button
             type="button"
             onClick={handleBack}
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
             ← Назад
           </button>
@@ -412,13 +435,20 @@ const waitlistParticipants = participants.filter(
         <button
           type="button"
           onClick={handleBack}
-          className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
         >
           ← Назад
         </button>
 
-        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-red-900/60 to-black p-5">
-          <p className="text-sm text-white/60">Турнир</p>
+        <div className={`rounded-2xl border border-white/10 bg-gradient-to-br ${tournament.kind === "paid" ? "from-amber-700/35" : tournament.kind === "cash" ? "from-cyan-700/30" : "from-emerald-700/45"} to-black p-5`}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-white/60">Турнир</p>
+            {showTournamentKindTag ? (
+              <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/85">
+                {getTournamentKindLabel(tournament.kind)}
+              </span>
+            ) : null}
+          </div>
           <h1 className="mt-2 text-3xl font-black uppercase tracking-wide">
             {tournament.title}
           </h1>
