@@ -1162,12 +1162,13 @@ export default function HomePage() {
                 <button
                   type="button"
                   onClick={() => {
-                    const url = "https://t.me/ReRaise_Poker_Bot?start=support";
+                    const httpsUrl = "https://t.me/ReRaise_Poker_Bot?start=support";
+                    const tgUrl = "tg://resolve?domain=ReRaise_Poker_Bot&start=support";
                     const webApp = getTelegramWebApp();
                     if (webApp?.openTelegramLink) {
-                      webApp.openTelegramLink(url);
+                      webApp.openTelegramLink(httpsUrl);
                     } else {
-                      window.open(url, "_blank", "noopener,noreferrer");
+                      window.location.href = tgUrl;
                     }
                   }}
                   className="w-full rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-left text-white transition active:scale-[0.99]"
