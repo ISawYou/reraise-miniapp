@@ -32,18 +32,6 @@ const TELEGRAM_BOT_ID = Number(
   process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID ?? "8682500150"
 );
 
-function getTournamentKindLabel(kind: Tournament["kind"]) {
-  if (kind === "paid") {
-    return "Платный";
-  }
-
-  if (kind === "cash") {
-    return "Кэш";
-  }
-
-  return "Бесплатный";
-}
-
 function TournamentIcon() {
   return (
     <svg
@@ -204,15 +192,6 @@ export default function HomePage() {
   );
   const [nearestTournamentRegisteredCount, setNearestTournamentRegisteredCount] =
     useState(0);
-  const [nearestPaidTournament, setNearestPaidTournament] =
-    useState<Tournament | null>(null);
-  const [nearestPaidTournamentRegisteredCount, setNearestPaidTournamentRegisteredCount] =
-    useState(0);
-  const [nearestCashTournament, setNearestCashTournament] =
-    useState<Tournament | null>(null);
-  const [nearestCashTournamentRegisteredCount, setNearestCashTournamentRegisteredCount] =
-    useState(0);
-
   const [initializing, setInitializing] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
   const [termsAcceptedLoading, setTermsAcceptedLoading] = useState(false);
@@ -369,25 +348,12 @@ export default function HomePage() {
         }
       }
 
-    const nextNearestFreeTournament =
-      tournaments.find((tournament) => tournament.kind === "free") ?? null;
-    const nextNearestPaidTournament =
-      tournaments.find((tournament) => tournament.kind === "paid") ?? null;
-    const nextNearestCashTournament =
-      tournaments.find((tournament) => tournament.kind === "cash") ?? null;
+    const nextNearestTournament = tournaments[0] ?? null;
 
     registrationsRef.current = nextMap;
-    setNearestTournament(nextNearestFreeTournament);
+    setNearestTournament(nextNearestTournament);
     setNearestTournamentRegisteredCount(
-      nextNearestFreeTournament ? (counts[nextNearestFreeTournament.id] ?? 0) : 0
-    );
-    setNearestPaidTournament(nextNearestPaidTournament);
-    setNearestPaidTournamentRegisteredCount(
-      nextNearestPaidTournament ? (counts[nextNearestPaidTournament.id] ?? 0) : 0
-    );
-    setNearestCashTournament(nextNearestCashTournament);
-    setNearestCashTournamentRegisteredCount(
-      nextNearestCashTournament ? (counts[nextNearestCashTournament.id] ?? 0) : 0
+      nextNearestTournament ? (counts[nextNearestTournament.id] ?? 0) : 0
     );
   }
 
@@ -746,14 +712,7 @@ export default function HomePage() {
   const homeAvatarUrl =
     player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null;
   const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
-  const showTournamentKindTag = Boolean(
-    player?.can_access_paid || player?.can_access_cash
-  );
-  const showAnyTournamentCard = Boolean(
-    nearestTournament ||
-      (player?.can_access_paid && nearestPaidTournament) ||
-      (player?.can_access_cash && nearestCashTournament)
-  );
+  const showAnyTournamentCard = Boolean(nearestTournament);
 
   function renderTournamentCard(
     tournament: Tournament,
@@ -770,11 +729,6 @@ export default function HomePage() {
           <p className="text-xs uppercase tracking-[0.18em] text-white/45">
             {title}
           </p>
-          {showTournamentKindTag ? (
-            <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/85">
-              {getTournamentKindLabel(tournament.kind)}
-            </span>
-          ) : null}
         </div>
 
         <h3 className="mt-3 text-3xl font-black uppercase leading-none tracking-wide">
@@ -1096,24 +1050,6 @@ export default function HomePage() {
                     nearestTournamentRegisteredCount,
                     "Ближайший турнир",
                     "bg-gradient-to-br from-emerald-700/45 to-black"
-                  )
-                : null}
-
-              {player?.can_access_paid && nearestPaidTournament
-                ? renderTournamentCard(
-                    nearestPaidTournament,
-                    nearestPaidTournamentRegisteredCount,
-                    "Ближайший платный",
-                    "bg-gradient-to-br from-amber-700/35 to-black"
-                  )
-                : null}
-
-              {player?.can_access_cash && nearestCashTournament
-                ? renderTournamentCard(
-                    nearestCashTournament,
-                    nearestCashTournamentRegisteredCount,
-                    "Ближайший кэш",
-                    "bg-gradient-to-br from-cyan-700/30 to-black"
                   )
                 : null}
 

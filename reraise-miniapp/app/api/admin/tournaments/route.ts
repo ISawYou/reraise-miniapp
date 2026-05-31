@@ -3,7 +3,6 @@ import {
   getAdminNotificationTournaments,
   getOpenTournaments,
 } from "@/features/tournaments";
-import type { TournamentKind } from "@/types/domain";
 import { supabase } from "@/lib/supabase";
 
 export async function GET(request: Request) {
@@ -38,7 +37,6 @@ export async function POST(request: Request) {
       location: string;
       start_at: string;
       max_players: number;
-      kind: TournamentKind;
     };
 
     const { data: activeSeason, error: activeSeasonError } = await supabase
@@ -72,7 +70,7 @@ export async function POST(request: Request) {
         location: body.location,
         start_at: body.start_at,
         max_players: body.max_players,
-        kind: body.kind,
+        kind: "free",
         status: "open",
         season_id: activeSeason.id,
       })

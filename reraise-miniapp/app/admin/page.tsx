@@ -6,6 +6,40 @@ import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { getTelegramUser } from "@/lib/telegram";
 import type { Player } from "@/types/domain";
 
+type AdminCard = {
+  href: string;
+  code: string;
+  title: string;
+  description: string;
+};
+
+const ADMIN_CARDS: AdminCard[] = [
+  {
+    href: "/admin/moderation",
+    code: "MN",
+    title: "Модерация ников",
+    description: "Проверка и одобрение новых ников игроков.",
+  },
+  {
+    href: "/admin/tournaments/create",
+    code: "CT",
+    title: "Создание турнира",
+    description: "Создание нового турнира с базовыми настройками.",
+  },
+  {
+    href: "/admin/tournament-notifications",
+    code: "NT",
+    title: "Уведомления",
+    description: "Отправка анонсов турниров в основную Telegram-группу.",
+  },
+  {
+    href: "/admin/tournaments",
+    code: "MT",
+    title: "Турниры",
+    description: "Редактирование турниров, участников и результатов.",
+  },
+];
+
 export default function AdminPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
@@ -53,7 +87,7 @@ export default function AdminPage() {
           </Link>
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <h1 className="text-xl font-semibold">Доступ запрещен</h1>
+            <h1 className="text-xl font-semibold">Доступ запрещён</h1>
             <p className="mt-2 text-sm text-white/70">
               Эта страница доступна только администратору.
             </p>
@@ -75,74 +109,23 @@ export default function AdminPage() {
 
         <h1 className="text-2xl font-bold">Админ-панель</h1>
         <p className="mt-2 text-sm text-white/70">
-          Управление турнирами и модерацией клуба
+          Управление турнирами, результатами и внутренними процессами клуба.
         </p>
 
-        <section className="mt-6 grid gap-4 md:grid-cols-3">
-          <Link
-            href="/admin/moderation"
-            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
-              MN
-            </div>
-            <h2 className="mt-4 text-lg font-semibold">Модерация ников</h2>
-            <p className="mt-2 text-sm text-white/70">
-              Проверка и одобрение новых ников игроков
-            </p>
-          </Link>
-
-          <Link
-            href="/admin/tournaments/create"
-            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
-              CT
-            </div>
-            <h2 className="mt-4 text-lg font-semibold">Создание турнира</h2>
-            <p className="mt-2 text-sm text-white/70">
-              Создание нового турнира с базовыми настройками
-            </p>
-          </Link>
-
-          <Link
-            href="/admin/player-access"
-            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
-              DP
-            </div>
-            <h2 className="mt-4 text-lg font-semibold">Доступы игроков</h2>
-            <p className="mt-2 text-sm text-white/70">
-              Выдача доступа к турнирам и кэш-играм
-            </p>
-          </Link>
-
-          <Link
-            href="/admin/tournament-notifications"
-            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
-              RU
-            </div>
-            <h2 className="mt-4 text-lg font-semibold">Рассылка уведомлений</h2>
-            <p className="mt-2 text-sm text-white/70">
-              Отправка сообщений игрокам по выбранному турниру
-            </p>
-          </Link>
-
-          <Link
-            href="/admin/tournaments"
-            className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
-              MT
-            </div>
-            <h2 className="mt-4 text-lg font-semibold">Модерация турниров</h2>
-            <p className="mt-2 text-sm text-white/70">
-              Открытие, редактирование, результаты и удаление турниров
-            </p>
-          </Link>
+        <section className="mt-6 grid gap-4 md:grid-cols-2">
+          {ADMIN_CARDS.map((card) => (
+            <Link
+              key={card.href}
+              href={card.href}
+              className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:border-yellow-500/40 hover:bg-white/8"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500 font-bold text-black">
+                {card.code}
+              </div>
+              <h2 className="mt-4 text-lg font-semibold">{card.title}</h2>
+              <p className="mt-2 text-sm text-white/70">{card.description}</p>
+            </Link>
+          ))}
         </section>
       </div>
     </main>

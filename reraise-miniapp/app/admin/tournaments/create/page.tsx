@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { fetchAdminJson } from "@/lib/client-request";
 import { getTelegramUser } from "@/lib/telegram";
-import type { Player, TournamentKind } from "@/types/domain";
+import type { Player } from "@/types/domain";
 
 export default function AdminTournamentCreatePage() {
   const [player, setPlayer] = useState<Player | null>(null);
@@ -16,7 +16,6 @@ export default function AdminTournamentCreatePage() {
   const [location, setLocation] = useState("");
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
-  const [kind, setKind] = useState<TournamentKind>("free");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +83,6 @@ export default function AdminTournamentCreatePage() {
           location: location.trim(),
           start_at: new Date(startAt).toISOString(),
           max_players: Number(maxPlayers),
-          kind,
         }),
       });
 
@@ -94,7 +92,6 @@ export default function AdminTournamentCreatePage() {
       setLocation("");
       setStartAt("");
       setMaxPlayers("20");
-      setKind("free");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка создания турнира");
     } finally {
@@ -124,7 +121,7 @@ export default function AdminTournamentCreatePage() {
           </Link>
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <h1 className="text-xl font-semibold">Доступ запрещен</h1>
+            <h1 className="text-xl font-semibold">Доступ запрещён</h1>
             <p className="mt-2 text-sm text-white/70">
               Эта страница доступна только администратору.
             </p>
@@ -146,7 +143,7 @@ export default function AdminTournamentCreatePage() {
 
         <h1 className="text-2xl font-bold">Создание турнира</h1>
         <p className="mt-2 text-sm text-white/70">
-          Заполните базовые параметры нового турнира
+          Заполните базовые параметры нового турнира.
         </p>
 
         {message ? (
@@ -177,7 +174,7 @@ export default function AdminTournamentCreatePage() {
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Например, баунти, ребаи разрешены, поздняя регистрация 60 минут"
+            placeholder="Например, bounty, re-entry, поздняя регистрация 60 минут"
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
             rows={4}
           />
@@ -189,7 +186,7 @@ export default function AdminTournamentCreatePage() {
             type="text"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
-            placeholder="Например, Poker Loft, Москва-Сити"
+            placeholder="Например, Poker Loft"
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
 
@@ -200,17 +197,6 @@ export default function AdminTournamentCreatePage() {
             onChange={(e) => setStartAt(e.target.value)}
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
-
-          <label className="mt-4 block text-sm text-white/80">Тип турнира</label>
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as TournamentKind)}
-            className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
-          >
-            <option value="free">Бесплатный турнир</option>
-            <option value="paid">Платный турнир</option>
-            <option value="cash">Кэш-игра</option>
-          </select>
 
           <label className="mt-4 block text-sm text-white/80">
             Лимит игроков
@@ -229,7 +215,7 @@ export default function AdminTournamentCreatePage() {
             disabled={loading}
             className="mt-4 w-full rounded-lg bg-yellow-500 py-2 font-semibold text-black disabled:opacity-60"
           >
-            {loading ? "Создаем..." : "Создать турнир"}
+            {loading ? "Создаём..." : "Создать турнир"}
           </button>
         </div>
       </div>

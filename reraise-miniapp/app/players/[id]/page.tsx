@@ -277,9 +277,7 @@ export default function PlayerProfilePage() {
   const achievementsProgressPercent = Math.round(
     (completedAchievementsCount / 5) * 100
   );
-  const showTournamentKindTags = Boolean(
-    player?.can_access_paid || player?.can_access_cash
-  );
+  const showTournamentKindTags = false;
 
   function getStatusText(status: RegistrationStatus) {
     if (status === "registered") {

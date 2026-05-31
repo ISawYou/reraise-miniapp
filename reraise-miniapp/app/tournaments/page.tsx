@@ -14,15 +14,9 @@ import {
 } from "@/features/tournaments";
 import { supabase } from "@/lib/supabase";
 import { getTelegramUser } from "@/lib/telegram";
-import type {
-  Player,
-  RegistrationStatus,
-  Tournament,
-  TournamentKind,
-} from "@/types/domain";
+import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 
 type TabKey = "active" | "completed";
-type TournamentFilterKey = TournamentKind;
 
 function ArrowUpRightIcon() {
   return (
@@ -90,25 +84,11 @@ function formatTournamentDate(date: string) {
   });
 }
 
-function getTournamentKindLabel(kind: Tournament["kind"]) {
-  if (kind === "paid") {
-    return "Платный";
-  }
-
-  if (kind === "cash") {
-    return "Кэш";
-  }
-
-  return "Бесплатный";
-}
-
 export default function TournamentsPage() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
   const [openTournaments, setOpenTournaments] = useState<Tournament[]>([]);
-  const [completedTournaments, setCompletedTournaments] = useState<Tournament[]>(
-    []
-  );
+  const [completedTournaments, setCompletedTournaments] = useState<Tournament[]>([]);
   const [registrationMap, setRegistrationMap] = useState<
     Record<string, RegistrationStatus>
   >({});
@@ -120,22 +100,8 @@ export default function TournamentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [promotionToast, setPromotionToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("active");
-  const [activeFilter, setActiveFilter] = useState<TournamentFilterKey>("free");
 
   const registrationsRef = useRef<Record<string, RegistrationStatus>>({});
-  const availableFilters: TournamentFilterKey[] = [
-    ...(player?.can_access_free ?? true ? (["free"] as TournamentFilterKey[]) : []),
-    ...(player?.can_access_paid ? (["paid"] as TournamentFilterKey[]) : []),
-    ...(player?.can_access_cash ? (["cash"] as TournamentFilterKey[]) : []),
-  ];
-  const showTournamentKindFilters = availableFilters.length > 1;
-  const showTournamentKindTags = showTournamentKindFilters;
-  const filteredOpenTournaments = openTournaments.filter(
-    (tournament) => tournament.kind === activeFilter
-  );
-  const filteredCompletedTournaments = completedTournaments.filter(
-    (tournament) => tournament.kind === activeFilter
-  );
 
   useEffect(() => {
     if (!promotionToast) return;
@@ -146,12 +112,6 @@ export default function TournamentsPage() {
 
     return () => clearTimeout(timeout);
   }, [promotionToast]);
-
-  useEffect(() => {
-    if (!availableFilters.includes(activeFilter)) {
-      setActiveFilter(availableFilters[0] ?? "free");
-    }
-  }, [activeFilter, availableFilters]);
 
   async function refreshPageData(
     currentPlayer: Player,
@@ -213,7 +173,9 @@ export default function TournamentsPage() {
         if (telegramUser) {
           currentPlayer = await ensurePlayerFromTelegramUser(telegramUser);
         } else {
-          const { data: { session } } = await supabase.auth.getSession();
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
           if (!session?.user?.email) {
             throw new Error("Необходимо войти в систему");
           }
@@ -288,7 +250,6 @@ export default function TournamentsPage() {
 
     try {
       setActionLoadingId(tournamentId);
-
       await registerPlayerForTournament(playerId, tournamentId);
       await refreshPageData(player, { showPromotionToast: false });
     } catch (err) {
@@ -303,7 +264,6 @@ export default function TournamentsPage() {
 
     try {
       setActionLoadingId(tournamentId);
-
       await cancelPlayerRegistration(playerId, tournamentId);
       await refreshPageData(player, { showPromotionToast: false });
     } catch (err) {
@@ -364,6 +324,49 @@ export default function TournamentsPage() {
     return null;
   }
 
+  function renderTournamentCard(tournament: Tournament, isCompleted: boolean) {
+    const registeredCount = registrationCounts[tournament.id] ?? 0;
+
+    return (
+      <Link
+        key={tournament.id}
+        href={`/tournaments/${tournament.id}`}
+        className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold">{tournament.title}</h3>
+          </div>
+          <div className="inline-flex items-center text-white/55">
+            <ArrowUpRightIcon />
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+            <CalendarIcon />
+            <span>{formatTournamentDate(tournament.start_at)}</span>
+          </div>
+
+          {!isCompleted ? (
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+              <UserIcon />
+              <span>
+                {registeredCount} / {tournament.max_players}
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        {!isCompleted ? (
+          <div className="mt-4" onClick={(event) => event.preventDefault()}>
+            {renderActionButton(tournament)}
+          </div>
+        ) : null}
+      </Link>
+    );
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
@@ -392,6 +395,9 @@ export default function TournamentsPage() {
       </main>
     );
   }
+
+  const currentList =
+    activeTab === "active" ? openTournaments : completedTournaments;
 
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
@@ -434,123 +440,21 @@ export default function TournamentsPage() {
           </button>
         </div>
 
-        {showTournamentKindFilters ? (
-          <div
-            className={`mt-2 grid gap-3 ${
-              availableFilters.length === 2 ? "grid-cols-2" : "grid-cols-3"
-            }`}
-          >
-            {availableFilters.map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setActiveFilter(filter)}
-                className={`rounded-full border px-4 py-3 text-sm font-medium transition ${
-                  activeFilter === filter
-                    ? "border-white/15 bg-white/[0.08] text-white"
-                    : "border-white/10 bg-transparent text-white/60"
-                }`}
-              >
-                {filter === "free"
-                  ? "Бесплатные"
-                  : filter === "paid"
-                    ? "Платные"
-                    : "Кэш-игра"}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {activeTab === "active" ? (
-          <section className="mt-5">
-            {filteredOpenTournaments.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
-                Сейчас нет турниров в этом разделе
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredOpenTournaments.map((tournament) => {
-                  const registeredCount = registrationCounts[tournament.id] ?? 0;
-
-                  return (
-                    <Link
-                      key={tournament.id}
-                      href={`/tournaments/${tournament.id}`}
-                      className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                          {showTournamentKindTags ? (
-                            <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
-                              {getTournamentKindLabel(tournament.kind)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="inline-flex items-center text-white/55">
-                          <ArrowUpRightIcon />
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                          <CalendarIcon />
-                          <span>{formatTournamentDate(tournament.start_at)}</span>
-                        </div>
-                        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                          <UserIcon />
-                          <span>{registeredCount} / {tournament.max_players}</span>
-                        </div>
-                      </div>
-
-                      <div className="mt-4">
-                        <div onClick={(event) => event.preventDefault()}>
-                          {renderActionButton(tournament)}
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        ) : (
-          <section className="mt-5">
-            {filteredCompletedTournaments.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
-                Пока нет турниров в этом разделе
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredCompletedTournaments.map((tournament) => (
-                  <Link
-                    key={tournament.id}
-                    href={`/tournaments/${tournament.id}`}
-                    className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="text-lg font-semibold">{tournament.title}</h3>
-                        {showTournamentKindTags ? (
-                          <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
-                            {getTournamentKindLabel(tournament.kind)}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="inline-flex items-center text-white/45">
-                        <ArrowUpRightIcon />
-                      </div>
-                    </div>
-                    <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
-                      <CalendarIcon />
-                      <span>{formatTournamentDate(tournament.start_at)}</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
+        <section className="mt-5">
+          {currentList.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
+              {activeTab === "active"
+                ? "Сейчас нет открытых турниров"
+                : "Пока нет завершённых турниров"}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {currentList.map((tournament) =>
+                renderTournamentCard(tournament, activeTab === "completed")
+              )}
+            </div>
+          )}
+        </section>
       </div>
 
       {promotionToast ? <PromotionToast message={promotionToast} /> : null}

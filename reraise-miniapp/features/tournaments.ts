@@ -74,7 +74,7 @@ function mapTournamentRow(row: TournamentRow): Tournament {
     google_sheet_tab_name: row.google_sheet_tab_name ?? null,
     start_at: row.start_at,
     max_players: row.max_players,
-    kind: row.kind,
+    kind: "free",
     season_id: row.season_id,
     status: row.status as TournamentStatus,
     created_at: row.created_at,
@@ -174,7 +174,6 @@ export async function getVisibleOpenTournamentsForPlayer(player: {
     .from("tournaments")
     .select("*")
     .eq("status", "open")
-    .in("kind", getAllowedTournamentKinds(player))
     .order("start_at", { ascending: true });
 
   if (error) {
@@ -221,7 +220,6 @@ export async function getVisibleCompletedTournamentsForPlayer(player: {
     .from("tournaments")
     .select("*")
     .eq("status", "completed")
-    .in("kind", getAllowedTournamentKinds(player))
     .order("start_at", { ascending: false });
 
   if (error) {
@@ -253,6 +251,8 @@ export async function getVisibleTournamentByIdForPlayer(
     can_access_cash?: boolean;
   }
 ) {
+  return getTournamentById(tournamentId);
+
   const tournament = await getTournamentById(tournamentId);
 
   if (!getAllowedTournamentKinds(player).includes(tournament.kind)) {
@@ -320,21 +320,7 @@ export async function registerPlayerForTournament(
     return existingRegistration;
   }
 
-  const { data: playerData, error: playerError } = await supabase
-    .from("players")
-    .select("can_access_free, can_access_paid, can_access_cash")
-    .eq("id", playerId)
-    .single();
-
-  if (playerError) {
-    throw new Error(playerError.message);
-  }
-
-  const tournament = await getVisibleTournamentByIdForPlayer(tournamentId, {
-    can_access_free: playerData.can_access_free,
-    can_access_paid: playerData.can_access_paid,
-    can_access_cash: playerData.can_access_cash,
-  });
+  const tournament = await getTournamentById(tournamentId);
   const counts = await getTournamentRegistrationCounts();
   const registeredCount = counts[tournamentId] ?? 0;
 

@@ -5,11 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { fetchAdminJson } from "@/lib/client-request";
 import { getTelegramUser } from "@/lib/telegram";
-import type { Player, Tournament, TournamentKind } from "@/types/domain";
-import type {
-  TournamentNotificationAudience,
-  TournamentNotificationRecipient,
-} from "@/features/tournaments";
+import type { Player, Tournament } from "@/types/domain";
 
 function formatDateTimeWithoutSeconds(date: string) {
   return new Date(date).toLocaleString("ru-RU", {
@@ -19,12 +15,6 @@ function formatDateTimeWithoutSeconds(date: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function getTournamentKindLabel(kind: Tournament["kind"]) {
-  if (kind === "paid") return "Платный";
-  if (kind === "cash") return "Кэш";
-  return "Бесплатный";
 }
 
 function buildNotificationTemplate(tournament: Tournament) {
@@ -39,9 +29,7 @@ function buildNotificationTemplate(tournament: Tournament) {
 type NotificationResult = {
   ok: boolean;
   tournamentTitle: string;
-  totalRecipients: number;
-  successCount: number;
-  failedCount: number;
+  destinationChatId: string;
 };
 
 export default function AdminTournamentNotificationsPage() {
@@ -50,46 +38,15 @@ export default function AdminTournamentNotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [selectedKind, setSelectedKind] = useState<TournamentKind>("free");
-  const [audience, setAudience] =
-    useState<TournamentNotificationAudience>("access");
   const [selectedTournamentId, setSelectedTournamentId] = useState("");
   const [messageText, setMessageText] = useState("");
-  const [recipients, setRecipients] = useState<TournamentNotificationRecipient[]>([]);
-  const [recipientCountsMap, setRecipientCountsMap] = useState<Record<string, number>>(
-    {}
-  );
   const [result, setResult] = useState<NotificationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const filteredTournaments = useMemo(
-    () => tournaments.filter((item) => item.kind === selectedKind),
-    [tournaments, selectedKind]
-  );
-
   const selectedTournament = useMemo(
-    () =>
-      filteredTournaments.find((item) => item.id === selectedTournamentId) ?? null,
-    [selectedTournamentId, filteredTournaments]
+    () => tournaments.find((item) => item.id === selectedTournamentId) ?? null,
+    [selectedTournamentId, tournaments]
   );
-
-  async function loadRecipients(
-    tournamentId: string,
-    tournamentKind: TournamentKind,
-    targetAudience: TournamentNotificationAudience
-  ) {
-    const params = new URLSearchParams({
-      tournamentId,
-      tournamentKind,
-      audience: targetAudience,
-    });
-
-    const payload = await fetchAdminJson<{
-      recipients: TournamentNotificationRecipient[];
-    }>(`/api/admin/tournaments/recipients?${params.toString()}`);
-
-    return payload.recipients;
-  }
 
   useEffect(() => {
     async function loadPage() {
@@ -119,84 +76,16 @@ export default function AdminTournamentNotificationsPage() {
   }, []);
 
   useEffect(() => {
-    if (filteredTournaments.length === 0) {
+    if (tournaments.length === 0) {
       setSelectedTournamentId("");
       return;
     }
 
-    const hasCurrent = filteredTournaments.some(
-      (item) => item.id === selectedTournamentId
-    );
-
+    const hasCurrent = tournaments.some((item) => item.id === selectedTournamentId);
     if (!hasCurrent) {
-      setSelectedTournamentId(filteredTournaments[0].id);
+      setSelectedTournamentId(tournaments[0].id);
     }
-  }, [filteredTournaments, selectedTournamentId]);
-
-  useEffect(() => {
-    async function loadRecipientCounts() {
-      if (filteredTournaments.length === 0) {
-        setRecipientCountsMap({});
-        return;
-      }
-
-      try {
-        const kindCountsCache = new Map<TournamentKind, number>();
-        const countEntries = await Promise.all(
-          filteredTournaments.map(async (tournament) => {
-            if (audience === "access") {
-              if (!kindCountsCache.has(tournament.kind)) {
-                const sameKindRecipients = await loadRecipients(
-                  tournament.id,
-                  tournament.kind,
-                  audience
-                );
-                kindCountsCache.set(tournament.kind, sameKindRecipients.length);
-              }
-
-              return [tournament.id, kindCountsCache.get(tournament.kind) ?? 0] as const;
-            }
-
-            const tournamentRecipients = await loadRecipients(
-              tournament.id,
-              tournament.kind,
-              audience
-            );
-
-            return [tournament.id, tournamentRecipients.length] as const;
-          })
-        );
-
-        setRecipientCountsMap(Object.fromEntries(countEntries));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Ошибка загрузки получателей");
-      }
-    }
-
-    loadRecipientCounts();
-  }, [filteredTournaments, audience]);
-
-  useEffect(() => {
-    async function loadCurrentRecipients() {
-      if (!selectedTournament) {
-        setRecipients([]);
-        return;
-      }
-
-      try {
-        const nextRecipients = await loadRecipients(
-          selectedTournament.id,
-          selectedTournament.kind,
-          audience
-        );
-        setRecipients(nextRecipients);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Ошибка загрузки получателей");
-      }
-    }
-
-    loadCurrentRecipients();
-  }, [selectedTournament, audience]);
+  }, [selectedTournamentId, tournaments]);
 
   useEffect(() => {
     if (!selectedTournament) {
@@ -205,7 +94,7 @@ export default function AdminTournamentNotificationsPage() {
     }
 
     setMessageText(buildNotificationTemplate(selectedTournament));
-  }, [selectedTournamentId, selectedTournament]);
+  }, [selectedTournament]);
 
   async function handleSendNotifications() {
     if (!selectedTournament) {
@@ -230,7 +119,6 @@ export default function AdminTournamentNotificationsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tournamentId: selectedTournament.id,
-            audience,
             message: messageText.trim(),
           }),
         }
@@ -238,7 +126,9 @@ export default function AdminTournamentNotificationsPage() {
 
       setResult(payload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка отправки уведомлений");
+      setError(
+        err instanceof Error ? err.message : "Ошибка отправки уведомления"
+      );
     } finally {
       setSending(false);
     }
@@ -266,7 +156,7 @@ export default function AdminTournamentNotificationsPage() {
           </Link>
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <h1 className="text-xl font-semibold">Доступ запрещен</h1>
+            <h1 className="text-xl font-semibold">Доступ запрещён</h1>
             <p className="mt-2 text-sm text-white/70">
               Эта страница доступна только администратору.
             </p>
@@ -286,24 +176,26 @@ export default function AdminTournamentNotificationsPage() {
           ← Назад
         </Link>
 
-        <h1 className="text-2xl font-bold">Рассылка уведомлений</h1>
+        <h1 className="text-2xl font-bold">Уведомления</h1>
         <p className="mt-2 text-sm text-white/70">
-          Выберите категорию, аудиторию и турнир, затем отправьте уведомление.
+          Отправка анонсов турниров в основную Telegram-группу.
         </p>
+
+        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/65">
+          Сообщение отправляется в общую группу клуба, а не игрокам в личные сообщения.
+        </div>
 
         {sending ? (
           <div className="mt-4 rounded-xl border border-white/20 bg-white/5 p-4 text-sm text-white/80">
-            Происходит отправка уведомлений...
+            Отправляем уведомление...
           </div>
         ) : null}
 
         {result ? (
           <div className="mt-4 rounded-xl border border-green-500/30 bg-green-500/10 p-4 text-sm text-green-200">
-            <p className="font-semibold">Рассылка завершена</p>
+            <p className="font-semibold">Уведомление отправлено</p>
             <p className="mt-2">Турнир: {result.tournamentTitle}</p>
-            <p className="mt-1">Получателей: {result.totalRecipients}</p>
-            <p className="mt-1">Успешно: {result.successCount}</p>
-            <p className="mt-1">Не отправилось: {result.failedCount}</p>
+            <p className="mt-1">Чат: {result.destinationChatId}</p>
           </div>
         ) : null}
 
@@ -314,65 +206,14 @@ export default function AdminTournamentNotificationsPage() {
         ) : null}
 
         <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
-          <p className="text-sm text-white/80">Категория</p>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {[
-              { key: "free", label: "Бесплатные" },
-              { key: "paid", label: "Платные" },
-              { key: "cash", label: "Кэш" },
-            ].map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => {
-                  setSelectedKind(item.key as TournamentKind);
-                  setError(null);
-                  setResult(null);
-                }}
-                className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                  selectedKind === item.key
-                    ? "bg-white/10 text-white"
-                    : "border border-white/10 text-white/70"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-
-          <p className="mt-4 text-sm text-white/80">Кому отправляем</p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {[
-              { key: "access", label: "Всем с доступом" },
-              { key: "registered", label: "Только записанным" },
-            ].map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => {
-                  setAudience(item.key as TournamentNotificationAudience);
-                  setError(null);
-                  setResult(null);
-                }}
-                className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                  audience === item.key
-                    ? "bg-white/10 text-white"
-                    : "border border-white/10 text-white/70"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-
-          <p className="mt-4 text-sm text-white/80">Турнир</p>
-          {filteredTournaments.length === 0 ? (
+          <p className="text-sm text-white/80">Турнир</p>
+          {tournaments.length === 0 ? (
             <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-white/60">
-              В этой категории пока нет турниров.
+              Сейчас нет турниров для рассылки.
             </div>
           ) : (
             <div className="mt-3 space-y-3">
-              {filteredTournaments.map((tournament) => {
+              {tournaments.map((tournament) => {
                 const isSelected = selectedTournamentId === tournament.id;
 
                 return (
@@ -390,19 +231,11 @@ export default function AdminTournamentNotificationsPage() {
                         : "border-white/10 bg-black/20"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-base font-semibold text-white">
-                        {tournament.title}
-                      </p>
-                      <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/75">
-                        {getTournamentKindLabel(tournament.kind)}
-                      </span>
-                    </div>
+                    <p className="text-base font-semibold text-white">
+                      {tournament.title}
+                    </p>
                     <p className="mt-2 text-sm text-white/60">
                       {formatDateTimeWithoutSeconds(tournament.start_at)}
-                    </p>
-                    <p className="mt-1 text-xs text-white/50">
-                      Получателей: {recipientCountsMap[tournament.id] ?? 0}
                     </p>
                   </button>
                 );
@@ -428,48 +261,11 @@ export default function AdminTournamentNotificationsPage() {
           <button
             type="button"
             onClick={handleSendNotifications}
-            disabled={
-              sending ||
-              !selectedTournament ||
-              !messageText.trim() ||
-              recipients.length === 0
-            }
+            disabled={sending || !selectedTournament || !messageText.trim()}
             className="mt-4 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
           >
-            {sending ? "Рассылаем..." : "Разослать"}
+            {sending ? "Отправляем..." : "Отправить в группу"}
           </button>
-
-          <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium text-white">Получатели</p>
-              <p className="text-xs text-white/55">{recipients.length}</p>
-            </div>
-
-            {recipients.length === 0 ? (
-              <p className="mt-3 text-sm text-white/55">
-                Для выбранных параметров сейчас нет получателей.
-              </p>
-            ) : (
-              <div className="mt-3 space-y-2">
-                {recipients.map((recipient) => (
-                  <div
-                    key={recipient.player_id}
-                    className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2"
-                  >
-                    <p className="text-sm font-medium text-white">
-                      {recipient.display_name}
-                    </p>
-                    <p className="mt-1 text-xs text-white/55">
-                      Telegram ID: {recipient.telegram_id}
-                      {recipient.registration_status ? (
-                        <> • {recipient.registration_status}</>
-                      ) : null}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </main>
