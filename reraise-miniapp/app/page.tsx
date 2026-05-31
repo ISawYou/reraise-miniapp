@@ -26,6 +26,12 @@ import {
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
 
+const TELEGRAM_BOT_USERNAME =
+  process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "ReRaise_Poker_Bot";
+const TELEGRAM_BOT_ID = Number(
+  process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID ?? "8682500150"
+);
+
 function getTournamentKindLabel(kind: Tournament["kind"]) {
   if (kind === "paid") {
     return "Платный";
@@ -296,7 +302,7 @@ export default function HomePage() {
     container.style.display = "none";
     const script = document.createElement("script");
     script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.setAttribute("data-telegram-login", "DontWorryClubBot");
+    script.setAttribute("data-telegram-login", TELEGRAM_BOT_USERNAME);
     script.setAttribute("data-size", "large");
     script.setAttribute("data-request-access", "write");
     container.appendChild(script);
@@ -309,7 +315,7 @@ export default function HomePage() {
     const tg = (window as any).Telegram?.Login;
     if (tg) {
       tg.auth(
-        { bot_id: 8707145223, request_access: "write" },
+        { bot_id: TELEGRAM_BOT_ID, request_access: "write" },
         (data: Record<string, unknown> | false) => {
           if (!data) return;
           const params = new URLSearchParams();
