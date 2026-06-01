@@ -120,7 +120,7 @@ export default function LoginPage() {
       <div className="mx-auto flex h-full max-w-md flex-col justify-center gap-6">
         <div>
           <p className="text-[11px] uppercase tracking-[0.2em] text-white/35">
-            Игровое пространство DWC
+            Игровое пространство Ререйз
           </p>
           <h1 className="mt-3 text-[2.5rem] font-bold leading-none tracking-tight">
             Вход

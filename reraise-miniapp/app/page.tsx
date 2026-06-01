@@ -771,7 +771,7 @@ export default function HomePage() {
         <div className="mx-auto flex h-full max-w-md flex-col gap-4">
           <div className="terms-card rounded-[28px] p-5">
             <p className="text-xs uppercase tracking-[0.28em] text-yellow-300/80">
-              Игровое пространство DWC
+              Игровое пространство Ререйз
             </p>
             <h1 className="mt-3 text-3xl font-bold leading-tight">
               Пользовательское соглашение
@@ -883,7 +883,7 @@ export default function HomePage() {
         <div className="mx-auto flex h-full max-w-md flex-col justify-center">
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.18em] text-white/40">
-              Игровое пространство DWC
+              Игровое пространство Ререйз
             </p>
             <h1 className="mt-3 text-4xl font-bold tracking-tight">
               Don&apos;t Worry Club
@@ -964,7 +964,7 @@ export default function HomePage() {
         <header className="mb-8">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-white/40">
-              Игровое пространство DWC
+              Игровое пространство Ререйз
             </p>
             <div className="mt-3 flex items-center justify-between gap-4">
               <h1 className="text-4xl font-bold tracking-tight">Главная</h1>
@@ -992,7 +992,7 @@ export default function HomePage() {
 
             <p className="mt-4 text-sm text-white/75">Привет, {greetingName}</p>
             <p className="mt-1 text-xs text-white/45">
-              Добро пожаловать в Don't worry club
+              Добро пожаловать в Ререйз
             </p>
           </div>
         </header>
