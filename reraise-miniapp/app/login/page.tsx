@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -26,26 +26,26 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (step === "code") {
-      const t = setTimeout(() => codeInputRef.current?.focus(), 50);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => codeInputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
     }
   }, [step]);
 
   function startResendCooldown() {
     setResendCooldown(60);
     const interval = setInterval(() => {
-      setResendCooldown((v) => {
-        if (v <= 1) {
+      setResendCooldown((value) => {
+        if (value <= 1) {
           clearInterval(interval);
           return 0;
         }
-        return v - 1;
+        return value - 1;
       });
     }, 1000);
   }
 
-  async function handleRequestCode(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleRequestCode(event: React.FormEvent) {
+    event.preventDefault();
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail) return;
 
@@ -68,8 +68,8 @@ export default function LoginPage() {
     startResendCooldown();
   }
 
-  async function handleVerifyCode(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleVerifyCode(event: React.FormEvent) {
+    event.preventDefault();
     const trimmedCode = code.trim();
     if (!trimmedCode) return;
 
@@ -94,6 +94,7 @@ export default function LoginPage() {
 
   async function handleResend() {
     if (resendCooldown > 0) return;
+
     setLoading(true);
     setError(null);
 
@@ -120,28 +121,26 @@ export default function LoginPage() {
       <div className="mx-auto flex h-full max-w-md flex-col justify-center gap-6">
         <div>
           <p className="text-[11px] uppercase tracking-[0.2em] text-white/35">
-            Игровое пространство Ререйз
+            Игровое пространство РЕРЕЙЗ
           </p>
           <h1 className="mt-3 text-[2.5rem] font-bold leading-none tracking-tight">
-            Вход
+            РЕРЕЙЗ
           </h1>
-          <p className="mt-2 text-sm text-white/50">
-            Don&apos;t Worry Club
-          </p>
+          <p className="mt-2 text-sm text-white/50">Вход</p>
         </div>
 
         <div className="rounded-[20px] border border-white/8 bg-white/4 p-6">
           {step === "email" ? (
             <form onSubmit={handleRequestCode} className="flex flex-col gap-4">
               <p className="text-sm leading-relaxed text-white/60">
-                Введите email — пришлём код для входа
+                Введите email, и мы отправим код для входа.
               </p>
 
               <input
                 type="email"
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
+                onChange={(event) => {
+                  setEmail(event.target.value);
                   setError(null);
                 }}
                 placeholder="your@email.com"
@@ -152,9 +151,7 @@ export default function LoginPage() {
                 className="w-full rounded-[14px] border border-white/10 bg-black/40 px-4 py-3.5 text-base text-white placeholder-white/25 outline-none transition-colors focus:border-white/25 disabled:opacity-50"
               />
 
-              {error ? (
-                <p className="text-sm text-red-400">{error}</p>
-              ) : null}
+              {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
               <button
                 type="submit"
@@ -188,8 +185,8 @@ export default function LoginPage() {
                 ref={codeInputRef}
                 type="text"
                 value={code}
-                onChange={(e) => {
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                onChange={(event) => {
+                  setCode(event.target.value.replace(/\D/g, "").slice(0, 6));
                   setError(null);
                 }}
                 placeholder="000000"
@@ -200,9 +197,7 @@ export default function LoginPage() {
                 className="w-full rounded-[14px] border border-white/10 bg-black/40 px-4 py-3.5 text-center text-[1.75rem] font-light tracking-[0.5em] text-white placeholder:tracking-[0.15em] placeholder:text-white/20 outline-none transition-colors focus:border-yellow-500/30 disabled:opacity-50"
               />
 
-              {error ? (
-                <p className="text-sm text-red-400">{error}</p>
-              ) : null}
+              {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
               <button
                 type="submit"

@@ -885,9 +885,7 @@ export default function HomePage() {
             <p className="text-xs uppercase tracking-[0.18em] text-white/40">
               Игровое пространство Ререйз
             </p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight">
-              Don&apos;t Worry Club
-            </h1>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight">РЕРЕЙЗ</h1>
           </div>
           <div className="rounded-2xl bg-white/5 p-5">
             {playerError ? (
