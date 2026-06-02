@@ -428,7 +428,7 @@ const waitlistParticipants = participants.filter(
             </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
               <UserIcon />
-              <span>{registeredCount} / {tournament.max_players}</span>
+              <span>{tournament.status === "completed" ? results.length : registeredCount} / {tournament.max_players}</span>
             </div>
           </div>
         </div>
