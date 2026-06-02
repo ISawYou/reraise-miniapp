@@ -599,6 +599,19 @@ export default function HomePage() {
           const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
           setPlayer(ensuredPlayer);
 
+          // Establish server-side session cookie so that API routes (e.g. email link) can
+          // identify the current Telegram user. The client-side auth path never sets it.
+          if (webApp?.initData) {
+            try {
+              await fetch("/api/auth/telegram/mini-app-session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ initData: webApp.initData }),
+                credentials: "include",
+              });
+            } catch {}
+          }
+
           if (
             !ensuredPlayer.accepted_terms_at ||
             ensuredPlayer.accepted_terms_version !== TERMS_VERSION
@@ -620,20 +633,26 @@ export default function HomePage() {
                 showPromotionToast: false,
               });
 
-              try {
-                const openEmailLinkRequested = new URLSearchParams(
-                  window.location.search
-                ).get("openEmailLink");
-                const dismissed = window.sessionStorage.getItem(
-                  "reraise.email.link.dismissed"
-                );
-
-                if (!ensuredPlayer.email) {
-                  if (openEmailLinkRequested === "1" || !dismissed) {
-                    openEmailLinkModal();
+              if (!ensuredPlayer.email) {
+                try {
+                  const settingsRes = await fetch("/api/admin/settings", {
+                    cache: "no-store",
+                  });
+                  if (settingsRes.ok) {
+                    const settings = (await settingsRes.json()) as {
+                      show_email_link_prompt?: boolean;
+                    };
+                    if (settings.show_email_link_prompt === true) {
+                      const dismissed = window.sessionStorage.getItem(
+                        "reraise.email.link.dismissed"
+                      );
+                      if (!dismissed) {
+                        openEmailLinkModal();
+                      }
+                    }
                   }
-                }
-              } catch {}
+                } catch {}
+              }
             }
           }
         } else {
