@@ -3,7 +3,7 @@ import {
   getAdminNotificationTournaments,
   getOpenTournaments,
 } from "@/features/tournaments";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase-server";
 
 export async function GET(request: Request) {
   try {
@@ -38,6 +38,8 @@ export async function POST(request: Request) {
       start_at: string;
       max_players: number;
     };
+
+    const supabase = getSupabaseServer();
 
     const { data: activeSeason, error: activeSeasonError } = await supabase
       .from("seasons")
