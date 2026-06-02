@@ -775,12 +775,7 @@ export default function HomePage() {
         href={`/tournaments/${tournament.id}`}
         className="relative block overflow-hidden rounded-3xl border border-[#c9a84c]/30 bg-gradient-to-br from-[#0c2318] via-[#071a0f] to-black p-5 pt-6 transition active:scale-[0.99]"
       >
-        <span aria-hidden="true" className="pointer-events-none absolute left-3 top-3 h-5 w-5 border-l-[1.5px] border-t-[1.5px] border-[#c9a84c]/55" />
-        <span aria-hidden="true" className="pointer-events-none absolute right-3 top-3 h-5 w-5 border-r-[1.5px] border-t-[1.5px] border-[#c9a84c]/55" />
-        <span aria-hidden="true" className="pointer-events-none absolute bottom-3 left-3 h-5 w-5 border-b-[1.5px] border-l-[1.5px] border-[#c9a84c]/55" />
-        <span aria-hidden="true" className="pointer-events-none absolute bottom-3 right-3 h-5 w-5 border-b-[1.5px] border-r-[1.5px] border-[#c9a84c]/55" />
-
-        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#c9a84c]/80">
+<p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#c9a84c]/80">
           ♠ {title}
         </p>
 
