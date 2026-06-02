@@ -962,7 +962,7 @@ export default function HomePage() {
             <button
               type="button"
               onClick={handleTelegramLogin}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] py-3 text-sm font-semibold text-white"
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/4 py-3 text-sm font-semibold text-white"
             >
               Войти через Telegram
             </button>
@@ -1010,8 +1010,8 @@ export default function HomePage() {
   }
 
   return (
-    <main className="relative min-h-screen bg-[#040e07] px-4 py-6 text-white">
-      <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#0d3a1e38,transparent)]" />
+    <main className="relative min-h-screen bg-[#080808] px-4 py-6 text-white">
+      <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#c9a84c0a,transparent)]" />
       <div className="relative mx-auto max-w-md">
         <header className="mb-7">
           <div>
@@ -1074,7 +1074,7 @@ export default function HomePage() {
             <button
               type="button"
               onClick={handleTelegramLogin}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] py-3 text-sm font-semibold text-white"
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/4 py-3 text-sm font-semibold text-white"
             >
               Войти через Telegram
             </button>
@@ -1116,7 +1116,7 @@ export default function HomePage() {
               <div className="grid grid-cols-2 gap-3">
                 <Link
                   href="/tournaments"
-                  className="rounded-2xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-white transition active:scale-[0.99]"
+                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <TournamentIcon />
@@ -1127,7 +1127,7 @@ export default function HomePage() {
 
                 <Link
                   href="/leaderboard"
-                  className="rounded-2xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-white transition active:scale-[0.99]"
+                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <TrophyIcon />
@@ -1138,7 +1138,7 @@ export default function HomePage() {
 
                 <Link
                   href="/faq"
-                  className="rounded-2xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-white transition active:scale-[0.99]"
+                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <InfoIcon />
@@ -1159,7 +1159,7 @@ export default function HomePage() {
                       window.location.href = tgUrl;
                     }
                   }}
-                  className="w-full rounded-2xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-left text-white transition active:scale-[0.99]"
+                  className="w-full rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-left text-white transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <SupportIcon />
@@ -1174,7 +1174,7 @@ export default function HomePage() {
               <section className="mt-3">
                 <a
                   href="/admin"
-                  className="block rounded-3xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-white transition active:scale-[0.99]"
+                  className="block rounded-3xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <ShieldIcon />
