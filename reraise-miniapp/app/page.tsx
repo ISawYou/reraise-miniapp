@@ -768,37 +768,40 @@ export default function HomePage() {
     tournament: Tournament,
     registeredCount: number,
     title: string,
-    gradientClassName: string
+    _gradientClassName: string
   ) {
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
-        className={`block rounded-3xl border border-white/10 ${gradientClassName} p-5 transition active:scale-[0.99]`}
+        className="relative block overflow-hidden rounded-3xl border border-[#c9a84c]/30 bg-gradient-to-br from-[#0c2318] via-[#071a0f] to-black p-5 pt-6 transition active:scale-[0.99]"
       >
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/45">
-            {title}
-          </p>
-        </div>
+        <span aria-hidden="true" className="pointer-events-none absolute left-3 top-3 h-5 w-5 border-l-[1.5px] border-t-[1.5px] border-[#c9a84c]/55" />
+        <span aria-hidden="true" className="pointer-events-none absolute right-3 top-3 h-5 w-5 border-r-[1.5px] border-t-[1.5px] border-[#c9a84c]/55" />
+        <span aria-hidden="true" className="pointer-events-none absolute bottom-3 left-3 h-5 w-5 border-b-[1.5px] border-l-[1.5px] border-[#c9a84c]/55" />
+        <span aria-hidden="true" className="pointer-events-none absolute bottom-3 right-3 h-5 w-5 border-b-[1.5px] border-r-[1.5px] border-[#c9a84c]/55" />
 
-        <h3 className="mt-3 text-3xl font-black uppercase leading-none tracking-wide">
+        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#c9a84c]/80">
+          ♠ {title}
+        </p>
+
+        <h3 className="mt-2.5 text-3xl font-black uppercase leading-tight tracking-wide text-white">
           {tournament.title}
         </h3>
 
-        <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/80">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+        <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/70">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#c9a84c]/20 bg-[#c9a84c]/[0.06] px-3 py-1.5">
             <CalendarIcon />
             <span>{formatDateTimeWithoutSeconds(tournament.start_at)}</span>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#c9a84c]/20 bg-[#c9a84c]/[0.06] px-3 py-1.5">
             <UserIcon />
-            <span>
-              {registeredCount} / {tournament.max_players}
-            </span>
+            <span>{registeredCount} / {tournament.max_players}</span>
           </div>
         </div>
 
-        <p className="mt-4 text-sm text-white/55">Нажми, чтобы открыть турнир</p>
+        <p className="mt-3 text-[11px] tracking-wide text-[#c9a84c]/45">
+          Нажми, чтобы открыть
+        </p>
       </Link>
     );
   }
@@ -1007,11 +1010,12 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
-      <div className="mx-auto max-w-md">
-        <header className="mb-8">
+    <main className="relative min-h-screen bg-[#040e07] px-4 py-6 text-white">
+      <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#0d3a1e38,transparent)]" />
+      <div className="relative mx-auto max-w-md">
+        <header className="mb-7">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-white/40">
+            <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-[#c9a84c]/60">
               Игровое пространство РЕРЕЙЗ
             </p>
             <div className="mt-3 flex items-center justify-between gap-4">
@@ -1038,8 +1042,8 @@ export default function HomePage() {
               ) : null}
             </div>
 
-            <p className="mt-4 text-sm text-white/75">Привет, {greetingName}</p>
-            <p className="mt-1 text-xs text-white/45">
+            <p className="mt-4 text-sm text-white/80">Привет, {greetingName}</p>
+            <p className="mt-1 text-xs text-[#c9a84c]/50">
               Добро пожаловать в РЕРЕЙЗ
             </p>
           </div>
@@ -1112,35 +1116,35 @@ export default function HomePage() {
               <div className="grid grid-cols-2 gap-3">
                 <Link
                   href="/tournaments"
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
+                  className="rounded-2xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-2 text-white/65">
+                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <TournamentIcon />
-                    <span className="text-sm">Расписание</span>
+                    <span className="text-xs uppercase tracking-wider">Расписание</span>
                   </div>
-                  <p className="mt-6 text-2xl font-semibold">Турниры</p>
+                  <p className="mt-5 text-xl font-bold">Турниры</p>
                 </Link>
 
                 <Link
                   href="/leaderboard"
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
+                  className="rounded-2xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-2 text-white/65">
+                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <TrophyIcon />
-                    <span className="text-sm">Топ игроков</span>
+                    <span className="text-xs uppercase tracking-wider">Топ игроков</span>
                   </div>
-                  <p className="mt-6 text-2xl font-semibold">Рейтинг</p>
+                  <p className="mt-5 text-xl font-bold">Рейтинг</p>
                 </Link>
 
                 <Link
                   href="/faq"
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
+                  className="rounded-2xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-2 text-white/65">
+                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <InfoIcon />
-                    <span className="text-sm">Ответы</span>
+                    <span className="text-xs uppercase tracking-wider">Ответы</span>
                   </div>
-                  <p className="mt-6 text-2xl font-semibold">FAQ</p>
+                  <p className="mt-5 text-xl font-bold">FAQ</p>
                 </Link>
 
                 <button
@@ -1155,28 +1159,28 @@ export default function HomePage() {
                       window.location.href = tgUrl;
                     }
                   }}
-                  className="w-full rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-left text-white transition active:scale-[0.99]"
+                  className="w-full rounded-2xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-left text-white transition active:scale-[0.99]"
                 >
-                    <div className="flex items-center gap-2 text-white/65">
-                      <SupportIcon />
-                      <span className="text-sm">На связи</span>
-                    </div>
-                    <p className="mt-6 text-2xl font-semibold">Поддержка</p>
-                  </button>
+                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
+                    <SupportIcon />
+                    <span className="text-xs uppercase tracking-wider">На связи</span>
+                  </div>
+                  <p className="mt-5 text-xl font-bold">Поддержка</p>
+                </button>
               </div>
             </section>
 
             {player?.role === "admin" ? (
-              <section className="mt-4">
+              <section className="mt-3">
                 <a
                   href="/admin"
-                  className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white transition active:scale-[0.99]"
+                  className="block rounded-3xl border border-white/[0.07] bg-[#0a1a10]/60 p-5 text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-2 text-white/65">
+                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <ShieldIcon />
-                    <span className="text-sm">Управление</span>
+                    <span className="text-xs uppercase tracking-wider">Управление</span>
                   </div>
-                  <p className="mt-6 text-2xl font-semibold">Админ-панель</p>
+                  <p className="mt-5 text-xl font-bold">Админ-панель</p>
                 </a>
               </section>
             ) : null}
