@@ -64,25 +64,6 @@ function PinIcon() {
   );
 }
 
-function NoteIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M7 4.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V6A1.5 1.5 0 0 1 7.5 4.5Z" />
-      <path d="M14 4.5V9h4" />
-      <path d="M9 12.5h6" />
-      <path d="M9 16h4.5" />
-    </svg>
-  );
-}
 
 function StarIcon() {
   return (
@@ -189,6 +170,34 @@ function ParticipantRow({
       </div>
     </div>
   );
+}
+
+function renderDescription(text: string) {
+  const blocks = text.split(/\n{2,}/).filter((s) => s.trim());
+
+  return blocks.map((block, i) => {
+    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+    const isListBlock = lines.length > 1 && lines.every((l) => l.startsWith("- ") || l.startsWith("• "));
+
+    if (isListBlock) {
+      return (
+        <ul key={i} className="space-y-1.5 pl-0">
+          {lines.map((line, j) => (
+            <li key={j} className="flex items-start gap-2.5 text-sm text-white/70">
+              <span className="mt-[7px] h-[5px] w-[5px] flex-shrink-0 rounded-full bg-white/30" />
+              <span>{line.replace(/^[-•]\s*/, "")}</span>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+
+    return (
+      <p key={i} className="text-sm leading-relaxed text-white/70">
+        {block.replace(/\n/g, " ")}
+      </p>
+    );
+  });
 }
 
 export default function TournamentDetailsPage() {
@@ -413,20 +422,18 @@ const waitlistParticipants = participants.filter(
           ← Назад
         </button>
 
-        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-emerald-700/45 to-black p-5">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-white/60">Турнир</p>
-          </div>
-          <h1 className="mt-2 text-3xl font-black uppercase tracking-wide">
+        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-emerald-700/40 to-black p-4">
+          <p className="text-xs uppercase tracking-wider text-white/45">Турнир</p>
+          <h1 className="mt-1.5 text-2xl font-bold uppercase tracking-wide">
             {tournament.title}
           </h1>
 
-          <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/80">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/65">
               <CalendarIcon />
               <span>{formatTournamentDate(tournament.start_at)}</span>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/65">
               <UserIcon />
               <span>{tournament.status === "completed" ? results.length : registeredCount} / {tournament.max_players}</span>
             </div>
@@ -464,54 +471,50 @@ const waitlistParticipants = participants.filter(
         </div>
 
         {activeTab === "about" ? (
-          <div className="mt-6 space-y-6">
+          <div className="mt-4 space-y-3">
             <section className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-                <div className="flex items-center gap-2 text-sm text-white/60">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex items-center gap-1.5 text-xs text-white/50">
                   <CalendarIcon />
                   <span>Начало</span>
                 </div>
-                <p className="mt-6 text-lg font-semibold text-white">
+                <p className="mt-3 text-sm font-semibold text-white">
                   {tournamentDateParts?.date}
                 </p>
-                <p className="mt-2 text-base text-white/65">
+                <p className="mt-1 text-xs text-white/55">
                   {tournamentDateParts?.time}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-                <div className="flex items-center gap-2 text-sm text-white/60">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex items-center gap-1.5 text-xs text-white/50">
                   <PinIcon />
                   <span>Место</span>
                 </div>
-                <p className="mt-6 text-lg font-semibold text-white">
-                  {tournament.location || "Место не указано"}
+                <p className="mt-3 text-sm font-semibold text-white">
+                  {tournament.location || "Не указано"}
                 </p>
               </div>
             </section>
 
-            <section className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-              <div className="flex items-center gap-2 text-sm text-white/60">
-                <NoteIcon />
-                <span>Описание</span>
-              </div>
-              <p className="mt-4 text-base leading-7 text-white/80">
-                {tournament.description || "Описание не добавлено"}
-              </p>
-            </section>
+            {tournament.description ? (
+              <section className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4">
+                {renderDescription(tournament.description)}
+              </section>
+            ) : null}
 
             {tournament.status !== "completed" ? (
-              <section className="rounded-2xl border border-white/10 bg-white/[0.05] p-5">
-                <h2 className="text-2xl font-bold">Регистрация</h2>
+              <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <h2 className="text-sm font-semibold text-white">Регистрация</h2>
                 <div className="mt-3">
                   {renderActionButton()}
 
-                  <p className="mt-3 text-sm text-white/65">
+                  <p className="mt-3 text-xs text-white/55">
                     Если планы изменились, отмените запись заранее.
                   </p>
 
                   {message ? (
-                    <p className="mt-3 text-sm text-white/70">{message}</p>
+                    <p className="mt-2 text-xs text-white/60">{message}</p>
                   ) : null}
                 </div>
               </section>
