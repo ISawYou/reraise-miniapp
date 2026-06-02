@@ -635,7 +635,7 @@ export default function HomePage() {
 
               if (!ensuredPlayer.email) {
                 try {
-                  const settingsRes = await fetch("/api/admin/settings", {
+                  const settingsRes = await fetch("/api/settings", {
                     cache: "no-store",
                   });
                   if (settingsRes.ok) {

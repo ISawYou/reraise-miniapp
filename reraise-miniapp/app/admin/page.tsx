@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { getTelegramUser } from "@/lib/telegram";
+import { getTelegramUser, getTelegramWebApp } from "@/lib/telegram";
 import type { Player } from "@/types/domain";
 
 type AdminCard = {
@@ -59,7 +59,7 @@ export default function AdminPage() {
         setPlayer(ensuredPlayer);
 
         if (ensuredPlayer.role === "admin") {
-          const res = await fetch("/api/admin/settings");
+          const res = await fetch("/api/settings");
           if (res.ok) {
             const data = (await res.json()) as { show_email_link_prompt?: boolean };
             setEmailLinkPromptEnabled(data.show_email_link_prompt === true);
@@ -80,9 +80,13 @@ export default function AdminPage() {
     const next = !emailLinkPromptEnabled;
     setSettingsLoading(true);
     try {
+      const initData = getTelegramWebApp()?.initData ?? "";
       const res = await fetch("/api/admin/settings", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-telegram-init-data": initData,
+        },
         body: JSON.stringify({ show_email_link_prompt: next }),
       });
       if (res.ok) setEmailLinkPromptEnabled(next);
