@@ -19,6 +19,7 @@ type FreeSheetRowInput = {
   addons: number;
   knockouts: number;
   place: number | null;
+  rating_points?: number;
 };
 
 function buildTabName(title: string, startAt: string, tournamentId: string) {
@@ -107,6 +108,7 @@ function buildFreeSheetValues(
       "Addon",
       "Nok",
       "Место",
+      "Рейтинг",
     ],
     ...exportData.rows.map((row) => {
       const values = rowsMap.get(row.player_id);
@@ -122,6 +124,7 @@ function buildFreeSheetValues(
         values?.addons ?? 0,
         values?.knockouts ?? 0,
         values?.place ?? "",
+        values?.rating_points ?? row.rating_points ?? "",
       ];
     }),
   ];

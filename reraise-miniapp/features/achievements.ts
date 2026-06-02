@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase-server";
 import type { PlayerAchievement } from "@/types/domain";
 import type { PlayerAchievementRow } from "@/types/database";
 
@@ -116,7 +117,7 @@ export async function syncPlayerAchievements(playerId: string) {
     };
   });
 
-  const { error } = await supabase
+  const { error } = await getSupabaseServer()
     .from("player_achievements")
     .upsert(payload, { onConflict: "player_id,achievement_code" });
 

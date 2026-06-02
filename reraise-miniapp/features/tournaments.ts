@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { syncPlayersAchievements } from "@/features/achievements";
+import { calculateRatingPoints } from "@/features/rating";
 import type {
   Registration,
   RegistrationStatus,
@@ -450,29 +451,39 @@ export async function getMyTournaments(playerId: string) {
 export async function getTournamentSheetExportData(tournamentId: string) {
   const tournament = await getTournamentById(tournamentId);
 
-  const { data, error } = await supabase
-    .from("registrations")
-    .select(
-      `
-      id,
-      status,
-      created_at,
-      player_id,
-      players (
+  const [{ data, error }, { data: resultsData }] = await Promise.all([
+    supabase
+      .from("registrations")
+      .select(
+        `
         id,
-        username,
-        admin_display_name,
-        display_name
+        status,
+        created_at,
+        player_id,
+        players (
+          id,
+          username,
+          admin_display_name,
+          display_name
+        )
+      `
       )
-    `
-    )
-    .eq("tournament_id", tournamentId)
-    .in("status", ["registered", "waitlist", "attended"])
-    .order("created_at", { ascending: true });
+      .eq("tournament_id", tournamentId)
+      .in("status", ["registered", "waitlist", "attended"])
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("results")
+      .select("player_id, rating_points")
+      .eq("tournament_id", tournamentId),
+  ]);
 
   if (error) {
     throw new Error(error.message);
   }
+
+  const ratingMap = new Map(
+    (resultsData ?? []).map((r: any) => [r.player_id, r.rating_points as number | null])
+  );
 
   return {
     tournament,
@@ -484,6 +495,7 @@ export async function getTournamentSheetExportData(tournamentId: string) {
         display_name: getPreferredPlayerDisplayName(player ?? {}),
         username: player?.username ?? null,
         registration_status: row.status,
+        rating_points: ratingMap.get(row.player_id) ?? null,
       };
     }),
   };
@@ -1246,6 +1258,19 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     throw new Error(deleteError.message);
   }
 
+  const hasKnockouts = liveEntries.some((e) => e.knockouts > 0);
+  const ratingMap = new Map(
+    calculateRatingPoints(
+      liveEntries.map((entry) => ({
+        player_id: entry.player_id,
+        place: entry.place ?? 0,
+        knockouts: entry.knockouts,
+        arrived: entry.arrived,
+      })),
+      hasKnockouts
+    ).map((r) => [r.player_id, r.rating_points])
+  );
+
   const payload = liveEntries.map((entry) => ({
     tournament_id: tournamentId,
     player_id: entry.player_id,
@@ -1253,7 +1278,7 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     place: entry.place,
     reentries: entry.rebuys,
     knockouts: entry.knockouts,
-    rating_points: 0,
+    rating_points: ratingMap.get(entry.player_id) ?? 0,
   }));
 
   const { error: insertError } = await supabase.from("results").insert(payload);

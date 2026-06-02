@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { saveTournamentResults } from "@/features/tournaments";
+import { calculateRatingPoints } from "@/features/rating";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
 
 export async function POST(
@@ -23,6 +24,19 @@ export async function POST(
     };
 
     const rows = body.rows ?? [];
+    const hasKnockouts = (body.bountyPrice ?? 0) > 0;
+
+    const ratingMap = new Map(
+      calculateRatingPoints(
+        rows.map((row) => ({
+          player_id: row.player_id,
+          place: row.place,
+          knockouts: row.knockouts,
+          arrived: row.arrived ?? false,
+        })),
+        hasKnockouts
+      ).map((r) => [r.player_id, r.rating_points])
+    );
 
     await saveTournamentResults(
       id,
@@ -31,7 +45,7 @@ export async function POST(
         place: row.place,
         reentries: row.rebuys,
         knockouts: row.knockouts,
-        rating_points: 0, // TODO: restore automatic rating calculation for free tournaments.
+        rating_points: ratingMap.get(row.player_id) ?? 0,
       }))
     );
 
@@ -44,6 +58,7 @@ export async function POST(
         addons: row.addons ?? 0,
         knockouts: row.knockouts,
         place: row.place,
+        rating_points: ratingMap.get(row.player_id) ?? 0,
       })),
       body.entryPrice ?? 0,
       body.addonPrice ?? 0,
