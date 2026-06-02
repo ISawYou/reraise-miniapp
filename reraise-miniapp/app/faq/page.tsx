@@ -7,6 +7,10 @@ type FaqArticleSection = {
   title: string;
   paragraphs: string[];
   bullets?: string[];
+  content?: Array<
+    | { type: "paragraph"; text: string }
+    | { type: "list"; items: string[] }
+  >;
 };
 
 type FaqTabKey =
@@ -26,34 +30,68 @@ const GENERAL_FAQ_SECTIONS: FaqArticleSection[] = [
   },
   {
     title: "2. Если нет призов, зачем играть?",
-    paragraphs: [
-      "Мы создаём сильное коммьюнити и качественный досуг.",
-      "Игроки приходят к нам за:",
-      "Здесь важен процесс, эмоции и прогресс, а не денежный результат.",
-    ],
-    bullets: [
-      "атмосферой и окружением",
-      "интересной игрой без финансового риска",
-      "комфортом и сервисом",
-      "возможностью развивать навык",
-      "соревновательным элементом через рейтинг игроков",
+    paragraphs: [],
+    content: [
+      {
+        type: "paragraph",
+        text: "Мы создаём сильное коммьюнити и качественный досуг.",
+      },
+      {
+        type: "paragraph",
+        text: "Игроки приходят к нам за:",
+      },
+      {
+        type: "list",
+        items: [
+          "атмосферой и окружением;",
+          "интересной игрой без финансового риска;",
+          "комфортом и сервисом;",
+          "возможностью развивать навык;",
+          "соревновательным элементом через рейтинг игроков.",
+        ],
+      },
+      {
+        type: "paragraph",
+        text: "Здесь важен процесс, эмоции и прогресс, а не денежный результат.",
+      },
     ],
   },
   {
     title: "3. Что такое рейтинг?",
-    paragraphs: [
-      "Рейтинг — это система, которая отражает игровые результаты участников в течение сезона.",
-      "Очки начисляются за:",
-      "Рейтинг позволяет:",
-      "Подробные правила начисления очков доступны в разделе «Рейтинговая система».",
-    ],
-    bullets: [
-      "занятое место в турнире",
-      "активность в игре (например, нокауты)",
-      "участие в турнирах",
-      "отслеживать свой прогресс",
-      "сравнивать результаты с другими игроками",
-      "участвовать в сезонной таблице лидеров",
+    paragraphs: [],
+    content: [
+      {
+        type: "paragraph",
+        text: "Рейтинг — это система, которая отражает игровые результаты участников в течение сезона.",
+      },
+      {
+        type: "paragraph",
+        text: "Очки начисляются за:",
+      },
+      {
+        type: "list",
+        items: [
+          "занятое место в турнире;",
+          "активность в игре (например, нокауты);",
+          "участие в турнирах.",
+        ],
+      },
+      {
+        type: "paragraph",
+        text: "Рейтинг позволяет:",
+      },
+      {
+        type: "list",
+        items: [
+          "отслеживать свой прогресс;",
+          "сравнивать результаты с другими игроками;",
+          "участвовать в сезонной таблице лидеров.",
+        ],
+      },
+      {
+        type: "paragraph",
+        text: "Подробные правила начисления очков доступны в разделе «Рейтинговая система».",
+      },
     ],
   },
   {
@@ -545,20 +583,42 @@ function renderSections(sections: FaqArticleSection[]) {
           <h2 className="text-xl font-semibold leading-snug">{section.title}</h2>
 
           <div className="mt-4 space-y-3 text-[15px] leading-7 text-white/78">
-            {section.paragraphs.map((paragraph) => (
-              <p key={paragraph}>{paragraph}</p>
-            ))}
+            {section.content
+              ? section.content.map((block, index) =>
+                  block.type === "paragraph" ? (
+                    <p key={`${section.title}-paragraph-${index}`}>{block.text}</p>
+                  ) : (
+                    <ul
+                      key={`${section.title}-list-${index}`}
+                      className="space-y-2 pt-1 text-white/78"
+                    >
+                      {block.items.map((bullet) => (
+                        <li key={bullet} className="flex gap-3">
+                          <span className="mt-[10px] h-1.5 w-1.5 rounded-full bg-white/45" />
+                          <span>{bullet}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                )
+              : (
+                <>
+                  {section.paragraphs.map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
 
-            {section.bullets ? (
-              <ul className="space-y-2 pt-1 text-white/78">
-                {section.bullets.map((bullet) => (
-                  <li key={bullet} className="flex gap-3">
-                    <span className="mt-[10px] h-1.5 w-1.5 rounded-full bg-white/45" />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+                  {section.bullets ? (
+                    <ul className="space-y-2 pt-1 text-white/78">
+                      {section.bullets.map((bullet) => (
+                        <li key={bullet} className="flex gap-3">
+                          <span className="mt-[10px] h-1.5 w-1.5 rounded-full bg-white/45" />
+                          <span>{bullet}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              )}
           </div>
         </section>
       ))}

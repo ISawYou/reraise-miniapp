@@ -127,6 +127,26 @@ export default function AdminPage() {
             </Link>
           ))}
         </section>
+
+        <section className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+          <h2 className="text-lg font-semibold">Привязка Email</h2>
+          <p className="mt-2 text-sm text-white/70">
+            Откройте ту же модалку привязки Email, которая используется на главной странице.
+          </p>
+
+          {player.email ? (
+            <p className="mt-3 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm text-emerald-200">
+              Email уже привязан
+            </p>
+          ) : (
+            <Link
+              href="/?openEmailLink=1"
+              className="mt-3 inline-flex rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm font-medium text-yellow-200"
+            >
+              Открыть привязку Email
+            </Link>
+          )}
+        </section>
       </div>
     </main>
   );

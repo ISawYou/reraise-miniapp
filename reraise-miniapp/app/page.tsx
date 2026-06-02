@@ -215,6 +215,15 @@ export default function HomePage() {
     return TERMS_TEXT.split("\n").map((line) => line.trim());
   }, []);
 
+  function openEmailLinkModal(nextEmail = "") {
+    setEmailLinkEmail(nextEmail);
+    setEmailLinkCode("");
+    setEmailLinkError(null);
+    setEmailLinkStep("email");
+    setEmailLinkResendCooldown(0);
+    setShowEmailLinkModal(true);
+  }
+
   function formatTermsLine(line: string) {
     return line.replace(
       /\b(и|а|но|в|с|к|у|о|от|до|за|из|на|по|под|при|без|для)\s+/gi,
@@ -611,12 +620,20 @@ export default function HomePage() {
                 showPromotionToast: false,
               });
 
-              // try {
-              //   const dismissed = window.sessionStorage.getItem("reraise.email.link.dismissed");
-              //   if (!ensuredPlayer.email && !dismissed) {
-              //     setShowEmailLinkModal(true);
-              //   }
-              // } catch {}
+              try {
+                const openEmailLinkRequested = new URLSearchParams(
+                  window.location.search
+                ).get("openEmailLink");
+                const dismissed = window.sessionStorage.getItem(
+                  "reraise.email.link.dismissed"
+                );
+
+                if (!ensuredPlayer.email) {
+                  if (openEmailLinkRequested === "1" || !dismissed) {
+                    openEmailLinkModal();
+                  }
+                }
+              } catch {}
             }
           }
         } else {
