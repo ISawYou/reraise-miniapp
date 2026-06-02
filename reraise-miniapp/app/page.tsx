@@ -4,8 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ensurePlayerFromTelegramUser,
-  ensurePlayerFromEmail,
-  linkEmailToPlayer,
   acceptTerms,
   completeProfile,
   TERMS_VERSION,
@@ -23,6 +21,7 @@ import {
   isTelegramMiniAppContext,
   type TelegramWebAppUser,
 } from "@/lib/telegram";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
 
@@ -436,13 +435,13 @@ export default function HomePage() {
 
   function handleEmailLinkDismiss() {
     try {
-      window.sessionStorage.setItem("dwc.email.link.dismissed", "1");
+      window.sessionStorage.setItem("reraise.email.link.dismissed", "1");
     } catch {}
     setShowEmailLinkModal(false);
   }
 
-  function startEmailLinkResendCooldown() {
-    setEmailLinkResendCooldown(60);
+  function startEmailLinkResendCooldown(seconds = 60) {
+    setEmailLinkResendCooldown(seconds);
     const interval = setInterval(() => {
       setEmailLinkResendCooldown((v) => {
         if (v <= 1) { clearInterval(interval); return 0; }
@@ -457,22 +456,38 @@ export default function HomePage() {
     if (!normalized) return;
     setEmailLinkLoading(true);
     setEmailLinkError(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: normalized,
-      options: { shouldCreateUser: true },
-    });
-    setEmailLinkLoading(false);
-    if (error) {
-      console.error("[emailLink] signInWithOtp failed:", {
-        message: error.message,
-        status: error.status,
-        code: (error as unknown as Record<string, unknown>).code ?? null,
+    try {
+      const response = await fetch("/api/auth/email/request-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: normalized,
+          purpose: "link_email",
+        }),
       });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; retryAfterSeconds?: number }
+        | null;
+
+      setEmailLinkLoading(false);
+
+      if (!response.ok) {
+        if (payload?.retryAfterSeconds) {
+          startEmailLinkResendCooldown(payload.retryAfterSeconds);
+        }
+
+        setEmailLinkError(payload?.error ?? "Не удалось отправить код. Попробуйте снова.");
+        return;
+      }
+
+      setEmailLinkStep("code");
+      startEmailLinkResendCooldown(payload?.retryAfterSeconds ?? 60);
+    } catch (error) {
+      setEmailLinkLoading(false);
+      console.error("[emailLink] request-code failed:", error);
       setEmailLinkError("Не удалось отправить код. Попробуйте снова.");
-      return;
     }
-    setEmailLinkStep("code");
-    startEmailLinkResendCooldown();
   }
 
   async function handleEmailLinkVerifyCode(e: React.FormEvent) {
@@ -481,19 +496,30 @@ export default function HomePage() {
     const normalized = emailLinkEmail.trim().toLowerCase();
     setEmailLinkLoading(true);
     setEmailLinkError(null);
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      email: normalized,
-      token: emailLinkCode.trim(),
-      type: "email",
-    });
-    if (verifyError) {
-      setEmailLinkLoading(false);
-      setEmailLinkError("Неверный или истёкший код.");
-      return;
-    }
     try {
-      const updatedPlayer = await linkEmailToPlayer(player.id, normalized);
-      setPlayer(updatedPlayer);
+      const response = await fetch("/api/auth/email/verify-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: normalized,
+          code: emailLinkCode.trim(),
+          purpose: "link_email",
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; player?: Player }
+        | null;
+
+      if (!response.ok) {
+        setEmailLinkError(payload?.error ?? "Неверный или истёкший код.");
+        return;
+      }
+
+      if (payload?.player) {
+        setPlayer(payload.player);
+      }
+
       setShowEmailLinkModal(false);
     } catch (err) {
       setEmailLinkError(err instanceof Error ? err.message : "Ошибка привязки email.");
@@ -506,16 +532,36 @@ export default function HomePage() {
     if (emailLinkResendCooldown > 0) return;
     setEmailLinkLoading(true);
     setEmailLinkError(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: emailLinkEmail.trim().toLowerCase(),
-      options: { shouldCreateUser: true },
-    });
-    setEmailLinkLoading(false);
-    if (error) {
+    try {
+      const response = await fetch("/api/auth/email/request-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: emailLinkEmail.trim().toLowerCase(),
+          purpose: "link_email",
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; retryAfterSeconds?: number }
+        | null;
+
+      setEmailLinkLoading(false);
+
+      if (!response.ok) {
+        if (payload?.retryAfterSeconds) {
+          startEmailLinkResendCooldown(payload.retryAfterSeconds);
+        }
+
+        setEmailLinkError(payload?.error ?? "Не удалось отправить код повторно.");
+        return;
+      }
+
+      startEmailLinkResendCooldown(payload?.retryAfterSeconds ?? 60);
+    } catch (error) {
+      setEmailLinkLoading(false);
       setEmailLinkError("Не удалось отправить код повторно.");
-      return;
     }
-    startEmailLinkResendCooldown();
   }
 
   useEffect(() => {
@@ -566,7 +612,7 @@ export default function HomePage() {
               });
 
               // try {
-              //   const dismissed = window.sessionStorage.getItem("dwc.email.link.dismissed");
+              //   const dismissed = window.sessionStorage.getItem("reraise.email.link.dismissed");
               //   if (!ensuredPlayer.email && !dismissed) {
               //     setShowEmailLinkModal(true);
               //   }
@@ -574,18 +620,13 @@ export default function HomePage() {
             }
           }
         } else {
-          const { data: { session } } = await supabase.auth.getSession();
-
-          if (session?.user?.email) {
-            setPlayerLoading(true);
-            setPlayerError(null);
-
-            const webPlayer = await ensurePlayerFromEmail(session.user.email);
-            setPlayer(webPlayer);
+          try {
+            const cookiePlayer = await resolveCurrentPlayer();
+            setPlayer(cookiePlayer);
 
             if (
-              !webPlayer.accepted_terms_at ||
-              webPlayer.accepted_terms_version !== TERMS_VERSION
+              !cookiePlayer.accepted_terms_at ||
+              cookiePlayer.accepted_terms_version !== TERMS_VERSION
             ) {
               setScrolledToBottom(false);
               setShowProfileSetup(false);
@@ -593,48 +634,21 @@ export default function HomePage() {
             } else {
               setShowTerms(false);
 
-              if (!webPlayer.profile_completed_at) {
-                setNickname(webPlayer.display_name);
+              if (!cookiePlayer.profile_completed_at) {
+                setNickname(cookiePlayer.display_name);
                 setProfileError(null);
                 setShowProfileSetup(true);
               } else {
                 setShowProfileSetup(false);
 
-                await refreshHomeData(webPlayer, {
+                await refreshHomeData(cookiePlayer, {
                   showPromotionToast: false,
                 });
               }
             }
-          } else {
-            const meRes = await fetch("/api/auth/me").catch(() => null);
-
-            if (meRes?.ok) {
-              const data = (await meRes.json()) as { player: Player };
-              const cookiePlayer = data.player;
-              setPlayer(cookiePlayer);
-
-              if (
-                !cookiePlayer.accepted_terms_at ||
-                cookiePlayer.accepted_terms_version !== TERMS_VERSION
-              ) {
-                setScrolledToBottom(false);
-                setShowProfileSetup(false);
-                setShowTerms(true);
-              } else {
-                setShowTerms(false);
-
-                if (!cookiePlayer.profile_completed_at) {
-                  setNickname(cookiePlayer.display_name);
-                  setProfileError(null);
-                  setShowProfileSetup(true);
-                } else {
-                  setShowProfileSetup(false);
-
-                  await refreshHomeData(cookiePlayer, {
-                    showPromotionToast: false,
-                  });
-                }
-              }
+          } catch {
+            if (!isTelegramMiniAppContext()) {
+              window.location.replace("/login");
             }
           }
         }
@@ -771,7 +785,7 @@ export default function HomePage() {
         <div className="mx-auto flex h-full max-w-md flex-col gap-4">
           <div className="terms-card rounded-[28px] p-5">
             <p className="text-xs uppercase tracking-[0.28em] text-yellow-300/80">
-              Игровое пространство Ререйз
+              Игровое пространство РЕРЕЙЗ
             </p>
             <h1 className="mt-3 text-3xl font-bold leading-tight">
               Пользовательское соглашение
@@ -883,7 +897,7 @@ export default function HomePage() {
         <div className="mx-auto flex h-full max-w-md flex-col justify-center">
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.18em] text-white/40">
-              Игровое пространство Ререйз
+              Игровое пространство РЕРЕЙЗ
             </p>
             <h1 className="mt-3 text-4xl font-bold tracking-tight">РЕРЕЙЗ</h1>
           </div>
@@ -962,7 +976,7 @@ export default function HomePage() {
         <header className="mb-8">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-white/40">
-              Игровое пространство Ререйз
+              Игровое пространство РЕРЕЙЗ
             </p>
             <div className="mt-3 flex items-center justify-between gap-4">
               <h1 className="text-4xl font-bold tracking-tight">Главная</h1>
@@ -990,7 +1004,7 @@ export default function HomePage() {
 
             <p className="mt-4 text-sm text-white/75">Привет, {greetingName}</p>
             <p className="mt-1 text-xs text-white/45">
-              Добро пожаловать в Ререйз
+              Добро пожаловать в РЕРЕЙЗ
             </p>
           </div>
         </header>

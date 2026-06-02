@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PromotionToast } from "@/components/promotion-toast";
-import { ensurePlayerFromTelegramUser, ensurePlayerFromEmail } from "@/features/auth";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   cancelPlayerRegistration,
   getVisibleCompletedTournamentsForPlayer,
@@ -147,11 +147,11 @@ export default function TournamentsPage() {
 
         if (promotedTournament) {
           setPromotionToast(
-            `Вы переместились из списка ожидания в основной список: ${promotedTournament.title}`
+            `Р’С‹ РїРµСЂРµРјРµСЃС‚РёР»РёСЃСЊ РёР· СЃРїРёСЃРєР° РѕР¶РёРґР°РЅРёСЏ РІ РѕСЃРЅРѕРІРЅРѕР№ СЃРїРёСЃРѕРє: ${promotedTournament.title}`
           );
         } else {
           setPromotionToast(
-            "Вы переместились из списка ожидания в основной список"
+            "Р’С‹ РїРµСЂРµРјРµСЃС‚РёР»РёСЃСЊ РёР· СЃРїРёСЃРєР° РѕР¶РёРґР°РЅРёСЏ РІ РѕСЃРЅРѕРІРЅРѕР№ СЃРїРёСЃРѕРє"
           );
         }
       }
@@ -167,20 +167,7 @@ export default function TournamentsPage() {
   useEffect(() => {
     async function init() {
       try {
-        const telegramUser = getTelegramUser();
-        let currentPlayer: Player;
-
-        if (telegramUser) {
-          currentPlayer = await ensurePlayerFromTelegramUser(telegramUser);
-        } else {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-          if (!session?.user?.email) {
-            throw new Error("Необходимо войти в систему");
-          }
-          currentPlayer = await ensurePlayerFromEmail(session.user.email);
-        }
+        const currentPlayer: Player = await resolveCurrentPlayer();
 
         setPlayer(currentPlayer);
         setPlayerId(currentPlayer.id);
@@ -188,7 +175,7 @@ export default function TournamentsPage() {
         await refreshPageData(currentPlayer, { showPromotionToast: false });
       } catch (err) {
         const nextError =
-          err instanceof Error ? err.message : "Ошибка загрузки турниров";
+          err instanceof Error ? err.message : "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С‚СѓСЂРЅРёСЂРѕРІ";
         setError(nextError);
       } finally {
         setLoading(false);
@@ -287,10 +274,10 @@ export default function TournamentsPage() {
           className="w-full rounded-2xl bg-yellow-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
         >
           {isLoading
-            ? "Сохраняем..."
+            ? "РЎРѕС…СЂР°РЅСЏРµРј..."
             : registeredCount >= tournament.max_players
-              ? "Встать в список ожидания"
-              : "Записаться"}
+              ? "Р’СЃС‚Р°С‚СЊ РІ СЃРїРёСЃРѕРє РѕР¶РёРґР°РЅРёСЏ"
+              : "Р—Р°РїРёСЃР°С‚СЊСЃСЏ"}
         </button>
       );
     }
@@ -303,7 +290,7 @@ export default function TournamentsPage() {
           disabled={isLoading}
           className="w-full rounded-2xl bg-green-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
         >
-          {isLoading ? "Сохраняем..." : "Вы записаны"}
+          {isLoading ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "Р’С‹ Р·Р°РїРёСЃР°РЅС‹"}
         </button>
       );
     }
@@ -316,7 +303,7 @@ export default function TournamentsPage() {
           disabled={isLoading}
           className="w-full rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
         >
-          {isLoading ? "Сохраняем..." : "Вы в списке ожидания"}
+          {isLoading ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "Р’С‹ РІ СЃРїРёСЃРєРµ РѕР¶РёРґР°РЅРёСЏ"}
         </button>
       );
     }
@@ -371,7 +358,7 @@ export default function TournamentsPage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
-          <p className="text-sm text-white/70">Загружаем турниры...</p>
+          <p className="text-sm text-white/70">Р—Р°РіСЂСѓР¶Р°РµРј С‚СѓСЂРЅРёСЂС‹...</p>
         </div>
       </main>
     );
@@ -385,7 +372,7 @@ export default function TournamentsPage() {
             href="/"
             className="telegram-top-action inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/60"
           >
-            ← Назад
+            в†ђ РќР°Р·Р°Рґ
           </Link>
 
           <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
@@ -406,12 +393,12 @@ export default function TournamentsPage() {
           href="/"
           className="telegram-top-action inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/60"
         >
-          ← Назад
+          в†ђ РќР°Р·Р°Рґ
         </Link>
 
-        <h1 className="mt-6 text-3xl font-bold tracking-tight">Турниры</h1>
+        <h1 className="mt-6 text-3xl font-bold tracking-tight">РўСѓСЂРЅРёСЂС‹</h1>
         <p className="mt-2 text-sm text-white/45">
-          Активные и завершённые события
+          РђРєС‚РёРІРЅС‹Рµ Рё Р·Р°РІРµСЂС€С‘РЅРЅС‹Рµ СЃРѕР±С‹С‚РёСЏ
         </p>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
@@ -424,7 +411,7 @@ export default function TournamentsPage() {
                 : "border-white/10 bg-transparent text-white/60"
             }`}
           >
-            Активные ({openTournaments.length})
+            РђРєС‚РёРІРЅС‹Рµ ({openTournaments.length})
           </button>
 
           <button
@@ -436,7 +423,7 @@ export default function TournamentsPage() {
                 : "border-white/10 bg-transparent text-white/60"
             }`}
           >
-            Прошедшие ({completedTournaments.length})
+            РџСЂРѕС€РµРґС€РёРµ ({completedTournaments.length})
           </button>
         </div>
 
@@ -444,8 +431,8 @@ export default function TournamentsPage() {
           {currentList.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
               {activeTab === "active"
-                ? "Сейчас нет открытых турниров"
-                : "Пока нет завершённых турниров"}
+                ? "РЎРµР№С‡Р°СЃ РЅРµС‚ РѕС‚РєСЂС‹С‚С‹С… С‚СѓСЂРЅРёСЂРѕРІ"
+                : "РџРѕРєР° РЅРµС‚ Р·Р°РІРµСЂС€С‘РЅРЅС‹С… С‚СѓСЂРЅРёСЂРѕРІ"}
             </div>
           ) : (
             <div className="space-y-4">
@@ -461,3 +448,4 @@ export default function TournamentsPage() {
     </main>
   );
 }
+

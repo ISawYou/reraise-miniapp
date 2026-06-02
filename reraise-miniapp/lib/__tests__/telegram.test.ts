@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getTelegramUser, getTelegramWebApp } from '@/lib/telegram';
 
-const TELEGRAM_USER_CACHE_KEY = 'dwc.telegram.user';
+const TELEGRAM_USER_CACHE_KEY = 'reraise.telegram.user';
 
 describe('getTelegramWebApp', () => {
   it('returns the mock WebApp object', () => {

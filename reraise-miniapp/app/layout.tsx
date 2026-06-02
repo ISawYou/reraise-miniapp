@@ -11,8 +11,8 @@ const onest = Onest({
 });
 
 export const metadata: Metadata = {
-  title: "Ререйз",
-  description: "Telegram Mini App for Ререйз",
+  title: "РЕРЕЙЗ",
+  description: "Telegram Mini App for РЕРЕЙЗ",
 };
 
 export const viewport: Viewport = {

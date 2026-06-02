@@ -12,7 +12,7 @@ export type TelegramWebAppInset = {
   right?: number;
 };
 
-const TELEGRAM_USER_CACHE_KEY = "dwc.telegram.user";
+const TELEGRAM_USER_CACHE_KEY = "reraise.telegram.user";
 
 export type TelegramWebApp = {
   initData?: string;

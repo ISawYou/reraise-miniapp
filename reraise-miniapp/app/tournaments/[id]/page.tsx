@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ensurePlayerFromTelegramUser, ensurePlayerFromEmail } from "@/features/auth";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   getVisibleTournamentByIdForPlayer,
   getTournamentParticipants,
@@ -260,18 +260,7 @@ const waitlistParticipants = participants.filter(
           throw new Error("Tournament id not found");
         }
 
-        const telegramUser = getTelegramUser();
-        let currentPlayer: Player;
-
-        if (telegramUser) {
-          currentPlayer = await ensurePlayerFromTelegramUser(telegramUser);
-        } else {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session?.user?.email) {
-            throw new Error("Необходимо войти в систему");
-          }
-          currentPlayer = await ensurePlayerFromEmail(session.user.email);
-        }
+        const currentPlayer: Player = await resolveCurrentPlayer();
 
         setPlayer(currentPlayer);
 
@@ -622,3 +611,4 @@ const waitlistParticipants = participants.filter(
     </main>
   );
 }
+

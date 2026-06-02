@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
-export const COOKIE_NAME = "dwc_tg_session";
+export const COOKIE_NAME = "reraise_session";
 
 function getSecret(): string {
   const secret = process.env.SESSION_SECRET;

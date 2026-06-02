@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getPlayerById } from "@/features/auth";
+import { getPlayerByIdServer } from "@/features/auth-server";
 import { verifySession, COOKIE_NAME } from "@/lib/telegram-web-session";
 
 export async function GET(request: NextRequest) {
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const player = await getPlayerById(playerId);
+    const player = await getPlayerByIdServer(playerId);
 
     if (!player) {
       return NextResponse.json({ error: "Player not found" }, { status: 404 });

@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 
 type Step = "email" | "code";
+type OtpPurpose = "login";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,22 +17,31 @@ export default function LoginPage() {
   const codeInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.email) {
-        router.replace("/");
-      }
-    });
+    fetch("/api/auth/me", {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then((payload) => {
+        if (payload?.player?.id) {
+          router.replace("/");
+        }
+      })
+      .catch(() => null);
   }, [router]);
 
   useEffect(() => {
-    if (step === "code") {
-      const timer = setTimeout(() => codeInputRef.current?.focus(), 50);
-      return () => clearTimeout(timer);
-    }
+    if (step !== "code") return;
+
+    const timer = setTimeout(() => codeInputRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, [step]);
 
-  function startResendCooldown() {
-    setResendCooldown(60);
+  function startResendCooldown(seconds: number) {
+    setResendCooldown(seconds);
     const interval = setInterval(() => {
       setResendCooldown((value) => {
         if (value <= 1) {
@@ -44,52 +53,95 @@ export default function LoginPage() {
     }, 1000);
   }
 
+  async function requestCode(purpose: OtpPurpose) {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    const response = await fetch("/api/auth/email/request-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: trimmedEmail,
+        purpose,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; retryAfterSeconds?: number }
+      | null;
+
+    if (!response.ok) {
+      if (payload?.retryAfterSeconds) {
+        startResendCooldown(payload.retryAfterSeconds);
+      }
+
+      throw new Error(payload?.error ?? "Не удалось отправить код.");
+    }
+
+    startResendCooldown(payload?.retryAfterSeconds ?? 60);
+  }
+
   async function handleRequestCode(event: React.FormEvent) {
     event.preventDefault();
+
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail) return;
 
     setLoading(true);
     setError(null);
 
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: trimmedEmail,
-      options: { shouldCreateUser: true },
-    });
-
-    setLoading(false);
-
-    if (otpError) {
-      setError("Не удалось отправить код. Проверьте email и попробуйте снова.");
-      return;
+    try {
+      await requestCode("login");
+      setStep("code");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Не удалось отправить код."
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setStep("code");
-    startResendCooldown();
   }
 
   async function handleVerifyCode(event: React.FormEvent) {
     event.preventDefault();
+
     const trimmedCode = code.trim();
     if (!trimmedCode) return;
 
     setLoading(true);
     setError(null);
 
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      email: email.trim().toLowerCase(),
-      token: trimmedCode,
-      type: "email",
-    });
+    try {
+      const response = await fetch("/api/auth/email/verify-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          code: trimmedCode,
+          purpose: "login",
+        }),
+      });
 
-    setLoading(false);
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
 
-    if (verifyError) {
-      setError("Неверный или истёкший код. Попробуйте снова.");
-      return;
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Не удалось проверить код.");
+      }
+
+      router.replace("/");
+      router.refresh();
+    } catch (verifyError) {
+      setError(
+        verifyError instanceof Error
+          ? verifyError.message
+          : "Не удалось проверить код."
+      );
+    } finally {
+      setLoading(false);
     }
-
-    router.replace("/");
   }
 
   async function handleResend() {
@@ -98,19 +150,17 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
 
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: email.trim().toLowerCase(),
-      options: { shouldCreateUser: true },
-    });
-
-    setLoading(false);
-
-    if (otpError) {
-      setError("Не удалось отправить код повторно.");
-      return;
+    try {
+      await requestCode("login");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Не удалось отправить код повторно."
+      );
+    } finally {
+      setLoading(false);
     }
-
-    startResendCooldown();
   }
 
   return (
@@ -133,7 +183,7 @@ export default function LoginPage() {
           {step === "email" ? (
             <form onSubmit={handleRequestCode} className="flex flex-col gap-4">
               <p className="text-sm leading-relaxed text-white/60">
-                Введите email, и мы отправим код для входа.
+                Введите email, и мы отправим 6-значный код для входа.
               </p>
 
               <input

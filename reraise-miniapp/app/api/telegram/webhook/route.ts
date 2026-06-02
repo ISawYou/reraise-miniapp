@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const WEB_APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL ?? "https://poker-app-psi-livid.vercel.app/";
+  process.env.NEXT_PUBLIC_APP_URL ?? "https://www.re-raise.ru/";
 
 type TelegramWebhookUpdate = {
   message?: {
