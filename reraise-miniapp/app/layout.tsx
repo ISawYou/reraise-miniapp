@@ -36,7 +36,7 @@ export default function RootLayout({
       >
         <Script
           src="https://telegram.org/js/telegram-web-app.js"
-          strategy="beforeInteractive"
+          strategy="afterInteractive"
         />
         <TelegramAppShell />
         <div className="telegram-app-safe-area min-h-screen">{children}</div>
