@@ -2,10 +2,15 @@
 
 import { useEffect } from "react";
 import type { TelegramWebApp, TelegramWebAppInset } from "@/lib/telegram";
-import { getTelegramWebApp } from "@/lib/telegram";
+import {
+  getTelegramWebApp,
+  isTelegramMiniAppContext,
+  loadTelegramWebAppScript,
+} from "@/lib/telegram";
 
 export function TelegramAppShell() {
   useEffect(() => {
+    let cancelled = false;
     let cleanupInsetsListener: (() => void) | undefined;
 
     const applyInsetVariables = (
@@ -50,14 +55,22 @@ export function TelegramAppShell() {
       }
     };
 
-    const initWebApp = () => {
-      const webApp = getTelegramWebApp();
+    const initWebApp = async () => {
+      let webApp = getTelegramWebApp();
+
+      if (!webApp && isTelegramMiniAppContext()) {
+        webApp = await loadTelegramWebAppScript(2500);
+      }
 
       if (!webApp) {
         return;
       }
 
       try {
+        if (cancelled) {
+          return;
+        }
+
         webApp.ready?.();
         webApp.expand?.();
         webApp.requestFullscreen?.();
@@ -71,9 +84,10 @@ export function TelegramAppShell() {
       }
     };
 
-    initWebApp();
+    void initWebApp();
 
     return () => {
+      cancelled = true;
       cleanupInsetsListener?.();
     };
   }, []);

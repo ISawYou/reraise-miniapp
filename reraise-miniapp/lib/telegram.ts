@@ -164,6 +164,70 @@ export function getTelegramWebApp(): TelegramWebApp | null {
   return window.Telegram?.WebApp ?? null;
 }
 
+let telegramWebAppScriptPromise: Promise<TelegramWebApp | null> | null = null;
+
+export async function loadTelegramWebAppScript(
+  timeoutMs = 2500
+): Promise<TelegramWebApp | null> {
+  const existingWebApp = getTelegramWebApp();
+
+  if (existingWebApp) {
+    return existingWebApp;
+  }
+
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return null;
+  }
+
+  if (!isTelegramMiniAppContext()) {
+    return null;
+  }
+
+  if (!telegramWebAppScriptPromise) {
+    telegramWebAppScriptPromise = new Promise<TelegramWebApp | null>((resolve) => {
+      const existingScript = document.querySelector<HTMLScriptElement>(
+        'script[src="https://telegram.org/js/telegram-web-app.js"]'
+      );
+      const injectedScript = existingScript ?? document.createElement("script");
+
+      const finish = () => resolve(getTelegramWebApp());
+
+      const timer = window.setTimeout(finish, timeoutMs);
+
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        existingScript?.removeEventListener("load", handleLoad);
+        existingScript?.removeEventListener("error", handleError);
+        injectedScript.removeEventListener("load", handleLoad);
+        injectedScript.removeEventListener("error", handleError);
+      };
+
+      const handleLoad = () => {
+        cleanup();
+        finish();
+      };
+
+      const handleError = () => {
+        cleanup();
+        resolve(null);
+      };
+
+      injectedScript.async = true;
+      injectedScript.src = "https://telegram.org/js/telegram-web-app.js";
+      injectedScript.addEventListener("load", handleLoad, { once: true });
+      injectedScript.addEventListener("error", handleError, { once: true });
+
+      if (!existingScript) {
+        document.head.appendChild(injectedScript);
+      }
+    }).finally(() => {
+      telegramWebAppScriptPromise = null;
+    });
+  }
+
+  return telegramWebAppScriptPromise;
+}
+
 export function isTelegramMiniAppContext(): boolean {
   const webApp = getTelegramWebApp();
 
