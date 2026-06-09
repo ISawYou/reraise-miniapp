@@ -590,6 +590,10 @@ export default function HomePage() {
           setIsInsideTelegram(true);
           webApp.ready?.();
           webApp.expand?.();
+          webApp.requestFullscreen?.();
+          webApp.disableVerticalSwipes?.();
+          webApp.setBackgroundColor?.("#000000");
+          webApp.setHeaderColor?.("#000000");
         }
 
         if (!webApp && isTelegramMiniAppContext()) {
