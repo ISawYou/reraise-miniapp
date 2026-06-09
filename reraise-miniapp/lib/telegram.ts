@@ -13,6 +13,7 @@ export type TelegramWebAppInset = {
 };
 
 const TELEGRAM_USER_CACHE_KEY = "reraise.telegram.user";
+const TELEGRAM_INIT_DATA_CACHE_KEY = "reraise.telegram.initData";
 
 export type TelegramWebApp = {
   initData?: string;
@@ -103,6 +104,30 @@ function getTelegramUserFromLaunchParams(): TelegramWebAppUser | null {
   }
 }
 
+function getTelegramInitDataFromLaunchParams(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(
+      window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : window.location.hash
+    );
+
+    return (
+      searchParams.get("tgWebAppData") ??
+      hashParams.get("tgWebAppData") ??
+      ""
+    );
+  } catch (error) {
+    console.error("Failed to read Telegram initData from launch params:", error);
+    return "";
+  }
+}
+
 function readCachedTelegramUser(): TelegramWebAppUser | null {
   if (typeof window === "undefined") {
     return null;
@@ -134,6 +159,31 @@ function cacheTelegramUser(user: TelegramWebAppUser | null) {
   }
 }
 
+function readCachedTelegramInitData(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return window.sessionStorage.getItem(TELEGRAM_INIT_DATA_CACHE_KEY) ?? "";
+  } catch (error) {
+    console.error("Failed to read cached Telegram initData:", error);
+    return "";
+  }
+}
+
+function cacheTelegramInitData(initData: string) {
+  if (typeof window === "undefined" || !initData) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(TELEGRAM_INIT_DATA_CACHE_KEY, initData);
+  } catch (error) {
+    console.error("Failed to cache Telegram initData:", error);
+  }
+}
+
 function hasTelegramLaunchParams(): boolean {
   if (typeof window === "undefined") {
     return false;
@@ -161,7 +211,13 @@ export function getTelegramWebApp(): TelegramWebApp | null {
     return null;
   }
 
-  return window.Telegram?.WebApp ?? null;
+  const webApp = window.Telegram?.WebApp ?? null;
+
+  if (webApp?.initData) {
+    cacheTelegramInitData(webApp.initData);
+  }
+
+  return webApp;
 }
 
 let telegramWebAppScriptPromise: Promise<TelegramWebApp | null> | null = null;
@@ -235,8 +291,27 @@ export async function getTelegramInitData(): Promise<string> {
     return existingInitData;
   }
 
+  const launchParamsInitData = getTelegramInitDataFromLaunchParams();
+
+  if (launchParamsInitData) {
+    cacheTelegramInitData(launchParamsInitData);
+    return launchParamsInitData;
+  }
+
+  const cachedInitData = readCachedTelegramInitData();
+
+  if (cachedInitData) {
+    return cachedInitData;
+  }
+
   const webApp = await loadTelegramWebAppScript(2500);
-  return webApp?.initData ?? "";
+  const nextInitData = webApp?.initData ?? "";
+
+  if (nextInitData) {
+    cacheTelegramInitData(nextInitData);
+  }
+
+  return nextInitData;
 }
 
 export function isTelegramMiniAppContext(): boolean {
@@ -253,6 +328,9 @@ export function getTelegramUser(): TelegramWebAppUser | null {
   const webApp = getTelegramWebApp();
 
   if (webApp?.initDataUnsafe?.user) {
+    if (webApp.initData) {
+      cacheTelegramInitData(webApp.initData);
+    }
     cacheTelegramUser(webApp.initDataUnsafe.user);
     return webApp.initDataUnsafe.user;
   }
