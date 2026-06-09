@@ -583,23 +583,14 @@ export default function HomePage() {
 
     const init = async () => {
       try {
+        // Viewport initialisation (ready/expand/requestFullscreen) is handled
+        // exclusively by TelegramAppShell in layout.tsx. Calling those here on
+        // every page mount duplicated the work and, more importantly, caused a
+        // second requestFullscreen() call on back-navigation — which temporarily
+        // zeroed contentSafeAreaInset.top and broke --app-top-offset.
         const webApp = getTelegramWebApp();
-
-        if (webApp) {
-          if (cancelled) return;
-          setIsInsideTelegram(true);
-          webApp.ready?.();
-          webApp.expand?.();
-          webApp.requestFullscreen?.();
-          webApp.disableVerticalSwipes?.();
-          webApp.setBackgroundColor?.("#000000");
-          webApp.setHeaderColor?.("#000000");
-        }
-
-        if (!webApp && isTelegramMiniAppContext()) {
-          if (cancelled) return;
-          setIsInsideTelegram(true);
-        }
+        if (cancelled) return;
+        setIsInsideTelegram(Boolean(webApp) || isTelegramMiniAppContext());
 
         const telegramUser = getTelegramUser();
         if (cancelled) return;

@@ -15,105 +15,98 @@ export function TelegramAppShell() {
   // before safeAreaChanged could restore it, leaving --app-top-offset at half
   // the correct value on every page transition.
   //
-  // The safeAreaChanged listener (set up once below) handles all real changes.
-  // CSS variables set on document.documentElement.style persist across routes.
+  // The safeAreaChanged / contentSafeAreaChanged listeners (set up once below)
+  // handle all real changes. CSS variables on document.documentElement.style
+  // persist across routes.
   useEffect(() => {
     let cancelled = false;
     let cleanupInsetsListener: (() => void) | undefined;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const applyInsetVariables = (
       prefix: "safe-area-inset" | "content-safe-area-inset",
       inset?: TelegramWebAppInset
     ) => {
-      if (typeof document === "undefined") {
-        return;
-      }
-
+      if (typeof document === "undefined") return;
       const rootStyle = document.documentElement.style;
-
       rootStyle.setProperty(`--tg-${prefix}-top`, `${inset?.top ?? 0}px`);
       rootStyle.setProperty(`--tg-${prefix}-bottom`, `${inset?.bottom ?? 0}px`);
       rootStyle.setProperty(`--tg-${prefix}-left`, `${inset?.left ?? 0}px`);
       rootStyle.setProperty(`--tg-${prefix}-right`, `${inset?.right ?? 0}px`);
     };
 
-    // Derives --app-top-offset from actual Telegram safe area values.
+    // In fullscreen Telegram Mini App two layers sit above the WebView:
+    //   safeAreaInset.top        = system status bar  (e.g. 47px iPhone)
+    //   contentSafeAreaInset.top = Telegram close bar (e.g. 44-48px)
     //
-    // In fullscreen Telegram Mini App the WebView covers the entire screen.
-    // Two Telegram layers sit on top:
-    //   safeAreaInset.top       = system safe area (status bar, e.g. 47px iPhone)
-    //   contentSafeAreaInset.top = Telegram floating bar (close button, ~44-48px)
+    // The correct top offset is their SUM.
     //
-    // The correct offset is their SUM — not max. Math.max was the previous bug.
-    //
-    // When both are 0 (before the first safeAreaChanged fires after
-    // requestFullscreen, or on older Telegram that doesn't report these values),
-    // fall back to a platform estimate. safeAreaChanged will correct it.
-    const syncTopOffset = (webApp: TelegramWebApp | null) => {
-      if (typeof document === "undefined") {
+    // RACE CONDITION: Telegram fires safeAreaChanged and contentSafeAreaChanged
+    // as two separate events. Reading both fields immediately in the first event
+    // gives a wrong partial sum (e.g. 47+0=47 before contentSafeAreaChanged fires).
+    // The debounce below collapses both events into a single recompute after
+    // 30 ms so we always see the settled values from both events.
+    const computeAndApplyOffset = (webApp: TelegramWebApp) => {
+      if (typeof document === "undefined" || !isTelegramMiniAppContext()) {
+        document?.documentElement.style.setProperty("--app-top-offset", "0px");
         return;
       }
 
-      const rootStyle = document.documentElement.style;
-
-      if (!isTelegramMiniAppContext()) {
-        rootStyle.setProperty("--app-top-offset", "0px");
-        return;
-      }
-
-      const safeTop = webApp?.safeAreaInset?.top ?? 0;
-      const contentTop = webApp?.contentSafeAreaInset?.top ?? 0;
+      const safeTop = webApp.safeAreaInset?.top ?? 0;
+      const contentTop = webApp.contentSafeAreaInset?.top ?? 0;
       const total = safeTop + contentTop;
 
-      if (process.env.NODE_ENV !== "production") {
-        const wa = webApp as (TelegramWebApp & {
-          platform?: string;
-          version?: string;
-          viewportHeight?: number;
-          viewportStableHeight?: number;
-        }) | null;
-        console.log("[telegram-shell] syncTopOffset", {
-          pathname: typeof window !== "undefined" ? window.location.pathname : "",
-          isTelegramMiniApp: true,
-          platform: wa?.platform,
-          version: wa?.version,
-          safeAreaInset: webApp?.safeAreaInset,
-          contentSafeAreaInset: webApp?.contentSafeAreaInset,
-          safeTop,
-          contentTop,
-          total,
-          viewportHeight: wa?.viewportHeight,
-          viewportStableHeight: wa?.viewportStableHeight,
-          usingFallback: total === 0,
-        });
-      }
+      const wa = webApp as TelegramWebApp & {
+        platform?: string;
+        version?: string;
+        viewportHeight?: number;
+        viewportStableHeight?: number;
+      };
+
+      console.log("[telegram-shell]", {
+        pathname: typeof window !== "undefined" ? window.location.pathname : "",
+        platform: wa.platform,
+        version: wa.version,
+        safeAreaInset: webApp.safeAreaInset,
+        contentSafeAreaInset: webApp.contentSafeAreaInset,
+        safeTop,
+        contentTop,
+        total,
+        viewportHeight: wa.viewportHeight,
+        viewportStableHeight: wa.viewportStableHeight,
+        usingFallback: total === 0,
+        cssVar: document.documentElement.style.getPropertyValue("--app-top-offset"),
+      });
 
       if (total > 0) {
-        rootStyle.setProperty("--app-top-offset", `${total}px`);
+        document.documentElement.style.setProperty("--app-top-offset", `${total}px`);
+        applyInsetVariables("safe-area-inset", webApp.safeAreaInset);
+        applyInsetVariables("content-safe-area-inset", webApp.contentSafeAreaInset);
         return;
       }
 
-      // Fallback: Telegram hasn't reported real values yet.
-      // For iOS in fullscreen: status bar (~47px) + floating bar (~44px) ≈ 90px.
-      // For Android: varies, ~56px is a reasonable minimum.
+      // Fallback: real values not available yet (before first safeAreaChanged
+      // fires after requestFullscreen, or on older Telegram without the API).
+      // For iOS in fullscreen: status bar (~47px) + close bar (~44px) ≈ 90px.
+      // For Android: ~56px. safeAreaChanged will correct this once it fires.
       const platform =
-        (webApp as { platform?: string } | null)?.platform ??
+        wa.platform ??
         (/iPhone|iPad|iPod/i.test(window.navigator.userAgent) ? "ios" : "");
-
-      rootStyle.setProperty(
+      document.documentElement.style.setProperty(
         "--app-top-offset",
         platform === "ios" ? "90px" : "56px"
       );
     };
 
-    const syncSafeAreaInsets = (webApp: TelegramWebApp | null) => {
-      if (!webApp) {
-        return;
-      }
-
-      applyInsetVariables("safe-area-inset", webApp.safeAreaInset);
-      applyInsetVariables("content-safe-area-inset", webApp.contentSafeAreaInset);
-      syncTopOffset(webApp);
+    const scheduledSync = (webApp: TelegramWebApp) => {
+      if (cancelled) return;
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      // 30 ms gives both safeAreaChanged and contentSafeAreaChanged time to
+      // arrive before we read the final values from the webApp object.
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        if (!cancelled) computeAndApplyOffset(webApp);
+      }, 30);
     };
 
     const initWebApp = async () => {
@@ -123,15 +116,9 @@ export function TelegramAppShell() {
         webApp = await loadTelegramWebAppScript(2500);
       }
 
-      if (!webApp) {
-        return;
-      }
+      if (!webApp || cancelled) return;
 
       try {
-        if (cancelled) {
-          return;
-        }
-
         webApp.ready?.();
         webApp.expand?.();
         webApp.requestFullscreen?.();
@@ -139,24 +126,26 @@ export function TelegramAppShell() {
         webApp.setBackgroundColor?.("#000000");
         webApp.setHeaderColor?.("#000000");
 
-        syncSafeAreaInsets(webApp);
+        // Initial read — values may be 0 before safeAreaChanged fires.
+        computeAndApplyOffset(webApp);
 
-        // Re-sync after requestFullscreen() completes — Telegram fires these
-        // events once the viewport stabilises with real inset values.
-        const onSafeAreaChanged = () => {
-          if (!cancelled) {
-            syncSafeAreaInsets(webApp!);
-          }
-        };
+        // Both events are listened to because Telegram fires them separately.
+        // scheduledSync debounces so we recompute only after both have settled.
+        const onSafeAreaChanged = () => scheduledSync(webApp!);
+        const onContentSafeAreaChanged = () => scheduledSync(webApp!);
 
         if (typeof webApp.onEvent === "function") {
           webApp.onEvent("safeAreaChanged", onSafeAreaChanged);
-          webApp.onEvent("contentSafeAreaChanged", onSafeAreaChanged);
+          webApp.onEvent("contentSafeAreaChanged", onContentSafeAreaChanged);
 
           cleanupInsetsListener = () => {
+            if (debounceTimer !== null) {
+              clearTimeout(debounceTimer);
+              debounceTimer = null;
+            }
             if (typeof webApp!.offEvent === "function") {
               webApp!.offEvent("safeAreaChanged", onSafeAreaChanged);
-              webApp!.offEvent("contentSafeAreaChanged", onSafeAreaChanged);
+              webApp!.offEvent("contentSafeAreaChanged", onContentSafeAreaChanged);
             }
           };
         }
@@ -165,7 +154,12 @@ export function TelegramAppShell() {
       }
     };
 
-    syncTopOffset(getTelegramWebApp());
+    // Immediate best-effort offset before async initWebApp runs.
+    const earlyWebApp = getTelegramWebApp();
+    if (earlyWebApp && isTelegramMiniAppContext()) {
+      computeAndApplyOffset(earlyWebApp);
+    }
+
     void initWebApp();
 
     return () => {
