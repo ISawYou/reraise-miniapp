@@ -284,7 +284,7 @@ export default function AdminTournamentEditPage() {
 
   if (!accessChecked || loading) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
         <div className="mx-auto max-w-3xl">
           <p className="text-sm text-white/70">Загружаем настройки турнира...</p>
         </div>
@@ -294,11 +294,11 @@ export default function AdminTournamentEditPage() {
 
   if (player?.role !== "admin") {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
         <div className="mx-auto max-w-3xl">
           <Link
             href="/admin"
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
           >
             ← Назад
           </Link>
@@ -315,11 +315,11 @@ export default function AdminTournamentEditPage() {
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
+    <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
       <div className="mx-auto max-w-3xl">
         <Link
           href="/admin"
-          className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
+          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
         >
           ← Назад
         </Link>

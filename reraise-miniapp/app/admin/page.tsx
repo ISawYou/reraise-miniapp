@@ -99,7 +99,7 @@ export default function AdminPage() {
 
   if (!accessChecked) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
         <div className="mx-auto max-w-3xl">
           <p className="text-sm text-white/70">Проверяем доступ...</p>
         </div>
@@ -109,7 +109,7 @@ export default function AdminPage() {
 
   if (player?.role !== "admin") {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
         <div className="mx-auto max-w-3xl">
           <Link
             href="/"
@@ -130,7 +130,7 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
+    <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
       <div className="mx-auto max-w-3xl">
         <Link
           href="/"

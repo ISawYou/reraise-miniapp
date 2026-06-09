@@ -606,7 +606,7 @@ export default function AdminTournamentResultsPage() {
 
   if (!accessChecked || loading) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
         <div className="mx-auto max-w-4xl">
           <p className="text-sm text-white/70">Загружаем страницу...</p>
         </div>
@@ -616,12 +616,12 @@ export default function AdminTournamentResultsPage() {
 
   if (player?.role !== "admin") {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
         <div className="mx-auto max-w-4xl">
           <button
             type="button"
             onClick={handleBack}
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
             ← Назад
           </button>
@@ -639,12 +639,12 @@ export default function AdminTournamentResultsPage() {
 
   if (error && !tournament) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
         <div className="mx-auto max-w-4xl">
           <button
             type="button"
             onClick={handleBack}
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
             ← Назад
           </button>
@@ -658,12 +658,12 @@ export default function AdminTournamentResultsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
+    <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
       <div className="mx-auto max-w-4xl">
         <button
           type="button"
           onClick={handleBack}
-          className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
         >
           ← Назад
         </button>
@@ -1013,5 +1013,3 @@ export default function AdminTournamentResultsPage() {
     </main>
   );
 }
-
-
