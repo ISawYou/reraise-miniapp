@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Onest } from "next/font/google";
 import "./globals.css";
 import { TelegramAppShell } from "@/components/telegram-app-shell";
+import { TelegramDebugOverlay } from "@/components/telegram-debug-overlay";
 
 const onest = Onest({
   subsets: ["latin", "cyrillic"],
@@ -34,6 +35,7 @@ export default function RootLayout({
         className={`${onest.variable} telegram-app-body min-h-screen bg-black text-white antialiased`}
       >
         <TelegramAppShell />
+        <TelegramDebugOverlay />
         <div className="telegram-app-safe-area min-h-screen">{children}</div>
       </body>
     </html>

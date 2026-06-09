@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { getTelegramInitData, getTelegramUser } from "@/lib/telegram";
+import { TG_DEBUG_STORAGE_KEY, TG_DEBUG_TOGGLE_EVENT } from "@/components/telegram-debug-overlay";
 import type { Player } from "@/types/domain";
 
 type AdminCard = {
@@ -45,6 +46,16 @@ export default function AdminPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [emailLinkPromptEnabled, setEmailLinkPromptEnabled] = useState<boolean | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [tgDebugEnabled, setTgDebugEnabled] = useState(false);
+
+  // Read localStorage on mount (client-only)
+  useEffect(() => {
+    try {
+      setTgDebugEnabled(localStorage.getItem(TG_DEBUG_STORAGE_KEY) === "true");
+    } catch {
+      // localStorage unavailable
+    }
+  }, []);
 
   useEffect(() => {
     async function loadAdminData() {
@@ -74,6 +85,21 @@ export default function AdminPage() {
 
     loadAdminData();
   }, []);
+
+  function handleToggleTgDebug() {
+    const next = !tgDebugEnabled;
+    setTgDebugEnabled(next);
+    try {
+      if (next) {
+        localStorage.setItem(TG_DEBUG_STORAGE_KEY, "true");
+      } else {
+        localStorage.removeItem(TG_DEBUG_STORAGE_KEY);
+      }
+      window.dispatchEvent(new Event(TG_DEBUG_TOGGLE_EVENT));
+    } catch {
+      // localStorage unavailable
+    }
+  }
 
   async function handleToggleEmailLinkPrompt() {
     if (emailLinkPromptEnabled === null || settingsLoading) return;
@@ -190,6 +216,29 @@ export default function AdminPage() {
                 />
               </button>
             )}
+          </div>
+
+          <div className="mt-4 flex items-start justify-between gap-4 border-t border-white/5 pt-4">
+            <div>
+              <p className="text-sm font-medium">Telegram debug overlay</p>
+              <p className="mt-1 text-xs text-white/60">
+                Показывает safe area, viewport и события прямо поверх интерфейса в Mini App
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleTgDebug}
+              aria-label={tgDebugEnabled ? "Выключить" : "Включить"}
+              className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                tgDebugEnabled ? "bg-yellow-500" : "bg-white/20"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  tgDebugEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
           </div>
         </section>
       </div>
