@@ -24,3 +24,4 @@ create index if not exists email_otp_codes_expires_at_idx
   on public.email_otp_codes (expires_at);
 
 comment on table public.email_otp_codes is 'Одноразовые email OTP-коды для входа и привязки email.';
+1
