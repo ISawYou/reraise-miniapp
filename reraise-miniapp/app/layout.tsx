@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Onest } from "next/font/google";
-import Script from "next/script";
 import "./globals.css";
 import { TelegramAppShell } from "@/components/telegram-app-shell";
 
@@ -34,10 +33,6 @@ export default function RootLayout({
       <body
         className={`${onest.variable} telegram-app-body min-h-screen bg-black text-white antialiased`}
       >
-        <Script
-          src="https://telegram.org/js/telegram-web-app.js"
-          strategy="afterInteractive"
-        />
         <TelegramAppShell />
         <div className="telegram-app-safe-area min-h-screen">{children}</div>
       </body>

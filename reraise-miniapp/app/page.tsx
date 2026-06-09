@@ -21,12 +21,11 @@ import {
   isTelegramMiniAppContext,
   type TelegramWebAppUser,
 } from "@/lib/telegram";
+import { loadTelegramLoginWidget } from "@/lib/telegram-login";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
 
-const TELEGRAM_BOT_USERNAME =
-  process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "ReRaise_Poker_Bot";
 const TELEGRAM_BOT_ID = Number(
   process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID ?? "8682500150"
 );
@@ -209,6 +208,7 @@ export default function HomePage() {
   const [emailLinkLoading, setEmailLinkLoading] = useState(false);
   const [emailLinkError, setEmailLinkError] = useState<string | null>(null);
   const [emailLinkResendCooldown, setEmailLinkResendCooldown] = useState(0);
+  const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
 
   const registrationsRef = useRef<Record<string, string>>({});
   const termsLines = useMemo(() => {
@@ -284,41 +284,42 @@ export default function HomePage() {
     return () => clearTimeout(timeout);
   }, [promotionToast]);
 
-  useEffect(() => {
-    const container = document.createElement("div");
-    container.style.display = "none";
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.async = true;
-    script.setAttribute("data-telegram-login", TELEGRAM_BOT_USERNAME);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-request-access", "write");
-    script.onerror = () => {
-      // Telegram widget unavailable — fallback to OAuth redirect handled in handleTelegramLogin
-    };
-    container.appendChild(script);
-    document.body.appendChild(container);
-    return () => { document.body.removeChild(container); };
-  }, []);
-
-  function handleTelegramLogin() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tg = (window as any).Telegram?.Login;
-    if (tg) {
-      tg.auth(
-        { bot_id: TELEGRAM_BOT_ID, request_access: "write" },
-        (data: Record<string, unknown> | false) => {
-          if (!data) return;
-          const params = new URLSearchParams();
-          for (const [key, value] of Object.entries(data)) {
-            if (value !== undefined && value !== null) params.set(key, String(value));
-          }
-          window.location.href = `/api/auth/telegram/callback?${params.toString()}`;
-        }
-      );
-    } else {
-      window.location.href = "/api/auth/telegram";
+  async function handleTelegramLogin() {
+    if (telegramLoginLoading) {
+      return;
     }
+
+    setTelegramLoginLoading(true);
+
+    try {
+      const tgLogin = await loadTelegramLoginWidget(2500);
+
+      if (tgLogin) {
+        tgLogin.auth(
+          { bot_id: TELEGRAM_BOT_ID, request_access: "write" },
+          (data) => {
+            if (!data) {
+              setTelegramLoginLoading(false);
+              return;
+            }
+
+            const params = new URLSearchParams();
+            for (const [key, value] of Object.entries(data)) {
+              if (value !== undefined && value !== null) {
+                params.set(key, String(value));
+              }
+            }
+            window.location.href = `/api/auth/telegram/callback?${params.toString()}`;
+          }
+        );
+        return;
+      }
+    } catch (error) {
+      console.error("Telegram widget load error:", error);
+    }
+
+    setTelegramLoginLoading(false);
+    window.location.href = "/api/auth/telegram";
   }
 
   async function refreshHomeData(
@@ -571,36 +572,43 @@ export default function HomePage() {
       }
 
       startEmailLinkResendCooldown(payload?.retryAfterSeconds ?? 60);
-    } catch (error) {
+    } catch {
       setEmailLinkLoading(false);
       setEmailLinkError("Не удалось отправить код повторно.");
     }
   }
 
   useEffect(() => {
-    const timer = setTimeout(async () => {
+    let cancelled = false;
+
+    const init = async () => {
       try {
         const webApp = getTelegramWebApp();
 
         if (webApp) {
+          if (cancelled) return;
           setIsInsideTelegram(true);
           webApp.ready?.();
           webApp.expand?.();
         }
 
         if (!webApp && isTelegramMiniAppContext()) {
+          if (cancelled) return;
           setIsInsideTelegram(true);
         }
 
         const telegramUser = getTelegramUser();
+        if (cancelled) return;
         setUser(telegramUser);
         setCheckedTelegram(true);
 
         if (telegramUser) {
+          if (cancelled) return;
           setPlayerLoading(true);
           setPlayerError(null);
 
           const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+          if (cancelled) return;
           setPlayer(ensuredPlayer);
 
           // Establish server-side session cookie so that API routes (e.g. email link) can
@@ -620,17 +628,21 @@ export default function HomePage() {
             !ensuredPlayer.accepted_terms_at ||
             ensuredPlayer.accepted_terms_version !== TERMS_VERSION
           ) {
+            if (cancelled) return;
             setScrolledToBottom(false);
             setShowProfileSetup(false);
             setShowTerms(true);
           } else {
+            if (cancelled) return;
             setShowTerms(false);
 
             if (!ensuredPlayer.profile_completed_at) {
+              if (cancelled) return;
               setNickname(ensuredPlayer.display_name);
               setProfileError(null);
               setShowProfileSetup(true);
             } else {
+              if (cancelled) return;
               setShowProfileSetup(false);
 
               await refreshHomeData(ensuredPlayer, {
@@ -651,6 +663,7 @@ export default function HomePage() {
                         "reraise.email.link.dismissed"
                       );
                       if (!dismissed) {
+                        if (cancelled) return;
                         openEmailLinkModal();
                       }
                     }
@@ -662,23 +675,28 @@ export default function HomePage() {
         } else {
           try {
             const cookiePlayer = await resolveCurrentPlayer();
+            if (cancelled) return;
             setPlayer(cookiePlayer);
 
             if (
               !cookiePlayer.accepted_terms_at ||
               cookiePlayer.accepted_terms_version !== TERMS_VERSION
             ) {
+              if (cancelled) return;
               setScrolledToBottom(false);
               setShowProfileSetup(false);
               setShowTerms(true);
             } else {
+              if (cancelled) return;
               setShowTerms(false);
 
               if (!cookiePlayer.profile_completed_at) {
+                if (cancelled) return;
                 setNickname(cookiePlayer.display_name);
                 setProfileError(null);
                 setShowProfileSetup(true);
               } else {
+                if (cancelled) return;
                 setShowProfileSetup(false);
 
                 await refreshHomeData(cookiePlayer, {
@@ -687,22 +705,28 @@ export default function HomePage() {
               }
             }
           } catch {
-            if (!isTelegramMiniAppContext()) {
+            if (!cancelled && !isTelegramMiniAppContext()) {
               window.location.replace("/login");
             }
           }
         }
       } catch (error) {
+        if (cancelled) return;
         const message =
           error instanceof Error ? error.message : "Unknown player sync error";
         setPlayerError(message);
       } finally {
+        if (cancelled) return;
         setPlayerLoading(false);
         setInitializing(false);
       }
-    }, 500);
+    };
 
-    return () => clearTimeout(timer);
+    void init();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -771,8 +795,7 @@ export default function HomePage() {
   function renderTournamentCard(
     tournament: Tournament,
     registeredCount: number,
-    title: string,
-    _gradientClassName: string
+    title: string
   ) {
     return (
       <Link
@@ -961,9 +984,10 @@ export default function HomePage() {
             <button
               type="button"
               onClick={handleTelegramLogin}
+              disabled={telegramLoginLoading}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/4 py-3 text-sm font-semibold text-white"
             >
-              Войти через Telegram
+              {telegramLoginLoading ? "Открываем Telegram..." : "Войти через Telegram"}
             </button>
           </div>
         </div>
@@ -1073,9 +1097,10 @@ export default function HomePage() {
             <button
               type="button"
               onClick={handleTelegramLogin}
+              disabled={telegramLoginLoading}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/4 py-3 text-sm font-semibold text-white"
             >
-              Войти через Telegram
+              {telegramLoginLoading ? "Открываем Telegram..." : "Войти через Telegram"}
             </button>
           </div>
         ) : null}
@@ -1099,8 +1124,7 @@ export default function HomePage() {
                 ? renderTournamentCard(
                     nearestTournament,
                     nearestTournamentRegisteredCount,
-                    "Ближайший турнир",
-                    "bg-gradient-to-br from-emerald-700/45 to-black"
+                    "Ближайший турнир"
                   )
                 : null}
 

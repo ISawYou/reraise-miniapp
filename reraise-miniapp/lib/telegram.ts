@@ -33,10 +33,20 @@ export type TelegramWebApp = {
   openTelegramLink?: (url: string) => void;
 };
 
+export type TelegramLoginAuthPayload = Record<string, string | number>;
+
+export type TelegramLogin = {
+  auth: (
+    options: { bot_id: number; request_access?: "write" | "read" },
+    callback: (data: TelegramLoginAuthPayload | false) => void
+  ) => void;
+};
+
 declare global {
   interface Window {
     Telegram?: {
       WebApp?: TelegramWebApp;
+      Login?: TelegramLogin;
     };
   }
 }

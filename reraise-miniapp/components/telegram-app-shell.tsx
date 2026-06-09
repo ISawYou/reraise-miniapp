@@ -6,7 +6,6 @@ import { getTelegramWebApp } from "@/lib/telegram";
 
 export function TelegramAppShell() {
   useEffect(() => {
-    let attempts = 0;
     let cleanupInsetsListener: (() => void) | undefined;
 
     const applyInsetVariables = (
@@ -55,11 +54,6 @@ export function TelegramAppShell() {
       const webApp = getTelegramWebApp();
 
       if (!webApp) {
-        if (attempts < 10) {
-          attempts += 1;
-          window.setTimeout(initWebApp, 150);
-        }
-
         return;
       }
 
