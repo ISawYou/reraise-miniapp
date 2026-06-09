@@ -175,11 +175,11 @@ a {
 }
 
 .telegram-admin-page {
-  padding-top: 4.5rem;
+  padding-top: 0;
 }
 
 .telegram-shell-page {
-  padding-top: 4.5rem;
+  padding-top: 0;
 }
 
 /* старые iOS */
