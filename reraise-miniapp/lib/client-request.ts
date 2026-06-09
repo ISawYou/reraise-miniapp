@@ -1,8 +1,7 @@
-function getAdminHeaders(): Record<string, string> {
-  const initData =
-    typeof window !== "undefined"
-      ? (window.Telegram?.WebApp?.initData ?? "")
-      : "";
+import { getTelegramInitData } from "@/lib/telegram";
+
+async function getAdminHeaders(): Promise<Record<string, string>> {
+  const initData = await getTelegramInitData();
 
   return initData ? { "X-Telegram-Init-Data": initData } : {};
 }
@@ -11,7 +10,7 @@ export async function fetchAdminJson<T>(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<T> {
-  const adminHeaders = getAdminHeaders();
+  const adminHeaders = await getAdminHeaders();
 
   return fetchJsonWithRetry<T>(input, {
     ...init,

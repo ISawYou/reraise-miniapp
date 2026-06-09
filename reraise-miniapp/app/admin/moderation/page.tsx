@@ -217,7 +217,7 @@ export default function AdminModerationPage() {
         <div className="mx-auto max-w-4xl">
           <Link
             href="/admin"
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
             ← Назад
           </Link>
@@ -238,7 +238,7 @@ export default function AdminModerationPage() {
       <div className="mx-auto max-w-4xl">
         <Link
           href="/admin"
-          className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
         >
           ← Назад
         </Link>

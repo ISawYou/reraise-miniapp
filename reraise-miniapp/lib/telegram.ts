@@ -228,6 +228,17 @@ export async function loadTelegramWebAppScript(
   return telegramWebAppScriptPromise;
 }
 
+export async function getTelegramInitData(): Promise<string> {
+  const existingInitData = getTelegramWebApp()?.initData ?? "";
+
+  if (existingInitData) {
+    return existingInitData;
+  }
+
+  const webApp = await loadTelegramWebAppScript(2500);
+  return webApp?.initData ?? "";
+}
+
 export function isTelegramMiniAppContext(): boolean {
   const webApp = getTelegramWebApp();
 

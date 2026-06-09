@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { getTelegramUser, getTelegramWebApp } from "@/lib/telegram";
+import { getTelegramInitData, getTelegramUser } from "@/lib/telegram";
 import type { Player } from "@/types/domain";
 
 type AdminCard = {
@@ -80,7 +80,7 @@ export default function AdminPage() {
     const next = !emailLinkPromptEnabled;
     setSettingsLoading(true);
     try {
-      const initData = getTelegramWebApp()?.initData ?? "";
+      const initData = await getTelegramInitData();
       const res = await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: {
@@ -113,7 +113,7 @@ export default function AdminPage() {
         <div className="mx-auto max-w-3xl">
           <Link
             href="/"
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
             ← Назад
           </Link>
@@ -134,7 +134,7 @@ export default function AdminPage() {
       <div className="mx-auto max-w-3xl">
         <Link
           href="/"
-          className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
         >
           ← Назад
         </Link>

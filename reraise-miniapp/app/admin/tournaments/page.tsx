@@ -104,7 +104,7 @@ export default function AdminTournamentsPage() {
         <div className="mx-auto max-w-3xl">
           <Link
             href="/admin"
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
             ← Назад
           </Link>
@@ -125,7 +125,7 @@ export default function AdminTournamentsPage() {
       <div className="mx-auto max-w-3xl">
         <Link
           href="/admin"
-          className="mb-6 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          className="telegram-top-action mb-6 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
         >
           ← Назад
         </Link>
