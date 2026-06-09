@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
 import type { TelegramWebApp, TelegramWebAppInset } from "@/lib/telegram";
 import {
   getTelegramWebApp,
@@ -10,8 +9,14 @@ import {
 } from "@/lib/telegram";
 
 export function TelegramAppShell() {
-  const pathname = usePathname();
-
+  // Empty deps: TelegramAppShell lives in layout.tsx and never unmounts during
+  // SPA navigation. Running on every pathname change was wrong — it repeatedly
+  // called requestFullscreen(), which temporarily zeroed contentSafeAreaInset.top
+  // before safeAreaChanged could restore it, leaving --app-top-offset at half
+  // the correct value on every page transition.
+  //
+  // The safeAreaChanged listener (set up once below) handles all real changes.
+  // CSS variables set on document.documentElement.style persist across routes.
   useEffect(() => {
     let cancelled = false;
     let cleanupInsetsListener: (() => void) | undefined;
@@ -68,7 +73,7 @@ export function TelegramAppShell() {
           viewportStableHeight?: number;
         }) | null;
         console.log("[telegram-shell] syncTopOffset", {
-          pathname,
+          pathname: typeof window !== "undefined" ? window.location.pathname : "",
           isTelegramMiniApp: true,
           platform: wa?.platform,
           version: wa?.version,
@@ -167,7 +172,8 @@ export function TelegramAppShell() {
       cancelled = true;
       cleanupInsetsListener?.();
     };
-  }, [pathname]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return null;
 }
