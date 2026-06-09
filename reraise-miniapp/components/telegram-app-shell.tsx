@@ -33,8 +33,17 @@ export function TelegramAppShell() {
     };
 
     // Derives --app-top-offset from actual Telegram safe area values.
-    // Falls back to platform-based estimate only when Telegram hasn't reported
-    // values yet (before the first safeAreaChanged fires after requestFullscreen).
+    //
+    // In fullscreen Telegram Mini App the WebView covers the entire screen.
+    // Two Telegram layers sit on top:
+    //   safeAreaInset.top       = system safe area (status bar, e.g. 47px iPhone)
+    //   contentSafeAreaInset.top = Telegram floating bar (close button, ~44-48px)
+    //
+    // The correct offset is their SUM — not max. Math.max was the previous bug.
+    //
+    // When both are 0 (before the first safeAreaChanged fires after
+    // requestFullscreen, or on older Telegram that doesn't report these values),
+    // fall back to a platform estimate. safeAreaChanged will correct it.
     const syncTopOffset = (webApp: TelegramWebApp | null) => {
       if (typeof document === "undefined") {
         return;
@@ -49,24 +58,46 @@ export function TelegramAppShell() {
 
       const safeTop = webApp?.safeAreaInset?.top ?? 0;
       const contentTop = webApp?.contentSafeAreaInset?.top ?? 0;
+      const total = safeTop + contentTop;
 
-      if (safeTop > 0 || contentTop > 0) {
-        rootStyle.setProperty(
-          "--app-top-offset",
-          `${Math.max(safeTop, contentTop)}px`
-        );
+      if (process.env.NODE_ENV !== "production") {
+        const wa = webApp as (TelegramWebApp & {
+          platform?: string;
+          version?: string;
+          viewportHeight?: number;
+          viewportStableHeight?: number;
+        }) | null;
+        console.log("[telegram-shell] syncTopOffset", {
+          pathname,
+          isTelegramMiniApp: true,
+          platform: wa?.platform,
+          version: wa?.version,
+          safeAreaInset: webApp?.safeAreaInset,
+          contentSafeAreaInset: webApp?.contentSafeAreaInset,
+          safeTop,
+          contentTop,
+          total,
+          viewportHeight: wa?.viewportHeight,
+          viewportStableHeight: wa?.viewportStableHeight,
+          usingFallback: total === 0,
+        });
+      }
+
+      if (total > 0) {
+        rootStyle.setProperty("--app-top-offset", `${total}px`);
         return;
       }
 
-      // Fallback until Telegram fires safeAreaChanged after requestFullscreen().
-      // Using conservative estimates (status bar only, not Telegram header).
+      // Fallback: Telegram hasn't reported real values yet.
+      // For iOS in fullscreen: status bar (~47px) + floating bar (~44px) ≈ 90px.
+      // For Android: varies, ~56px is a reasonable minimum.
       const platform =
         (webApp as { platform?: string } | null)?.platform ??
         (/iPhone|iPad|iPod/i.test(window.navigator.userAgent) ? "ios" : "");
 
       rootStyle.setProperty(
         "--app-top-offset",
-        platform === "ios" ? "44px" : "28px"
+        platform === "ios" ? "90px" : "56px"
       );
     };
 
