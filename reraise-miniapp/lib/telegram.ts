@@ -206,6 +206,13 @@ function hasTelegramLaunchParams(): boolean {
   }
 }
 
+// Module-level cache: once a valid WebApp is seen, keep its reference.
+// window.Telegram.WebApp can be reset to null by telegram-web-app.js
+// re-initialising after SPA navigation (no URL params on /admin), but the
+// JS object in memory stays valid — its safeAreaInset and event listeners
+// remain functional.
+let _cachedWebApp: TelegramWebApp | null = null;
+
 export function getTelegramWebApp(): TelegramWebApp | null {
   if (typeof window === "undefined") {
     return null;
@@ -213,11 +220,22 @@ export function getTelegramWebApp(): TelegramWebApp | null {
 
   const webApp = window.Telegram?.WebApp ?? null;
 
-  if (webApp?.initData) {
-    cacheTelegramInitData(webApp.initData);
+  if (webApp) {
+    if (webApp.initData) {
+      // Full-featured object — always prefer and cache.
+      _cachedWebApp = webApp;
+      cacheTelegramInitData(webApp.initData);
+    } else if (!_cachedWebApp) {
+      // Object exists but no initData yet (natively injected before initData
+      // is populated). Cache it so it's available for API calls.
+      _cachedWebApp = webApp;
+    }
+    return webApp;
   }
 
-  return webApp;
+  // window.Telegram.WebApp disappeared (SDK re-init on navigation) — return
+  // the last known-good reference so API calls and event listeners keep working.
+  return _cachedWebApp;
 }
 
 let telegramWebAppScriptPromise: Promise<TelegramWebApp | null> | null = null;
@@ -314,14 +332,34 @@ export async function getTelegramInitData(): Promise<string> {
   return nextInitData;
 }
 
+// Once true, stays true for the lifetime of this JS module (i.e. the session).
+// isTelegramMiniAppContext() used to re-check the URL on every call, which
+// returned false after SPA navigation to pages without tgWebAppData params.
+let _isTelegramContext: boolean | null = null;
+
 export function isTelegramMiniAppContext(): boolean {
+  if (_isTelegramContext === true) return true;
+
   const webApp = getTelegramWebApp();
 
   if (webApp?.initData || webApp?.initDataUnsafe?.user) {
+    _isTelegramContext = true;
     return true;
   }
 
-  return hasTelegramLaunchParams();
+  if (hasTelegramLaunchParams()) {
+    _isTelegramContext = true;
+    return true;
+  }
+
+  // Fallback: initData was cached to sessionStorage on a previous call (e.g.
+  // on the landing page before SPA-navigating to /admin).
+  if (readCachedTelegramInitData()) {
+    _isTelegramContext = true;
+    return true;
+  }
+
+  return false;
 }
 
 export function getTelegramUser(): TelegramWebAppUser | null {

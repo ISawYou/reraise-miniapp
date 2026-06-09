@@ -47,10 +47,14 @@ export function TelegramAppShell() {
     // The debounce below collapses both events into a single recompute after
     // 30 ms so we always see the settled values from both events.
     const computeAndApplyOffset = (webApp: TelegramWebApp) => {
-      if (typeof document === "undefined" || !isTelegramMiniAppContext()) {
-        document?.documentElement.style.setProperty("--app-top-offset", "0px");
-        return;
-      }
+      if (typeof document === "undefined") return;
+
+      // Never reset --app-top-offset to 0 inside this function. This function
+      // is only reachable after initWebApp() confirmed a valid Telegram context.
+      // Re-checking isTelegramMiniAppContext() here was wrong: after SPA
+      // navigation the URL no longer contains tgWebAppData params, so the check
+      // returned false and reset the offset — causing the layout shift on /admin
+      // and on back-navigation.
 
       const safeTop = webApp.safeAreaInset?.top ?? 0;
       const contentTop = webApp.contentSafeAreaInset?.top ?? 0;
