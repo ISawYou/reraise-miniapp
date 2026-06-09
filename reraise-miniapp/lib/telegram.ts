@@ -347,13 +347,22 @@ export function isTelegramMiniAppContext(): boolean {
     return true;
   }
 
-  if (hasTelegramLaunchParams()) {
+  // Read URL-based initData and immediately persist it to sessionStorage.
+  // hasTelegramLaunchParams() only returned a boolean before — it detected
+  // Telegram context but never cached the data. On the next page load (e.g.
+  // /admin loaded via full-page reload or hard refresh), the URL no longer
+  // has tgWebAppData params, so the check returned false. Now we cache the
+  // raw initData string so readCachedTelegramInitData() can detect Telegram
+  // context on all subsequent loads within the same browser session.
+  const launchInitData = getTelegramInitDataFromLaunchParams();
+  if (launchInitData) {
+    cacheTelegramInitData(launchInitData);
     _isTelegramContext = true;
     return true;
   }
 
-  // Fallback: initData was cached to sessionStorage on a previous call (e.g.
-  // on the landing page before SPA-navigating to /admin).
+  // Fallback: initData cached to sessionStorage on a previous page load
+  // (e.g. the landing page had tgWebAppData in the URL; /admin did not).
   if (readCachedTelegramInitData()) {
     _isTelegramContext = true;
     return true;

@@ -1190,7 +1190,7 @@ export default function HomePage() {
 
             {player?.role === "admin" ? (
               <section className="mt-3">
-                <a
+                <Link
                   href="/admin"
                   className="block rounded-3xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
                 >
@@ -1199,7 +1199,7 @@ export default function HomePage() {
                     <span className="text-xs uppercase tracking-wider">Управление</span>
                   </div>
                   <p className="mt-5 text-xl font-bold">Админ-панель</p>
-                </a>
+                </Link>
               </section>
             ) : null}
           </>
