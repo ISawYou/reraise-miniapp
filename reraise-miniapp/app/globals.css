@@ -155,6 +155,9 @@ a {
 }
 
 .telegram-app-safe-area {
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100dvh;
   padding-top: var(
     --app-top-offset,
     calc(
@@ -178,14 +181,6 @@ a {
 
 .telegram-top-action {
   margin-top: 1rem;
-}
-
-.telegram-admin-page {
-  padding-top: 0;
-}
-
-.telegram-shell-page {
-  padding-top: 0;
 }
 
 /* старые iOS */

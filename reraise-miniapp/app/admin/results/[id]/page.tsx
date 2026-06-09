@@ -606,7 +606,7 @@ export default function AdminTournamentResultsPage() {
 
   if (!accessChecked || loading) {
     return (
-      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-4xl">
           <p className="text-sm text-white/70">Загружаем страницу...</p>
         </div>
@@ -616,7 +616,7 @@ export default function AdminTournamentResultsPage() {
 
   if (player?.role !== "admin") {
     return (
-      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-4xl">
           <button
             type="button"
@@ -639,7 +639,7 @@ export default function AdminTournamentResultsPage() {
 
   if (error && !tournament) {
     return (
-      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-4xl">
           <button
             type="button"
@@ -658,7 +658,7 @@ export default function AdminTournamentResultsPage() {
   }
 
   return (
-    <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
+    <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-4xl">
         <button
           type="button"

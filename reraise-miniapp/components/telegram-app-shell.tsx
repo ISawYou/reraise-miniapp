@@ -97,7 +97,7 @@ export function TelegramAppShell() {
       const contentTop = webApp?.contentSafeAreaInset?.top ?? 0;
       const platform =
         (webApp as TelegramWebApp & { platform?: string } | null)?.platform ?? "";
-      const fallbackTopOffset = platform === "ios" ? 56 : 48;
+      const fallbackTopOffset = platform === "ios" ? 72 : 64;
       const resolvedTopOffset =
         safeTop > 0 || contentTop > 0
           ? Math.max(safeTop, contentTop)

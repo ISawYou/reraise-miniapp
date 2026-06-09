@@ -136,7 +136,7 @@ export default function AdminTournamentNotificationsPage() {
 
   if (!accessChecked || loading) {
     return (
-      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
           <p className="text-sm text-white/70">Загружаем страницу рассылки...</p>
         </div>
@@ -146,7 +146,7 @@ export default function AdminTournamentNotificationsPage() {
 
   if (player?.role !== "admin") {
     return (
-      <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
           <Link
             href="/admin"
@@ -167,7 +167,7 @@ export default function AdminTournamentNotificationsPage() {
   }
 
   return (
-    <main className="telegram-admin-page min-h-screen bg-black px-4 pb-6 text-white">
+    <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-3xl">
         <Link
           href="/admin"

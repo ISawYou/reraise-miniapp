@@ -834,7 +834,7 @@ export default function HomePage() {
 
   if (initializing) {
     return (
-      <main className="telegram-shell-page min-h-screen bg-black px-4 pb-6 text-white">
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
           <div className="rounded-xl bg-white/5 p-4 text-sm text-white/70">
             Загружаем...
@@ -958,7 +958,7 @@ export default function HomePage() {
 
   if (!player) {
     return (
-      <main className="telegram-shell-page fixed inset-0 bg-black px-4 pb-6 text-white">
+      <main className="fixed inset-0 bg-black px-4 py-6 text-white">
         <div className="mx-auto flex h-full max-w-md flex-col justify-center">
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.18em] text-white/40">
@@ -1001,7 +1001,7 @@ export default function HomePage() {
 
   if (showProfileSetup) {
     return (
-      <main className="telegram-shell-page fixed inset-0 z-50 bg-black px-4 pb-6 text-white">
+      <main className="fixed inset-0 z-50 bg-black px-4 py-6 text-white">
         <div className="mx-auto flex h-full max-w-md flex-col justify-center">
           <div className="rounded-2xl bg-white/5 p-5">
             <h1 className="text-xl font-semibold">Добро пожаловать</h1>
@@ -1037,7 +1037,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="telegram-shell-page relative min-h-screen bg-[#080808] px-4 pb-6 text-white">
+    <main className="relative min-h-screen bg-[#080808] px-4 py-6 text-white">
       <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#c9a84c0a,transparent)]" />
       <div className="relative mx-auto max-w-md">
         <header className="mb-7">
