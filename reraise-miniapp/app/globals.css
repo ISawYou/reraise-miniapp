@@ -178,6 +178,10 @@ a {
   padding-top: 4.5rem;
 }
 
+.telegram-shell-page {
+  padding-top: 4.5rem;
+}
+
 /* старые iOS */
 @supports (padding-top: constant(safe-area-inset-top)) {
   .telegram-app-safe-area {
