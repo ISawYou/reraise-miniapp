@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import type { TelegramWebApp, TelegramWebAppInset } from "@/lib/telegram";
 import {
   getTelegramWebApp,
@@ -9,6 +10,8 @@ import {
 } from "@/lib/telegram";
 
 export function TelegramAppShell() {
+  const pathname = usePathname();
+
   useEffect(() => {
     let cancelled = false;
     let cleanupInsetsListener: (() => void) | undefined;
@@ -90,7 +93,7 @@ export function TelegramAppShell() {
       cancelled = true;
       cleanupInsetsListener?.();
     };
-  }, []);
+  }, [pathname]);
 
   return null;
 }
