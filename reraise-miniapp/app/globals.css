@@ -12,8 +12,6 @@
   --tg-content-safe-area-inset-bottom: 0px;
   --tg-content-safe-area-inset-left: 0px;
   --tg-content-safe-area-inset-right: 0px;
-  --tg-safe-area-top: 0px;
-  --tg-content-safe-area-top: 0px;
   --app-top-offset: 0px;
 }
 
@@ -158,13 +156,7 @@ a {
   box-sizing: border-box;
   min-height: 100vh;
   min-height: 100dvh;
-  padding-top: var(
-    --app-top-offset,
-    calc(
-      var(--tg-safe-area-inset-top, env(safe-area-inset-top, 0px)) +
-      var(--tg-content-safe-area-inset-top, 0px)
-    )
-  );
+  padding-top: var(--app-top-offset, 0px);
   padding-right: max(
     var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)),
     var(--tg-content-safe-area-inset-right, 0px)
@@ -186,13 +178,7 @@ a {
 /* старые iOS */
 @supports (padding-top: constant(safe-area-inset-top)) {
   .telegram-app-safe-area {
-    padding-top: var(
-      --app-top-offset,
-      calc(
-        var(--tg-safe-area-inset-top, constant(safe-area-inset-top)) +
-        var(--tg-content-safe-area-inset-top, 0px)
-      )
-    );
+    padding-top: var(--app-top-offset, 0px);
     padding-right: max(
       var(--tg-safe-area-inset-right, constant(safe-area-inset-right)),
       var(--tg-content-safe-area-inset-right, 0px)
