@@ -38,22 +38,25 @@ export async function getPlayerAchievements(playerId: string) {
 }
 
 async function getPlayerAchievementStats(playerId: string) {
+  // Use service role client: anon client has no auth context on the server
+  // and may be blocked by RLS policies on the results table.
+  const db = getSupabaseServer();
   const [
     { count: playedCount, error: playedError },
     { data: winsData, error: winsError },
     { data: ratingData, error: ratingError },
   ] =
     await Promise.all([
-      supabase
+      db
         .from("results")
         .select("*", { count: "exact", head: true })
         .eq("player_id", playerId),
-      supabase
+      db
         .from("results")
         .select("id")
         .eq("player_id", playerId)
         .eq("place", 1),
-      supabase
+      db
         .from("results")
         .select("rating_points")
         .eq("player_id", playerId),

@@ -1309,6 +1309,12 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     throw new Error(tournamentStatusError.message);
   }
 
+  try {
+    await syncPlayersAchievements(playerIds);
+  } catch (achievementError) {
+    console.error("[completeTournamentFromLiveEntries] Achievement sync failed:", achievementError);
+  }
+
   return {
     completedCount: liveEntries.length,
   };
@@ -1380,7 +1386,11 @@ export async function saveTournamentResults(
   }
 
   if (playerIds.length > 0) {
-    await syncPlayersAchievements(playerIds);
+    try {
+      await syncPlayersAchievements(playerIds);
+    } catch (achievementError) {
+      console.error("[saveTournamentResults] Achievement sync failed:", achievementError);
+    }
   }
 }
 
