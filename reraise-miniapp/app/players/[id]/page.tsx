@@ -14,7 +14,7 @@ import {
   getPlayerTournamentHistory,
   getTournamentRegistrationCounts,
 } from "@/features/tournaments";
-import { getPlayerAchievements } from "@/features/achievements";
+
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { getTelegramWebApp } from "@/lib/telegram";
@@ -212,7 +212,7 @@ export default function PlayerProfilePage() {
           getPlayedTournamentsCount(playerId),
           getPlayerTournamentHistory(playerId),
           getMyTournaments(playerId),
-          getPlayerAchievements(playerId),
+          fetch(`/api/players/${playerId}/achievements`).then((r) => r.ok ? r.json() : []),
           getTournamentRegistrationCounts(),
         ]);
 

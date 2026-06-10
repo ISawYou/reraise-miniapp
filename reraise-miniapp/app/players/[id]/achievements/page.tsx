@@ -286,8 +286,8 @@ export default function PlayerAchievementsPage() {
                         </div>
 
                         {isCompleted ? (
-                          <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-yellow-500">
-                            Готово
+                          <span className="shrink-0 text-xs font-semibold text-yellow-500">
+                            Выполнено
                           </span>
                         ) : (
                           <p className="shrink-0 text-sm font-medium text-white/70">
