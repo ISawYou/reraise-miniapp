@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { getPlayerAchievements } from "@/features/achievements";
+
+type AchievementRow = {
+  achievement_code: string;
+  current_value: number;
+  completed_at: string | null;
+};
 
 type AchievementView = {
   id: string;
@@ -116,7 +121,7 @@ export default function PlayerAchievementsPage() {
 
   const [loading, setLoading] = useState(true);
   const [achievementProgress, setAchievementProgress] = useState<
-    Record<string, number>
+    Record<string, { current: number; completed: boolean }>
   >({});
 
   useEffect(() => {
@@ -127,13 +132,37 @@ export default function PlayerAchievementsPage() {
       }
 
       try {
-        const rows = await getPlayerAchievements(playerId);
+        const res = await fetch(`/api/players/${playerId}/achievements`);
+        if (!res.ok) {
+          console.error("[achievements] API error:", res.status, await res.text());
+          return;
+        }
+
+        const rows: AchievementRow[] = await res.json();
+
+        // DEBUG: remove after verifying achievements display correctly
+        console.log("[achievements] player_id:", playerId);
+        console.log("[achievements] raw rows from DB:", rows.map((r) => ({
+          achievement_code: r.achievement_code,
+          current_value: r.current_value,
+          completed_at: r.completed_at,
+          isCompleted: r.completed_at !== null,
+        })));
+
         setAchievementProgress(
-          rows.reduce<Record<string, number>>((acc, row) => {
-            acc[row.achievement_code] = row.current_value;
-            return acc;
-          }, {})
+          rows.reduce<Record<string, { current: number; completed: boolean }>>(
+            (acc, row) => {
+              acc[row.achievement_code] = {
+                current: row.current_value,
+                completed: row.completed_at !== null,
+              };
+              return acc;
+            },
+            {}
+          )
         );
+      } catch (err) {
+        console.error("[achievements] Unexpected error:", err);
       } finally {
         setLoading(false);
       }
@@ -142,13 +171,21 @@ export default function PlayerAchievementsPage() {
     loadAchievements();
   }, [playerId]);
 
+  const ACHIEVEMENT_TARGETS: Record<string, number> = {
+    first_tournament: 1,
+    ten_tournaments: 10,
+    first_win: 1,
+    rookie_100_rating: 100,
+    pro_1000_rating: 1000,
+  };
+
   const achievements: AchievementView[] = [
     {
       id: "first-tournament",
       code: "first_tournament",
       title: "Дебют",
       description: "Сыграть 1 турнир",
-      current: Math.min(achievementProgress.first_tournament ?? 0, 1),
+      current: Math.min(achievementProgress.first_tournament?.current ?? 0, 1),
       target: 1,
       icon: <PlayIcon />,
     },
@@ -157,7 +194,7 @@ export default function PlayerAchievementsPage() {
       code: "ten_tournaments",
       title: "В игре",
       description: "Сыграть 10 турниров",
-      current: Math.min(achievementProgress.ten_tournaments ?? 0, 10),
+      current: Math.min(achievementProgress.ten_tournaments?.current ?? 0, 10),
       target: 10,
       icon: <StackIcon />,
     },
@@ -166,7 +203,7 @@ export default function PlayerAchievementsPage() {
       code: "first_win",
       title: "Первая победа",
       description: "Победить в одном турнире",
-      current: Math.min(achievementProgress.first_win ?? 0, 1),
+      current: Math.min(achievementProgress.first_win?.current ?? 0, 1),
       target: 1,
       icon: <TrophyIcon />,
     },
@@ -175,7 +212,7 @@ export default function PlayerAchievementsPage() {
       code: "rookie_100_rating",
       title: "Новичок",
       description: "Набрать 100 очков",
-      current: Math.min(achievementProgress.rookie_100_rating ?? 0, 100),
+      current: Math.min(achievementProgress.rookie_100_rating?.current ?? 0, 100),
       target: 100,
       icon: <UserIcon />,
     },
@@ -184,7 +221,7 @@ export default function PlayerAchievementsPage() {
       code: "pro_1000_rating",
       title: "Профи",
       description: "Набрать 1000 очков",
-      current: Math.min(achievementProgress.pro_1000_rating ?? 0, 1000),
+      current: Math.min(achievementProgress.pro_1000_rating?.current ?? 0, 1000),
       target: 1000,
       icon: <AwardIcon />,
     },
@@ -201,9 +238,7 @@ export default function PlayerAchievementsPage() {
         </Link>
 
         <h1 className="mt-6 text-3xl font-bold tracking-tight">Достижения</h1>
-        <p className="mt-2 text-sm text-white/45">
-          Текущий прогресс
-        </p>
+        <p className="mt-2 text-sm text-white/45">Текущий прогресс</p>
 
         <div className="mt-6 space-y-3">
           {loading ? (
@@ -212,6 +247,8 @@ export default function PlayerAchievementsPage() {
             </div>
           ) : (
             achievements.map((achievement) => {
+              const dbEntry = achievementProgress[achievement.code];
+              const isCompleted = dbEntry?.completed ?? false;
               const progress = Math.min(
                 100,
                 Math.round((achievement.current / achievement.target) * 100)
@@ -220,10 +257,20 @@ export default function PlayerAchievementsPage() {
               return (
                 <div
                   key={achievement.id}
-                  className="rounded-3xl border border-white/10 bg-white/[0.05] p-5"
+                  className={`rounded-3xl border p-5 transition-colors ${
+                    isCompleted
+                      ? "border-yellow-500/40 bg-yellow-500/6"
+                      : "border-white/10 bg-white/5"
+                  }`}
                 >
                   <div className="flex items-start gap-4">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-white/80">
+                    <div
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+                        isCompleted
+                          ? "bg-yellow-500 text-black"
+                          : "bg-white/[0.07] text-white/80"
+                      }`}
+                    >
                       {achievement.icon}
                     </div>
 
@@ -238,14 +285,22 @@ export default function PlayerAchievementsPage() {
                           </p>
                         </div>
 
-                        <p className="text-sm font-medium text-white/70">
-                          {achievement.current}/{achievement.target}
-                        </p>
+                        {isCompleted ? (
+                          <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-yellow-500">
+                            Готово
+                          </span>
+                        ) : (
+                          <p className="shrink-0 text-sm font-medium text-white/70">
+                            {achievement.current}/{achievement.target}
+                          </p>
+                        )}
                       </div>
 
                       <div className="mt-4 h-2 rounded-full bg-white/[0.08]">
                         <div
-                          className="h-2 rounded-full bg-white"
+                          className={`h-2 rounded-full transition-all ${
+                            isCompleted ? "bg-yellow-500" : "bg-white"
+                          }`}
                           style={{ width: `${progress}%` }}
                         />
                       </div>
