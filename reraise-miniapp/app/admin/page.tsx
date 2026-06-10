@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { getTelegramInitData, getTelegramUser } from "@/lib/telegram";
-import { TG_DEBUG_STORAGE_KEY, TG_DEBUG_TOGGLE_EVENT } from "@/components/telegram-debug-overlay";
+import { getTelegramUser } from "@/lib/telegram";
 import type { Player } from "@/types/domain";
 
 type AdminCard = {
@@ -39,43 +38,25 @@ const ADMIN_CARDS: AdminCard[] = [
     title: "Турниры",
     description: "Редактирование турниров, участников и результатов.",
   },
+  {
+    href: "/admin/settings",
+    code: "ST",
+    title: "Настройки",
+    description: "Debug overlay, предложение привязки email и прочие параметры.",
+  },
 ];
 
 export default function AdminPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
-  const [emailLinkPromptEnabled, setEmailLinkPromptEnabled] = useState<boolean | null>(null);
-  const [settingsLoading, setSettingsLoading] = useState(false);
-  const [tgDebugEnabled, setTgDebugEnabled] = useState(false);
-
-  // Read localStorage on mount (client-only)
-  useEffect(() => {
-    try {
-      setTgDebugEnabled(localStorage.getItem(TG_DEBUG_STORAGE_KEY) === "true");
-    } catch {
-      // localStorage unavailable
-    }
-  }, []);
 
   useEffect(() => {
     async function loadAdminData() {
       try {
         const telegramUser = getTelegramUser();
-
-        if (!telegramUser) {
-          return;
-        }
-
+        if (!telegramUser) return;
         const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
         setPlayer(ensuredPlayer);
-
-        if (ensuredPlayer.role === "admin") {
-          const res = await fetch("/api/settings");
-          if (res.ok) {
-            const data = (await res.json()) as { show_email_link_prompt?: boolean };
-            setEmailLinkPromptEnabled(data.show_email_link_prompt === true);
-          }
-        }
       } catch (error) {
         console.error("Admin access check error:", error);
       } finally {
@@ -85,43 +66,6 @@ export default function AdminPage() {
 
     loadAdminData();
   }, []);
-
-  function handleToggleTgDebug() {
-    const next = !tgDebugEnabled;
-    setTgDebugEnabled(next);
-    try {
-      if (next) {
-        localStorage.setItem(TG_DEBUG_STORAGE_KEY, "true");
-      } else {
-        localStorage.removeItem(TG_DEBUG_STORAGE_KEY);
-      }
-      window.dispatchEvent(new Event(TG_DEBUG_TOGGLE_EVENT));
-    } catch {
-      // localStorage unavailable
-    }
-  }
-
-  async function handleToggleEmailLinkPrompt() {
-    if (emailLinkPromptEnabled === null || settingsLoading) return;
-    const next = !emailLinkPromptEnabled;
-    setSettingsLoading(true);
-    try {
-      const initData = await getTelegramInitData();
-      const res = await fetch("/api/admin/settings", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-telegram-init-data": initData,
-        },
-        body: JSON.stringify({ show_email_link_prompt: next }),
-      });
-      if (res.ok) setEmailLinkPromptEnabled(next);
-    } catch (error) {
-      console.error("Settings update error:", error);
-    } finally {
-      setSettingsLoading(false);
-    }
-  }
 
   if (!accessChecked) {
     return (
@@ -184,62 +128,6 @@ export default function AdminPage() {
               <p className="mt-2 text-sm text-white/70">{card.description}</p>
             </Link>
           ))}
-        </section>
-
-        <section className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-          <h2 className="text-lg font-semibold">Настройки</h2>
-
-          <div className="mt-4 flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium">Предложение привязать Email</p>
-              <p className="mt-1 text-xs text-white/60">
-                Telegram-пользователям без email показывается модалка привязки при каждом новом заходе
-              </p>
-            </div>
-
-            {emailLinkPromptEnabled === null ? (
-              <span className="shrink-0 text-xs text-white/40">Загрузка...</span>
-            ) : (
-              <button
-                type="button"
-                onClick={handleToggleEmailLinkPrompt}
-                disabled={settingsLoading}
-                aria-label={emailLinkPromptEnabled ? "Выключить" : "Включить"}
-                className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:opacity-50 ${
-                  emailLinkPromptEnabled ? "bg-yellow-500" : "bg-white/20"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                    emailLinkPromptEnabled ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
-            )}
-          </div>
-
-          <div className="mt-4 flex items-start justify-between gap-4 border-t border-white/5 pt-4">
-            <div>
-              <p className="text-sm font-medium">Telegram debug overlay</p>
-              <p className="mt-1 text-xs text-white/60">
-                Показывает safe area, viewport и события прямо поверх интерфейса в Mini App
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleToggleTgDebug}
-              aria-label={tgDebugEnabled ? "Выключить" : "Включить"}
-              className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-                tgDebugEnabled ? "bg-yellow-500" : "bg-white/20"
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                  tgDebugEnabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
         </section>
       </div>
     </main>
