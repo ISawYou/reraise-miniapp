@@ -151,7 +151,7 @@ export async function POST(request: Request) {
             },
             body: JSON.stringify({
               chat_id: recipient.telegram_id,
-              text: `Турнир: ${tournament.title}\n\n${message}`,
+              text: message,
             }),
           }
         );

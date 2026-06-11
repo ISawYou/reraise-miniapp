@@ -23,7 +23,7 @@ function buildNotificationTemplate(tournament: Tournament) {
     ? `Место: ${tournament.location}`
     : "Место: уточняется";
 
-  return `Турнир: ${tournament.title}\nДата и время: ${timeLine}\n${locationLine}`;
+  return `Дата и время: ${timeLine}\n\n${locationLine}`;
 }
 
 type NotificationAudience = "registered" | "access";
@@ -270,22 +270,16 @@ export default function AdminTournamentNotificationsPage() {
 
             {result.errors.length > 0 ? (
               <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3 text-white/85">
-                <p className="font-medium text-white">Ошибки</p>
+                <p className="font-medium text-white">Ошибки отправки</p>
                 <div className="mt-2 space-y-2">
                   {result.errors.map((item, index) => (
-                    <div
+                    <p
                       key={`${item.player_id}-${item.telegram_id}-${index}`}
-                      className="rounded-lg border border-white/10 bg-white/[0.04] p-3"
+                      className="text-sm text-white/80"
                     >
-                      <p>{item.display_name}</p>
-                      <p className="text-xs text-white/55">
-                        player_id: {item.player_id}
-                      </p>
-                      <p className="text-xs text-white/55">
-                        telegram_id: {item.telegram_id ?? "—"}
-                      </p>
-                      <p className="mt-1 text-sm text-red-200">{item.error}</p>
-                    </div>
+                      • {item.display_name || item.player_id} — telegram_id:{" "}
+                      {item.telegram_id ?? "—"} — {item.error}
+                    </p>
                   ))}
                 </div>
               </div>
