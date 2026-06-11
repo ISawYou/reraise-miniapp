@@ -13,6 +13,7 @@ export async function POST(
       rows?: Array<{
         player_id: string;
         arrived?: boolean;
+        paid?: boolean;
         rebuys: number;
         addons?: number;
         knockouts: number;
@@ -54,6 +55,7 @@ export async function POST(
       rows.map((row) => ({
         player_id: row.player_id,
         arrived: row.arrived ?? false,
+        paid: row.paid ?? false,
         rebuys: row.rebuys,
         addons: row.addons ?? 0,
         knockouts: row.knockouts,

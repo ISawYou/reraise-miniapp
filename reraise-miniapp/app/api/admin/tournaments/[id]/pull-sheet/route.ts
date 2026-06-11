@@ -54,23 +54,36 @@ export async function POST(
     const bountyPrice = parseNumberCell(values[1]?.[6]);
 
     if (tournament.kind === "free") {
-      const sheetRows = dataRows
+      type FreeSheetRow = {
+        player_id: string;
+        display_name: string;
+        username: string | null;
+        arrived: boolean;
+        paid: boolean;
+        rebuys: number;
+        addons: number;
+        knockouts: number;
+        place: number | null;
+      };
+
+      const sheetRows: FreeSheetRow[] = dataRows
         .map((row: string[]) => ({
-          player_id: row[0],
-          display_name: row[2] ?? "Игрок",
-          username: row[3]?.trim().replace(/^@/, "") || null,
+          player_id: row[0] as string,
+          display_name: (row[2] ?? "Игрок") as string,
+          username: (row[3]?.trim().replace(/^@/, "") || null) as string | null,
           arrived: parseBooleanCell(row[5]),
-          rebuys: parseNumberCell(row[6]),
-          addons: parseNumberCell(row[7]),
-          knockouts: parseNumberCell(row[8]),
-          place: parseNullableNumberCell(row[9]),
+          paid: parseBooleanCell(row[6]),
+          rebuys: parseNumberCell(row[7]),
+          addons: parseNumberCell(row[8]),
+          knockouts: parseNumberCell(row[9]),
+          place: parseNullableNumberCell(row[10]),
         }))
         .filter(
-          (row) =>
+          (row: FreeSheetRow) =>
             typeof row.player_id === "string" && row.player_id.trim().length > 0
         );
 
-      const sheetRowsMap = new Map(
+      const sheetRowsMap = new Map<string, FreeSheetRow>(
         sheetRows.map((row) => [row.player_id, row])
       );
       const draftRows = await getTournamentResultsDraft(id);
@@ -82,6 +95,7 @@ export async function POST(
           display_name: row.display_name,
           username: row.username,
           arrived: sheetRow?.arrived ?? false,
+          paid: sheetRow?.paid ?? false,
           rebuys: sheetRow?.rebuys ?? 0,
           addons: sheetRow?.addons ?? 0,
           knockouts: sheetRow?.knockouts ?? 0,
@@ -98,23 +112,40 @@ export async function POST(
       });
     }
 
-    const updates = dataRows
-      .map((row: string[], index: number) => ({
-        player_id: row[0],
-        arrived: parseBooleanCell(row[5]),
-        rebuys: parseNumberCell(row[6]),
-        addons: parseNumberCell(row[7]),
-        knockouts: parseNumberCell(row[8]),
-        place: parseNullableNumberCell(row[9]),
-        sheet_row_number: index + 8,
-      }))
-      .filter(
-        (row: { player_id: string }) =>
-          typeof row.player_id === "string" && row.player_id.trim().length > 0
-      );
+    type LiveSheetUpdate = {
+      player_id: string;
+      arrived: boolean;
+      paid: boolean;
+      rebuys: number;
+      addons: number;
+      knockouts: number;
+      place: number | null;
+      sheet_row_number: number;
+    };
+
+    const rawUpdates: LiveSheetUpdate[] = dataRows.map((row: string[], index: number) => ({
+      player_id: row[0] as string,
+      arrived: parseBooleanCell(row[5]),
+      paid: parseBooleanCell(row[6]),
+      rebuys: parseNumberCell(row[7]),
+      addons: parseNumberCell(row[8]),
+      knockouts: parseNumberCell(row[9]),
+      place: parseNullableNumberCell(row[10]),
+      sheet_row_number: index + 8,
+    }));
+
+    const updates = rawUpdates.filter(
+      (row) => typeof row.player_id === "string" && row.player_id.trim().length > 0
+    );
+
+    const paidMap = new Map<string, boolean>(updates.map((r) => [r.player_id, r.paid]));
 
     await applyTournamentLiveSheetRows(id, updates);
-    const rows = await getTournamentLiveEntries(id);
+    const dbRows = await getTournamentLiveEntries(id);
+    const rows = dbRows.map((row) => ({
+      ...row,
+      paid: paidMap.get(row.player_id) ?? false,
+    }));
 
     return NextResponse.json({
       ok: true,

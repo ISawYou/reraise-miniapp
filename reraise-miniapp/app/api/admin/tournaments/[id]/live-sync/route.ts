@@ -55,6 +55,7 @@ function buildReadmeSheetValues() {
 
 function buildLiveSheetValues(
   exportData: Awaited<ReturnType<typeof getTournamentLiveSheetData>>,
+  paidMap: Map<string, boolean> = new Map(),
   entryPrice = 0,
   addonPrice = 0,
   bountyPrice = 0
@@ -73,6 +74,7 @@ function buildLiveSheetValues(
       "Telegram",
       "Статус регистрации",
       "Пришел",
+      "Оплатил",
       "Re-buy",
       "Addon",
       "Nok",
@@ -85,6 +87,7 @@ function buildLiveSheetValues(
       row.username ? `@${row.username}` : "",
       row.registration_status,
       row.arrived,
+      paidMap.get(row.player_id) ?? false,
       row.rebuys,
       row.addons,
       row.knockouts,
@@ -98,6 +101,7 @@ export async function syncTournamentLiveSheet(
   rows?: Array<{
     player_id: string;
     arrived: boolean;
+    paid?: boolean;
     rebuys: number;
     addons: number;
     knockouts: number;
@@ -112,6 +116,8 @@ export async function syncTournamentLiveSheet(
   if (rows?.length) {
     await updateTournamentLiveEntries(tournamentId, rows);
   }
+
+  const paidMap = new Map((rows ?? []).map((r) => [r.player_id, r.paid ?? false]));
 
   const tournament = await getTournamentById(tournamentId);
   const tabName =
@@ -130,8 +136,8 @@ export async function syncTournamentLiveSheet(
       console.error("Failed to append row to Лист1", error);
     }
   }
-  await replaceSpreadsheetTabValues(tabName, buildLiveSheetValues(exportData, entryPrice, addonPrice, bountyPrice));
-  await applyTournamentSheetFormatting(tabName, exportData.rows.length);
+  await replaceSpreadsheetTabValues(tabName, buildLiveSheetValues(exportData, paidMap, entryPrice, addonPrice, bountyPrice));
+  await applyTournamentSheetFormatting(tabName, exportData.rows.length, 11);
   await setTournamentGoogleSheetTabName(tournamentId, tabName);
 
   return {
@@ -152,6 +158,7 @@ export async function POST(
           rows?: Array<{
             player_id: string;
             arrived: boolean;
+            paid?: boolean;
             rebuys: number;
             addons: number;
             knockouts: number;

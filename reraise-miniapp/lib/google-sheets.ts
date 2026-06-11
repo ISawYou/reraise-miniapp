@@ -148,7 +148,8 @@ export async function replaceSpreadsheetTabValues(
 
 export async function applyTournamentSheetFormatting(
   tabName: string,
-  playerRowsCount?: number
+  playerRowsCount?: number,
+  columnCount = 12
 ) {
   const sheets = getGoogleSheetsClient();
   const spreadsheetId = getSpreadsheetId();
@@ -232,7 +233,7 @@ export async function applyTournamentSheetFormatting(
               startRowIndex: 6,
               endRowIndex: 7,
               startColumnIndex: 0,
-              endColumnIndex: 10,
+              endColumnIndex: columnCount,
             },
             cell: {
               userEnteredFormat: {
@@ -263,7 +264,7 @@ export async function applyTournamentSheetFormatting(
               sheetId,
               startRowIndex: 7,
               startColumnIndex: 0,
-              endColumnIndex: 10,
+              endColumnIndex: columnCount,
             },
             cell: {
               userEnteredFormat: {
@@ -285,7 +286,7 @@ export async function applyTournamentSheetFormatting(
               sheetId,
               startRowIndex: 6,
               startColumnIndex: 0,
-              endColumnIndex: 10,
+              endColumnIndex: columnCount,
             },
             top: {
               style: "SOLID",
@@ -391,7 +392,7 @@ export async function applyTournamentSheetFormatting(
               sheetId,
               dimension: "COLUMNS",
               startIndex: 5,
-              endIndex: 10,
+              endIndex: columnCount,
             },
             properties: {
               pixelSize: 110,
@@ -406,7 +407,7 @@ export async function applyTournamentSheetFormatting(
               startRowIndex: 7,
               endRowIndex: dataEndRowIndex,
               startColumnIndex: 5,
-              endColumnIndex: 6,
+              endColumnIndex: 7,
             },
             rule: {
               condition: {

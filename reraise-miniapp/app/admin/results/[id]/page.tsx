@@ -23,6 +23,7 @@ type FreeFormRow = {
   display_name: string;
   username: string | null;
   arrived: boolean;
+  paid: boolean;
   rebuys: string;
   addons: string;
   knockouts: string;
@@ -34,6 +35,7 @@ type PulledFreeRow = {
   display_name: string;
   username: string | null;
   arrived: boolean;
+  paid?: boolean;
   rebuys: number;
   addons: number;
   knockouts: number;
@@ -46,6 +48,7 @@ type LiveFormRow = {
   display_name: string;
   username: string | null;
   arrived: boolean;
+  paid: boolean;
   rebuys: string;
   addons: string;
   knockouts: string;
@@ -131,6 +134,7 @@ export default function AdminTournamentResultsPage() {
                 display_name: row.display_name,
                 username: row.username,
                 arrived: row.arrived,
+                paid: row.paid ?? false,
                 rebuys: String(row.rebuys),
                 addons: String(row.addons),
                 knockouts: String(row.knockouts),
@@ -151,6 +155,7 @@ export default function AdminTournamentResultsPage() {
               display_name: item.display_name,
               username: item.username,
               arrived: false,
+              paid: false,
               rebuys: "0",
               addons: "0",
               knockouts: "0",
@@ -166,7 +171,7 @@ export default function AdminTournamentResultsPage() {
           if (nextTournament.google_sheet_tab_name?.trim()) {
             try {
               const payload = await fetchAdminJson<{
-                rows: TournamentLiveEntry[];
+                rows: (TournamentLiveEntry & { paid?: boolean })[];
                 entryPrice?: number;
                 addonPrice?: number;
                 bountyPrice?: number;
@@ -234,13 +239,14 @@ export default function AdminTournamentResultsPage() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  function mapLiveEntriesToFormRows(rows: TournamentLiveEntry[]): LiveFormRow[] {
+  function mapLiveEntriesToFormRows(rows: (TournamentLiveEntry & { paid?: boolean })[]): LiveFormRow[] {
     return rows.map((item) => ({
       player_id: item.player_id,
       registration_id: item.registration_id,
       display_name: item.display_name,
       username: item.username,
       arrived: item.arrived,
+      paid: item.paid ?? false,
       rebuys: String(item.rebuys),
       addons: String(item.addons),
       knockouts: String(item.knockouts),
@@ -263,7 +269,7 @@ export default function AdminTournamentResultsPage() {
 
   function updateFreeRow(
     playerId: string,
-    field: "arrived" | "rebuys" | "addons" | "knockouts" | "place",
+    field: "arrived" | "paid" | "rebuys" | "addons" | "knockouts" | "place",
     value: boolean | string
   ) {
     setFreeRows((prev) =>
@@ -275,7 +281,7 @@ export default function AdminTournamentResultsPage() {
 
   function updateLiveRow(
     playerId: string,
-    field: "arrived" | "rebuys" | "addons" | "knockouts" | "place",
+    field: "arrived" | "paid" | "rebuys" | "addons" | "knockouts" | "place",
     value: boolean | string
   ) {
     setLiveRows((prev) =>
@@ -323,6 +329,7 @@ export default function AdminTournamentResultsPage() {
             rows: freeRows.map((row) => ({
               player_id: row.player_id,
               arrived: row.arrived,
+              paid: row.paid,
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
@@ -377,6 +384,7 @@ export default function AdminTournamentResultsPage() {
         display_name: row.display_name,
         username: row.username,
         arrived: row.arrived,
+        paid: row.paid ?? false,
         rebuys: String(row.rebuys),
         addons: String(row.addons),
         knockouts: String(row.knockouts),
@@ -430,6 +438,7 @@ export default function AdminTournamentResultsPage() {
             rows: freeRows.map((row) => ({
               player_id: row.player_id,
               arrived: row.arrived,
+              paid: row.paid,
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
@@ -494,6 +503,7 @@ export default function AdminTournamentResultsPage() {
             rows: liveRows.map((row) => ({
               player_id: row.player_id,
               arrived: row.arrived,
+              paid: row.paid,
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
@@ -532,7 +542,7 @@ export default function AdminTournamentResultsPage() {
       setPulling(true);
 
       const payload = await fetchAdminJson<{
-        rows: TournamentLiveEntry[];
+        rows: (TournamentLiveEntry & { paid?: boolean })[];
         entryPrice?: number;
         addonPrice?: number;
         bountyPrice?: number;
@@ -774,19 +784,35 @@ export default function AdminTournamentResultsPage() {
                   key={row.player_id}
                   className="rounded-xl border border-white/10 bg-white/5 p-3"
                 >
-                  <p className="text-base font-semibold text-white">
-                    {row.display_name}
-                  </p>
-                  {row.username ? (
-                    <p className="mt-1 text-sm text-white/45">@{row.username}</p>
-                  ) : null}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-base font-semibold text-white">
+                        {row.display_name}
+                      </p>
+                      {row.username ? (
+                        <p className="mt-1 text-sm text-white/45">@{row.username}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 flex-col items-center gap-1">
+                      <p className="text-[11px] font-medium text-white/60">Место</p>
+                      <input
+                        type="number"
+                        min="1"
+                        value={row.place}
+                        onChange={(e) =>
+                          updateFreeRow(row.player_id, "place", e.target.value)
+                        }
+                        className="h-9 w-16 rounded-lg border border-white/10 bg-black/30 px-2 text-center text-base outline-none"
+                      />
+                    </div>
+                  </div>
 
                   <div className="mt-3 grid grid-cols-5 gap-2 text-center text-[11px] font-medium text-white/60">
                     <span>Пришел</span>
+                    <span>Оплатил</span>
                     <span>Re-buy</span>
                     <span>Addon</span>
                     <span>Nok</span>
-                    <span>Место</span>
                   </div>
 
                   <div className="mt-2 grid grid-cols-5 gap-2">
@@ -798,6 +824,17 @@ export default function AdminTournamentResultsPage() {
                           updateFreeRow(row.player_id, "arrived", e.target.checked)
                         }
                         className="h-4 w-4 accent-yellow-500"
+                      />
+                    </label>
+
+                    <label className="flex h-11 items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={row.paid}
+                        onChange={(e) =>
+                          updateFreeRow(row.player_id, "paid", e.target.checked)
+                        }
+                        className="h-4 w-4 accent-green-500"
                       />
                     </label>
 
@@ -872,16 +909,6 @@ export default function AdminTournamentResultsPage() {
                       }
                       className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
                     />
-
-                    <input
-                      type="number"
-                      min="1"
-                      value={row.place}
-                      onChange={(e) =>
-                        updateFreeRow(row.player_id, "place", e.target.value)
-                      }
-                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
-                    />
                   </div>
                 </div>
               ))
@@ -896,19 +923,35 @@ export default function AdminTournamentResultsPage() {
                 key={row.player_id}
                 className="rounded-xl border border-white/10 bg-white/5 p-3"
               >
-                <p className="text-base font-semibold text-white">
-                  {row.display_name}
-                </p>
-                {row.username ? (
-                  <p className="mt-1 text-sm text-white/45">@{row.username}</p>
-                ) : null}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-base font-semibold text-white">
+                      {row.display_name}
+                    </p>
+                    {row.username ? (
+                      <p className="mt-1 text-sm text-white/45">@{row.username}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-center gap-1">
+                    <p className="text-[11px] font-medium text-white/60">Место</p>
+                    <input
+                      type="number"
+                      min="1"
+                      value={row.place}
+                      onChange={(e) =>
+                        updateLiveRow(row.player_id, "place", e.target.value)
+                      }
+                      className="h-9 w-16 rounded-lg border border-white/10 bg-black/30 px-2 text-center text-base outline-none"
+                    />
+                  </div>
+                </div>
 
                 <div className="mt-3 grid grid-cols-5 gap-2 text-center text-[11px] font-medium text-white/60">
                   <span>Пришел</span>
+                  <span>Оплатил</span>
                   <span>Re-buy</span>
                   <span>Addon</span>
                   <span>Nok</span>
-                  <span>Место</span>
                 </div>
 
                 <div className="mt-2 grid grid-cols-5 gap-2">
@@ -920,6 +963,17 @@ export default function AdminTournamentResultsPage() {
                         updateLiveRow(row.player_id, "arrived", e.target.checked)
                       }
                       className="h-4 w-4 accent-yellow-500"
+                    />
+                  </label>
+
+                  <label className="flex h-11 items-center justify-center">
+                    <input
+                      type="checkbox"
+                      checked={row.paid}
+                      onChange={(e) =>
+                        updateLiveRow(row.player_id, "paid", e.target.checked)
+                      }
+                      className="h-4 w-4 accent-green-500"
                     />
                   </label>
 
@@ -991,16 +1045,6 @@ export default function AdminTournamentResultsPage() {
                     }
                     onChange={(e) =>
                       updateLiveRow(row.player_id, "knockouts", e.target.value)
-                    }
-                    className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
-                  />
-
-                  <input
-                    type="number"
-                    min="1"
-                    value={row.place}
-                    onChange={(e) =>
-                      updateLiveRow(row.player_id, "place", e.target.value)
                     }
                     className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
                   />

@@ -15,6 +15,7 @@ import {
 type FreeSheetRowInput = {
   player_id: string;
   arrived: boolean;
+  paid?: boolean;
   rebuys: number;
   addons: number;
   knockouts: number;
@@ -104,6 +105,7 @@ function buildFreeSheetValues(
       "Telegram",
       "Статус регистрации",
       "Пришел",
+      "Оплатил",
       "Re-buy",
       "Addon",
       "Nok",
@@ -120,6 +122,7 @@ function buildFreeSheetValues(
         row.username ? `@${row.username}` : "",
         row.registration_status,
         values?.arrived ?? false,
+        values?.paid ?? false,
         values?.rebuys ?? 0,
         values?.addons ?? 0,
         values?.knockouts ?? 0,
@@ -201,7 +204,7 @@ export async function syncTournamentSheet(
       : buildLiveSheetValues(exportData, entryPrice, addonPrice, bountyPrice);
 
   await replaceSpreadsheetTabValues(tabName, values);
-  await applyTournamentSheetFormatting(tabName, exportData.rows.length);
+  await applyTournamentSheetFormatting(tabName, exportData.rows.length, 12);
   await setTournamentGoogleSheetTabName(tournamentId, tabName);
 
   return {
