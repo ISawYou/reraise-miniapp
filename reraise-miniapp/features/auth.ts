@@ -28,7 +28,7 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
 }
 
 function getTelegramAvatarUrl(telegramUser: TelegramWebAppUser): string | null {
-  return (telegramUser as { photo_url?: string }).photo_url ?? null;
+  return telegramUser.photo_url ?? null;
 }
 
 export async function getPlayerByTelegramId(

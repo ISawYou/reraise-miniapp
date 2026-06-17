@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import type { TelegramWebAppUser } from "@/lib/telegram";
 import { signSession, COOKIE_NAME } from "@/lib/telegram-web-session";
+import { syncTelegramAvatar } from "@/lib/avatar-sync";
 
 function verifyInitData(initData: string, botToken: string): boolean {
   try {
@@ -61,6 +62,8 @@ export async function POST(request: NextRequest) {
 
     const telegramUser = JSON.parse(userRaw) as TelegramWebAppUser;
     const player = await ensurePlayerFromTelegramUser(telegramUser);
+
+    await syncTelegramAvatar(player, telegramUser.photo_url);
 
     const response = NextResponse.json({ ok: true });
     response.cookies.set(COOKIE_NAME, signSession(player.id), {

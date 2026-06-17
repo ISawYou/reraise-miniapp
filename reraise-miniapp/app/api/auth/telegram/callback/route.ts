@@ -3,6 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import type { TelegramWebAppUser } from "@/lib/telegram";
 import { signSession, COOKIE_NAME } from "@/lib/telegram-web-session";
+import { syncTelegramAvatar } from "@/lib/avatar-sync";
 
 function verifyTelegramHash(params: URLSearchParams, botToken: string): boolean {
   const hash = params.get("hash");
@@ -78,6 +79,8 @@ export async function GET(request: Request) {
   }
 
   console.log("[TG callback] Player OK, id:", player.id);
+
+  await syncTelegramAvatar(player, telegramUser.photo_url);
 
   const cookieValue = signSession(player.id);
   const response = NextResponse.redirect(`${origin}/`);
