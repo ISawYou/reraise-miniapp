@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PromotionToast } from "@/components/promotion-toast";
 import { resolveCurrentPlayer } from "@/lib/current-player";
+import { logEvent } from "@/lib/activity-client";
 import {
   cancelPlayerRegistration,
   getVisibleCompletedTournamentsForPlayer,
@@ -171,6 +172,7 @@ export default function TournamentsPage() {
 
         setPlayer(currentPlayer);
         setPlayerId(currentPlayer.id);
+        logEvent("page_view_tournaments");
 
         await refreshPageData(currentPlayer, { showPromotionToast: false });
       } catch (err) {

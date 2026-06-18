@@ -18,6 +18,7 @@ import {
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { getTelegramWebApp } from "@/lib/telegram";
+import { logEvent } from "@/lib/activity-client";
 import type {
   Player,
   RegistrationStatus,
@@ -257,6 +258,7 @@ export default function PlayerProfilePage() {
             (row: { completed_at: string | null }) => row.completed_at
           ).length
         );
+        logEvent("profile_opened", { metadata: { target_player_id: playerId } });
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Ошибка загрузки профиля"

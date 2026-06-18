@@ -24,6 +24,7 @@ import {
 } from "@/lib/telegram";
 import { loadTelegramLoginWidget } from "@/lib/telegram-login";
 import { resolveCurrentPlayer } from "@/lib/current-player";
+import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
 
@@ -522,6 +523,7 @@ export default function HomePage() {
         return;
       }
 
+      logEvent("email_link_started");
       setEmailLinkStep("code");
       startEmailLinkResendCooldown(payload?.retryAfterSeconds ?? 60);
     } catch (error) {
@@ -564,6 +566,7 @@ export default function HomePage() {
         setPlayer(payload.player);
       }
 
+      logEvent("email_link_completed");
       setShowEmailLinkModal(false);
     } catch (err) {
       setEmailLinkError(err instanceof Error ? err.message : "Ошибка привязки email.");
@@ -638,6 +641,8 @@ export default function HomePage() {
           const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
           if (cancelled) return;
           setPlayer(ensuredPlayer);
+          setActivityPlayerId(ensuredPlayer.id);
+          logEvent("app_opened", { once: true });
 
           // Establish server-side session cookie so that API routes (e.g. email link) can
           // identify the current Telegram user. The client-side auth path never sets it.
@@ -705,6 +710,8 @@ export default function HomePage() {
             const cookiePlayer = await resolveCurrentPlayer();
             if (cancelled) return;
             setPlayer(cookiePlayer);
+            setActivityPlayerId(cookiePlayer.id);
+            logEvent("app_opened", { once: true });
 
             if (
               !cookiePlayer.accepted_terms_at ||
@@ -1201,6 +1208,7 @@ export default function HomePage() {
                 <button
                   type="button"
                   onClick={() => {
+                    logEvent("support_opened");
                     const httpsUrl = "https://t.me/ReRaise_Poker_Bot?start=support";
                     const tgUrl = "tg://resolve?domain=ReRaise_Poker_Bot&start=support";
                     const webApp = getTelegramWebApp();

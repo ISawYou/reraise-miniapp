@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getActiveSeason, getSeasonLeaderboard } from "@/features/tournaments";
+import { logEvent } from "@/lib/activity-client";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 
 type LeaderboardRow = {
@@ -21,6 +22,7 @@ export default function LeaderboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    logEvent("rating_opened");
     async function loadLeaderboard() {
       try {
         const activeSeason = await getActiveSeason();

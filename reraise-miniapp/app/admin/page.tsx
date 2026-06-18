@@ -50,6 +50,12 @@ const ADMIN_CARDS: AdminCard[] = [
     title: "Реферальная программа",
     description: "Рефералы, бесплатные re-entry и бонус за отзыв на Яндекс.",
   },
+  {
+    href: "/admin/activity",
+    code: "AN",
+    title: "Аналитика активности",
+    description: "Активные пользователи, открытия приложения, регистрации.",
+  },
 ];
 
 export default function AdminPage() {

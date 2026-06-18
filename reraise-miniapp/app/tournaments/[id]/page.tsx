@@ -14,6 +14,7 @@ import {
   cancelPlayerRegistration,
 } from "@/features/tournaments";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import { logEvent } from "@/lib/activity-client";
 import {
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
@@ -283,6 +284,7 @@ const waitlistParticipants = participants.filter(
         setPlayer(currentPlayer);
 
         await refreshPageData(currentPlayer, tournamentId);
+        logEvent("tournament_opened", { metadata: { tournament_id: tournamentId } });
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Unknown tournament details error";
@@ -306,8 +308,10 @@ const waitlistParticipants = participants.filter(
 
       if (result.status === "registered") {
         setMessage("Вы записаны на турнир");
+        logEvent("registration_created", { metadata: { tournament_id: tournamentId } });
       } else if (result.status === "waitlist") {
         setMessage("Вы добавлены в список ожидания");
+        logEvent("waitlist_joined", { metadata: { tournament_id: tournamentId } });
       }
 
       await refreshPageData(player, tournamentId);
@@ -326,6 +330,7 @@ const waitlistParticipants = participants.filter(
       setMessage(null);
 
       await cancelPlayerRegistration(player.id, tournamentId);
+      logEvent("registration_cancelled", { metadata: { tournament_id: tournamentId } });
 
       if (registrationStatus === "registered") {
         setMessage("Запись на турнир отменена");
