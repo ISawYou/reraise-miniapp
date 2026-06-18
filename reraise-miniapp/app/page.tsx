@@ -17,6 +17,7 @@ import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
 import {
   getTelegramUser,
+  getTelegramInitData,
   getTelegramWebApp,
   isTelegramMiniAppContext,
   type TelegramWebAppUser,
@@ -464,6 +465,29 @@ export default function HomePage() {
     }, 1000);
   }
 
+  async function ensureTelegramMiniAppSession() {
+    const initData = await getTelegramInitData();
+
+    if (!initData) {
+      throw new Error(
+        "Не удалось подтвердить Telegram-сессию. Закройте и откройте приложение заново."
+      );
+    }
+
+    const response = await fetch("/api/auth/telegram/mini-app-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData }),
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        "Не удалось подтвердить Telegram-сессию. Закройте и откройте приложение заново."
+      );
+    }
+  }
+
   async function handleEmailLinkRequestCode(e: React.FormEvent) {
     e.preventDefault();
     const normalized = emailLinkEmail.trim().toLowerCase();
@@ -471,9 +495,12 @@ export default function HomePage() {
     setEmailLinkLoading(true);
     setEmailLinkError(null);
     try {
+      await ensureTelegramMiniAppSession();
+
       const response = await fetch("/api/auth/email/request-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           email: normalized,
           purpose: "link_email",
@@ -511,9 +538,12 @@ export default function HomePage() {
     setEmailLinkLoading(true);
     setEmailLinkError(null);
     try {
+      await ensureTelegramMiniAppSession();
+
       const response = await fetch("/api/auth/email/verify-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           email: normalized,
           code: emailLinkCode.trim(),
@@ -547,9 +577,12 @@ export default function HomePage() {
     setEmailLinkLoading(true);
     setEmailLinkError(null);
     try {
+      await ensureTelegramMiniAppSession();
+
       const response = await fetch("/api/auth/email/request-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           email: emailLinkEmail.trim().toLowerCase(),
           purpose: "link_email",
