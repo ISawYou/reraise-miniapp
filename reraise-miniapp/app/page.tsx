@@ -15,6 +15,7 @@ import {
 } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
+import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import {
   getTelegramUser,
   getTelegramInitData,
@@ -51,28 +52,6 @@ function TournamentIcon() {
       <path d="M8 13h3" />
       <path d="M13 13h3" />
       <path d="M8 16h3" />
-    </svg>
-  );
-}
-
-function TrophyIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 4.5h8v3.75a4 4 0 0 1-8 0Z" />
-      <path d="M10 16.5h4" />
-      <path d="M12 12.25v4.25" />
-      <path d="M6 6H4.75A1.75 1.75 0 0 0 3 7.75v.5A3.75 3.75 0 0 0 6.75 12H8" />
-      <path d="M18 6h1.25A1.75 1.75 0 0 1 21 7.75v.5A3.75 3.75 0 0 1 17.25 12H16" />
-      <path d="M9 20h6" />
     </svg>
   );
 }
@@ -131,14 +110,18 @@ function ShieldIcon() {
   );
 }
 
-function formatDateTimeWithoutSeconds(date: string) {
-  return new Date(date).toLocaleString("ru-RU", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+function formatTournamentShortDate(date: string) {
+  const value = new Date(date);
+  const formattedDate = value.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+  });
+  const formattedTime = value.toLocaleTimeString("ru-RU", {
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  return `${formattedDate} • ${formattedTime}`;
 }
 
 function CalendarIcon() {
@@ -177,6 +160,52 @@ function UserIcon() {
       <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
     </svg>
   );
+}
+
+function HomeIcon() {
+  return <span aria-hidden="true">🏠</span>;
+}
+
+function SpadeIcon() {
+  return <span aria-hidden="true">♠️</span>;
+}
+
+function ProfileIcon() {
+  return <span aria-hidden="true">👤</span>;
+}
+
+function PlaceIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 20s6-4.35 6-10a6 6 0 1 0-12 0c0 5.65 6 10 6 10Z" />
+      <circle cx="12" cy="10" r="2.25" />
+    </svg>
+  );
+}
+
+function getTournamentTypeEmoji(type: Tournament["tournament_type"]) {
+  switch (type) {
+    case "deep_stack":
+      return "🏔️";
+    case "phoenix":
+      return "🔥";
+    case "bounty":
+      return "🎯";
+    case "win_the_button":
+      return "🟡";
+    case "classic":
+    default:
+      return "♠️";
+  }
 }
 
 export default function HomePage() {
@@ -826,40 +855,91 @@ export default function HomePage() {
     player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null;
   const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
   const showAnyTournamentCard = Boolean(nearestTournament);
+  const nearestTournamentRegistrationStatus = nearestTournament
+    ? registrationsRef.current[nearestTournament.id] ?? null
+    : null;
+
+  function openTelegramDestination(httpsUrl: string, fallbackUrl?: string) {
+    const webApp = getTelegramWebApp();
+
+    if (webApp?.openTelegramLink) {
+      webApp.openTelegramLink(httpsUrl);
+      return;
+    }
+
+    window.location.href = fallbackUrl ?? httpsUrl;
+  }
+
+  function openExternalLink(url: string) {
+    const webApp = getTelegramWebApp() as { openLink?: (value: string) => void } | null;
+
+    if (webApp?.openLink) {
+      webApp.openLink(url);
+      return;
+    }
+
+    window.location.href = url;
+  }
 
   function renderTournamentCard(
     tournament: Tournament,
     registeredCount: number,
     title: string
   ) {
+    const prizePlaces = getExpectedPrizePlaces(registeredCount);
+    const actionLabel =
+      nearestTournamentRegistrationStatus === "registered"
+        ? "Вы записаны"
+        : nearestTournamentRegistrationStatus === "waitlist"
+          ? "Вы в листе ожидания"
+          : "Записаться";
+
     return (
-      <Link
-        href={`/tournaments/${tournament.id}`}
-        className="relative block overflow-hidden rounded-3xl border border-[#c9a84c]/30 bg-gradient-to-br from-[#0c2318] via-[#071a0f] to-black p-5 pt-6 transition active:scale-[0.99]"
-      >
-<p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#c9a84c]/80">
-          ♠ {title}
-        </p>
-
-        <h3 className="mt-2.5 text-3xl font-black uppercase leading-tight tracking-wide text-white">
-          {tournament.title}
-        </h3>
-
-        <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/70">
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#c9a84c]/20 bg-[#c9a84c]/[0.06] px-3 py-1.5">
-            <CalendarIcon />
-            <span>{formatDateTimeWithoutSeconds(tournament.start_at)}</span>
-          </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#c9a84c]/20 bg-[#c9a84c]/[0.06] px-3 py-1.5">
-            <UserIcon />
-            <span>{registeredCount} / {tournament.max_players}</span>
+      <div className="overflow-hidden rounded-[30px] border border-[#d7b55a]/20 bg-[radial-gradient(circle_at_top_left,rgba(218,176,88,0.18),transparent_35%),linear-gradient(145deg,#1d0f0f_0%,#0b0b0c_55%,#050505_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#d7b55a]/75">
+              {title}
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-2xl">
+                {getTournamentTypeEmoji(tournament.tournament_type)}
+              </div>
+              <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
+                {tournament.title}
+              </h3>
+            </div>
           </div>
         </div>
 
-        <p className="mt-3 text-[11px] tracking-wide text-[#c9a84c]/45">
-          Нажми, чтобы открыть
-        </p>
-      </Link>
+        <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/75">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5">
+            <CalendarIcon />
+            <span>{formatTournamentShortDate(tournament.start_at)}</span>
+          </div>
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5">
+            <UserIcon />
+            <span>{registeredCount} / {tournament.max_players} игроков</span>
+          </div>
+        </div>
+
+        <p className="mt-4 text-sm text-white/65">Призовые места: {prizePlaces}</p>
+
+        <div className="mt-5 flex gap-3">
+          <Link
+            href={`/tournaments/${tournament.id}`}
+            className="flex-1 rounded-2xl bg-[#d7b55a] px-4 py-3 text-center text-sm font-semibold text-black transition active:scale-[0.99]"
+          >
+            {actionLabel}
+          </Link>
+          <Link
+            href={`/tournaments/${tournament.id}`}
+            className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-medium text-white/80 transition active:scale-[0.99]"
+          >
+            Открыть
+          </Link>
+        </div>
+      </div>
     );
   }
 
@@ -1068,42 +1148,43 @@ export default function HomePage() {
   }
 
   return (
-    <main className="relative min-h-screen bg-[#080808] px-4 py-6 text-white">
+    <main className="relative min-h-screen bg-[#080808] px-4 py-6 pb-28 text-white">
       <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#c9a84c0a,transparent)]" />
       <div className="relative mx-auto max-w-md">
-        <header className="mb-7">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-[#c9a84c]/60">
-              Игровое пространство РЕРЕЙЗ
-            </p>
-            <div className="mt-3 flex items-center justify-between gap-4">
-              <h1 className="text-4xl font-bold tracking-tight">Главная</h1>
-
-              {player ? (
-                <Link
-                  href={`/players/${player.id}`}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-2 text-sm text-white/85"
-                >
-                  {homeAvatarUrl ? (
-                    <img
-                      src={homeAvatarUrl}
-                      alt={greetingName}
-                      className="h-7 w-7 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.08] text-xs font-semibold text-white/80">
-                      {homeAvatarFallback}
-                    </div>
-                  )}
-                  <span className="pr-1">Профиль</span>
-                </Link>
-              ) : null}
+        <header className="mb-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.22)]">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-[#c9a84c]/60">
+                Игровое пространство РЕРЕЙЗ
+              </p>
+              <p className="mt-4 text-2xl font-bold tracking-tight text-white">
+                Привет, {greetingName}
+              </p>
+              <p className="mt-1 text-sm text-white/60">
+                Добро пожаловать в РЕРЕЙЗ
+              </p>
             </div>
 
-            <p className="mt-4 text-sm text-white/80">Привет, {greetingName}</p>
-            <p className="mt-1 text-xs text-[#c9a84c]/50">
-              Добро пожаловать в РЕРЕЙЗ
-            </p>
+            <div className="flex shrink-0 items-center gap-3">
+              {homeAvatarUrl ? (
+                <img
+                  src={homeAvatarUrl}
+                  alt={greetingName}
+                  className="h-12 w-12 rounded-2xl border border-white/10 object-cover"
+                />
+              ) : (
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] text-sm font-semibold text-white/80">
+                  {homeAvatarFallback}
+                </div>
+              )}
+
+              <Link
+                href={`/players/${player.id}`}
+                className="inline-flex shrink-0 items-center rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white/85"
+              >
+                Профиль
+              </Link>
+            </div>
           </div>
         </header>
 
@@ -1154,7 +1235,21 @@ export default function HomePage() {
 
         {checkedTelegram && !!player && !playerLoading && !playerError ? (
           <>
-            <section className="mt-6 space-y-4">
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#c9a84c]/55">
+                    Ближайшие турниры
+                  </p>
+                  <p className="mt-1 text-sm text-white/55">
+                    Самое важное на ближайшее время
+                  </p>
+                </div>
+                <Link href="/tournaments" className="text-sm text-white/55">
+                  Все →
+                </Link>
+              </div>
+
               {nearestTournament
                 ? renderTournamentCard(
                     nearestTournament,
@@ -1170,61 +1265,104 @@ export default function HomePage() {
               ) : null}
             </section>
 
-            <section className="mt-4">
+            <section className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-[#c9a84c]/55">
+                    Клуб РЕРЕЙЗ
+                  </p>
+                  <p className="mt-3 text-lg font-semibold text-white">Тверь</p>
+                  <p className="mt-1 text-sm text-white/65">ул. Новоторжская, 18к1</p>
+                </div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-white/75">
+                  <PlaceIcon />
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    openExternalLink(
+                      "https://yandex.ru/maps/?text=%D0%A2%D0%B2%D0%B5%D1%80%D1%8C%2C%20%D1%83%D0%BB.%20%D0%9D%D0%BE%D0%B2%D0%BE%D1%82%D0%BE%D1%80%D0%B6%D1%81%D0%BA%D0%B0%D1%8F%2C%2018%D0%BA1"
+                    )
+                  }
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-[#d7b55a] px-4 py-3 text-sm font-semibold text-black transition active:scale-[0.99]"
+                >
+                  <PlaceIcon />
+                  <span>Построить маршрут</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    logEvent("support_opened");
+                    openTelegramDestination(
+                      "https://t.me/ReRaise_Poker_Bot?start=support",
+                      "tg://resolve?domain=ReRaise_Poker_Bot&start=support"
+                    );
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-semibold text-white transition active:scale-[0.99]"
+                >
+                  <SupportIcon />
+                  <span>Связаться</span>
+                </button>
+              </div>
+            </section>
+
+            <section className="mt-6">
               <div className="grid grid-cols-2 gap-3">
                 <Link
-                  href="/tournaments"
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
-                >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
-                    <TournamentIcon />
-                    <span className="text-xs uppercase tracking-wider">Расписание</span>
-                  </div>
-                  <p className="mt-5 text-xl font-bold">Турниры</p>
-                </Link>
-
-                <Link
-                  href="/leaderboard"
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
-                >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
-                    <TrophyIcon />
-                    <span className="text-xs uppercase tracking-wider">Топ игроков</span>
-                  </div>
-                  <p className="mt-5 text-xl font-bold">Рейтинг</p>
-                </Link>
-
-                <Link
                   href="/faq"
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
+                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-white transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <InfoIcon />
-                    <span className="text-xs uppercase tracking-wider">Ответы</span>
+                    <span className="text-xs uppercase tracking-wider">FAQ</span>
                   </div>
-                  <p className="mt-5 text-xl font-bold">FAQ</p>
+                  <p className="mt-4 text-base font-bold">FAQ</p>
                 </Link>
 
                 <button
                   type="button"
                   onClick={() => {
                     logEvent("support_opened");
-                    const httpsUrl = "https://t.me/ReRaise_Poker_Bot?start=support";
-                    const tgUrl = "tg://resolve?domain=ReRaise_Poker_Bot&start=support";
-                    const webApp = getTelegramWebApp();
-                    if (webApp?.openTelegramLink) {
-                      webApp.openTelegramLink(httpsUrl);
-                    } else {
-                      window.location.href = tgUrl;
-                    }
+                    openTelegramDestination(
+                      "https://t.me/ReRaise_Poker_Bot?start=support",
+                      "tg://resolve?domain=ReRaise_Poker_Bot&start=support"
+                    );
                   }}
-                  className="w-full rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-left text-white transition active:scale-[0.99]"
+                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-left text-white transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <SupportIcon />
-                    <span className="text-xs uppercase tracking-wider">На связи</span>
+                    <span className="text-xs uppercase tracking-wider">Поддержка</span>
                   </div>
-                  <p className="mt-5 text-xl font-bold">Поддержка</p>
+                  <p className="mt-4 text-base font-bold">Поддержка</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openTelegramDestination("https://t.me/Poker_Tver")}
+                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-left text-white transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
+                    <TournamentIcon />
+                    <span className="text-xs uppercase tracking-wider">О клубе</span>
+                  </div>
+                  <p className="mt-4 text-base font-bold">О клубе</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openTelegramDestination("https://t.me/Poker_Tver")}
+                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-left text-white transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
+                    <SupportIcon />
+                    <span className="text-xs uppercase tracking-wider">Контакты</span>
+                  </div>
+                  <p className="mt-4 text-base font-bold">Контакты</p>
                 </button>
               </div>
             </section>
@@ -1246,6 +1384,36 @@ export default function HomePage() {
           </>
         ) : null}
       </div>
+
+      {!!player && (
+        <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/10 bg-[#090909]/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
+          <div className="mx-auto grid max-w-md grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
+            <Link
+              href="/"
+              className="flex flex-col items-center justify-center gap-1 rounded-xl bg-white/[0.08] px-3 py-2 text-center text-xs font-medium text-white"
+            >
+              <HomeIcon />
+              <span>Главная</span>
+            </Link>
+
+            <Link
+              href="/tournaments"
+              className="flex flex-col items-center justify-center gap-1 rounded-xl px-3 py-2 text-center text-xs font-medium text-white/55"
+            >
+              <SpadeIcon />
+              <span>Турниры</span>
+            </Link>
+
+            <Link
+              href={`/players/${player.id}`}
+              className="flex flex-col items-center justify-center gap-1 rounded-xl px-3 py-2 text-center text-xs font-medium text-white/55"
+            >
+              <ProfileIcon />
+              <span>Профиль</span>
+            </Link>
+          </div>
+        </nav>
+      )}
 
       {promotionToast ? <PromotionToast message={promotionToast} /> : null}
 
