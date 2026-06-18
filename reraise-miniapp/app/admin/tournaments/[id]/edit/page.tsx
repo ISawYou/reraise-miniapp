@@ -15,8 +15,21 @@ import {
 } from "@/features/tournaments";
 import { fetchAdminJson } from "@/lib/client-request";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import {
+  getExpectedPrizePlaces,
+  getTournamentTypeBonusLines,
+  getTournamentTypeLabel,
+} from "@/lib/tournament-helpers";
 import { getTelegramUser } from "@/lib/telegram";
-import type { Player } from "@/types/domain";
+import type { Player, TournamentType } from "@/types/domain";
+
+const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
+  { value: "classic", label: "Texas Classic" },
+  { value: "phoenix", label: "Phoenix" },
+  { value: "deep_stack", label: "Deep Stack" },
+  { value: "bounty", label: "Bounty" },
+  { value: "win_the_button", label: "Win The Button" },
+];
 
 function toDateTimeLocalValue(value: string): string {
   const date = new Date(value);
@@ -48,6 +61,7 @@ export default function AdminTournamentEditPage() {
   const [location, setLocation] = useState("");
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
+  const [tournamentType, setTournamentType] = useState<TournamentType>("classic");
   const [participants, setParticipants] = useState<AdminTournamentParticipant[]>([]);
   const [showAddParticipantForm, setShowAddParticipantForm] = useState(false);
   const [newParticipantNick, setNewParticipantNick] = useState("");
@@ -96,6 +110,7 @@ export default function AdminTournamentEditPage() {
         setLocation(tournament.location ?? "");
         setStartAt(toDateTimeLocalValue(tournament.start_at));
         setMaxPlayers(String(tournament.max_players));
+        setTournamentType(tournament.tournament_type ?? "classic");
         setParticipants(participantsData);
       } catch (err) {
         const nextMessage =
@@ -151,7 +166,7 @@ export default function AdminTournamentEditPage() {
         location: location.trim(),
         start_at: new Date(startAt).toISOString(),
         max_players: Number(maxPlayers),
-        kind: "free",
+        tournament_type: tournamentType,
       });
 
       setMessage("Турнир обновлен");
@@ -230,6 +245,14 @@ export default function AdminTournamentEditPage() {
   const waitlistCount = useMemo(
     () => participants.filter((p) => p.status === "waitlist").length,
     [participants]
+  );
+  const expectedPrizePlaces = useMemo(
+    () => getExpectedPrizePlaces(participants.length),
+    [participants.length]
+  );
+  const tournamentTypeBonusLines = useMemo(
+    () => getTournamentTypeBonusLines(tournamentType),
+    [tournamentType]
   );
 
   const filteredPlayers = useMemo(() => {
@@ -386,6 +409,41 @@ export default function AdminTournamentEditPage() {
             onChange={(e) => setMaxPlayers(e.target.value)}
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
+
+          <label className="mt-4 block text-sm text-white/80">Тип турнира</label>
+          <select
+            value={tournamentType}
+            onChange={(e) => setTournamentType(e.target.value as TournamentType)}
+            className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
+          >
+            {TOURNAMENT_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="text-xs text-white/50">Тип турнира</p>
+            <p className="mt-1 text-sm font-semibold text-white">
+              {getTournamentTypeLabel(tournamentType)}
+            </p>
+            {tournamentTypeBonusLines.length > 0 ? (
+              <p className="mt-1 text-xs text-white/60">
+                {tournamentTypeBonusLines.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="text-xs text-white/50">Ожидаемое количество призовых мест</p>
+            <p className="mt-1 text-sm font-semibold text-white">{expectedPrizePlaces}</p>
+            {expectedPrizePlaces > 0 ? (
+              <p className="mt-1 text-xs text-white/60">
+                Рейтинговая зона: места 1-{expectedPrizePlaces}
+              </p>
+            ) : null}
+          </div>
 
           <button
             type="button"

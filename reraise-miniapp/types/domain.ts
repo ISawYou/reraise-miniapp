@@ -12,6 +12,12 @@ export type TournamentStatus =
 
 export type PlayerRole = "player" | "admin";
 export type TournamentKind = "free" | "paid" | "cash";
+export type TournamentType =
+  | "classic"
+  | "phoenix"
+  | "deep_stack"
+  | "bounty"
+  | "win_the_button";
 
 export type Player = {
   id: string;
@@ -44,6 +50,7 @@ export type Tournament = {
   start_at: string;
   max_players: number;
   kind: TournamentKind;
+  tournament_type: TournamentType;
   season_id: string | null;
   status: TournamentStatus;
   created_at: string;

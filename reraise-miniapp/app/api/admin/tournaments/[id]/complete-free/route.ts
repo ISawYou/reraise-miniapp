@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saveTournamentResults } from "@/features/tournaments";
+import { getTournamentById, saveTournamentResults } from "@/features/tournaments";
 import { calculateRatingPoints } from "@/features/rating";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
 
@@ -25,7 +25,7 @@ export async function POST(
     };
 
     const rows = body.rows ?? [];
-    const hasKnockouts = (body.bountyPrice ?? 0) > 0;
+    const tournament = await getTournamentById(id);
 
     const ratingMap = new Map(
       calculateRatingPoints(
@@ -35,7 +35,7 @@ export async function POST(
           knockouts: row.knockouts,
           arrived: row.arrived ?? false,
         })),
-        hasKnockouts
+        tournament.tournament_type
       ).map((r) => [r.player_id, r.rating_points])
     );
 

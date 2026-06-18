@@ -47,6 +47,7 @@ const FULL_TOURNAMENT = {
   start_at: "2024-12-01T18:00:00Z",
   max_players: 2,
   kind: "free",
+  tournament_type: "classic",
   season_id: null,
   status: "open",
   created_at: "2024-01-01T00:00:00Z",
