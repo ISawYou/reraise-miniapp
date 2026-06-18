@@ -112,36 +112,18 @@ function ShieldIcon() {
 
 function formatTournamentShortDate(date: string) {
   const value = new Date(date);
-  const formattedDate = value.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
+  return value.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
   });
-  const formattedTime = value.toLocaleTimeString("ru-RU", {
+}
+
+function formatTournamentShortTime(date: string) {
+  const value = new Date(date);
+  return value.toLocaleTimeString("ru-RU", {
     hour: "2-digit",
     minute: "2-digit",
   });
-
-  return `${formattedDate} • ${formattedTime}`;
-}
-
-function CalendarIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
-      <path d="M7.5 3.5v3" />
-      <path d="M16.5 3.5v3" />
-      <path d="M3.5 9.5h17" />
-    </svg>
-  );
 }
 
 function UserIcon() {
@@ -180,22 +162,6 @@ function PlaceIcon() {
   );
 }
 
-function getTournamentTypeEmoji(type: Tournament["tournament_type"]) {
-  switch (type) {
-    case "deep_stack":
-      return "🏔️";
-    case "phoenix":
-      return "🔥";
-    case "bounty":
-      return "🎯";
-    case "win_the_button":
-      return "🟡";
-    case "classic":
-    default:
-      return "♠️";
-  }
-}
-
 export default function HomePage() {
   const [user, setUser] = useState<TelegramWebAppUser | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
@@ -204,11 +170,8 @@ export default function HomePage() {
   const [playerLoading, setPlayerLoading] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [promotionToast, setPromotionToast] = useState<string | null>(null);
-  const [nearestTournament, setNearestTournament] = useState<Tournament | null>(
-    null
-  );
-  const [nearestTournamentRegisteredCount, setNearestTournamentRegisteredCount] =
-    useState(0);
+  const [homeTournaments, setHomeTournaments] = useState<Tournament[]>([]);
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
   const [initializing, setInitializing] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
   const [termsAcceptedLoading, setTermsAcceptedLoading] = useState(false);
@@ -380,13 +343,9 @@ export default function HomePage() {
         }
       }
 
-    const nextNearestTournament = tournaments[0] ?? null;
-
     registrationsRef.current = nextMap;
-    setNearestTournament(nextNearestTournament);
-    setNearestTournamentRegisteredCount(
-      nextNearestTournament ? (counts[nextNearestTournament.id] ?? 0) : 0
-    );
+    setHomeTournaments(tournaments);
+    setRegistrationCounts(counts);
   }
 
   async function handleAcceptTerms() {
@@ -842,10 +801,7 @@ export default function HomePage() {
   const homeAvatarUrl =
     player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null;
   const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
-  const showAnyTournamentCard = Boolean(nearestTournament);
-  const nearestTournamentRegistrationStatus = nearestTournament
-    ? registrationsRef.current[nearestTournament.id] ?? null
-    : null;
+  const showAnyTournamentCard = homeTournaments.length > 0;
 
   function openTelegramDestination(httpsUrl: string, fallbackUrl?: string) {
     const webApp = getTelegramWebApp();
@@ -871,41 +827,36 @@ export default function HomePage() {
 
   function renderTournamentCard(
     tournament: Tournament,
-    registeredCount: number,
-    title: string
+    registeredCount: number
   ) {
     const prizePlaces = getExpectedPrizePlaces(registeredCount);
+    const registrationStatus = registrationsRef.current[tournament.id] ?? null;
     const actionLabel =
-      nearestTournamentRegistrationStatus === "registered"
+      registrationStatus === "registered"
         ? "Вы записаны"
-        : nearestTournamentRegistrationStatus === "waitlist"
+        : registrationStatus === "waitlist"
           ? "Вы в листе ожидания"
-          : "Записаться";
+        : "Записаться";
 
     return (
-      <div className="overflow-hidden rounded-[30px] border border-[#d7b55a]/20 bg-[radial-gradient(circle_at_top_left,rgba(218,176,88,0.18),transparent_35%),linear-gradient(145deg,#1d0f0f_0%,#0b0b0c_55%,#050505_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+      <Link
+        href={`/tournaments/${tournament.id}`}
+        className="block min-w-[85%] snap-center overflow-hidden rounded-[30px] border border-[#d7b55a]/20 bg-[radial-gradient(circle_at_top_left,rgba(218,176,88,0.18),transparent_35%),linear-gradient(145deg,#1d0f0f_0%,#0b0b0c_55%,#050505_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99] sm:min-w-0"
+      >
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#d7b55a]/75">
-              {title}
-            </p>
-            <div className="mt-3 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-2xl">
-                {getTournamentTypeEmoji(tournament.tournament_type)}
-              </div>
-              <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
-                {tournament.title}
-              </h3>
-            </div>
-          </div>
+          <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
+            {tournament.title}
+          </h3>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/75">
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5">
-            <CalendarIcon />
-            <span>{formatTournamentShortDate(tournament.start_at)}</span>
+          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+            {formatTournamentShortDate(tournament.start_at)}
           </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5">
+          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+            {formatTournamentShortTime(tournament.start_at)}
+          </div>
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
             <UserIcon />
             <span>{registeredCount} / {tournament.max_players} игроков</span>
           </div>
@@ -913,21 +864,12 @@ export default function HomePage() {
 
         <p className="mt-4 text-sm text-white/65">Призовые места: {prizePlaces}</p>
 
-        <div className="mt-5 flex gap-3">
-          <Link
-            href={`/tournaments/${tournament.id}`}
-            className="flex-1 rounded-2xl bg-[#d7b55a] px-4 py-3 text-center text-sm font-semibold text-black transition active:scale-[0.99]"
-          >
+        <div className="mt-5">
+          <div className="inline-flex min-w-[170px] items-center justify-center rounded-2xl bg-[#d7b55a] px-4 py-3 text-center text-sm font-semibold text-black">
             {actionLabel}
-          </Link>
-          <Link
-            href={`/tournaments/${tournament.id}`}
-            className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-medium text-white/80 transition active:scale-[0.99]"
-          >
-            Открыть
-          </Link>
+          </div>
         </div>
-      </div>
+      </Link>
     );
   }
 
@@ -1213,13 +1155,18 @@ export default function HomePage() {
         {checkedTelegram && !!player && !playerLoading && !playerError ? (
           <>
             <section className="space-y-3">
-              {nearestTournament
-                ? renderTournamentCard(
-                    nearestTournament,
-                    nearestTournamentRegisteredCount,
-                    "Ближайший турнир"
-                  )
-                : null}
+              {showAnyTournamentCard ? (
+                <div className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="flex snap-x snap-mandatory gap-3">
+                    {homeTournaments.map((tournament) =>
+                      renderTournamentCard(
+                        tournament,
+                        registrationCounts[tournament.id] ?? 0
+                      )
+                    )}
+                  </div>
+                </div>
+              ) : null}
 
               {!showAnyTournamentCard ? (
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
