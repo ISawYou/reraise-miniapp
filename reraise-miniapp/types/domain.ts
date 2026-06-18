@@ -32,6 +32,9 @@ export type Player = {
   can_access_free?: boolean;
   can_access_paid?: boolean;
   can_access_cash?: boolean;
+  referral_count?: number;
+  free_reentries_balance?: number;
+  yandex_review_bonus_claimed?: boolean;
   created_at: string;
 };
 

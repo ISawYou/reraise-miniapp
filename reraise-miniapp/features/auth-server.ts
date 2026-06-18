@@ -24,6 +24,9 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     can_access_free: row.can_access_free,
     can_access_paid: row.can_access_paid,
     can_access_cash: row.can_access_cash,
+    referral_count: row.referral_count,
+    free_reentries_balance: row.free_reentries_balance,
+    yandex_review_bonus_claimed: row.yandex_review_bonus_claimed,
     created_at: row.created_at,
   };
 }

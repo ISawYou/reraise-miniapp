@@ -565,6 +565,29 @@ export default function PlayerProfilePage() {
             </div>
           </div>
 
+          {((player.referral_count ?? 0) > 0 ||
+            (player.free_reentries_balance ?? 0) > 0) ? (
+            <div className="rounded-3xl border border-white/10 bg-white/[0.05] px-5 pb-5 pt-4">
+              <p className="text-2xl font-semibold text-white">
+                Реферальная программа
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-4">
+                <div className="text-center">
+                  <p className="text-2xl font-semibold text-white">
+                    {player.referral_count ?? 0}
+                  </p>
+                  <p className="mt-2 text-sm text-white/55">Приглашено друзей</p>
+                </div>
+                <div className="border-l border-white/10 pl-4 text-center">
+                  <p className="text-2xl font-semibold text-white">
+                    {player.free_reentries_balance ?? 0}
+                  </p>
+                  <p className="mt-2 text-sm text-white/55">Бесплатных re-entry</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <Link
             href={`/players/${player.id}/achievements`}
             className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"

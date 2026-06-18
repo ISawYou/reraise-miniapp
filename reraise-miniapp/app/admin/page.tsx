@@ -44,6 +44,12 @@ const ADMIN_CARDS: AdminCard[] = [
     title: "Настройки",
     description: "Debug overlay, предложение привязки email и прочие параметры.",
   },
+  {
+    href: "/admin/referral",
+    code: "RF",
+    title: "Реферальная программа",
+    description: "Рефералы, бесплатные re-entry и бонус за отзыв на Яндекс.",
+  },
 ];
 
 export default function AdminPage() {

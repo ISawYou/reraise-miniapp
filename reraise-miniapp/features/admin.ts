@@ -22,6 +22,9 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     can_access_free: row.can_access_free,
     can_access_paid: row.can_access_paid,
     can_access_cash: row.can_access_cash,
+    referral_count: row.referral_count,
+    free_reentries_balance: row.free_reentries_balance,
+    yandex_review_bonus_claimed: row.yandex_review_bonus_claimed,
     created_at: row.created_at,
   };
 }
@@ -154,6 +157,93 @@ export async function updatePlayerTournamentAccess(
 
   if (error) {
     throw new Error(`Ошибка обновления доступа: ${error.message}`);
+  }
+
+  return mapPlayerRowToDomain(data as PlayerRow);
+}
+
+export type ReferralAction =
+  | "increment_referral"
+  | "decrement_referral"
+  | "increment_free_reentries"
+  | "decrement_free_reentries"
+  | "set_yandex_review";
+
+export async function getPlayersForReferral(): Promise<Player[]> {
+  const { data, error } = await supabase
+    .from("players")
+    .select("*")
+    .order("display_name", { ascending: true });
+
+  if (error) {
+    throw new Error(`Ошибка загрузки игроков: ${error.message}`);
+  }
+
+  return (data ?? []).map((row) => mapPlayerRowToDomain(row as PlayerRow));
+}
+
+export async function updatePlayerReferralData(
+  playerId: string,
+  action: ReferralAction,
+  value?: boolean
+): Promise<Player> {
+  const { data: current, error: fetchError } = await supabase
+    .from("players")
+    .select("referral_count, free_reentries_balance, yandex_review_bonus_claimed")
+    .eq("id", playerId)
+    .single();
+
+  if (fetchError || !current) {
+    throw new Error("Игрок не найден");
+  }
+
+  const currentRow = current as {
+    referral_count: number;
+    free_reentries_balance: number;
+    yandex_review_bonus_claimed: boolean;
+  };
+
+  let update: Record<string, number | boolean> = {};
+
+  if (action === "increment_referral") {
+    update = {
+      referral_count: currentRow.referral_count + 1,
+      free_reentries_balance: currentRow.free_reentries_balance + 1,
+    };
+  } else if (action === "decrement_referral") {
+    update = {
+      referral_count: Math.max(0, currentRow.referral_count - 1),
+      free_reentries_balance: Math.max(0, currentRow.free_reentries_balance - 1),
+    };
+  } else if (action === "increment_free_reentries") {
+    update = { free_reentries_balance: currentRow.free_reentries_balance + 1 };
+  } else if (action === "decrement_free_reentries") {
+    update = { free_reentries_balance: Math.max(0, currentRow.free_reentries_balance - 1) };
+  } else if (action === "set_yandex_review") {
+    const newValue = !!value;
+    let newBalance = currentRow.free_reentries_balance;
+
+    if (newValue && !currentRow.yandex_review_bonus_claimed) {
+      newBalance += 1;
+    } else if (!newValue && currentRow.yandex_review_bonus_claimed) {
+      newBalance = Math.max(0, newBalance - 1);
+    }
+
+    update = {
+      yandex_review_bonus_claimed: newValue,
+      free_reentries_balance: newBalance,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("players")
+    .update(update)
+    .eq("id", playerId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw new Error(`Ошибка обновления: ${error.message}`);
   }
 
   return mapPlayerRowToDomain(data as PlayerRow);
