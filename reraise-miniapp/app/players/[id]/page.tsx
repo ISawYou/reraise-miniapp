@@ -65,6 +65,22 @@ function getTournamentKindLabel(kind: Tournament["kind"]) {
   return "Бесплатный";
 }
 
+function pluralFriends(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n} друг`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} друга`;
+  return `${n} друзей`;
+}
+
+function pluralEntries(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n} бесплатный вход`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} бесплатных входа`;
+  return `${n} бесплатных входов`;
+}
+
 function PencilIcon() {
   return (
     <svg
@@ -486,6 +502,20 @@ export default function PlayerProfilePage() {
             {isOwnProfile && player.email ? (
               <p className="mt-1 truncate text-sm text-white/45">{player.email}</p>
             ) : null}
+
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="text-xs text-white/45">
+                {pluralFriends(player.referral_count ?? 0)}
+              </span>
+              <span className="text-xs text-white/20">·</span>
+              {(player.free_reentries_balance ?? 0) > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-xs font-medium text-yellow-400">
+                  🎟 {pluralEntries(player.free_reentries_balance ?? 0)}
+                </span>
+              ) : (
+                <span className="text-xs text-white/45">0 re-entry</span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -564,29 +594,6 @@ export default function PlayerProfilePage() {
               </div>
             </div>
           </div>
-
-          {((player.referral_count ?? 0) > 0 ||
-            (player.free_reentries_balance ?? 0) > 0) ? (
-            <div className="rounded-3xl border border-white/10 bg-white/[0.05] px-5 pb-5 pt-4">
-              <p className="text-2xl font-semibold text-white">
-                Реферальная программа
-              </p>
-              <div className="mt-5 grid grid-cols-2 gap-4">
-                <div className="text-center">
-                  <p className="text-2xl font-semibold text-white">
-                    {player.referral_count ?? 0}
-                  </p>
-                  <p className="mt-2 text-sm text-white/55">Приглашено друзей</p>
-                </div>
-                <div className="border-l border-white/10 pl-4 text-center">
-                  <p className="text-2xl font-semibold text-white">
-                    {player.free_reentries_balance ?? 0}
-                  </p>
-                  <p className="mt-2 text-sm text-white/55">Бесплатных re-entry</p>
-                </div>
-              </div>
-            </div>
-          ) : null}
 
           <Link
             href={`/players/${player.id}/achievements`}

@@ -207,70 +207,65 @@ export default function AdminReferralPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-white/70">Рефералы</span>
-                      <div className="flex items-center gap-2">
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-3">
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-white/50">Рефералы</p>
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => handleAction(targetPlayer, "decrement_referral")}
                           disabled={isAnyProcessing || referralCount === 0}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-white disabled:opacity-40"
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
                         >
                           −
                         </button>
-                        <span className="w-8 text-center text-sm font-semibold text-white">
+                        <span className="min-w-[1.25rem] text-center text-sm font-semibold text-white">
                           {processingKey === `decrement_referral-${targetPlayer.id}` ||
                           processingKey === `increment_referral-${targetPlayer.id}`
-                            ? "..."
+                            ? "…"
                             : referralCount}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleAction(targetPlayer, "increment_referral")}
                           disabled={isAnyProcessing}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-white disabled:opacity-40"
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
                         >
                           +
                         </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-white/70">Бесплатные re-entry</span>
-                      <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-white/50">Бесплатные re-entry</p>
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() =>
-                            handleAction(targetPlayer, "decrement_free_reentries")
-                          }
+                          onClick={() => handleAction(targetPlayer, "decrement_free_reentries")}
                           disabled={isAnyProcessing || freeReentries === 0}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-white disabled:opacity-40"
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
                         >
                           −
                         </button>
-                        <span className="w-8 text-center text-sm font-semibold text-white">
-                          {processingKey ===
-                            `decrement_free_reentries-${targetPlayer.id}` ||
+                        <span className="min-w-[1.25rem] text-center text-sm font-semibold text-white">
+                          {processingKey === `decrement_free_reentries-${targetPlayer.id}` ||
                           processingKey === `increment_free_reentries-${targetPlayer.id}`
-                            ? "..."
+                            ? "…"
                             : freeReentries}
                         </span>
                         <button
                           type="button"
-                          onClick={() =>
-                            handleAction(targetPlayer, "increment_free_reentries")
-                          }
+                          onClick={() => handleAction(targetPlayer, "increment_free_reentries")}
                           disabled={isAnyProcessing}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-white disabled:opacity-40"
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
                         >
                           +
                         </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-white/70">Отзыв на Яндекс</span>
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs text-white/50">Отзыв на Яндекс</p>
                       <button
                         type="button"
                         role="switch"
