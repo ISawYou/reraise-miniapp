@@ -162,18 +162,6 @@ function UserIcon() {
   );
 }
 
-function HomeIcon() {
-  return <span aria-hidden="true">🏠</span>;
-}
-
-function SpadeIcon() {
-  return <span aria-hidden="true">♠️</span>;
-}
-
-function ProfileIcon() {
-  return <span aria-hidden="true">👤</span>;
-}
-
 function PlaceIcon() {
   return (
     <svg
@@ -1151,42 +1139,31 @@ export default function HomePage() {
     <main className="relative min-h-screen bg-[#080808] px-4 py-6 pb-28 text-white">
       <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#c9a84c0a,transparent)]" />
       <div className="relative mx-auto max-w-md">
-        <header className="mb-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.22)]">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-[#c9a84c]/60">
-                Игровое пространство РЕРЕЙЗ
-              </p>
-              <p className="mt-4 text-2xl font-bold tracking-tight text-white">
-                Привет, {greetingName}
-              </p>
-              <p className="mt-1 text-sm text-white/60">
-                Добро пожаловать в РЕРЕЙЗ
-              </p>
+        <Link
+          href={`/players/${player.id}`}
+          className="mb-6 flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/[0.04] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.22)]"
+        >
+          {homeAvatarUrl ? (
+            <img
+              src={homeAvatarUrl}
+              alt={greetingName}
+              className="h-12 w-12 rounded-2xl border border-white/10 object-cover"
+            />
+          ) : (
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] text-sm font-semibold text-white/80">
+              {homeAvatarFallback}
             </div>
+          )}
 
-            <div className="flex shrink-0 items-center gap-3">
-              {homeAvatarUrl ? (
-                <img
-                  src={homeAvatarUrl}
-                  alt={greetingName}
-                  className="h-12 w-12 rounded-2xl border border-white/10 object-cover"
-                />
-              ) : (
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] text-sm font-semibold text-white/80">
-                  {homeAvatarFallback}
-                </div>
-              )}
-
-              <Link
-                href={`/players/${player.id}`}
-                className="inline-flex shrink-0 items-center rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-white/85"
-              >
-                Профиль
-              </Link>
-            </div>
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[#c9a84c]/60">
+              РЕРЕЙЗ
+            </p>
+            <p className="mt-1 truncate text-lg font-semibold text-white">
+              {greetingName}
+            </p>
           </div>
-        </header>
+        </Link>
 
         {!checkedTelegram ? (
           <div className="rounded-xl border border-white/10 bg-white/[0.05] p-4 text-sm text-white/70">
@@ -1236,20 +1213,6 @@ export default function HomePage() {
         {checkedTelegram && !!player && !playerLoading && !playerError ? (
           <>
             <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-[#c9a84c]/55">
-                    Ближайшие турниры
-                  </p>
-                  <p className="mt-1 text-sm text-white/55">
-                    Самое важное на ближайшее время
-                  </p>
-                </div>
-                <Link href="/tournaments" className="text-sm text-white/55">
-                  Все →
-                </Link>
-              </div>
-
               {nearestTournament
                 ? renderTournamentCard(
                     nearestTournament,
@@ -1384,36 +1347,6 @@ export default function HomePage() {
           </>
         ) : null}
       </div>
-
-      {!!player && (
-        <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-white/10 bg-[#090909]/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur-xl">
-          <div className="mx-auto grid max-w-md grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
-            <Link
-              href="/"
-              className="flex flex-col items-center justify-center gap-1 rounded-xl bg-white/[0.08] px-3 py-2 text-center text-xs font-medium text-white"
-            >
-              <HomeIcon />
-              <span>Главная</span>
-            </Link>
-
-            <Link
-              href="/tournaments"
-              className="flex flex-col items-center justify-center gap-1 rounded-xl px-3 py-2 text-center text-xs font-medium text-white/55"
-            >
-              <SpadeIcon />
-              <span>Турниры</span>
-            </Link>
-
-            <Link
-              href={`/players/${player.id}`}
-              className="flex flex-col items-center justify-center gap-1 rounded-xl px-3 py-2 text-center text-xs font-medium text-white/55"
-            >
-              <ProfileIcon />
-              <span>Профиль</span>
-            </Link>
-          </div>
-        </nav>
-      )}
 
       {promotionToast ? <PromotionToast message={promotionToast} /> : null}
 

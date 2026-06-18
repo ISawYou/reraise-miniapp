@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Onest } from "next/font/google";
 import "./globals.css";
+import { BottomNav } from "@/components/bottom-nav";
 import { TelegramAppShell } from "@/components/telegram-app-shell";
 import { TelegramDebugOverlay } from "@/components/telegram-debug-overlay";
 
@@ -36,7 +37,10 @@ export default function RootLayout({
       >
         <TelegramAppShell />
         <TelegramDebugOverlay />
-        <div className="telegram-app-safe-area min-h-screen">{children}</div>
+        <div className="telegram-app-safe-area min-h-screen">
+          {children}
+          <BottomNav />
+        </div>
       </body>
     </html>
   );
