@@ -65,10 +65,6 @@ function getTournamentKindLabel(kind: Tournament["kind"]) {
   return "Бесплатный";
 }
 
-function pluralInvited(n: number): string {
-  return `${n} приглашено`;
-}
-
 function pluralEntries(n: number): string {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -499,18 +495,13 @@ export default function PlayerProfilePage() {
               <p className="mt-1 truncate text-sm text-white/45">{player.email}</p>
             ) : null}
 
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-0.5 text-xs text-white/60">
-                🎁 {pluralInvited(player.referral_count ?? 0)}
-              </span>
-              {(player.free_reentries_balance ?? 0) > 0 ? (
+            {(player.free_reentries_balance ?? 0) > 0 ? (
+              <div className="mt-2">
                 <span className="inline-flex items-center gap-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-0.5 text-xs font-medium text-yellow-400">
                   🎟 {pluralEntries(player.free_reentries_balance ?? 0)}
                 </span>
-              ) : (
-                <span className="text-xs text-white/35">0 re-entry</span>
-              )}
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
