@@ -237,7 +237,7 @@ export default function AdminReferralPage() {
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <p className="text-xs text-white/50">Бесплатные re-entry</p>
+                      <p className="text-xs text-white/50">re-entry</p>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
