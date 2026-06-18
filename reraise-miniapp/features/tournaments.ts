@@ -6,6 +6,7 @@ import type {
   RegistrationStatus,
   Tournament,
   TournamentKind,
+  TournamentType,
   TournamentLiveEntry,
   TournamentParticipant,
   TournamentResult,
@@ -76,6 +77,7 @@ function mapTournamentRow(row: TournamentRow): Tournament {
     start_at: row.start_at,
     max_players: row.max_players,
     kind: "free",
+    tournament_type: row.tournament_type ?? "classic",
     season_id: row.season_id,
     status: row.status as TournamentStatus,
     created_at: row.created_at,
@@ -606,7 +608,7 @@ export async function createTournament(input: {
   location: string;
   start_at: string;
   max_players: number;
-  kind: TournamentKind;
+  tournament_type: TournamentType;
 }) {
   const { data: activeSeason, error: activeSeasonError } = await supabase
     .from("seasons")
@@ -627,7 +629,8 @@ export async function createTournament(input: {
       location: input.location,
       start_at: input.start_at,
       max_players: input.max_players,
-      kind: input.kind,
+      kind: "free",
+      tournament_type: input.tournament_type,
       status: "open",
       season_id: activeSeason.id,
     })
@@ -649,7 +652,7 @@ export async function updateTournament(
     location: string;
     start_at: string;
     max_players: number;
-    kind: TournamentKind;
+    tournament_type: TournamentType;
   }
 ) {
   const { data, error } = await supabase
@@ -660,7 +663,7 @@ export async function updateTournament(
       location: input.location,
       start_at: input.start_at,
       max_players: input.max_players,
-      kind: input.kind,
+      tournament_type: input.tournament_type,
     })
     .eq("id", tournamentId)
     .select("*")
@@ -1258,7 +1261,6 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     throw new Error(deleteError.message);
   }
 
-  const hasKnockouts = liveEntries.some((e) => e.knockouts > 0);
   const ratingMap = new Map(
     calculateRatingPoints(
       liveEntries.map((entry) => ({
@@ -1267,7 +1269,7 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
         knockouts: entry.knockouts,
         arrived: entry.arrived,
       })),
-      hasKnockouts
+      tournament.tournament_type
     ).map((r) => [r.player_id, r.rating_points])
   );
 

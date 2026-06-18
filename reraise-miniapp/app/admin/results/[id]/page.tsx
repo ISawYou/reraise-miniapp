@@ -9,6 +9,11 @@ import {
   getTournamentResultsDraft,
 } from "@/features/tournaments";
 import { fetchAdminJson } from "@/lib/client-request";
+import {
+  getExpectedPrizePlaces,
+  getTournamentTypeBonusLines,
+  getTournamentTypeLabel,
+} from "@/lib/tournament-helpers";
 import { getTelegramUser } from "@/lib/telegram";
 import type { Player, Tournament, TournamentLiveEntry } from "@/types/domain";
 
@@ -224,6 +229,11 @@ export default function AdminTournamentResultsPage() {
     return JSON.stringify(liveRows) !== initialLiveSnapshot;
   }, [initialLiveSnapshot, isFreeTournament, liveRows]);
   const hasUnsavedChanges = hasUnsavedFreeChanges || hasUnsavedLiveChanges;
+  const currentEntriesCount = isFreeTournament ? freeRows.length : liveRows.length;
+  const expectedPrizePlaces = getExpectedPrizePlaces(currentEntriesCount);
+  const tournamentTypeBonusLines = tournament
+    ? getTournamentTypeBonusLines(tournament.tournament_type)
+    : [];
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -692,6 +702,32 @@ export default function AdminTournamentResultsPage() {
             {error}
           </div>
         ) : null}
+
+        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+            <p className="text-[11px] font-medium text-white/50">Тип турнира</p>
+            <p className="mt-1 text-sm font-semibold text-white">
+              {tournament ? getTournamentTypeLabel(tournament.tournament_type) : "Texas Classic"}
+            </p>
+            {tournamentTypeBonusLines.length > 0 ? (
+              <p className="mt-1 text-xs text-white/60">
+                {tournamentTypeBonusLines.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+            <p className="text-[11px] font-medium text-white/50">
+              Ожидаемое количество призовых мест
+            </p>
+            <p className="mt-1 text-sm font-semibold text-white">{expectedPrizePlaces}</p>
+            {expectedPrizePlaces > 0 ? (
+              <p className="mt-1 text-xs text-white/60">
+                Рейтинговая зона: места 1-{expectedPrizePlaces}
+              </p>
+            ) : null}
+          </div>
+        </div>
 
         {(isFreeTournament ? freeRows.length > 0 : liveRows.length > 0) ? (
           <>

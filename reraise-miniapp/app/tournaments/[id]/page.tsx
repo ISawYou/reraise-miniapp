@@ -14,6 +14,11 @@ import {
   cancelPlayerRegistration,
 } from "@/features/tournaments";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import {
+  getExpectedPrizePlaces,
+  getTournamentTypeBonusLines,
+  getTournamentTypeLabel,
+} from "@/lib/tournament-helpers";
 import { supabase } from "@/lib/supabase";
 import { getTelegramUser } from "@/lib/telegram";
 import type {
@@ -221,6 +226,10 @@ export default function TournamentDetailsPage() {
   const tournamentDateParts = tournament
     ? formatTournamentDateParts(tournament.start_at)
     : null;
+  const expectedPrizePlaces = getExpectedPrizePlaces(participants.length);
+  const tournamentTypeBonusLines = tournament
+    ? getTournamentTypeBonusLines(tournament.tournament_type)
+    : [];
   const registeredParticipants = participants.filter(
   (participant) =>
     participant.status === "registered" || participant.status === "attended"
@@ -494,6 +503,36 @@ const waitlistParticipants = participants.filter(
                 <p className="mt-3 text-sm font-semibold text-white">
                   {tournament.location || "Не указано"}
                 </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex items-center gap-1.5 text-xs text-white/50">
+                  <UserIcon />
+                  <span>Призовые места</span>
+                </div>
+                <p className="mt-3 text-sm font-semibold text-white">
+                  {expectedPrizePlaces}
+                </p>
+                {expectedPrizePlaces > 0 ? (
+                  <p className="mt-1 text-xs text-white/55">
+                    Рейтинговая зона: места 1-{expectedPrizePlaces}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex items-center gap-1.5 text-xs text-white/50">
+                  <StarIcon />
+                  <span>Тип турнира</span>
+                </div>
+                <p className="mt-3 text-sm font-semibold text-white">
+                  {getTournamentTypeLabel(tournament.tournament_type)}
+                </p>
+                {tournamentTypeBonusLines.length > 0 ? (
+                  <p className="mt-1 text-xs text-white/55">
+                    {tournamentTypeBonusLines.join(" · ")}
+                  </p>
+                ) : null}
               </div>
             </section>
 

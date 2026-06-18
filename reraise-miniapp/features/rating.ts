@@ -1,3 +1,10 @@
+import type { TournamentType } from "@/types/domain";
+import {
+  getExpectedPrizePlaces,
+  getTournamentTypeMultiplier,
+  supportsTournamentKnockouts,
+} from "@/lib/tournament-helpers";
+
 export type PlayerRatingInput = {
   player_id: string;
   place: number;
@@ -25,11 +32,11 @@ function getBasePlacePoints(place: number): number {
 }
 
 function getFieldCoefficient(fieldSize: number): number {
-  if (fieldSize <= 9) return 0.8;
-  if (fieldSize <= 13) return 0.9;
-  if (fieldSize <= 17) return 1.0;
-  if (fieldSize <= 21) return 1.1;
-  if (fieldSize <= 25) return 1.2;
+  if (fieldSize <= 7) return 0.7;
+  if (fieldSize <= 11) return 0.85;
+  if (fieldSize <= 15) return 1.0;
+  if (fieldSize <= 19) return 1.1;
+  if (fieldSize <= 24) return 1.2;
   if (fieldSize <= 29) return 1.3;
   if (fieldSize <= 35) return 1.4;
   return 1.5;
@@ -37,11 +44,13 @@ function getFieldCoefficient(fieldSize: number): number {
 
 export function calculateRatingPoints(
   players: PlayerRatingInput[],
-  hasKnockouts: boolean
+  tournamentType: TournamentType
 ): Array<{ player_id: string; rating_points: number }> {
   const fieldSize = players.filter((p) => p.arrived).length;
-  const ratingZoneSize = Math.max(3, Math.ceil(fieldSize * 0.3));
-  const coefficient = getFieldCoefficient(fieldSize);
+  const ratingZoneSize = getExpectedPrizePlaces(fieldSize);
+  const fieldCoefficient = getFieldCoefficient(fieldSize);
+  const tournamentMultiplier = getTournamentTypeMultiplier(tournamentType);
+  const hasKnockouts = supportsTournamentKnockouts(tournamentType);
 
   return players.map((player) => {
     if (!player.arrived) {
@@ -51,10 +60,14 @@ export function calculateRatingPoints(
     const basePlacePoints =
       player.place <= ratingZoneSize ? getBasePlacePoints(player.place) : 0;
     const knockoutPoints = hasKnockouts ? player.knockouts * 5 : 0;
+    const placePoints =
+      basePlacePoints > 0
+        ? Math.round(basePlacePoints * fieldCoefficient * tournamentMultiplier)
+        : 0;
 
     return {
       player_id: player.player_id,
-      rating_points: Math.round(basePlacePoints * coefficient) + knockoutPoints + 2,
+      rating_points: placePoints + knockoutPoints + 2,
     };
   });
 }

@@ -32,6 +32,7 @@ export type TournamentRow = {
   start_at: string;
   max_players: number;
   kind: "free" | "paid" | "cash";
+  tournament_type: "classic" | "phoenix" | "deep_stack" | "bounty" | "win_the_button";
   season_id: string | null;
   status: string;
   created_at: string;

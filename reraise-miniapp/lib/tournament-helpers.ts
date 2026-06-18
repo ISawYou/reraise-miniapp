@@ -1,33 +1,71 @@
-import type { TournamentKind } from '@/types/domain';
+import type { TournamentKind, TournamentType } from "@/types/domain";
 
-/**
- * Returns the display label for a tournament kind.
- * Currently duplicated inline in app/page.tsx, app/tournaments/page.tsx,
- * and app/tournaments/[id]/page.tsx — extracted here as single source of truth.
- */
 export function getTournamentKindLabel(kind: TournamentKind): string {
-  if (kind === 'paid') return 'Платный';
-  if (kind === 'cash') return 'Кэш';
-  return 'Бесплатный';
+  if (kind === "paid") return "Платный";
+  if (kind === "cash") return "Кэш";
+  return "Бесплатный";
 }
 
-/**
- * Returns the Tailwind `from-*` gradient class for a tournament kind.
- * Currently inline in app/tournaments/[id]/page.tsx — extracted here.
- */
 export function getTournamentKindGradient(kind: TournamentKind): string {
-  if (kind === 'paid') return 'from-amber-700/35';
-  if (kind === 'cash') return 'from-cyan-700/30';
-  return 'from-emerald-700/45';
+  if (kind === "paid") return "from-amber-700/35";
+  if (kind === "cash") return "from-cyan-700/30";
+  return "from-emerald-700/45";
 }
 
-/**
- * Determines registration status based on current count vs capacity.
- * Pure function extracted from features/tournaments.ts status determination logic.
- */
 export function getRegistrationStatus(
   registeredCount: number,
   maxPlayers: number
-): 'registered' | 'waitlist' {
-  return registeredCount < maxPlayers ? 'registered' : 'waitlist';
+): "registered" | "waitlist" {
+  return registeredCount < maxPlayers ? "registered" : "waitlist";
+}
+
+export function getTournamentTypeLabel(type: TournamentType): string {
+  switch (type) {
+    case "phoenix":
+      return "Phoenix";
+    case "deep_stack":
+      return "Deep Stack";
+    case "bounty":
+      return "Bounty";
+    case "win_the_button":
+      return "Win The Button";
+    case "classic":
+    default:
+      return "Texas Classic";
+  }
+}
+
+export function getTournamentTypeMultiplier(type: TournamentType): number {
+  if (type === "phoenix" || type === "win_the_button") {
+    return 1.2;
+  }
+
+  return 1;
+}
+
+export function supportsTournamentKnockouts(type: TournamentType): boolean {
+  return type === "bounty";
+}
+
+export function getTournamentTypeBonusLines(type: TournamentType): string[] {
+  const lines: string[] = [];
+  const multiplier = getTournamentTypeMultiplier(type);
+
+  if (multiplier > 1) {
+    lines.push(`Бонус рейтинга x${multiplier.toFixed(2)}`);
+  }
+
+  if (supportsTournamentKnockouts(type)) {
+    lines.push("Нокауты: +5 очков");
+  }
+
+  return lines;
+}
+
+export function getExpectedPrizePlaces(uniquePlayersCount: number): number {
+  if (uniquePlayersCount <= 0) {
+    return 0;
+  }
+
+  return Math.min(Math.max(Math.ceil(uniquePlayersCount * 0.3), 3), uniquePlayersCount);
 }

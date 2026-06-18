@@ -5,7 +5,15 @@ import { useEffect, useState } from "react";
 import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import { fetchAdminJson } from "@/lib/client-request";
 import { getTelegramUser } from "@/lib/telegram";
-import type { Player } from "@/types/domain";
+import type { Player, TournamentType } from "@/types/domain";
+
+const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
+  { value: "classic", label: "Texas Classic" },
+  { value: "phoenix", label: "Phoenix" },
+  { value: "deep_stack", label: "Deep Stack" },
+  { value: "bounty", label: "Bounty" },
+  { value: "win_the_button", label: "Win The Button" },
+];
 
 export default function AdminTournamentCreatePage() {
   const [player, setPlayer] = useState<Player | null>(null);
@@ -16,6 +24,7 @@ export default function AdminTournamentCreatePage() {
   const [location, setLocation] = useState("");
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
+  const [tournamentType, setTournamentType] = useState<TournamentType>("classic");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +92,7 @@ export default function AdminTournamentCreatePage() {
           location: location.trim(),
           start_at: new Date(startAt).toISOString(),
           max_players: Number(maxPlayers),
+          tournament_type: tournamentType,
         }),
       });
 
@@ -92,6 +102,7 @@ export default function AdminTournamentCreatePage() {
       setLocation("");
       setStartAt("");
       setMaxPlayers("20");
+      setTournamentType("classic");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка создания турнира");
     } finally {
@@ -208,6 +219,19 @@ export default function AdminTournamentCreatePage() {
             onChange={(e) => setMaxPlayers(e.target.value)}
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
+
+          <label className="mt-4 block text-sm text-white/80">Тип турнира</label>
+          <select
+            value={tournamentType}
+            onChange={(e) => setTournamentType(e.target.value as TournamentType)}
+            className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
+          >
+            {TOURNAMENT_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
 
           <button
             type="button"

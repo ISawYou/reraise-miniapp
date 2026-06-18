@@ -37,6 +37,12 @@ export async function POST(request: Request) {
       location: string;
       start_at: string;
       max_players: number;
+      tournament_type?:
+        | "classic"
+        | "phoenix"
+        | "deep_stack"
+        | "bounty"
+        | "win_the_button";
     };
 
     const supabase = getSupabaseServer();
@@ -73,6 +79,7 @@ export async function POST(request: Request) {
         start_at: body.start_at,
         max_players: body.max_players,
         kind: "free",
+        tournament_type: body.tournament_type ?? "classic",
         status: "open",
         season_id: activeSeason.id,
       })
