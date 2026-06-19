@@ -689,7 +689,7 @@ const waitlistParticipants = participants.filter(
       </div>
 
       {tournament.status !== "completed" ? (
-        <div className="pointer-events-none fixed inset-x-0 z-20 bottom-[calc(env(safe-area-inset-bottom)+78px)] px-4">
+        <div className="pointer-events-none fixed inset-x-0 z-20 bottom-[calc(env(safe-area-inset-bottom)+92px)] px-4">
           <div className="mx-auto max-w-md">
             <div className="pointer-events-auto rounded-[22px] border border-white/10 bg-[#0d0f0f]/78 p-3 backdrop-blur-xl">
               {renderActionButton()}

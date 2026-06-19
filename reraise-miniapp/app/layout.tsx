@@ -37,7 +37,7 @@ export default function RootLayout({
       >
         <TelegramAppShell />
         <TelegramDebugOverlay />
-        <div className="telegram-app-safe-area min-h-screen">
+        <div className="telegram-app-safe-area min-h-screen pb-[calc(env(safe-area-inset-bottom)+108px)]">
           {children}
           <BottomNav />
         </div>
