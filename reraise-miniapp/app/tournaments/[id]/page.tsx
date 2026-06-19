@@ -620,11 +620,8 @@ const waitlistParticipants = participants.filter(
                       href={`/players/${result.player_id}`}
                       className="text-sm font-medium text-white"
                     >
-                      {result.username ? `@${result.username}` : result.display_name}
+                      {result.display_name}
                     </Link>
-                    {!result.username ? (
-                      <p className="mt-1 text-xs text-white/50">{result.display_name}</p>
-                    ) : null}
                   </div>
 
                   <div className="text-right text-sm font-semibold text-white/80">
