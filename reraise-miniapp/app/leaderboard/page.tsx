@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getActiveSeason, getSeasonLeaderboard } from "@/features/tournaments";
 import { logEvent } from "@/lib/activity-client";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 
 type LeaderboardRow = {
@@ -18,6 +19,7 @@ type LeaderboardRow = {
 export default function LeaderboardPage() {
   const [seasonTitle, setSeasonTitle] = useState("");
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
+  const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +27,9 @@ export default function LeaderboardPage() {
     logEvent("rating_opened");
     async function loadLeaderboard() {
       try {
+        const currentPlayer = await resolveCurrentPlayer().catch(() => null);
+        setCurrentPlayerId(currentPlayer?.id ?? null);
+
         const activeSeason = await getActiveSeason();
         setSeasonTitle(
           typeof activeSeason.title === "string" && activeSeason.title.trim()
@@ -113,9 +118,19 @@ export default function LeaderboardPage() {
               <Link
                 key={row.player_id}
                 href={`/players/${row.player_id}`}
-                className="grid grid-cols-[48px_1fr_90px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
+                className={`grid grid-cols-[48px_1fr_90px] gap-3 border-b px-4 py-4 last:border-b-0 ${
+                  row.player_id === currentPlayerId
+                    ? "border-[#d7b55a]/25 bg-[#d7b55a]/[0.08]"
+                    : "border-white/10"
+                }`}
               >
-                <div className="text-sm font-semibold text-white/80">{index + 1}</div>
+                <div
+                  className={`text-sm font-semibold ${
+                    row.player_id === currentPlayerId ? "text-[#f0d38a]" : "text-white/80"
+                  }`}
+                >
+                  {index + 1}
+                </div>
 
                 <div className="flex items-center gap-3">
                   {getPlayerAvatarUrl(row) ? (
@@ -130,10 +145,21 @@ export default function LeaderboardPage() {
                     </div>
                   )}
 
-                  <p className="text-sm font-medium text-white">{row.display_name}</p>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">
+                      {row.display_name}
+                    </p>
+                    {row.player_id === currentPlayerId ? (
+                      <p className="mt-1 text-xs text-[#f0d38a]">Это вы</p>
+                    ) : null}
+                  </div>
                 </div>
 
-                <div className="text-right text-sm font-semibold text-white/80">
+                <div
+                  className={`text-right text-sm font-semibold ${
+                    row.player_id === currentPlayerId ? "text-[#f0d38a]" : "text-white/80"
+                  }`}
+                >
                   {row.rating}
                 </div>
               </Link>

@@ -12,6 +12,8 @@ import {
   getVisibleOpenTournamentsForPlayer,
   getPlayerRegistrations,
   getTournamentRegistrationCounts,
+  getActiveSeason,
+  getSeasonLeaderboard,
 } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
@@ -28,6 +30,15 @@ import { resolveCurrentPlayer } from "@/lib/current-player";
 import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
+
+type LeaderboardRow = {
+  player_id: string;
+  username: string | null;
+  display_name: string;
+  telegram_avatar_url: string | null;
+  custom_avatar_url: string | null;
+  rating: number;
+};
 
 const TELEGRAM_BOT_ID = Number(
   process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID ?? "8682500150"
@@ -189,6 +200,8 @@ export default function HomePage() {
   const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
   const [activeTournamentIndex, setActiveTournamentIndex] = useState(0);
   const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
+  const [seasonTitle, setSeasonTitle] = useState("Активный сезон");
+  const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
 
   const registrationsRef = useRef<Record<string, string>>({});
   const activeTournamentIndexRef = useRef(0);
@@ -330,13 +343,34 @@ export default function HomePage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts, achievementRows] = await Promise.all([
+    const [registrations, tournaments, counts, achievementRows, ratingData] = await Promise.all([
       getPlayerRegistrations(currentPlayer.id),
       getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
       fetch(`/api/players/${currentPlayer.id}/achievements`).then((response) =>
         response.ok ? response.json() : []
       ),
+      (async () => {
+        try {
+          const activeSeason = await getActiveSeason();
+          const leaderboard = await getSeasonLeaderboard(activeSeason.id);
+
+          return {
+            seasonTitle:
+              typeof activeSeason.title === "string" && activeSeason.title.trim()
+                ? activeSeason.title
+                : "Активный сезон",
+            leaderboard,
+          };
+        } catch (error) {
+          console.error("Home leaderboard load error:", error);
+
+          return {
+            seasonTitle: "Активный сезон",
+            leaderboard: [] as LeaderboardRow[],
+          };
+        }
+      })(),
     ]);
 
     const nextMap: Record<string, string> = {};
@@ -372,6 +406,8 @@ export default function HomePage() {
     setHomeTournaments(tournaments);
     setRegistrationCounts(counts);
     setActiveTournamentIndex(0);
+    setSeasonTitle(ratingData.seasonTitle);
+    setLeaderboardRows(ratingData.leaderboard);
     setCompletedAchievementsCount(
       (achievementRows as Array<{ completed_at: string | null }>).filter(
         (row) => row.completed_at
@@ -833,6 +869,22 @@ export default function HomePage() {
     player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null;
   const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
   const showAnyTournamentCard = homeTournaments.length > 0;
+  const topThreeRows = leaderboardRows.slice(0, 3);
+  const currentPlayerLeaderboardIndex = player
+    ? leaderboardRows.findIndex((row) => row.player_id === player.id)
+    : -1;
+  const currentPlayerLeaderboardRow =
+    currentPlayerLeaderboardIndex >= 0
+      ? leaderboardRows[currentPlayerLeaderboardIndex]
+      : null;
+  const currentPlayerIsInTopThree =
+    currentPlayerLeaderboardIndex >= 0 && currentPlayerLeaderboardIndex < 3;
+
+  function getLeaderboardMedal(place: number) {
+    if (place === 1) return "🥇";
+    if (place === 2) return "🥈";
+    return "🥉";
+  }
 
   function updateActiveTournamentIndex(index: number) {
     const boundedIndex = Math.max(0, Math.min(index, homeTournaments.length - 1));
@@ -1275,6 +1327,80 @@ export default function HomePage() {
                   Сейчас нет открытых турниров
                 </div>
               ) : null}
+            </section>
+
+            <section className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold text-white">Рейтинг сезона</h2>
+                  <p className="mt-1 text-sm text-white/45">{seasonTitle}</p>
+                </div>
+
+                <Link
+                  href="/leaderboard"
+                  className="shrink-0 text-sm font-medium text-[#d7b55a]"
+                >
+                  Весь рейтинг →
+                </Link>
+              </div>
+
+              {topThreeRows.length > 0 ? (
+                <div className="mt-5 space-y-2.5">
+                  {topThreeRows.map((row, index) => (
+                    <Link
+                      key={row.player_id}
+                      href={`/players/${row.player_id}`}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.035] px-4 py-3 transition active:scale-[0.99]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {getLeaderboardMedal(index + 1)} {row.display_name}
+                        </p>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold text-white/75">
+                        {row.rating}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4 text-sm text-white/55">
+                  Рейтинг сезона пока пуст.
+                </div>
+              )}
+
+              <div className="mt-4 rounded-2xl border border-[#d7b55a]/20 bg-[#d7b55a]/[0.07] px-4 py-4">
+                {currentPlayerLeaderboardRow ? (
+                  currentPlayerIsInTopThree ? (
+                    <>
+                      <p className="text-sm font-semibold text-white">
+                        Вы сейчас в ТОП-3 сезона
+                      </p>
+                      <p className="mt-1 text-sm text-white/70">
+                        Ваше место: #{currentPlayerLeaderboardIndex + 1} •{" "}
+                        {currentPlayerLeaderboardRow.rating} очков
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-white">Ваш результат</p>
+                      <p className="mt-1 text-sm text-white/70">
+                        #{currentPlayerLeaderboardIndex + 1} •{" "}
+                        {currentPlayerLeaderboardRow.rating} очков
+                      </p>
+                    </>
+                  )
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-white">
+                      Вы пока не участвуете в рейтинге
+                    </p>
+                    <p className="mt-1 text-sm text-white/70">
+                      Сыграйте первый турнир, чтобы попасть в таблицу рейтинга
+                    </p>
+                  </>
+                )}
+              </div>
             </section>
 
             <button
