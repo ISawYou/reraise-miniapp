@@ -25,6 +25,7 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     logEvent("rating_opened");
+
     async function loadLeaderboard() {
       try {
         const currentPlayer = await resolveCurrentPlayer().catch(() => null);

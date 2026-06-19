@@ -886,6 +886,18 @@ export default function HomePage() {
     return "🥉";
   }
 
+  function getCompactLeaderboardSummary() {
+    if (currentPlayerLeaderboardRow) {
+      if (currentPlayerIsInTopThree) {
+        return `Вы сейчас в ТОП-3 сезона • #${currentPlayerLeaderboardIndex + 1} • ${currentPlayerLeaderboardRow.rating} очков`;
+      }
+
+      return `Вы: #${currentPlayerLeaderboardIndex + 1} • ${currentPlayerLeaderboardRow.rating} очков`;
+    }
+
+    return "Вы пока не участвуете в рейтинге";
+  }
+
   function updateActiveTournamentIndex(index: number) {
     const boundedIndex = Math.max(0, Math.min(index, homeTournaments.length - 1));
     activeTournamentIndexRef.current = boundedIndex;
@@ -953,6 +965,7 @@ export default function HomePage() {
     registeredCount: number
   ) {
     const prizePlaces = getExpectedPrizePlaces(registeredCount);
+    const countdownText = formatTournamentCountdown(tournament.start_at);
     const registrationStatus = registrationsRef.current[tournament.id] ?? null;
     const actionLabel =
       registrationStatus === "registered"
@@ -964,13 +977,13 @@ export default function HomePage() {
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
-        className="block min-w-full shrink-0 overflow-hidden rounded-[30px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
+        className="block min-w-full shrink-0 overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
       >
         <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
           {tournament.title}
         </h3>
 
-        <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/75">
+        <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
           <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
             {formatTournamentShortDate(tournament.start_at)}
           </div>
@@ -983,18 +996,14 @@ export default function HomePage() {
           </div>
         </div>
 
-        <p className="mt-4 text-sm font-semibold text-white/75">🏆 ТОП-{prizePlaces}</p>
-        <div className="mt-2 text-xs text-white/45">
-          <p>
-            До начала:{" "}
-            <span className="text-white/65">
-              {formatTournamentCountdown(tournament.start_at)}
-            </span>
-          </p>
-        </div>
+        <p className="mt-3 text-sm font-semibold text-white/70">
+          {countdownText === "Уже начался"
+            ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
+            : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
+        </p>
 
-        <div className="mt-5">
-          <div className="inline-flex min-w-[170px] items-center justify-center rounded-2xl bg-[#d7b55a] px-4 py-3 text-center text-sm font-semibold text-black">
+        <div className="mt-4">
+          <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
             {actionLabel}
           </div>
         </div>
@@ -1286,7 +1295,7 @@ export default function HomePage() {
 
         {checkedTelegram && !!player && !playerLoading && !playerError ? (
           <>
-            <section className="space-y-3">
+            <section className="space-y-2.5">
               {showAnyTournamentCard ? (
                 <>
                   <div
@@ -1323,17 +1332,16 @@ export default function HomePage() {
               ) : null}
 
               {!showAnyTournamentCard ? (
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-4 text-sm text-white/60">
                   Сейчас нет открытых турниров
                 </div>
               ) : null}
             </section>
 
-            <section className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+            <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-xl font-bold text-white">Рейтинг сезона</h2>
-                  <p className="mt-1 text-sm text-white/45">{seasonTitle}</p>
                 </div>
 
                 <Link
@@ -1345,12 +1353,12 @@ export default function HomePage() {
               </div>
 
               {topThreeRows.length > 0 ? (
-                <div className="mt-5 space-y-2.5">
+                <div className="mt-3 space-y-1.5">
                   {topThreeRows.map((row, index) => (
                     <Link
                       key={row.player_id}
                       href={`/players/${row.player_id}`}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.035] px-4 py-3 transition active:scale-[0.99]"
+                      className="flex items-center justify-between gap-3 px-0.5 py-0.5 transition active:scale-[0.99]"
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-white">
@@ -1364,42 +1372,20 @@ export default function HomePage() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4 text-sm text-white/55">
+                <div className="mt-3 text-sm text-white/55">
                   Рейтинг сезона пока пуст.
                 </div>
               )}
 
-              <div className="mt-4 rounded-2xl border border-[#d7b55a]/20 bg-[#d7b55a]/[0.07] px-4 py-4">
-                {currentPlayerLeaderboardRow ? (
-                  currentPlayerIsInTopThree ? (
-                    <>
-                      <p className="text-sm font-semibold text-white">
-                        Вы сейчас в ТОП-3 сезона
-                      </p>
-                      <p className="mt-1 text-sm text-white/70">
-                        Ваше место: #{currentPlayerLeaderboardIndex + 1} •{" "}
-                        {currentPlayerLeaderboardRow.rating} очков
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm font-semibold text-white">Ваш результат</p>
-                      <p className="mt-1 text-sm text-white/70">
-                        #{currentPlayerLeaderboardIndex + 1} •{" "}
-                        {currentPlayerLeaderboardRow.rating} очков
-                      </p>
-                    </>
-                  )
-                ) : (
-                  <>
-                    <p className="text-sm font-semibold text-white">
-                      Вы пока не участвуете в рейтинге
-                    </p>
-                    <p className="mt-1 text-sm text-white/70">
-                      Сыграйте первый турнир, чтобы попасть в таблицу рейтинга
-                    </p>
-                  </>
-                )}
+              <div className="mt-3 border-t border-white/10 pt-3">
+                <p className="text-sm font-semibold text-white/88">
+                  {getCompactLeaderboardSummary()}
+                </p>
+                {!currentPlayerLeaderboardRow ? (
+                  <p className="mt-1 text-sm text-white/60">
+                    Сыграйте первый турнир, чтобы попасть в таблицу рейтинга
+                  </p>
+                ) : null}
               </div>
             </section>
 
@@ -1410,7 +1396,7 @@ export default function HomePage() {
                   "https://yandex.ru/maps/?text=%D0%A2%D0%B2%D0%B5%D1%80%D1%8C%2C%20%D1%83%D0%BB.%20%D0%9D%D0%BE%D0%B2%D0%BE%D1%82%D0%BE%D1%80%D0%B6%D1%81%D0%BA%D0%B0%D1%8F%2C%2018%D0%BA1"
                 )
               }
-              className="mt-6 flex w-full items-center justify-between gap-3 rounded-[24px] border border-white/10 bg-white/[0.04] p-4 text-left transition active:scale-[0.99]"
+              className="mt-5 flex w-full items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3.5 text-left transition active:scale-[0.99]"
             >
               <div>
                 <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/45">
@@ -1418,21 +1404,21 @@ export default function HomePage() {
                 </p>
                 <p className="mt-1 text-base font-bold text-white">Новоторжская, 18 к.1</p>
               </div>
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/65">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/65">
                 <MapIcon />
               </div>
             </button>
 
-            <section className="mt-6">
+            <section className="mt-5">
               <div className="grid grid-cols-2 gap-3">
                 <Link
                   href="/faq"
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-white transition active:scale-[0.99]"
+                  className="rounded-[20px] border border-white/[0.07] bg-white/4 p-3.5 text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] text-[#c9a84c]/70">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.05] text-[#c9a84c]/70">
                     <InfoIcon />
                   </div>
-                  <p className="mt-4 text-base font-bold">О клубе</p>
+                  <p className="mt-3 text-base font-bold">О клубе</p>
                 </Link>
 
                 <button
@@ -1444,12 +1430,12 @@ export default function HomePage() {
                       "tg://resolve?domain=ReRaise_Poker_Bot&start=support"
                     );
                   }}
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-left text-white transition active:scale-[0.99]"
+                  className="rounded-[20px] border border-white/[0.07] bg-white/4 p-3.5 text-left text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] text-[#c9a84c]/70">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.05] text-[#c9a84c]/70">
                     <SupportIcon />
                   </div>
-                  <p className="mt-4 text-base font-bold">Поддержка</p>
+                  <p className="mt-3 text-base font-bold">Поддержка</p>
                 </button>
               </div>
             </section>
