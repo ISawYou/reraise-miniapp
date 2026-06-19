@@ -14,28 +14,8 @@ import {
   registerPlayerForTournament,
 } from "@/features/tournaments";
 import { supabase } from "@/lib/supabase";
-import { getTelegramUser } from "@/lib/telegram";
-import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
-
-type TabKey = "active" | "completed";
-
-function ArrowUpRightIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-[18px] w-7"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3.5 12h15.5" />
-      <path d="m14 7 5 5-5 5" />
-    </svg>
-  );
-}
+import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
+import type { Player, RegistrationStatus, Tournament, TournamentType } from "@/types/domain";
 
 function CalendarIcon() {
   return (
@@ -75,14 +55,129 @@ function UserIcon() {
   );
 }
 
+function ArrowRightIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-6"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.5 12h15.5" />
+      <path d="m14 7 5 5-5 5" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m5 12 4.25 4.25L19 6.5" />
+    </svg>
+  );
+}
+
 function formatTournamentDate(date: string) {
-  return new Date(date).toLocaleString("ru-RU", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+  return new Date(date).toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+  });
+}
+
+function formatTournamentTime(date: string) {
+  return new Date(date).toLocaleTimeString("ru-RU", {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function pluralize(value: number, one: string, few: string, many: string) {
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+function formatTournamentCountdown(date: string) {
+  const diffMs = new Date(date).getTime() - Date.now();
+
+  if (diffMs <= 0) {
+    return "Старт уже начался";
+  }
+
+  const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+
+  if (days > 0) {
+    if (hours > 0) {
+      return `Старт через ${days} ${pluralize(days, "день", "дня", "дней")} ${hours} ${pluralize(hours, "час", "часа", "часов")}`;
+    }
+
+    return `Старт через ${days} ${pluralize(days, "день", "дня", "дней")}`;
+  }
+
+  return `Старт через ${Math.max(hours, 1)} ${pluralize(Math.max(hours, 1), "час", "часа", "часов")}`;
+}
+
+function getTournamentAccent(type: TournamentType) {
+  if (type === "phoenix") {
+    return {
+      border: "border-[#7d3935]/35",
+      glow: "from-[#7d3935]/18",
+      chip: "bg-[#7d3935]/12 text-[#ffb4aa]",
+      progress: "bg-[#a44840]",
+    };
+  }
+
+  if (type === "bounty") {
+    return {
+      border: "border-[#6b2d36]/35",
+      glow: "from-[#6b2d36]/18",
+      chip: "bg-[#6b2d36]/12 text-[#f1b4be]",
+      progress: "bg-[#8a3a47]",
+    };
+  }
+
+  if (type === "deep_stack") {
+    return {
+      border: "border-[#8d7240]/35",
+      glow: "from-[#8d7240]/18",
+      chip: "bg-[#8d7240]/12 text-[#f0d38a]",
+      progress: "bg-[#b18b43]",
+    };
+  }
+
+  if (type === "win_the_button") {
+    return {
+      border: "border-[#7f6a42]/35",
+      glow: "from-[#7f6a42]/18",
+      chip: "bg-[#7f6a42]/12 text-[#e8c98a]",
+      progress: "bg-[#aa8a4a]",
+    };
+  }
+
+  return {
+    border: "border-[#4d6b5a]/35",
+    glow: "from-[#4d6b5a]/18",
+    chip: "bg-[#4d6b5a]/12 text-[#b8d7c5]",
+    progress: "bg-[#5f876f]",
+  };
 }
 
 export default function TournamentsPage() {
@@ -90,17 +185,12 @@ export default function TournamentsPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [openTournaments, setOpenTournaments] = useState<Tournament[]>([]);
   const [completedTournaments, setCompletedTournaments] = useState<Tournament[]>([]);
-  const [registrationMap, setRegistrationMap] = useState<
-    Record<string, RegistrationStatus>
-  >({});
-  const [registrationCounts, setRegistrationCounts] = useState<
-    Record<string, number>
-  >({});
+  const [registrationMap, setRegistrationMap] = useState<Record<string, RegistrationStatus>>({});
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [promotionToast, setPromotionToast] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("active");
 
   const registrationsRef = useRef<Record<string, RegistrationStatus>>({});
 
@@ -132,14 +222,12 @@ export default function TournamentsPage() {
     });
 
     if (options?.showPromotionToast) {
-      const promotedTournamentId = Object.keys(nextRegistrationMap).find(
-        (tournamentId) => {
-          const previousStatus = registrationsRef.current[tournamentId];
-          const nextStatus = nextRegistrationMap[tournamentId];
+      const promotedTournamentId = Object.keys(nextRegistrationMap).find((tournamentId) => {
+        const previousStatus = registrationsRef.current[tournamentId];
+        const nextStatus = nextRegistrationMap[tournamentId];
 
-          return previousStatus === "waitlist" && nextStatus === "registered";
-        }
-      );
+        return previousStatus === "waitlist" && nextStatus === "registered";
+      });
 
       if (promotedTournamentId) {
         const promotedTournament = openData.find(
@@ -151,9 +239,7 @@ export default function TournamentsPage() {
             `Вы переместились из списка ожидания в основной список: ${promotedTournament.title}`
           );
         } else {
-          setPromotionToast(
-            "Вы переместились из списка ожидания в основной список"
-          );
+          setPromotionToast("Вы переместились из списка ожидания в основной список");
         }
       }
     }
@@ -273,12 +359,12 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleRegister(tournament.id)}
           disabled={isLoading}
-          className="w-full rounded-2xl bg-yellow-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+          className="inline-flex min-w-[152px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-sm font-semibold text-black transition disabled:opacity-60"
         >
           {isLoading
             ? "Сохраняем..."
             : registeredCount >= tournament.max_players
-              ? "Встать в список ожидания"
+              ? "Лист ожидания"
               : "Записаться"}
         </button>
       );
@@ -290,9 +376,10 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleCancel(tournament.id)}
           disabled={isLoading}
-          className="w-full rounded-2xl bg-green-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+          className="inline-flex min-w-[152px] items-center justify-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-500/14 px-4 py-2.5 text-sm font-semibold text-emerald-200 transition disabled:opacity-60"
         >
-          {isLoading ? "Сохраняем..." : "Вы записаны"}
+          <CheckIcon />
+          <span>{isLoading ? "Сохраняем..." : "Вы записаны"}</span>
         </button>
       );
     }
@@ -303,9 +390,9 @@ export default function TournamentsPage() {
           type="button"
           onClick={() => handleCancel(tournament.id)}
           disabled={isLoading}
-          className="w-full rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+          className="inline-flex min-w-[152px] items-center justify-center rounded-xl border border-amber-400/20 bg-amber-500/12 px-4 py-2.5 text-sm font-semibold text-amber-100 transition disabled:opacity-60"
         >
-          {isLoading ? "Сохраняем..." : "Вы в списке ожидания"}
+          {isLoading ? "Сохраняем..." : "Вы в листе ожидания"}
         </button>
       );
     }
@@ -313,52 +400,106 @@ export default function TournamentsPage() {
     return null;
   }
 
-  function renderTournamentCard(tournament: Tournament, isCompleted: boolean) {
+  function renderOpenTournamentCard(tournament: Tournament) {
     const registeredCount = registrationCounts[tournament.id] ?? 0;
+    const prizePlaces = getExpectedPrizePlaces(registeredCount);
+    const fillPercent =
+      tournament.max_players > 0
+        ? Math.min((registeredCount / tournament.max_players) * 100, 100)
+        : 0;
+    const accent = getTournamentAccent(tournament.tournament_type ?? "classic");
 
     return (
       <Link
         key={tournament.id}
         href={`/tournaments/${tournament.id}`}
-        className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
+        className={`relative block overflow-hidden rounded-[28px] border ${accent.border} bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.06),transparent_30%),linear-gradient(180deg,#121514_0%,#0d0f0f_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition active:scale-[0.99]`}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-lg font-semibold">{tournament.title}</h3>
-          </div>
-          <div className="inline-flex items-center text-white/55">
-            <ArrowUpRightIcon />
-          </div>
-        </div>
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b ${accent.glow} to-transparent opacity-70`}
+        />
 
-        <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-            <CalendarIcon />
-            <span>{formatTournamentDate(tournament.start_at)}</span>
-          </div>
-
-          {!isCompleted ? (
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-              <UserIcon />
-              <span>
-                {registeredCount} / {tournament.max_players}
-              </span>
+        <div className="relative">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-[22px] font-black uppercase leading-tight tracking-[0.05em] text-white">
+                {tournament.title}
+              </h3>
             </div>
-          ) : null}
-        </div>
 
-        {!isCompleted ? (
+            <div className="pt-1 text-white/35">
+              <ArrowRightIcon />
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-white/78">
+            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${accent.chip}`}>
+              <CalendarIcon />
+              <span>{formatTournamentDate(tournament.start_at)}</span>
+            </div>
+
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-white/72">
+              <span>{formatTournamentTime(tournament.start_at)}</span>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white/78">
+                <UserIcon />
+                <span>
+                  {registeredCount} / {tournament.max_players}
+                </span>
+              </div>
+
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className={`h-full rounded-full ${accent.progress}`}
+                  style={{ width: `${fillPercent}%` }}
+                />
+              </div>
+            </div>
+
+            <p className="shrink-0 text-sm font-semibold text-white/74">
+              🏆 ТОП-{prizePlaces}
+            </p>
+          </div>
+
+          <p className="mt-3 text-sm text-white/54">
+            {formatTournamentCountdown(tournament.start_at)}
+          </p>
+
           <div className="mt-4" onClick={(event) => event.preventDefault()}>
             {renderActionButton(tournament)}
           </div>
-        ) : null}
+        </div>
+      </Link>
+    );
+  }
+
+  function renderCompletedTournamentCard(tournament: Tournament) {
+    return (
+      <Link
+        key={tournament.id}
+        href={`/tournaments/${tournament.id}`}
+        className="flex items-center justify-between gap-3 rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-3.5 transition active:scale-[0.99]"
+      >
+        <div className="min-w-0">
+          <p className="truncate text-base font-semibold text-white">{tournament.title}</p>
+          <p className="mt-1 text-sm text-white/48">{formatTournamentDate(tournament.start_at)}</p>
+        </div>
+
+        <div className="shrink-0 text-white/28">
+          <ArrowRightIcon />
+        </div>
       </Link>
     );
   }
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="min-h-screen bg-[#090b0a] px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
           <p className="text-sm text-white/70">Загружаем турниры...</p>
         </div>
@@ -368,16 +509,9 @@ export default function TournamentsPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="min-h-screen bg-[#090b0a] px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
-          <Link
-            href="/"
-            className="telegram-top-action inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/60"
-          >
-            ← Назад
-          </Link>
-
-          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
             {error}
           </div>
         </div>
@@ -385,61 +519,44 @@ export default function TournamentsPage() {
     );
   }
 
-  const currentList =
-    activeTab === "active" ? openTournaments : completedTournaments;
-
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
-      <div className="mx-auto max-w-md">
-        <Link
-          href="/"
-          className="telegram-top-action inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/60"
-        >
-          ← Назад
-        </Link>
+    <main className="relative min-h-screen overflow-hidden bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 py-6 pb-28 text-white">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed left-0 right-0 top-0 h-48 bg-[radial-gradient(ellipse_65%_45%_at_50%_0%,rgba(121,169,137,0.08),transparent_70%)]"
+      />
 
-        <h1 className="mt-6 text-3xl font-bold tracking-tight">Турниры</h1>
-        <p className="mt-2 text-sm text-white/45">
-          Активные и завершённые события
-        </p>
-
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setActiveTab("active")}
-            className={`rounded-full border px-4 py-3 text-sm font-medium transition ${
-              activeTab === "active"
-                ? "border-white/15 bg-white/[0.08] text-white"
-                : "border-white/10 bg-transparent text-white/60"
-            }`}
-          >
-            Активные ({openTournaments.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("completed")}
-            className={`rounded-full border px-4 py-3 text-sm font-medium transition ${
-              activeTab === "completed"
-                ? "border-white/15 bg-white/[0.08] text-white"
-                : "border-white/10 bg-transparent text-white/60"
-            }`}
-          >
-            Прошедшие ({completedTournaments.length})
-          </button>
-        </div>
+      <div className="relative mx-auto max-w-md">
+        <h1 className="text-3xl font-bold tracking-tight text-white">Турниры</h1>
 
         <section className="mt-5">
-          {currentList.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
-              {activeTab === "active"
-                ? "Сейчас нет открытых турниров"
-                : "Пока нет завершённых турниров"}
+          {openTournaments.length === 0 ? (
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-4 text-sm text-white/60">
+              Сейчас нет открытых турниров
             </div>
           ) : (
             <div className="space-y-4">
-              {currentList.map((tournament) =>
-                renderTournamentCard(tournament, activeTab === "completed")
+              {openTournaments.map((tournament) => renderOpenTournamentCard(tournament))}
+            </div>
+          )}
+        </section>
+
+        <section className="mt-8">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-white">Прошедшие турниры</h2>
+            <span className="text-xs uppercase tracking-[0.14em] text-white/30">
+              {completedTournaments.length}
+            </span>
+          </div>
+
+          {completedTournaments.length === 0 ? (
+            <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4 text-sm text-white/55">
+              Пока нет завершённых турниров
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {completedTournaments.map((tournament) =>
+                renderCompletedTournamentCard(tournament)
               )}
             </div>
           )}
@@ -450,4 +567,3 @@ export default function TournamentsPage() {
     </main>
   );
 }
-
