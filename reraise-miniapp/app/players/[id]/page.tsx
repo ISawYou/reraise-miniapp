@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -56,22 +56,18 @@ function formatDateTimeWithoutSeconds(date: string) {
 
 function getTournamentKindLabel(kind: Tournament["kind"]) {
   if (kind === "paid") {
-    return "Платный";
+    return "РџР»Р°С‚РЅС‹Р№";
   }
 
   if (kind === "cash") {
-    return "Кэш";
+    return "РљСЌС€";
   }
 
-  return "Бесплатный";
+  return "Р‘РµСЃРїР»Р°С‚РЅС‹Р№";
 }
 
 function pluralEntries(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${n} бесплатный вход`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} бесплатных входа`;
-  return `${n} бесплатных входов`;
+  return `${n} re-entry`;
 }
 
 function PencilIcon() {
@@ -261,7 +257,7 @@ export default function PlayerProfilePage() {
         logEvent("profile_opened", { metadata: { target_player_id: playerId } });
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Ошибка загрузки профиля"
+          err instanceof Error ? err.message : "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РїСЂРѕС„РёР»СЏ"
         );
       } finally {
         setLoading(false);
@@ -285,15 +281,15 @@ export default function PlayerProfilePage() {
 
   function getStatusText(status: RegistrationStatus) {
     if (status === "registered") {
-      return "Вы записаны";
+      return "Р’С‹ Р·Р°РїРёСЃР°РЅС‹";
     }
 
     if (status === "waitlist") {
-      return "Вы в списке ожидания";
+      return "Р’С‹ РІ СЃРїРёСЃРєРµ РѕР¶РёРґР°РЅРёСЏ";
     }
 
     if (status === "attended") {
-      return "Вы участвовали";
+      return "Р’С‹ СѓС‡Р°СЃС‚РІРѕРІР°Р»Рё";
     }
 
     return status;
@@ -308,12 +304,12 @@ export default function PlayerProfilePage() {
     if (!file || !player || !isOwnProfile) return;
 
     if (!file.type.startsWith("image/")) {
-      setAvatarError("Можно загрузить только изображение");
+      setAvatarError("РњРѕР¶РЅРѕ Р·Р°РіСЂСѓР·РёС‚СЊ С‚РѕР»СЊРєРѕ РёР·РѕР±СЂР°Р¶РµРЅРёРµ");
       return;
     }
 
     if (file.size > MAX_AVATAR_SIZE_BYTES) {
-      setAvatarError("Файл слишком большой. Максимум 20 МБ");
+      setAvatarError("Р¤Р°Р№Р» СЃР»РёС€РєРѕРј Р±РѕР»СЊС€РѕР№. РњР°РєСЃРёРјСѓРј 20 РњР‘");
       return;
     }
 
@@ -324,7 +320,7 @@ export default function PlayerProfilePage() {
       const telegramInitData = getTelegramWebApp()?.initData;
 
       if (!telegramInitData) {
-        throw new Error("Не удалось получить данные Telegram");
+        throw new Error("РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РґР°РЅРЅС‹Рµ Telegram");
       }
 
       const formData = new FormData();
@@ -341,15 +337,15 @@ export default function PlayerProfilePage() {
       if (!response.ok) {
         throw new Error(
           response.status >= 500
-            ? "Сервер не настроен для загрузки аватаров"
-            : payload.error ?? "Не удалось загрузить аватар"
+            ? "РЎРµСЂРІРµСЂ РЅРµ РЅР°СЃС‚СЂРѕРµРЅ РґР»СЏ Р·Р°РіСЂСѓР·РєРё Р°РІР°С‚Р°СЂРѕРІ"
+            : payload.error ?? "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Р°РІР°С‚Р°СЂ"
         );
       }
 
       setPlayer(payload.player);
     } catch (err) {
       setAvatarError(
-        err instanceof Error ? err.message : "Не удалось загрузить аватар"
+        err instanceof Error ? err.message : "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ Р°РІР°С‚Р°СЂ"
       );
     } finally {
       setAvatarLoading(false);
@@ -385,7 +381,7 @@ export default function PlayerProfilePage() {
       setIsEditingNickname(false);
     } catch (err) {
       setNicknameError(
-        err instanceof Error ? err.message : "Не удалось обновить ник"
+        err instanceof Error ? err.message : "РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ РЅРёРє"
       );
     } finally {
       setNicknameLoading(false);
@@ -396,7 +392,7 @@ export default function PlayerProfilePage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
-          <p className="text-sm text-white/70">Загружаем профиль игрока...</p>
+          <p className="text-sm text-white/70">Р—Р°РіСЂСѓР¶Р°РµРј РїСЂРѕС„РёР»СЊ РёРіСЂРѕРєР°...</p>
         </div>
       </main>
     );
@@ -410,11 +406,11 @@ export default function PlayerProfilePage() {
             href="/"
             className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
           >
-            ← Назад
+            в†ђ РќР°Р·Р°Рґ
           </Link>
 
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-            {error ?? "Профиль игрока не найден"}
+            {error ?? "РџСЂРѕС„РёР»СЊ РёРіСЂРѕРєР° РЅРµ РЅР°Р№РґРµРЅ"}
           </div>
         </div>
       </main>
@@ -429,16 +425,16 @@ export default function PlayerProfilePage() {
             href="/"
             className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
           >
-            ← Назад
+            в†ђ РќР°Р·Р°Рґ
           </Link>
 
           <h1 className="mt-6 text-3xl font-bold tracking-tight text-white">
-            Профиль
+            РџСЂРѕС„РёР»СЊ
           </h1>
         </div>
 
         <Link href="/" className="hidden">
-          ← Назад
+          в†ђ РќР°Р·Р°Рґ
         </Link>
 
         <div className="flex items-center gap-4">
@@ -459,7 +455,7 @@ export default function PlayerProfilePage() {
               <div className="absolute -right-2 -top-2">
                 <EditBadge
                   onClick={() => avatarInputRef.current?.click()}
-                  label="Сменить аватар"
+                  label="РЎРјРµРЅРёС‚СЊ Р°РІР°С‚Р°СЂ"
                 />
               </div>
             ) : null}
@@ -488,7 +484,7 @@ export default function PlayerProfilePage() {
                       setNicknameError(null);
                       setNickname(player.pending_display_name ?? player.display_name);
                     }}
-                    label="Сменить ник"
+                    label="РЎРјРµРЅРёС‚СЊ РЅРёРє"
                   />
                 </div>
               ) : null}
@@ -500,7 +496,7 @@ export default function PlayerProfilePage() {
             {(player.free_reentries_balance ?? 0) > 0 ? (
               <div className="mt-2">
                 <span className="inline-flex items-center gap-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-0.5 text-xs font-medium text-yellow-400">
-                  🎟 {pluralEntries(player.free_reentries_balance ?? 0)}
+                  рџЋџ {pluralEntries(player.free_reentries_balance ?? 0)}
                 </span>
               </div>
             ) : null}
@@ -509,7 +505,7 @@ export default function PlayerProfilePage() {
 
         {player.nickname_status === "pending" && player.pending_display_name ? (
           <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/60">
-            Ник на модерации: {player.pending_display_name}
+            РќРёРє РЅР° РјРѕРґРµСЂР°С†РёРё: {player.pending_display_name}
           </div>
         ) : null}
 
@@ -526,7 +522,7 @@ export default function PlayerProfilePage() {
                 setNickname(e.target.value);
                 setNicknameError(null);
               }}
-              placeholder="Новый ник"
+              placeholder="РќРѕРІС‹Р№ РЅРёРє"
               className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none"
             />
 
@@ -541,7 +537,7 @@ export default function PlayerProfilePage() {
                 disabled={nicknameLoading || !nickname.trim()}
                 className="rounded-full bg-yellow-500 px-4 py-3 font-semibold text-black disabled:opacity-40"
               >
-                {nicknameLoading ? "Сохраняем..." : "Отправить"}
+                {nicknameLoading ? "РЎРѕС…СЂР°РЅСЏРµРј..." : "РћС‚РїСЂР°РІРёС‚СЊ"}
               </button>
 
               <button
@@ -553,7 +549,7 @@ export default function PlayerProfilePage() {
                 }}
                 className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-3 text-white/80"
               >
-                Отмена
+                РћС‚РјРµРЅР°
               </button>
             </div>
           </div>
@@ -562,23 +558,23 @@ export default function PlayerProfilePage() {
         <div className="mt-7 space-y-3">
           <div className="rounded-3xl border border-white/10 bg-white/[0.05] px-5 pb-5 pt-4">
             <p className="text-2xl font-semibold text-white">
-              Статистика
+              РЎС‚Р°С‚РёСЃС‚РёРєР°
             </p>
 
             <div className="mt-5 grid grid-cols-3 gap-4">
               <div className="text-center">
                 <p className="text-2xl font-semibold text-white">{rating}</p>
-                <p className="mt-2 text-sm text-white/55">Рейтинг</p>
+                <p className="mt-2 text-sm text-white/55">Р РµР№С‚РёРЅРі</p>
               </div>
 
               <div className="border-l border-white/10 pl-4 text-center">
                 <p className="text-2xl font-semibold text-white">{playedCount}</p>
-                <p className="mt-2 text-sm text-white/55">Турниры</p>
+                <p className="mt-2 text-sm text-white/55">РўСѓСЂРЅРёСЂС‹</p>
               </div>
 
               <div className="border-l border-white/10 pl-4 text-center">
                 <p className="text-2xl font-semibold text-white">{totalKnockouts}</p>
-                <p className="mt-2 text-sm text-white/55">Нокауты</p>
+                <p className="mt-2 text-sm text-white/55">РќРѕРєР°СѓС‚С‹</p>
               </div>
             </div>
           </div>
@@ -587,7 +583,7 @@ export default function PlayerProfilePage() {
             href={`/players/${player.id}/achievements`}
             className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"
           >
-            <p className="text-2xl font-semibold text-white">Достижения</p>
+            <p className="text-2xl font-semibold text-white">Р”РѕСЃС‚РёР¶РµРЅРёСЏ</p>
 
             <div className="mt-5 flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80">
@@ -610,7 +606,7 @@ export default function PlayerProfilePage() {
         </div>
 
         <section className="mt-8">
-          <h2 className="text-xl font-semibold">Турниры</h2>
+          <h2 className="text-xl font-semibold">РўСѓСЂРЅРёСЂС‹</h2>
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <button
@@ -622,7 +618,7 @@ export default function PlayerProfilePage() {
                   : "border-white/10 bg-transparent text-white/70"
               }`}
             >
-              Активные ({upcomingTournaments.length})
+              РђРєС‚РёРІРЅС‹Рµ ({upcomingTournaments.length})
             </button>
 
             <button
@@ -634,7 +630,7 @@ export default function PlayerProfilePage() {
                   : "border-white/10 bg-transparent text-white/70"
               }`}
             >
-              Прошедшие ({history.length})
+              РџСЂРѕС€РµРґС€РёРµ ({history.length})
             </button>
           </div>
 
@@ -642,7 +638,7 @@ export default function PlayerProfilePage() {
             <div className="mt-4">
               {upcomingTournaments.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-                  Пока нет активных турниров
+                  РџРѕРєР° РЅРµС‚ Р°РєС‚РёРІРЅС‹С… С‚СѓСЂРЅРёСЂРѕРІ
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -690,7 +686,7 @@ export default function PlayerProfilePage() {
             <div className="mt-4">
               {history.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-                  Пока нет завершённых турниров
+                  РџРѕРєР° РЅРµС‚ Р·Р°РІРµСЂС€С‘РЅРЅС‹С… С‚СѓСЂРЅРёСЂРѕРІ
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -717,19 +713,19 @@ export default function PlayerProfilePage() {
 
                       <div className="mt-4 grid grid-cols-3 gap-3">
                         <div className="rounded-2xl bg-white/[0.04] px-3 py-3 text-center">
-                          <p className="text-xs text-white/45">Место</p>
+                          <p className="text-xs text-white/45">РњРµСЃС‚Рѕ</p>
                           <p className="mt-2 text-lg font-semibold text-white">
                             {item.result.place}
                           </p>
                         </div>
                         <div className="rounded-2xl bg-white/[0.04] px-3 py-3 text-center">
-                          <p className="text-xs text-white/45">Нокауты</p>
+                          <p className="text-xs text-white/45">РќРѕРєР°СѓС‚С‹</p>
                           <p className="mt-2 text-lg font-semibold text-white">
                             {item.result.knockouts}
                           </p>
                         </div>
                         <div className="rounded-2xl bg-white/[0.04] px-3 py-3 text-center">
-                          <p className="text-xs text-white/45">Очки</p>
+                          <p className="text-xs text-white/45">РћС‡РєРё</p>
                           <p className="mt-2 text-lg font-semibold text-white">
                             {item.result.rating_points}
                           </p>
@@ -746,4 +742,5 @@ export default function PlayerProfilePage() {
     </main>
   );
 }
+
 

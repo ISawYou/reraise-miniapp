@@ -192,6 +192,7 @@ export default function HomePage() {
   const [emailLinkResendCooldown, setEmailLinkResendCooldown] = useState(0);
   const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
   const [activeTournamentIndex, setActiveTournamentIndex] = useState(0);
+  const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
 
   const registrationsRef = useRef<Record<string, string>>({});
   const tournamentsCarouselRef = useRef<HTMLDivElement | null>(null);
@@ -310,10 +311,13 @@ export default function HomePage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts] = await Promise.all([
+    const [registrations, tournaments, counts, achievementRows] = await Promise.all([
       getPlayerRegistrations(currentPlayer.id),
       getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
+      fetch(`/api/players/${currentPlayer.id}/achievements`).then((response) =>
+        response.ok ? response.json() : []
+      ),
     ]);
 
     const nextMap: Record<string, string> = {};
@@ -349,6 +353,11 @@ export default function HomePage() {
     setHomeTournaments(tournaments);
     setRegistrationCounts(counts);
     setActiveTournamentIndex(0);
+    setCompletedAchievementsCount(
+      (achievementRows as Array<{ completed_at: string | null }>).filter(
+        (row) => row.completed_at
+      ).length
+    );
   }
 
   async function handleAcceptTerms() {
@@ -855,7 +864,7 @@ export default function HomePage() {
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
-        className="block min-w-full snap-center overflow-hidden rounded-[30px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
+        className="block min-w-full shrink-0 snap-center [scroll-snap-stop:always] overflow-hidden rounded-[30px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
       >
         <div className="flex items-start justify-between gap-4">
           <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
@@ -1111,13 +1120,29 @@ export default function HomePage() {
             </div>
           )}
 
-          <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-[#c9a84c]/60">
+          <div className="min-w-0 flex-1">
+            <p className="text-base font-bold text-white">
               РЕРЕЙЗ
             </p>
-            <p className="mt-1 truncate text-lg font-semibold text-white">
+            <p className="mt-1 truncate text-sm font-medium text-white/65">
               {greetingName}
             </p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2 text-right">
+              <p className="text-xs font-semibold text-white">
+                {player.free_reentries_balance ?? 0}
+              </p>
+              <p className="mt-1 text-[11px] text-white/45">re-entry</p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2 text-right">
+              <p className="text-xs font-semibold text-white">
+                {completedAchievementsCount}/5
+              </p>
+              <p className="mt-1 text-[11px] text-white/45">достижения</p>
+            </div>
           </div>
         </Link>
 
@@ -1174,7 +1199,7 @@ export default function HomePage() {
                   <div
                     ref={tournamentsCarouselRef}
                     onScroll={handleTournamentCarouselScroll}
-                    className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    className="overflow-x-auto overflow-y-hidden pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   >
                     <div className="flex snap-x snap-mandatory gap-0">
                       {homeTournaments.map((tournament) =>
@@ -1217,8 +1242,8 @@ export default function HomePage() {
               }
               className="mt-6 block w-full rounded-[24px] border border-white/10 bg-white/[0.04] p-4 text-left transition active:scale-[0.99]"
             >
-              <p className="text-xs uppercase tracking-[0.18em] text-[#c9a84c]/55">Адрес</p>
-              <p className="mt-2 text-sm font-medium text-white">
+              <p className="text-base font-bold text-white">Адрес</p>
+              <p className="mt-2 text-sm font-medium text-white/65">
                 Тверь, ул. Новоторжская 18к1
               </p>
             </button>
