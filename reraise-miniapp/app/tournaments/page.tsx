@@ -15,7 +15,7 @@ import {
 } from "@/features/tournaments";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
-import type { Player, RegistrationStatus, Tournament, TournamentType } from "@/types/domain";
+import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 
 function CalendarIcon() {
   return (
@@ -133,51 +133,6 @@ function formatTournamentCountdown(date: string) {
   }
 
   return `Старт через ${Math.max(hours, 1)} ${pluralize(Math.max(hours, 1), "час", "часа", "часов")}`;
-}
-
-function getTournamentAccent(type: TournamentType) {
-  if (type === "phoenix") {
-    return {
-      border: "border-[#7d3935]/35",
-      glow: "from-[#7d3935]/18",
-      chip: "bg-[#7d3935]/12 text-[#ffb4aa]",
-      progress: "bg-[#a44840]",
-    };
-  }
-
-  if (type === "bounty") {
-    return {
-      border: "border-[#6b2d36]/35",
-      glow: "from-[#6b2d36]/18",
-      chip: "bg-[#6b2d36]/12 text-[#f1b4be]",
-      progress: "bg-[#8a3a47]",
-    };
-  }
-
-  if (type === "deep_stack") {
-    return {
-      border: "border-[#8d7240]/35",
-      glow: "from-[#8d7240]/18",
-      chip: "bg-[#8d7240]/12 text-[#f0d38a]",
-      progress: "bg-[#b18b43]",
-    };
-  }
-
-  if (type === "win_the_button") {
-    return {
-      border: "border-[#7f6a42]/35",
-      glow: "from-[#7f6a42]/18",
-      chip: "bg-[#7f6a42]/12 text-[#e8c98a]",
-      progress: "bg-[#aa8a4a]",
-    };
-  }
-
-  return {
-    border: "border-[#4d6b5a]/35",
-    glow: "from-[#4d6b5a]/18",
-    chip: "bg-[#4d6b5a]/12 text-[#b8d7c5]",
-    progress: "bg-[#5f876f]",
-  };
 }
 
 export default function TournamentsPage() {
@@ -407,17 +362,16 @@ export default function TournamentsPage() {
       tournament.max_players > 0
         ? Math.min((registeredCount / tournament.max_players) * 100, 100)
         : 0;
-    const accent = getTournamentAccent(tournament.tournament_type ?? "classic");
 
     return (
       <Link
         key={tournament.id}
         href={`/tournaments/${tournament.id}`}
-        className={`relative block overflow-hidden rounded-[28px] border ${accent.border} bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.06),transparent_30%),linear-gradient(180deg,#121514_0%,#0d0f0f_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition active:scale-[0.99]`}
+        className="relative block overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.05),transparent_30%),linear-gradient(180deg,#121514_0%,#0d0f0f_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition active:scale-[0.99]"
       >
         <div
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b ${accent.glow} to-transparent opacity-70`}
+          className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-white/[0.05] to-transparent opacity-70"
         />
 
         <div className="relative">
@@ -433,8 +387,8 @@ export default function TournamentsPage() {
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-white/78">
-            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${accent.chip}`}>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-white/72">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-white/72">
               <CalendarIcon />
               <span>{formatTournamentDate(tournament.start_at)}</span>
             </div>
@@ -455,13 +409,13 @@ export default function TournamentsPage() {
 
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
                 <div
-                  className={`h-full rounded-full ${accent.progress}`}
+                  className="h-full rounded-full bg-white/28"
                   style={{ width: `${fillPercent}%` }}
                 />
               </div>
             </div>
 
-            <p className="shrink-0 text-sm font-semibold text-white/74">
+            <p className="shrink-0 text-sm font-semibold text-[#e1bf6b]">
               🏆 ТОП-{prizePlaces}
             </p>
           </div>
