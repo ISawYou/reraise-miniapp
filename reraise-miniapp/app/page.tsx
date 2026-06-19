@@ -33,29 +33,6 @@ const TELEGRAM_BOT_ID = Number(
   process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID ?? "8682500150"
 );
 
-function TournamentIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
-      <path d="M7.5 3.5v3" />
-      <path d="M16.5 3.5v3" />
-      <path d="M3.5 9.5h17" />
-      <path d="M8 13h3" />
-      <path d="M13 13h3" />
-      <path d="M8 16h3" />
-    </svg>
-  );
-}
-
 function InfoIcon() {
   return (
     <svg
@@ -88,6 +65,27 @@ function SupportIcon() {
       strokeLinejoin="round"
     >
       <path d="M5.75 6.25h12.5A2.75 2.75 0 0 1 21 9v6a2.75 2.75 0 0 1-2.75 2.75H11l-4.25 3v-3H5.75A2.75 2.75 0 0 1 3 15V9a2.75 2.75 0 0 1 2.75-2.75Z" />
+    </svg>
+  );
+}
+
+function RouteIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 18c0-2.2 1.8-4 4-4h3" />
+      <path d="M20 6c0 2.2-1.8 4-4 4h-3" />
+      <path d="M8 18h8" />
+      <circle cx="6" cy="18" r="2" />
+      <circle cx="18" cy="6" r="2" />
     </svg>
   );
 }
@@ -126,6 +124,24 @@ function formatTournamentShortTime(date: string) {
   });
 }
 
+function formatTournamentCountdown(date: string) {
+  const diffMs = new Date(date).getTime() - Date.now();
+
+  if (diffMs <= 0) {
+    return "Уже начался";
+  }
+
+  const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+
+  if (days <= 0) {
+    return `${hours} ч`;
+  }
+
+  return `${days} д ${hours} ч`;
+}
+
 function UserIcon() {
   return (
     <svg
@@ -140,24 +156,6 @@ function UserIcon() {
     >
       <circle cx="12" cy="8" r="3.25" />
       <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
-    </svg>
-  );
-}
-
-function PlaceIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 20s6-4.35 6-10a6 6 0 1 0-12 0c0 5.65 6 10 6 10Z" />
-      <circle cx="12" cy="10" r="2.25" />
     </svg>
   );
 }
@@ -195,7 +193,9 @@ export default function HomePage() {
   const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
 
   const registrationsRef = useRef<Record<string, string>>({});
-  const tournamentsCarouselRef = useRef<HTMLDivElement | null>(null);
+  const activeTournamentIndexRef = useRef(0);
+  const swipeStartXRef = useRef<number | null>(null);
+  const swipeStartIndexRef = useRef(0);
   const termsLines = useMemo(() => {
     return TERMS_TEXT.split("\n").map((line) => line.trim());
   }, []);
@@ -268,6 +268,27 @@ export default function HomePage() {
 
     return () => clearTimeout(timeout);
   }, [promotionToast]);
+
+  useEffect(() => {
+    activeTournamentIndexRef.current = activeTournamentIndex;
+  }, [activeTournamentIndex]);
+
+  useEffect(() => {
+    if (homeTournaments.length <= 1) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      const nextIndex =
+        activeTournamentIndexRef.current >= homeTournaments.length - 1
+          ? 0
+          : activeTournamentIndexRef.current + 1;
+
+      updateActiveTournamentIndex(nextIndex);
+    }, 7000);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeTournamentIndex, homeTournaments.length]);
 
   async function handleTelegramLogin() {
     if (telegramLoginLoading) {
@@ -815,15 +836,44 @@ export default function HomePage() {
   const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
   const showAnyTournamentCard = homeTournaments.length > 0;
 
-  function handleTournamentCarouselScroll() {
-    const element = tournamentsCarouselRef.current;
+  function updateActiveTournamentIndex(index: number) {
+    const boundedIndex = Math.max(0, Math.min(index, homeTournaments.length - 1));
+    activeTournamentIndexRef.current = boundedIndex;
+    setActiveTournamentIndex(boundedIndex);
+  }
 
-    if (!element) {
+  function handleTournamentTouchStart(event: React.TouchEvent<HTMLDivElement>) {
+    swipeStartXRef.current = event.touches[0]?.clientX ?? null;
+    swipeStartIndexRef.current = activeTournamentIndexRef.current;
+  }
+
+  function handleTournamentTouchEnd(event: React.TouchEvent<HTMLDivElement>) {
+    const startX = swipeStartXRef.current;
+    const endX = event.changedTouches[0]?.clientX ?? null;
+    swipeStartXRef.current = null;
+
+    if (startX == null || endX == null) {
       return;
     }
 
-    const nextIndex = Math.round(element.scrollLeft / element.clientWidth);
-    setActiveTournamentIndex(Math.max(0, Math.min(nextIndex, homeTournaments.length - 1)));
+    const deltaX = endX - startX;
+
+    if (Math.abs(deltaX) < 40) {
+      updateActiveTournamentIndex(swipeStartIndexRef.current);
+      return;
+    }
+
+    if (deltaX < 0) {
+      const nextIndex = Math.min(
+        swipeStartIndexRef.current + 1,
+        homeTournaments.length - 1
+      );
+      updateActiveTournamentIndex(nextIndex);
+      return;
+    }
+
+    const prevIndex = Math.max(swipeStartIndexRef.current - 1, 0);
+    updateActiveTournamentIndex(prevIndex);
   }
 
   function openTelegramDestination(httpsUrl: string, fallbackUrl?: string) {
@@ -864,12 +914,20 @@ export default function HomePage() {
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
-        className="block min-w-full shrink-0 snap-center [scroll-snap-stop:always] overflow-hidden rounded-[30px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
+        className="block min-w-full shrink-0 overflow-hidden rounded-[30px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
       >
         <div className="flex items-start justify-between gap-4">
-          <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
-            {tournament.title}
-          </h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
+              {tournament.title}
+            </h3>
+          </div>
+
+          <div className="relative h-24 w-[92px] shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))]">
+            <div className="absolute inset-x-4 top-5 h-px bg-white/10" />
+            <div className="absolute inset-x-6 bottom-8 h-px bg-white/10" />
+            <div className="absolute right-5 top-7 h-9 w-9 rounded-full border border-white/10 bg-white/[0.04]" />
+          </div>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/75">
@@ -881,11 +939,19 @@ export default function HomePage() {
           </div>
           <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
             <UserIcon />
-            <span>{registeredCount} / {tournament.max_players} игроков</span>
+            <span>{registeredCount} / {tournament.max_players}</span>
           </div>
         </div>
 
-        <p className="mt-4 text-sm text-white/65">Призовые места: {prizePlaces}</p>
+        <p className="mt-4 text-sm font-semibold text-white/75">🏆 ТОП-{prizePlaces}</p>
+        <div className="mt-2 text-xs text-white/45">
+          <p>
+            До начала:{" "}
+            <span className="text-white/65">
+              {formatTournamentCountdown(tournament.start_at)}
+            </span>
+          </p>
+        </div>
 
         <div className="mt-5">
           <div className="inline-flex min-w-[170px] items-center justify-center rounded-2xl bg-[#d7b55a] px-4 py-3 text-center text-sm font-semibold text-black">
@@ -1121,27 +1187,12 @@ export default function HomePage() {
           )}
 
           <div className="min-w-0 flex-1">
-            <p className="text-base font-bold text-white">
-              РЕРЕЙЗ
-            </p>
-            <p className="mt-1 truncate text-sm font-medium text-white/65">
+            <p className="truncate text-base font-bold text-white">
               {greetingName}
             </p>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2 text-right">
-              <p className="text-xs font-semibold text-white">
-                {player.free_reentries_balance ?? 0}
-              </p>
-              <p className="mt-1 text-[11px] text-white/45">re-entry</p>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2 text-right">
-              <p className="text-xs font-semibold text-white">
-                {completedAchievementsCount}/5
-              </p>
-              <p className="mt-1 text-[11px] text-white/45">достижения</p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] leading-5 text-white/55">
+              <span>Достижения: {completedAchievementsCount}</span>
+              <span>Re-Entry: {player.free_reentries_balance ?? 0}</span>
             </div>
           </div>
         </Link>
@@ -1197,11 +1248,14 @@ export default function HomePage() {
               {showAnyTournamentCard ? (
                 <>
                   <div
-                    ref={tournamentsCarouselRef}
-                    onScroll={handleTournamentCarouselScroll}
-                    className="overflow-x-auto overflow-y-hidden pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    onTouchStart={handleTournamentTouchStart}
+                    onTouchEnd={handleTournamentTouchEnd}
+                    className="overflow-hidden pb-1 touch-pan-x"
                   >
-                    <div className="flex snap-x snap-mandatory gap-0">
+                    <div
+                      className="flex transition-transform duration-500 ease-out"
+                      style={{ transform: `translate3d(-${activeTournamentIndex * 100}%, 0, 0)` }}
+                    >
                       {homeTournaments.map((tournament) =>
                         renderTournamentCard(
                           tournament,
@@ -1212,11 +1266,11 @@ export default function HomePage() {
                   </div>
 
                   <div className="flex items-center justify-center gap-2">
-                    {homeTournaments.map((tournament) =>
+                    {homeTournaments.map((tournament, index) =>
                       <span
                         key={tournament.id}
                         className={`h-1.5 rounded-full transition-all ${
-                          activeTournamentIndex === homeTournaments.indexOf(tournament)
+                          activeTournamentIndex === index
                             ? "w-6 bg-[#d7b55a]"
                             : "w-3 bg-white/20"
                         }`}
@@ -1240,12 +1294,12 @@ export default function HomePage() {
                   "https://yandex.ru/maps/?text=%D0%A2%D0%B2%D0%B5%D1%80%D1%8C%2C%20%D1%83%D0%BB.%20%D0%9D%D0%BE%D0%B2%D0%BE%D1%82%D0%BE%D1%80%D0%B6%D1%81%D0%BA%D0%B0%D1%8F%2C%2018%D0%BA1"
                 )
               }
-              className="mt-6 block w-full rounded-[24px] border border-white/10 bg-white/[0.04] p-4 text-left transition active:scale-[0.99]"
+              className="mt-6 flex w-full items-center justify-between gap-3 rounded-[24px] border border-white/10 bg-white/[0.04] p-4 text-left transition active:scale-[0.99]"
             >
-              <p className="text-base font-bold text-white">Адрес</p>
-              <p className="mt-2 text-sm font-medium text-white/65">
-                Тверь, ул. Новоторжская 18к1
-              </p>
+              <p className="text-base font-bold text-white">Новоторжская, 18к1</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/65">
+                <RouteIcon />
+              </div>
             </button>
 
             <section className="mt-6">
@@ -1254,9 +1308,8 @@ export default function HomePage() {
                   href="/faq"
                   className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] text-[#c9a84c]/70">
                     <InfoIcon />
-                    <span className="text-xs uppercase tracking-wider">О клубе</span>
                   </div>
                   <p className="mt-4 text-base font-bold">О клубе</p>
                 </Link>
@@ -1272,9 +1325,8 @@ export default function HomePage() {
                   }}
                   className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-left text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] text-[#c9a84c]/70">
                     <SupportIcon />
-                    <span className="text-xs uppercase tracking-wider">Поддержка</span>
                   </div>
                   <p className="mt-4 text-base font-bold">Поддержка</p>
                 </button>
