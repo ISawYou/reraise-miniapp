@@ -69,7 +69,7 @@ function SupportIcon() {
   );
 }
 
-function RouteIcon() {
+function MapIcon() {
   return (
     <svg
       aria-hidden="true"
@@ -81,11 +81,9 @@ function RouteIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M4 18c0-2.2 1.8-4 4-4h3" />
-      <path d="M20 6c0 2.2-1.8 4-4 4h-3" />
-      <path d="M8 18h8" />
-      <circle cx="6" cy="18" r="2" />
-      <circle cx="18" cy="6" r="2" />
+      <path d="M3.5 6.5 8.5 4l7 2.5L20.5 4v13.5L15.5 20l-7-2.5-5 2.5Z" />
+      <path d="M8.5 4v13.5" />
+      <path d="M15.5 6.5V20" />
     </svg>
   );
 }
@@ -916,19 +914,9 @@ export default function HomePage() {
         href={`/tournaments/${tournament.id}`}
         className="block min-w-full shrink-0 overflow-hidden rounded-[30px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
-              {tournament.title}
-            </h3>
-          </div>
-
-          <div className="relative h-24 w-[92px] shrink-0 overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))]">
-            <div className="absolute inset-x-4 top-5 h-px bg-white/10" />
-            <div className="absolute inset-x-6 bottom-8 h-px bg-white/10" />
-            <div className="absolute right-5 top-7 h-9 w-9 rounded-full border border-white/10 bg-white/[0.04]" />
-          </div>
-        </div>
+        <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
+          {tournament.title}
+        </h3>
 
         <div className="mt-5 flex flex-wrap gap-2 text-sm text-white/75">
           <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
@@ -1187,12 +1175,14 @@ export default function HomePage() {
           )}
 
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-bold text-white">
+            <div className="flex items-start justify-between gap-3">
+              <p className="truncate text-lg font-bold text-white">
               {greetingName}
-            </p>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] leading-5 text-white/55">
-              <span>Достижения: {completedAchievementsCount}</span>
-              <span>Re-Entry: {player.free_reentries_balance ?? 0}</span>
+              </p>
+              <div className="shrink-0 text-right text-[11px] leading-5 text-white/55">
+                <p>Достижения: {completedAchievementsCount}</p>
+                <p>Re-Entry: {player.free_reentries_balance ?? 0}</p>
+              </div>
             </div>
           </div>
         </Link>
@@ -1296,9 +1286,14 @@ export default function HomePage() {
               }
               className="mt-6 flex w-full items-center justify-between gap-3 rounded-[24px] border border-white/10 bg-white/[0.04] p-4 text-left transition active:scale-[0.99]"
             >
-              <p className="text-base font-bold text-white">Новоторжская, 18к1</p>
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/45">
+                  Адрес
+                </p>
+                <p className="mt-1 text-base font-bold text-white">Новоторжская, 18 к.1</p>
+              </div>
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/65">
-                <RouteIcon />
+                <MapIcon />
               </div>
             </button>
 
