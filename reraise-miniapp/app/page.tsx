@@ -191,8 +191,10 @@ export default function HomePage() {
   const [emailLinkError, setEmailLinkError] = useState<string | null>(null);
   const [emailLinkResendCooldown, setEmailLinkResendCooldown] = useState(0);
   const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
+  const [activeTournamentIndex, setActiveTournamentIndex] = useState(0);
 
   const registrationsRef = useRef<Record<string, string>>({});
+  const tournamentsCarouselRef = useRef<HTMLDivElement | null>(null);
   const termsLines = useMemo(() => {
     return TERMS_TEXT.split("\n").map((line) => line.trim());
   }, []);
@@ -346,6 +348,7 @@ export default function HomePage() {
     registrationsRef.current = nextMap;
     setHomeTournaments(tournaments);
     setRegistrationCounts(counts);
+    setActiveTournamentIndex(0);
   }
 
   async function handleAcceptTerms() {
@@ -803,6 +806,17 @@ export default function HomePage() {
   const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
   const showAnyTournamentCard = homeTournaments.length > 0;
 
+  function handleTournamentCarouselScroll() {
+    const element = tournamentsCarouselRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    const nextIndex = Math.round(element.scrollLeft / element.clientWidth);
+    setActiveTournamentIndex(Math.max(0, Math.min(nextIndex, homeTournaments.length - 1)));
+  }
+
   function openTelegramDestination(httpsUrl: string, fallbackUrl?: string) {
     const webApp = getTelegramWebApp();
 
@@ -841,7 +855,7 @@ export default function HomePage() {
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
-        className="block min-w-[85%] snap-center overflow-hidden rounded-[30px] border border-[#d7b55a]/20 bg-[radial-gradient(circle_at_top_left,rgba(218,176,88,0.18),transparent_35%),linear-gradient(145deg,#1d0f0f_0%,#0b0b0c_55%,#050505_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99] sm:min-w-0"
+        className="block min-w-full snap-center overflow-hidden rounded-[30px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
       >
         <div className="flex items-start justify-between gap-4">
           <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
@@ -1156,16 +1170,35 @@ export default function HomePage() {
           <>
             <section className="space-y-3">
               {showAnyTournamentCard ? (
-                <div className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  <div className="flex snap-x snap-mandatory gap-3">
+                <>
+                  <div
+                    ref={tournamentsCarouselRef}
+                    onScroll={handleTournamentCarouselScroll}
+                    className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  >
+                    <div className="flex snap-x snap-mandatory gap-0">
+                      {homeTournaments.map((tournament) =>
+                        renderTournamentCard(
+                          tournament,
+                          registrationCounts[tournament.id] ?? 0
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-2">
                     {homeTournaments.map((tournament) =>
-                      renderTournamentCard(
-                        tournament,
-                        registrationCounts[tournament.id] ?? 0
-                      )
+                      <span
+                        key={tournament.id}
+                        className={`h-1.5 rounded-full transition-all ${
+                          activeTournamentIndex === homeTournaments.indexOf(tournament)
+                            ? "w-6 bg-[#d7b55a]"
+                            : "w-3 bg-white/20"
+                        }`}
+                      />
                     )}
                   </div>
-                </div>
+                </>
               ) : null}
 
               {!showAnyTournamentCard ? (
@@ -1175,50 +1208,20 @@ export default function HomePage() {
               ) : null}
             </section>
 
-            <section className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-[#c9a84c]/55">
-                    Клуб РЕРЕЙЗ
-                  </p>
-                  <p className="mt-3 text-lg font-semibold text-white">Тверь</p>
-                  <p className="mt-1 text-sm text-white/65">ул. Новоторжская, 18к1</p>
-                </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-white/75">
-                  <PlaceIcon />
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    openExternalLink(
-                      "https://yandex.ru/maps/?text=%D0%A2%D0%B2%D0%B5%D1%80%D1%8C%2C%20%D1%83%D0%BB.%20%D0%9D%D0%BE%D0%B2%D0%BE%D1%82%D0%BE%D1%80%D0%B6%D1%81%D0%BA%D0%B0%D1%8F%2C%2018%D0%BA1"
-                    )
-                  }
-                  className="flex items-center justify-center gap-2 rounded-2xl bg-[#d7b55a] px-4 py-3 text-sm font-semibold text-black transition active:scale-[0.99]"
-                >
-                  <PlaceIcon />
-                  <span>Построить маршрут</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    logEvent("support_opened");
-                    openTelegramDestination(
-                      "https://t.me/ReRaise_Poker_Bot?start=support",
-                      "tg://resolve?domain=ReRaise_Poker_Bot&start=support"
-                    );
-                  }}
-                  className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-semibold text-white transition active:scale-[0.99]"
-                >
-                  <SupportIcon />
-                  <span>Связаться</span>
-                </button>
-              </div>
-            </section>
+            <button
+              type="button"
+              onClick={() =>
+                openExternalLink(
+                  "https://yandex.ru/maps/?text=%D0%A2%D0%B2%D0%B5%D1%80%D1%8C%2C%20%D1%83%D0%BB.%20%D0%9D%D0%BE%D0%B2%D0%BE%D1%82%D0%BE%D1%80%D0%B6%D1%81%D0%BA%D0%B0%D1%8F%2C%2018%D0%BA1"
+                )
+              }
+              className="mt-6 block w-full rounded-[24px] border border-white/10 bg-white/[0.04] p-4 text-left transition active:scale-[0.99]"
+            >
+              <p className="text-xs uppercase tracking-[0.18em] text-[#c9a84c]/55">Адрес</p>
+              <p className="mt-2 text-sm font-medium text-white">
+                Тверь, ул. Новоторжская 18к1
+              </p>
+            </button>
 
             <section className="mt-6">
               <div className="grid grid-cols-2 gap-3">
@@ -1228,9 +1231,9 @@ export default function HomePage() {
                 >
                   <div className="flex items-center gap-2 text-[#c9a84c]/70">
                     <InfoIcon />
-                    <span className="text-xs uppercase tracking-wider">FAQ</span>
+                    <span className="text-xs uppercase tracking-wider">О клубе</span>
                   </div>
-                  <p className="mt-4 text-base font-bold">FAQ</p>
+                  <p className="mt-4 text-base font-bold">О клубе</p>
                 </Link>
 
                 <button
@@ -1249,30 +1252,6 @@ export default function HomePage() {
                     <span className="text-xs uppercase tracking-wider">Поддержка</span>
                   </div>
                   <p className="mt-4 text-base font-bold">Поддержка</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => openTelegramDestination("https://t.me/Poker_Tver")}
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-left text-white transition active:scale-[0.99]"
-                >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
-                    <TournamentIcon />
-                    <span className="text-xs uppercase tracking-wider">О клубе</span>
-                  </div>
-                  <p className="mt-4 text-base font-bold">О клубе</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => openTelegramDestination("https://t.me/Poker_Tver")}
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-4 text-left text-white transition active:scale-[0.99]"
-                >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
-                    <SupportIcon />
-                    <span className="text-xs uppercase tracking-wider">Контакты</span>
-                  </div>
-                  <p className="mt-4 text-base font-bold">Контакты</p>
                 </button>
               </div>
             </section>
