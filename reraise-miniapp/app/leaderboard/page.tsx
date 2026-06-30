@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getActiveSeason, getSeasonLeaderboard } from "@/features/tournaments";
 import { logEvent } from "@/lib/activity-client";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 
@@ -25,15 +24,14 @@ export default function LeaderboardPage() {
     logEvent("rating_opened");
     async function loadLeaderboard() {
       try {
-        const activeSeason = await getActiveSeason();
-        setSeasonTitle(
-          typeof activeSeason.title === "string" && activeSeason.title.trim()
-            ? activeSeason.title
-            : "Активный сезон"
-        );
-
-        const leaderboard = await getSeasonLeaderboard(activeSeason.id);
-        setRows(leaderboard);
+        const response = await fetch("/api/leaderboard");
+        if (!response.ok) throw new Error("Ошибка загрузки рейтинга");
+        const data = (await response.json()) as {
+          season: { id: string; title: string };
+          leaderboard: LeaderboardRow[];
+        };
+        setSeasonTitle(data.season.title?.trim() || "Активный сезон");
+        setRows(data.leaderboard);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Ошибка загрузки рейтинга";

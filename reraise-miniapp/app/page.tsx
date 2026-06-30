@@ -638,24 +638,33 @@ export default function HomePage() {
           setPlayerLoading(true);
           setPlayerError(null);
 
-          const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+          let ensuredPlayer: Player;
+
+          if (webApp?.initData) {
+            // Single server round-trip: verifies initData, sets cookie, returns player.
+            // Eliminates the duplicate players?telegram_id=eq.{id} query that used to run
+            // on the client right before this fetch.
+            const sessionResponse = await fetch("/api/auth/telegram/mini-app-session", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ initData: webApp.initData }),
+              credentials: "include",
+            });
+            if (!sessionResponse.ok) {
+              throw new Error(
+                "Не удалось подтвердить Telegram-сессию. Закройте и откройте приложение заново."
+              );
+            }
+            const sessionData = (await sessionResponse.json()) as { ok: boolean; player: Player };
+            ensuredPlayer = sessionData.player;
+          } else {
+            ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+          }
+
           if (cancelled) return;
           setPlayer(ensuredPlayer);
           setActivityPlayerId(ensuredPlayer.id);
           logEvent("app_opened", { once: true });
-
-          // Establish server-side session cookie so that API routes (e.g. email link) can
-          // identify the current Telegram user. The client-side auth path never sets it.
-          if (webApp?.initData) {
-            try {
-              await fetch("/api/auth/telegram/mini-app-session", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ initData: webApp.initData }),
-                credentials: "include",
-              });
-            } catch {}
-          }
 
           if (
             !ensuredPlayer.accepted_terms_at ||

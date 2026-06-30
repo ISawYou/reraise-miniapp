@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     await syncTelegramAvatar(player, telegramUser.photo_url);
 
-    const response = NextResponse.json({ ok: true });
+    const response = NextResponse.json({ ok: true, player });
     response.cookies.set(COOKIE_NAME, signSession(player.id), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

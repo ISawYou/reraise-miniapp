@@ -424,24 +424,27 @@ export async function cancelPlayerRegistration(
 }
 
 export async function getMyTournaments(playerId: string) {
-  const registrations = await getPlayerRegistrations(playerId);
+  const { data, error } = await supabase
+    .from("registrations")
+    .select(`
+      *,
+      tournament:tournaments (*)
+    `)
+    .eq("player_id", playerId)
+    .in("status", ["registered", "waitlist", "attended"])
+    .order("created_at", { ascending: false });
 
-  const tournamentIds = registrations.map((registration) => registration.tournament_id);
-  const tournaments = await getTournamentsByIds(tournamentIds);
+  if (error) {
+    throw new Error(error.message);
+  }
 
-  const tournamentsMap = new Map(tournaments.map((tournament) => [tournament.id, tournament]));
-
-  return registrations
-    .map((registration) => {
-      const tournament = tournamentsMap.get(registration.tournament_id);
-
-      if (!tournament) {
-        return null;
-      }
-
+  return (data ?? [])
+    .map((row: any) => {
+      const t = Array.isArray(row.tournament) ? row.tournament[0] : row.tournament;
+      if (!t) return null;
       return {
-        registration,
-        tournament,
+        registration: mapRegistrationRow(row as RegistrationRow),
+        tournament: mapTournamentRow(t as TournamentRow),
       };
     })
     .filter(Boolean) as Array<{
