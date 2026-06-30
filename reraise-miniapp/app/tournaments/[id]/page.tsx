@@ -8,8 +8,7 @@ import {
   getVisibleTournamentByIdForPlayer,
   getTournamentParticipants,
   getTournamentResults,
-  getPlayerRegistrations,
-  getTournamentRegistrationCounts,
+  getPlayerRegistrationForTournament,
   registerPlayerForTournament,
   cancelPlayerRegistration,
 } from "@/features/tournaments";
@@ -20,7 +19,6 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
 } from "@/lib/tournament-helpers";
-import { supabase } from "@/lib/supabase";
 import { getTelegramUser } from "@/lib/telegram";
 import type {
   Player,
@@ -266,20 +264,16 @@ const waitlistParticipants = participants.filter(
   }
 
   async function refreshPageData(currentPlayer: Player, currentTournamentId: string) {
-    const [tournamentData, participantsData, registrations, counts] = await Promise.all([
+    const [tournamentData, participantsData, myRegistration] = await Promise.all([
       getVisibleTournamentByIdForPlayer(currentTournamentId, currentPlayer),
       getTournamentParticipants(currentTournamentId),
-      getPlayerRegistrations(currentPlayer.id),
-      getTournamentRegistrationCounts(),
+      getPlayerRegistrationForTournament(currentPlayer.id, currentTournamentId),
     ]);
-
-    const myRegistration =
-      registrations.find((item) => item.tournament_id === currentTournamentId) ?? null;
 
     setTournament(tournamentData);
     setParticipants(participantsData);
     setRegistrationStatus(myRegistration?.status ?? null);
-    setRegisteredCount(counts[currentTournamentId] ?? 0);
+    setRegisteredCount(participantsData.filter((p) => p.status === "registered").length);
 
     if (tournamentData.status === "completed") {
       const resultsData = await getTournamentResults(currentTournamentId);

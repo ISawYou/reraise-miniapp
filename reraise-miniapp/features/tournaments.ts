@@ -284,6 +284,26 @@ export async function getPlayerRegistrations(playerId: string) {
   return (data ?? []).map((row) => mapRegistrationRow(row as RegistrationRow));
 }
 
+export async function getPlayerRegistrationForTournament(
+  playerId: string,
+  tournamentId: string
+) {
+  const { data, error } = await supabase
+    .from("registrations")
+    .select("*")
+    .eq("player_id", playerId)
+    .eq("tournament_id", tournamentId)
+    .in("status", ["registered", "waitlist", "attended"])
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ? mapRegistrationRow(data as RegistrationRow) : null;
+}
+
 export async function getTournamentRegistrationCounts() {
   const { data, error } = await supabase
     .from("registrations")
