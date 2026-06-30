@@ -7,8 +7,7 @@ import { resolveCurrentPlayer } from "@/lib/current-player";
 import { logEvent } from "@/lib/activity-client";
 import {
   cancelPlayerRegistration,
-  getVisibleCompletedTournamentsForPlayer,
-  getVisibleOpenTournamentsForPlayer,
+  getVisibleTournamentsForPlayer,
   getPlayerRegistrations,
   getTournamentRegistrationCounts,
   registerPlayerForTournament,
@@ -163,13 +162,13 @@ export default function TournamentsPage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [openData, completedData, registrations, counts] = await Promise.all([
-      getVisibleOpenTournamentsForPlayer(currentPlayer),
-      getVisibleCompletedTournamentsForPlayer(currentPlayer),
+    const [tournamentsData, registrations, counts] = await Promise.all([
+      getVisibleTournamentsForPlayer(currentPlayer),
       getPlayerRegistrations(currentPlayer.id),
       getTournamentRegistrationCounts(),
     ]);
 
+    const { open: openData, completed: completedData } = tournamentsData;
     const nextRegistrationMap: Record<string, RegistrationStatus> = {};
 
     registrations.forEach((registration) => {

@@ -215,6 +215,28 @@ export async function getVisibleCompletedTournamentsForPlayer(player: {
   return (data ?? []).map((row) => mapTournamentRow(row as TournamentRow));
 }
 
+export async function getVisibleTournamentsForPlayer(player: {
+  can_access_free?: boolean;
+  can_access_paid?: boolean;
+  can_access_cash?: boolean;
+}): Promise<{ open: Tournament[]; completed: Tournament[] }> {
+  const { data, error } = await supabase
+    .from("tournaments")
+    .select("*")
+    .in("status", ["open", "completed"])
+    .order("start_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []).map((row) => mapTournamentRow(row as TournamentRow));
+  return {
+    open: rows.filter((t) => t.status === "open").reverse(),
+    completed: rows.filter((t) => t.status === "completed"),
+  };
+}
+
 export async function getTournamentById(tournamentId: string) {
   const { data, error } = await supabase
     .from("tournaments")

@@ -12,8 +12,6 @@ import {
   getVisibleOpenTournamentsForPlayer,
   getPlayerRegistrations,
   getTournamentRegistrationCounts,
-  getActiveSeason,
-  getSeasonLeaderboard,
 } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
@@ -352,19 +350,21 @@ export default function HomePage() {
       ),
       (async () => {
         try {
-          const activeSeason = await getActiveSeason();
-          const leaderboard = await getSeasonLeaderboard(activeSeason.id);
-
+          const res = await fetch("/api/leaderboard");
+          if (!res.ok) throw new Error("leaderboard fetch failed");
+          const data = (await res.json()) as {
+            season: { id: string; title: string };
+            leaderboard: LeaderboardRow[];
+          };
           return {
             seasonTitle:
-              typeof activeSeason.title === "string" && activeSeason.title.trim()
-                ? activeSeason.title
+              typeof data.season?.title === "string" && data.season.title.trim()
+                ? data.season.title
                 : "Активный сезон",
-            leaderboard,
+            leaderboard: data.leaderboard ?? [],
           };
         } catch (error) {
           console.error("Home leaderboard load error:", error);
-
           return {
             seasonTitle: "Активный сезон",
             leaderboard: [] as LeaderboardRow[],

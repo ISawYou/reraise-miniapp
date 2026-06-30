@@ -63,7 +63,8 @@ export async function POST(request: NextRequest) {
     const telegramUser = JSON.parse(userRaw) as TelegramWebAppUser;
     const player = await ensurePlayerFromTelegramUser(telegramUser);
 
-    await syncTelegramAvatar(player, telegramUser.photo_url);
+    // Sync runs in background — don't block the auth response
+    void syncTelegramAvatar(player, telegramUser.photo_url);
 
     const response = NextResponse.json({ ok: true, player });
     response.cookies.set(COOKIE_NAME, signSession(player.id), {
