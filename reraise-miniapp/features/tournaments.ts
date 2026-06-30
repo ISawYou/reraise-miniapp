@@ -114,23 +114,6 @@ function mapTournamentLiveEntryRow(
   };
 }
 
-async function getTournamentsByIds(tournamentIds: string[]) {
-  if (tournamentIds.length === 0) {
-    return [];
-  }
-
-  const { data, error } = await supabase
-    .from("tournaments")
-    .select("*")
-    .in("id", tournamentIds)
-    .order("start_at", { ascending: true });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return (data ?? []).map((row) => mapTournamentRow(row as TournamentRow));
-}
 
 function getAllowedTournamentKinds(player: {
   can_access_free?: boolean;
@@ -529,7 +512,8 @@ export async function getMyTournamentHistory(playerId: string) {
       place,
       knockouts,
       reentries,
-      rating_points
+      rating_points,
+      tournament:tournaments (*)
     `)
     .eq("player_id", playerId)
     .order("created_at", { ascending: false });
@@ -538,21 +522,12 @@ export async function getMyTournamentHistory(playerId: string) {
     throw new Error(error.message);
   }
 
-  const results = data ?? [];
-  const tournamentIds = results.map((row: any) => row.tournament_id);
-  const tournaments = await getTournamentsByIds(tournamentIds);
-  const tournamentsMap = new Map(tournaments.map((tournament) => [tournament.id, tournament]));
-
-  return results
+  return (data ?? [])
     .map((row: any) => {
-      const tournament = tournamentsMap.get(row.tournament_id);
-
-      if (!tournament) {
-        return null;
-      }
-
+      const t = Array.isArray(row.tournament) ? row.tournament[0] : row.tournament;
+      if (!t) return null;
       return {
-        tournament,
+        tournament: mapTournamentRow(t as TournamentRow),
         result: {
           player_id: row.player_id,
           place: row.place,

@@ -44,7 +44,7 @@ export function BottomNav() {
     return () => {
       cancelled = true;
     };
-  }, [pathname]);
+  }, []); // player загружается один раз; pathname реактивен через usePathname()
 
   if (!player) {
     return null;
