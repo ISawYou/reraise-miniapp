@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   getTournamentById,
   getTournamentLiveEntries,
@@ -14,7 +14,6 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
 } from "@/lib/tournament-helpers";
-import { getTelegramUser } from "@/lib/telegram";
 import type { Player, Tournament, TournamentLiveEntry } from "@/types/domain";
 
 type DraftRow = {
@@ -105,13 +104,7 @@ export default function AdminTournamentResultsPage() {
           throw new Error("Tournament id not found");
         }
 
-        const telegramUser = getTelegramUser();
-
-        if (!telegramUser) {
-          throw new Error("Telegram user not found");
-        }
-
-        const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+        const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
 
         const nextTournament = await getTournamentById(tournamentId);

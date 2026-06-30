@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { getTelegramInitData, getTelegramUser } from "@/lib/telegram";
+import { resolveCurrentPlayer } from "@/lib/current-player";
+import { getTelegramInitData } from "@/lib/telegram";
 import type { Player } from "@/types/domain";
 
 type KpiData = {
@@ -90,9 +90,7 @@ export default function AdminActivityPage() {
   useEffect(() => {
     async function load() {
       try {
-        const telegramUser = getTelegramUser();
-        if (!telegramUser) return;
-        const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+        const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
 
         if (ensuredPlayer.role === "admin") {

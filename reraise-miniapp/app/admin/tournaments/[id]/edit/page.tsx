@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   addAdminTournamentParticipant,
   addExistingPlayerToTournament,
@@ -20,7 +20,6 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
 } from "@/lib/tournament-helpers";
-import { getTelegramUser } from "@/lib/telegram";
 import type { Player, TournamentType } from "@/types/domain";
 
 const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
@@ -89,13 +88,7 @@ export default function AdminTournamentEditPage() {
           throw new Error("Tournament id not found");
         }
 
-        const telegramUser = getTelegramUser();
-
-        if (!telegramUser) {
-          throw new Error("Telegram user not found");
-        }
-
-        const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+        const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
 
         if (ensuredPlayer.role !== "admin") {

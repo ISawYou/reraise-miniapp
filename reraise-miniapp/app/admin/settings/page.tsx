@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { getTelegramInitData, getTelegramUser } from "@/lib/telegram";
+import { resolveCurrentPlayer } from "@/lib/current-player";
+import { getTelegramInitData } from "@/lib/telegram";
 import { TG_DEBUG_STORAGE_KEY, TG_DEBUG_TOGGLE_EVENT } from "@/components/telegram-debug-overlay";
 import type { Player } from "@/types/domain";
 
@@ -26,10 +26,7 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     async function load() {
       try {
-        const telegramUser = getTelegramUser();
-        if (!telegramUser) return;
-
-        const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+        const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
 
         if (ensuredPlayer.role === "admin") {

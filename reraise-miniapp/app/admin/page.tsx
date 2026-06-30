@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
-import { getTelegramUser } from "@/lib/telegram";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import type { Player } from "@/types/domain";
 
 const ADMIN_SECTIONS = [
@@ -107,9 +106,7 @@ export default function AdminPage() {
   useEffect(() => {
     async function loadAdminData() {
       try {
-        const telegramUser = getTelegramUser();
-        if (!telegramUser) return;
-        const ensuredPlayer = await ensurePlayerFromTelegramUser(telegramUser);
+        const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
       } catch (error) {
         console.error("Admin access check error:", error);

@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ensurePlayerFromTelegramUser } from "@/features/auth";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   getMyTournamentHistory,
   getMyTournaments,
 } from "@/features/tournaments";
-import { getTelegramUser } from "@/lib/telegram";
 import type { RegistrationStatus, Tournament, TournamentResult } from "@/types/domain";
 
 type TabKey = "upcoming" | "past";
@@ -38,13 +37,7 @@ export default function MyTournamentsPage() {
   useEffect(() => {
     async function init() {
       try {
-        const telegramUser = getTelegramUser();
-
-        if (!telegramUser) {
-          throw new Error("Telegram user not found");
-        }
-
-        const player = await ensurePlayerFromTelegramUser(telegramUser);
+        const player = await resolveCurrentPlayer();
 
         const [myTournaments, myHistory] = await Promise.all([
           getMyTournaments(player.id),
