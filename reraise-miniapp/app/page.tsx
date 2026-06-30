@@ -200,6 +200,7 @@ export default function HomePage() {
   const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
   const [seasonTitle, setSeasonTitle] = useState("Активный сезон");
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
+  const [homeDataLoading, setHomeDataLoading] = useState(true);
 
   const registrationsRef = useRef<Record<string, string>>({});
   const activeTournamentIndexRef = useRef(0);
@@ -413,6 +414,7 @@ export default function HomePage() {
         (row) => row.completed_at
       ).length
     );
+    setHomeDataLoading(false);
   }
 
   async function handleAcceptTerms() {
@@ -729,31 +731,38 @@ export default function HomePage() {
             } else {
               if (cancelled) return;
               setShowProfileSetup(false);
+              setPlayerLoading(false);
+              setInitializing(false);
 
-              await refreshHomeData(ensuredPlayer, {
+              void refreshHomeData(ensuredPlayer, {
                 showPromotionToast: false,
+              }).catch((error) => {
+                console.error("Home data load error:", error);
+                setHomeDataLoading(false);
               });
 
               if (!ensuredPlayer.email) {
-                try {
-                  const settingsRes = await fetch("/api/settings", {
-                    cache: "no-store",
-                  });
-                  if (settingsRes.ok) {
-                    const settings = (await settingsRes.json()) as {
-                      show_email_link_prompt?: boolean;
-                    };
-                    if (settings.show_email_link_prompt === true) {
-                      const dismissed = window.sessionStorage.getItem(
-                        "reraise.email.link.dismissed"
-                      );
-                      if (!dismissed) {
-                        if (cancelled) return;
-                        openEmailLinkModal();
+                void (async () => {
+                  try {
+                    const settingsRes = await fetch("/api/settings", {
+                      cache: "no-store",
+                    });
+                    if (settingsRes.ok) {
+                      const settings = (await settingsRes.json()) as {
+                        show_email_link_prompt?: boolean;
+                      };
+                      if (settings.show_email_link_prompt === true) {
+                        const dismissed = window.sessionStorage.getItem(
+                          "reraise.email.link.dismissed"
+                        );
+                        if (!dismissed) {
+                          if (cancelled) return;
+                          openEmailLinkModal();
+                        }
                       }
                     }
-                  }
-                } catch {}
+                  } catch {}
+                })();
               }
             }
           }
@@ -785,9 +794,14 @@ export default function HomePage() {
               } else {
                 if (cancelled) return;
                 setShowProfileSetup(false);
+                setPlayerLoading(false);
+                setInitializing(false);
 
-                await refreshHomeData(cookiePlayer, {
+                void refreshHomeData(cookiePlayer, {
                   showPromotionToast: false,
+                }).catch((error) => {
+                  console.error("Home data load error:", error);
+                  setHomeDataLoading(false);
                 });
               }
             }
@@ -1250,7 +1264,7 @@ export default function HomePage() {
               {greetingName}
               </p>
               <div className="shrink-0 text-right text-[11px] leading-5 text-white/55">
-                <p>Достижения: {completedAchievementsCount}</p>
+                <p>Достижения: {homeDataLoading ? "—" : completedAchievementsCount}</p>
                 <p>Re-Entry: {player.free_reentries_balance ?? 0}</p>
               </div>
             </div>
@@ -1305,7 +1319,11 @@ export default function HomePage() {
         {checkedTelegram && !!player && !playerLoading && !playerError ? (
           <>
             <section className="space-y-2.5">
-              {showAnyTournamentCard ? (
+              {homeDataLoading ? (
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-4 text-sm text-white/40 animate-pulse">
+                  Загружаем...
+                </div>
+              ) : showAnyTournamentCard ? (
                 <>
                   <div
                     onTouchStart={handleTournamentTouchStart}
@@ -1338,13 +1356,11 @@ export default function HomePage() {
                     )}
                   </div>
                 </>
-              ) : null}
-
-              {!showAnyTournamentCard ? (
+              ) : (
                 <div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-4 text-sm text-white/60">
                   Сейчас нет открытых турниров
                 </div>
-              ) : null}
+              )}
             </section>
 
             <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
@@ -1361,7 +1377,11 @@ export default function HomePage() {
                 </Link>
               </div>
 
-              {topThreeRows.length > 0 ? (
+              {homeDataLoading ? (
+                <div className="mt-3 text-sm text-white/40 animate-pulse">
+                  Загружаем...
+                </div>
+              ) : topThreeRows.length > 0 ? (
                 <div className="mt-3 space-y-1.5">
                   {topThreeRows.map((row, index) => (
                     <Link
@@ -1388,9 +1408,9 @@ export default function HomePage() {
 
               <div className="mt-3 border-t border-white/10 pt-3">
                 <p className="text-sm font-semibold text-white/88">
-                  {getCompactLeaderboardSummary()}
+                  {homeDataLoading ? " " : getCompactLeaderboardSummary()}
                 </p>
-                {!currentPlayerLeaderboardRow ? (
+                {!homeDataLoading && !currentPlayerLeaderboardRow ? (
                   <p className="mt-1 text-sm text-white/60">
                     Сыграйте первый турнир, чтобы попасть в таблицу рейтинга
                   </p>
