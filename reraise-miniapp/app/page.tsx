@@ -12,9 +12,12 @@ import {
   getVisibleOpenTournamentsForPlayer,
   getPlayerRegistrations,
   getTournamentRegistrationCounts,
+  getActiveSeason,
+  getSeasonLeaderboard,
 } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { supabase } from "@/lib/supabase";
+import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import {
   getTelegramUser,
   getTelegramInitData,
@@ -28,54 +31,18 @@ import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
 
+type LeaderboardRow = {
+  player_id: string;
+  username: string | null;
+  display_name: string;
+  telegram_avatar_url: string | null;
+  custom_avatar_url: string | null;
+  rating: number;
+};
+
 const TELEGRAM_BOT_ID = Number(
   process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID ?? "8682500150"
 );
-
-function TournamentIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
-      <path d="M7.5 3.5v3" />
-      <path d="M16.5 3.5v3" />
-      <path d="M3.5 9.5h17" />
-      <path d="M8 13h3" />
-      <path d="M13 13h3" />
-      <path d="M8 16h3" />
-    </svg>
-  );
-}
-
-function TrophyIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 4.5h8v3.75a4 4 0 0 1-8 0Z" />
-      <path d="M10 16.5h4" />
-      <path d="M12 12.25v4.25" />
-      <path d="M6 6H4.75A1.75 1.75 0 0 0 3 7.75v.5A3.75 3.75 0 0 0 6.75 12H8" />
-      <path d="M18 6h1.25A1.75 1.75 0 0 1 21 7.75v.5A3.75 3.75 0 0 1 17.25 12H16" />
-      <path d="M9 20h6" />
-    </svg>
-  );
-}
 
 function InfoIcon() {
   return (
@@ -113,6 +80,25 @@ function SupportIcon() {
   );
 }
 
+function MapIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.5 6.5 8.5 4l7 2.5L20.5 4v13.5L15.5 20l-7-2.5-5 2.5Z" />
+      <path d="M8.5 4v13.5" />
+      <path d="M15.5 6.5V20" />
+    </svg>
+  );
+}
+
 function ShieldIcon() {
   return (
     <svg
@@ -131,34 +117,38 @@ function ShieldIcon() {
   );
 }
 
-function formatDateTimeWithoutSeconds(date: string) {
-  return new Date(date).toLocaleString("ru-RU", {
-    year: "numeric",
-    month: "2-digit",
+function formatTournamentShortDate(date: string) {
+  const value = new Date(date);
+  return value.toLocaleDateString("ru-RU", {
     day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+function formatTournamentShortTime(date: string) {
+  const value = new Date(date);
+  return value.toLocaleTimeString("ru-RU", {
     hour: "2-digit",
     minute: "2-digit",
   });
 }
 
-function CalendarIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
-      <path d="M7.5 3.5v3" />
-      <path d="M16.5 3.5v3" />
-      <path d="M3.5 9.5h17" />
-    </svg>
-  );
+function formatTournamentCountdown(date: string) {
+  const diffMs = new Date(date).getTime() - Date.now();
+
+  if (diffMs <= 0) {
+    return "Уже начался";
+  }
+
+  const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+
+  if (days <= 0) {
+    return `${hours} ч`;
+  }
+
+  return `${days} д ${hours} ч`;
 }
 
 function UserIcon() {
@@ -187,11 +177,8 @@ export default function HomePage() {
   const [playerLoading, setPlayerLoading] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [promotionToast, setPromotionToast] = useState<string | null>(null);
-  const [nearestTournament, setNearestTournament] = useState<Tournament | null>(
-    null
-  );
-  const [nearestTournamentRegisteredCount, setNearestTournamentRegisteredCount] =
-    useState(0);
+  const [homeTournaments, setHomeTournaments] = useState<Tournament[]>([]);
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
   const [initializing, setInitializing] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
   const [termsAcceptedLoading, setTermsAcceptedLoading] = useState(false);
@@ -211,8 +198,15 @@ export default function HomePage() {
   const [emailLinkError, setEmailLinkError] = useState<string | null>(null);
   const [emailLinkResendCooldown, setEmailLinkResendCooldown] = useState(0);
   const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
+  const [activeTournamentIndex, setActiveTournamentIndex] = useState(0);
+  const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
+  const [seasonTitle, setSeasonTitle] = useState("Активный сезон");
+  const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
 
   const registrationsRef = useRef<Record<string, string>>({});
+  const activeTournamentIndexRef = useRef(0);
+  const swipeStartXRef = useRef<number | null>(null);
+  const swipeStartIndexRef = useRef(0);
   const termsLines = useMemo(() => {
     return TERMS_TEXT.split("\n").map((line) => line.trim());
   }, []);
@@ -286,6 +280,27 @@ export default function HomePage() {
     return () => clearTimeout(timeout);
   }, [promotionToast]);
 
+  useEffect(() => {
+    activeTournamentIndexRef.current = activeTournamentIndex;
+  }, [activeTournamentIndex]);
+
+  useEffect(() => {
+    if (homeTournaments.length <= 1) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      const nextIndex =
+        activeTournamentIndexRef.current >= homeTournaments.length - 1
+          ? 0
+          : activeTournamentIndexRef.current + 1;
+
+      updateActiveTournamentIndex(nextIndex);
+    }, 7000);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeTournamentIndex, homeTournaments.length]);
+
   async function handleTelegramLogin() {
     if (telegramLoginLoading) {
       return;
@@ -328,10 +343,34 @@ export default function HomePage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts] = await Promise.all([
+    const [registrations, tournaments, counts, achievementRows, ratingData] = await Promise.all([
       getPlayerRegistrations(currentPlayer.id),
       getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
+      fetch(`/api/players/${currentPlayer.id}/achievements`).then((response) =>
+        response.ok ? response.json() : []
+      ),
+      (async () => {
+        try {
+          const activeSeason = await getActiveSeason();
+          const leaderboard = await getSeasonLeaderboard(activeSeason.id);
+
+          return {
+            seasonTitle:
+              typeof activeSeason.title === "string" && activeSeason.title.trim()
+                ? activeSeason.title
+                : "Активный сезон",
+            leaderboard,
+          };
+        } catch (error) {
+          console.error("Home leaderboard load error:", error);
+
+          return {
+            seasonTitle: "Активный сезон",
+            leaderboard: [] as LeaderboardRow[],
+          };
+        }
+      })(),
     ]);
 
     const nextMap: Record<string, string> = {};
@@ -363,12 +402,16 @@ export default function HomePage() {
         }
       }
 
-    const nextNearestTournament = tournaments[0] ?? null;
-
     registrationsRef.current = nextMap;
-    setNearestTournament(nextNearestTournament);
-    setNearestTournamentRegisteredCount(
-      nextNearestTournament ? (counts[nextNearestTournament.id] ?? 0) : 0
+    setHomeTournaments(tournaments);
+    setRegistrationCounts(counts);
+    setActiveTournamentIndex(0);
+    setSeasonTitle(ratingData.seasonTitle);
+    setLeaderboardRows(ratingData.leaderboard);
+    setCompletedAchievementsCount(
+      (achievementRows as Array<{ completed_at: string | null }>).filter(
+        (row) => row.completed_at
+      ).length
     );
   }
 
@@ -834,40 +877,145 @@ export default function HomePage() {
   const homeAvatarUrl =
     player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null;
   const homeAvatarFallback = greetingName.trim()[0]?.toUpperCase() ?? "?";
-  const showAnyTournamentCard = Boolean(nearestTournament);
+  const showAnyTournamentCard = homeTournaments.length > 0;
+  const topThreeRows = leaderboardRows.slice(0, 3);
+  const currentPlayerLeaderboardIndex = player
+    ? leaderboardRows.findIndex((row) => row.player_id === player.id)
+    : -1;
+  const currentPlayerLeaderboardRow =
+    currentPlayerLeaderboardIndex >= 0
+      ? leaderboardRows[currentPlayerLeaderboardIndex]
+      : null;
+  const currentPlayerIsInTopThree =
+    currentPlayerLeaderboardIndex >= 0 && currentPlayerLeaderboardIndex < 3;
+
+  function getLeaderboardMedal(place: number) {
+    if (place === 1) return "🥇";
+    if (place === 2) return "🥈";
+    return "🥉";
+  }
+
+  function getCompactLeaderboardSummary() {
+    if (currentPlayerLeaderboardRow) {
+      if (currentPlayerIsInTopThree) {
+        return `Вы сейчас в ТОП-3 сезона • #${currentPlayerLeaderboardIndex + 1} • ${currentPlayerLeaderboardRow.rating} очков`;
+      }
+
+      return `Вы: #${currentPlayerLeaderboardIndex + 1} • ${currentPlayerLeaderboardRow.rating} очков`;
+    }
+
+    return "Вы пока не участвуете в рейтинге";
+  }
+
+  function updateActiveTournamentIndex(index: number) {
+    const boundedIndex = Math.max(0, Math.min(index, homeTournaments.length - 1));
+    activeTournamentIndexRef.current = boundedIndex;
+    setActiveTournamentIndex(boundedIndex);
+  }
+
+  function handleTournamentTouchStart(event: React.TouchEvent<HTMLDivElement>) {
+    swipeStartXRef.current = event.touches[0]?.clientX ?? null;
+    swipeStartIndexRef.current = activeTournamentIndexRef.current;
+  }
+
+  function handleTournamentTouchEnd(event: React.TouchEvent<HTMLDivElement>) {
+    const startX = swipeStartXRef.current;
+    const endX = event.changedTouches[0]?.clientX ?? null;
+    swipeStartXRef.current = null;
+
+    if (startX == null || endX == null) {
+      return;
+    }
+
+    const deltaX = endX - startX;
+
+    if (Math.abs(deltaX) < 40) {
+      updateActiveTournamentIndex(swipeStartIndexRef.current);
+      return;
+    }
+
+    if (deltaX < 0) {
+      const nextIndex = Math.min(
+        swipeStartIndexRef.current + 1,
+        homeTournaments.length - 1
+      );
+      updateActiveTournamentIndex(nextIndex);
+      return;
+    }
+
+    const prevIndex = Math.max(swipeStartIndexRef.current - 1, 0);
+    updateActiveTournamentIndex(prevIndex);
+  }
+
+  function openTelegramDestination(httpsUrl: string, fallbackUrl?: string) {
+    const webApp = getTelegramWebApp();
+
+    if (webApp?.openTelegramLink) {
+      webApp.openTelegramLink(httpsUrl);
+      return;
+    }
+
+    window.location.href = fallbackUrl ?? httpsUrl;
+  }
+
+  function openExternalLink(url: string) {
+    const webApp = getTelegramWebApp() as { openLink?: (value: string) => void } | null;
+
+    if (webApp?.openLink) {
+      webApp.openLink(url);
+      return;
+    }
+
+    window.location.href = url;
+  }
 
   function renderTournamentCard(
     tournament: Tournament,
-    registeredCount: number,
-    title: string
+    registeredCount: number
   ) {
+    const prizePlaces = getExpectedPrizePlaces(registeredCount);
+    const countdownText = formatTournamentCountdown(tournament.start_at);
+    const registrationStatus = registrationsRef.current[tournament.id] ?? null;
+    const actionLabel =
+      registrationStatus === "registered"
+        ? "Вы записаны"
+        : registrationStatus === "waitlist"
+          ? "Вы в листе ожидания"
+        : "Записаться";
+
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
-        className="relative block overflow-hidden rounded-3xl border border-[#c9a84c]/30 bg-gradient-to-br from-[#0c2318] via-[#071a0f] to-black p-5 pt-6 transition active:scale-[0.99]"
+        className="block min-w-full shrink-0 overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
       >
-<p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#c9a84c]/80">
-          ♠ {title}
-        </p>
-
-        <h3 className="mt-2.5 text-3xl font-black uppercase leading-tight tracking-wide text-white">
+        <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
           {tournament.title}
         </h3>
 
-        <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/70">
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#c9a84c]/20 bg-[#c9a84c]/[0.06] px-3 py-1.5">
-            <CalendarIcon />
-            <span>{formatDateTimeWithoutSeconds(tournament.start_at)}</span>
+        <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
+          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+            {formatTournamentShortDate(tournament.start_at)}
           </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#c9a84c]/20 bg-[#c9a84c]/[0.06] px-3 py-1.5">
+          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+            {formatTournamentShortTime(tournament.start_at)}
+          </div>
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
             <UserIcon />
             <span>{registeredCount} / {tournament.max_players}</span>
           </div>
         </div>
 
-        <p className="mt-3 text-[11px] tracking-wide text-[#c9a84c]/45">
-          Нажми, чтобы открыть
+        <p className="mt-3 text-sm font-semibold text-white/70">
+          {countdownText === "Уже начался"
+            ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
+            : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
         </p>
+
+        <div className="mt-4">
+          <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
+            {actionLabel}
+          </div>
+        </div>
       </Link>
     );
   }
@@ -1077,44 +1225,37 @@ export default function HomePage() {
   }
 
   return (
-    <main className="relative min-h-screen bg-[#080808] px-4 py-6 text-white">
+    <main className="relative min-h-screen bg-[#080808] px-4 py-6 pb-28 text-white">
       <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#c9a84c0a,transparent)]" />
       <div className="relative mx-auto max-w-md">
-        <header className="mb-7">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-[#c9a84c]/60">
-              Игровое пространство РЕРЕЙЗ
-            </p>
-            <div className="mt-3 flex items-center justify-between gap-4">
-              <h1 className="text-4xl font-bold tracking-tight">Главная</h1>
-
-              {player ? (
-                <Link
-                  href={`/players/${player.id}`}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-2 text-sm text-white/85"
-                >
-                  {homeAvatarUrl ? (
-                    <img
-                      src={homeAvatarUrl}
-                      alt={greetingName}
-                      className="h-7 w-7 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.08] text-xs font-semibold text-white/80">
-                      {homeAvatarFallback}
-                    </div>
-                  )}
-                  <span className="pr-1">Профиль</span>
-                </Link>
-              ) : null}
+        <Link
+          href={`/players/${player.id}`}
+          className="mb-6 flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/[0.04] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.22)]"
+        >
+          {homeAvatarUrl ? (
+            <img
+              src={homeAvatarUrl}
+              alt={greetingName}
+              className="h-12 w-12 rounded-2xl border border-white/10 object-cover"
+            />
+          ) : (
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] text-sm font-semibold text-white/80">
+              {homeAvatarFallback}
             </div>
+          )}
 
-            <p className="mt-4 text-sm text-white/80">Привет, {greetingName}</p>
-            <p className="mt-1 text-xs text-[#c9a84c]/50">
-              Добро пожаловать в РЕРЕЙЗ
-            </p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <p className="truncate text-lg font-bold text-white">
+              {greetingName}
+              </p>
+              <div className="shrink-0 text-right text-[11px] leading-5 text-white/55">
+                <p>Достижения: {completedAchievementsCount}</p>
+                <p>Re-Entry: {player.free_reentries_balance ?? 0}</p>
+              </div>
+            </div>
           </div>
-        </header>
+        </Link>
 
         {!checkedTelegram ? (
           <div className="rounded-xl border border-white/10 bg-white/[0.05] p-4 text-sm text-white/70">
@@ -1163,77 +1304,147 @@ export default function HomePage() {
 
         {checkedTelegram && !!player && !playerLoading && !playerError ? (
           <>
-            <section className="mt-6 space-y-4">
-              {nearestTournament
-                ? renderTournamentCard(
-                    nearestTournament,
-                    nearestTournamentRegisteredCount,
-                    "Ближайший турнир"
-                  )
-                : null}
+            <section className="space-y-2.5">
+              {showAnyTournamentCard ? (
+                <>
+                  <div
+                    onTouchStart={handleTournamentTouchStart}
+                    onTouchEnd={handleTournamentTouchEnd}
+                    className="overflow-hidden pb-1 touch-pan-x"
+                  >
+                    <div
+                      className="flex transition-transform duration-500 ease-out"
+                      style={{ transform: `translate3d(-${activeTournamentIndex * 100}%, 0, 0)` }}
+                    >
+                      {homeTournaments.map((tournament) =>
+                        renderTournamentCard(
+                          tournament,
+                          registrationCounts[tournament.id] ?? 0
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-2">
+                    {homeTournaments.map((tournament, index) =>
+                      <span
+                        key={tournament.id}
+                        className={`h-1.5 rounded-full transition-all ${
+                          activeTournamentIndex === index
+                            ? "w-6 bg-[#d7b55a]"
+                            : "w-3 bg-white/20"
+                        }`}
+                      />
+                    )}
+                  </div>
+                </>
+              ) : null}
 
               {!showAnyTournamentCard ? (
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-sm text-white/60">
+                <div className="rounded-[24px] border border-white/10 bg-white/[0.05] p-4 text-sm text-white/60">
                   Сейчас нет открытых турниров
                 </div>
               ) : null}
             </section>
 
-            <section className="mt-4">
-              <div className="grid grid-cols-2 gap-3">
-                <Link
-                  href="/tournaments"
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
-                >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
-                    <TournamentIcon />
-                    <span className="text-xs uppercase tracking-wider">Расписание</span>
-                  </div>
-                  <p className="mt-5 text-xl font-bold">Турниры</p>
-                </Link>
+            <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-xl font-bold text-white">Рейтинг сезона</h2>
+                </div>
 
                 <Link
                   href="/leaderboard"
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
+                  className="shrink-0 text-sm font-medium text-[#d7b55a]"
                 >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
-                    <TrophyIcon />
-                    <span className="text-xs uppercase tracking-wider">Топ игроков</span>
-                  </div>
-                  <p className="mt-5 text-xl font-bold">Рейтинг</p>
+                  Весь рейтинг →
                 </Link>
+              </div>
 
+              {topThreeRows.length > 0 ? (
+                <div className="mt-3 space-y-1.5">
+                  {topThreeRows.map((row, index) => (
+                    <Link
+                      key={row.player_id}
+                      href={`/players/${row.player_id}`}
+                      className="flex items-center justify-between gap-3 px-0.5 py-0.5 transition active:scale-[0.99]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {getLeaderboardMedal(index + 1)} {row.display_name}
+                        </p>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold text-white/75">
+                        {row.rating}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 text-sm text-white/55">
+                  Рейтинг сезона пока пуст.
+                </div>
+              )}
+
+              <div className="mt-3 border-t border-white/10 pt-3">
+                <p className="text-sm font-semibold text-white/88">
+                  {getCompactLeaderboardSummary()}
+                </p>
+                {!currentPlayerLeaderboardRow ? (
+                  <p className="mt-1 text-sm text-white/60">
+                    Сыграйте первый турнир, чтобы попасть в таблицу рейтинга
+                  </p>
+                ) : null}
+              </div>
+            </section>
+
+            <button
+              type="button"
+              onClick={() =>
+                openExternalLink(
+                  "https://yandex.ru/maps/?text=%D0%A2%D0%B2%D0%B5%D1%80%D1%8C%2C%20%D1%83%D0%BB.%20%D0%9D%D0%BE%D0%B2%D0%BE%D1%82%D0%BE%D1%80%D0%B6%D1%81%D0%BA%D0%B0%D1%8F%2C%2018%D0%BA1"
+                )
+              }
+              className="mt-5 flex w-full items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3.5 text-left transition active:scale-[0.99]"
+            >
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/45">
+                  Адрес
+                </p>
+                <p className="mt-1 text-base font-bold text-white">Новоторжская, 18 к.1</p>
+              </div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/65">
+                <MapIcon />
+              </div>
+            </button>
+
+            <section className="mt-5">
+              <div className="grid grid-cols-2 gap-3">
                 <Link
                   href="/faq"
-                  className="rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
+                  className="rounded-[20px] border border-white/[0.07] bg-white/4 p-3.5 text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.05] text-[#c9a84c]/70">
                     <InfoIcon />
-                    <span className="text-xs uppercase tracking-wider">Ответы</span>
                   </div>
-                  <p className="mt-5 text-xl font-bold">FAQ</p>
+                  <p className="mt-3 text-base font-bold">О клубе</p>
                 </Link>
 
                 <button
                   type="button"
                   onClick={() => {
                     logEvent("support_opened");
-                    const httpsUrl = "https://t.me/ReRaise_Poker_Bot?start=support";
-                    const tgUrl = "tg://resolve?domain=ReRaise_Poker_Bot&start=support";
-                    const webApp = getTelegramWebApp();
-                    if (webApp?.openTelegramLink) {
-                      webApp.openTelegramLink(httpsUrl);
-                    } else {
-                      window.location.href = tgUrl;
-                    }
+                    openTelegramDestination(
+                      "https://t.me/ReRaise_Poker_Bot?start=support",
+                      "tg://resolve?domain=ReRaise_Poker_Bot&start=support"
+                    );
                   }}
-                  className="w-full rounded-2xl border border-white/[0.07] bg-white/4 p-5 text-left text-white transition active:scale-[0.99]"
+                  className="rounded-[20px] border border-white/[0.07] bg-white/4 p-3.5 text-left text-white transition active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.05] text-[#c9a84c]/70">
                     <SupportIcon />
-                    <span className="text-xs uppercase tracking-wider">На связи</span>
                   </div>
-                  <p className="mt-5 text-xl font-bold">Поддержка</p>
+                  <p className="mt-3 text-base font-bold">Поддержка</p>
                 </button>
               </div>
             </section>

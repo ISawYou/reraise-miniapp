@@ -106,6 +106,23 @@ function UserIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m5 12 4.25 4.25L19 6.5" />
+    </svg>
+  );
+}
+
 function formatTournamentDate(date: string) {
   return new Date(date).toLocaleString("ru-RU", {
     year: "numeric",
@@ -350,21 +367,21 @@ const waitlistParticipants = participants.filter(
     if (!tournament || tournament.status === "completed") return null;
 
     if (!registrationStatus) {
-  return (
-    <button
-      type="button"
-      onClick={handleRegister}
-      disabled={actionLoading}
-      className="mt-3 w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
-    >
-      {actionLoading
-        ? "Сохраняем..."
-        : registeredCount >= tournament.max_players
-        ? "Встать в список ожидания"
-        : "Записаться на турнир"}
-    </button>
-  );
-}
+      return (
+        <button
+          type="button"
+          onClick={handleRegister}
+          disabled={actionLoading}
+          className="w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
+        >
+          {actionLoading
+            ? "Сохраняем..."
+            : registeredCount >= tournament.max_players
+              ? "Встать в список ожидания"
+              : "Записаться на турнир"}
+        </button>
+      );
+    }
 
     if (registrationStatus === "registered") {
       return (
@@ -372,9 +389,16 @@ const waitlistParticipants = participants.filter(
           type="button"
           onClick={handleCancel}
           disabled={actionLoading}
-          className="mt-3 w-full rounded-xl bg-green-600 py-3 font-semibold text-white disabled:opacity-60"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/14 py-3 font-semibold text-emerald-100 disabled:opacity-60"
         >
-          {actionLoading ? "Сохраняем..." : "Вы записаны"}
+          {actionLoading ? (
+            "Сохраняем..."
+          ) : (
+            <>
+              <CheckIcon />
+              <span>Вы записаны</span>
+            </>
+          )}
         </button>
       );
     }
@@ -385,7 +409,7 @@ const waitlistParticipants = participants.filter(
           type="button"
           onClick={handleCancel}
           disabled={actionLoading}
-          className="mt-3 w-full rounded-xl bg-orange-500 py-3 font-semibold text-white disabled:opacity-60"
+          className="w-full rounded-xl bg-orange-500 py-3 font-semibold text-white disabled:opacity-60"
         >
           {actionLoading ? "Сохраняем..." : "Выйти из списка ожидания"}
         </button>
@@ -426,7 +450,7 @@ const waitlistParticipants = participants.filter(
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
+    <main className="min-h-screen bg-black px-4 py-6 pb-44 text-white">
       <div className="mx-auto max-w-md">
         <button
           type="button"
@@ -551,7 +575,15 @@ const waitlistParticipants = participants.filter(
               <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
                 <h2 className="text-sm font-semibold text-white">Регистрация</h2>
                 <div className="mt-3">
-                  {renderActionButton()}
+                  <p className="text-sm text-white/72">
+                    {!registrationStatus
+                      ? registeredCount >= tournament.max_players
+                        ? "Свободные места закончились, но можно встать в список ожидания."
+                        : "Кнопка регистрации закреплена внизу экрана и всегда доступна."
+                      : registrationStatus === "registered"
+                        ? "Вы уже записаны на турнир. Управление записью доступно внизу экрана."
+                        : "Вы в списке ожидания. Управление записью доступно внизу экрана."}
+                  </p>
 
                   <p className="mt-3 text-xs text-white/55">
                     Если планы изменились, отмените запись заранее.
@@ -588,11 +620,8 @@ const waitlistParticipants = participants.filter(
                       href={`/players/${result.player_id}`}
                       className="text-sm font-medium text-white"
                     >
-                      {result.username ? `@${result.username}` : result.display_name}
+                      {result.display_name}
                     </Link>
-                    {!result.username ? (
-                      <p className="mt-1 text-xs text-white/50">{result.display_name}</p>
-                    ) : null}
                   </div>
 
                   <div className="text-right text-sm font-semibold text-white/80">
@@ -655,6 +684,16 @@ const waitlistParticipants = participants.filter(
         </div>
         )}
       </div>
+
+      {tournament.status !== "completed" ? (
+        <div className="pointer-events-none fixed inset-x-0 z-20 bottom-[calc(env(safe-area-inset-bottom)+92px)] px-4">
+          <div className="mx-auto max-w-md">
+            <div className="pointer-events-auto rounded-[22px] border border-white/10 bg-[#0d0f0f]/78 p-3 backdrop-blur-xl">
+              {renderActionButton()}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

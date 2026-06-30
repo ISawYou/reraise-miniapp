@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -67,11 +67,7 @@ function getTournamentKindLabel(kind: Tournament["kind"]) {
 }
 
 function pluralEntries(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${n} бесплатный вход`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} бесплатных входа`;
-  return `${n} бесплатных входов`;
+  return `${n} re-entry`;
 }
 
 function PencilIcon() {
@@ -500,7 +496,7 @@ export default function PlayerProfilePage() {
             {(player.free_reentries_balance ?? 0) > 0 ? (
               <div className="mt-2">
                 <span className="inline-flex items-center gap-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-0.5 text-xs font-medium text-yellow-400">
-                  🎟 {pluralEntries(player.free_reentries_balance ?? 0)}
+                  {pluralEntries(player.free_reentries_balance ?? 0)}
                 </span>
               </div>
             ) : null}
@@ -746,4 +742,5 @@ export default function PlayerProfilePage() {
     </main>
   );
 }
+
 
