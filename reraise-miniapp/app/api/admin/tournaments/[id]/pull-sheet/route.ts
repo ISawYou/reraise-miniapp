@@ -8,28 +8,20 @@ import {
 import { readSpreadsheetTabValues } from "@/lib/google-sheets";
 
 function parseBooleanCell(value: string | undefined) {
-  if (!value) {
-    return false;
-  }
+  if (!value) return false;
 
   const normalized = value.trim().toLowerCase();
   return ["true", "1", "yes", "да", "y"].includes(normalized);
 }
 
 function parseNumberCell(value: string | undefined) {
-  if (!value?.trim()) {
-    return 0;
-  }
-
+  if (!value?.trim()) return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function parseNullableNumberCell(value: string | undefined) {
-  if (!value?.trim()) {
-    return null;
-  }
-
+  if (!value?.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -60,6 +52,8 @@ export async function POST(
         username: string | null;
         arrived: boolean;
         paid: boolean;
+        payment_type: string;
+        free_reentries: number;
         rebuys: number;
         addons: number;
         knockouts: number;
@@ -73,10 +67,12 @@ export async function POST(
           username: (row[3]?.trim().replace(/^@/, "") || null) as string | null,
           arrived: parseBooleanCell(row[5]),
           paid: parseBooleanCell(row[6]),
-          rebuys: parseNumberCell(row[7]),
-          addons: parseNumberCell(row[8]),
-          knockouts: parseNumberCell(row[9]),
-          place: parseNullableNumberCell(row[10]),
+          payment_type: (row[7] ?? "").trim(),
+          free_reentries: parseNumberCell(row[8]),
+          rebuys: parseNumberCell(row[9]),
+          addons: parseNumberCell(row[10]),
+          knockouts: parseNumberCell(row[11]),
+          place: parseNullableNumberCell(row[12]),
         }))
         .filter(
           (row: FreeSheetRow) =>
@@ -96,6 +92,8 @@ export async function POST(
           username: row.username,
           arrived: sheetRow?.arrived ?? false,
           paid: sheetRow?.paid ?? false,
+          payment_type: sheetRow?.payment_type ?? "",
+          free_reentries: sheetRow?.free_reentries ?? 0,
           rebuys: sheetRow?.rebuys ?? 0,
           addons: sheetRow?.addons ?? 0,
           knockouts: sheetRow?.knockouts ?? 0,
@@ -116,6 +114,8 @@ export async function POST(
       player_id: string;
       arrived: boolean;
       paid: boolean;
+      payment_type: string;
+      free_reentries: number;
       rebuys: number;
       addons: number;
       knockouts: number;
@@ -127,10 +127,12 @@ export async function POST(
       player_id: row[0] as string,
       arrived: parseBooleanCell(row[5]),
       paid: parseBooleanCell(row[6]),
-      rebuys: parseNumberCell(row[7]),
-      addons: parseNumberCell(row[8]),
-      knockouts: parseNumberCell(row[9]),
-      place: parseNullableNumberCell(row[10]),
+      payment_type: (row[7] ?? "").trim(),
+      free_reentries: parseNumberCell(row[8]),
+      rebuys: parseNumberCell(row[9]),
+      addons: parseNumberCell(row[10]),
+      knockouts: parseNumberCell(row[11]),
+      place: parseNullableNumberCell(row[12]),
       sheet_row_number: index + 8,
     }));
 
@@ -139,12 +141,20 @@ export async function POST(
     );
 
     const paidMap = new Map<string, boolean>(updates.map((r) => [r.player_id, r.paid]));
+    const paymentTypeMap = new Map<string, string>(
+      updates.map((r) => [r.player_id, r.payment_type])
+    );
+    const freeReentriesMap = new Map<string, number>(
+      updates.map((r) => [r.player_id, r.free_reentries])
+    );
 
     await applyTournamentLiveSheetRows(id, updates);
     const dbRows = await getTournamentLiveEntries(id);
     const rows = dbRows.map((row) => ({
       ...row,
       paid: paidMap.get(row.player_id) ?? false,
+      payment_type: paymentTypeMap.get(row.player_id) ?? "",
+      free_reentries: freeReentriesMap.get(row.player_id) ?? 0,
     }));
 
     return NextResponse.json({

@@ -48,7 +48,7 @@ function buildReadmeSheetValues() {
     ["README - live-данные турниров"],
     [],
     ["Эта таблица синхронизируется с Mini App."],
-    ["Редактировать можно поля: Пришел, Re-buy, Addon, Nok, Место."],
+    ["Редактировать можно поля: Пришел, Оплатил, Нал/карта, Беспл. re-entry, Re-buy, Addon, Nok, Место."],
     ["Технические поля скрыты и нужны только для синхронизации."],
   ];
 }
@@ -56,6 +56,8 @@ function buildReadmeSheetValues() {
 function buildLiveSheetValues(
   exportData: Awaited<ReturnType<typeof getTournamentLiveSheetData>>,
   paidMap: Map<string, boolean> = new Map(),
+  paymentTypeMap: Map<string, string> = new Map(),
+  freeReentriesMap: Map<string, number> = new Map(),
   entryPrice = 0,
   addonPrice = 0,
   bountyPrice = 0
@@ -75,6 +77,8 @@ function buildLiveSheetValues(
       "Статус регистрации",
       "Пришел",
       "Оплатил",
+      "Нал/карта",
+      "Беспл. re-entry",
       "Re-buy",
       "Addon",
       "Nok",
@@ -88,6 +92,8 @@ function buildLiveSheetValues(
       row.registration_status,
       row.arrived,
       paidMap.get(row.player_id) ?? false,
+      paymentTypeMap.get(row.player_id) ?? "",
+      freeReentriesMap.get(row.player_id) ?? 0,
       row.rebuys,
       row.addons,
       row.knockouts,
@@ -102,6 +108,8 @@ export async function syncTournamentLiveSheet(
     player_id: string;
     arrived: boolean;
     paid?: boolean;
+    payment_type?: string;
+    free_reentries?: number;
     rebuys: number;
     addons: number;
     knockouts: number;
@@ -114,10 +122,22 @@ export async function syncTournamentLiveSheet(
   await ensureTournamentLiveEntries(tournamentId);
 
   if (rows?.length) {
-    await updateTournamentLiveEntries(tournamentId, rows);
+    await updateTournamentLiveEntries(
+      tournamentId,
+      rows.map((row) => ({
+        player_id: row.player_id,
+        arrived: row.arrived,
+        rebuys: row.rebuys,
+        addons: row.addons,
+        knockouts: row.knockouts,
+        place: row.place,
+      }))
+    );
   }
 
   const paidMap = new Map((rows ?? []).map((r) => [r.player_id, r.paid ?? false]));
+  const paymentTypeMap = new Map((rows ?? []).map((r) => [r.player_id, r.payment_type ?? ""]));
+  const freeReentriesMap = new Map((rows ?? []).map((r) => [r.player_id, r.free_reentries ?? 0]));
 
   const tournament = await getTournamentById(tournamentId);
   const tabName =
@@ -136,8 +156,20 @@ export async function syncTournamentLiveSheet(
       console.error("Failed to append row to Лист1", error);
     }
   }
-  await replaceSpreadsheetTabValues(tabName, buildLiveSheetValues(exportData, paidMap, entryPrice, addonPrice, bountyPrice));
-  await applyTournamentSheetFormatting(tabName, exportData.rows.length, 11);
+
+  await replaceSpreadsheetTabValues(
+    tabName,
+    buildLiveSheetValues(
+      exportData,
+      paidMap,
+      paymentTypeMap,
+      freeReentriesMap,
+      entryPrice,
+      addonPrice,
+      bountyPrice
+    )
+  );
+  await applyTournamentSheetFormatting(tabName, exportData.rows.length, 13);
   await setTournamentGoogleSheetTabName(tournamentId, tabName);
 
   return {
@@ -159,6 +191,8 @@ export async function POST(
             player_id: string;
             arrived: boolean;
             paid?: boolean;
+            payment_type?: string;
+            free_reentries?: number;
             rebuys: number;
             addons: number;
             knockouts: number;

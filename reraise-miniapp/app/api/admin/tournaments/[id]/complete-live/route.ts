@@ -3,13 +3,38 @@ import { completeTournamentFromLiveEntries } from "@/features/tournaments";
 import { syncTournamentLiveSheet } from "@/app/api/admin/tournaments/[id]/live-sync/route";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await context.params;
+    const body = (await request.json().catch(() => null)) as
+      | {
+          rows?: Array<{
+            player_id: string;
+            arrived: boolean;
+            paid?: boolean;
+            payment_type?: string;
+            free_reentries?: number;
+            rebuys: number;
+            addons: number;
+            knockouts: number;
+            place: number | null;
+          }>;
+          entryPrice?: number;
+          addonPrice?: number;
+          bountyPrice?: number;
+        }
+      | null;
+
     const result = await completeTournamentFromLiveEntries(id);
-    await syncTournamentLiveSheet(id);
+    await syncTournamentLiveSheet(
+      id,
+      body?.rows,
+      body?.entryPrice ?? 0,
+      body?.addonPrice ?? 0,
+      body?.bountyPrice ?? 0
+    );
 
     return NextResponse.json({
       ok: true,

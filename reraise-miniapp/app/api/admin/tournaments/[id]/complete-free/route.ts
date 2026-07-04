@@ -14,6 +14,8 @@ export async function POST(
         player_id: string;
         arrived?: boolean;
         paid?: boolean;
+        payment_type?: string;
+        free_reentries?: number;
         rebuys: number;
         addons?: number;
         knockouts: number;
@@ -56,6 +58,8 @@ export async function POST(
         player_id: row.player_id,
         arrived: row.arrived ?? false,
         paid: row.paid ?? false,
+        payment_type: row.payment_type ?? "",
+        free_reentries: row.free_reentries ?? 0,
         rebuys: row.rebuys,
         addons: row.addons ?? 0,
         knockouts: row.knockouts,

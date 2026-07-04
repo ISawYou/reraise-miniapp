@@ -16,6 +16,8 @@ type FreeSheetRowInput = {
   player_id: string;
   arrived: boolean;
   paid?: boolean;
+  payment_type?: string;
+  free_reentries?: number;
   rebuys: number;
   addons: number;
   knockouts: number;
@@ -48,18 +50,9 @@ function formatTournamentDate(date: string) {
 }
 
 function getFreeTournamentStatusLabel(status: string) {
-  if (status === "open") {
-    return "Открыт";
-  }
-
-  if (status === "closed") {
-    return "Закрыт";
-  }
-
-  if (status === "completed") {
-    return "Завершен";
-  }
-
+  if (status === "open") return "Открыт";
+  if (status === "closed") return "Закрыт";
+  if (status === "completed") return "Завершен";
   return "Черновик";
 }
 
@@ -106,6 +99,8 @@ function buildFreeSheetValues(
       "Статус регистрации",
       "Пришел",
       "Оплатил",
+      "Нал/карта",
+      "Беспл. re-entry",
       "Re-buy",
       "Addon",
       "Nok",
@@ -123,6 +118,8 @@ function buildFreeSheetValues(
         row.registration_status,
         values?.arrived ?? false,
         values?.paid ?? false,
+        values?.payment_type ?? "",
+        values?.free_reentries ?? 0,
         values?.rebuys ?? 0,
         values?.addons ?? 0,
         values?.knockouts ?? 0,
@@ -152,10 +149,13 @@ function buildLiveSheetValues(
       "Telegram",
       "Статус регистрации",
       "Пришел",
-      "Re-entry",
+      "Оплатил",
+      "Нал/карта",
+      "Беспл. re-entry",
+      "Re-buy",
+      "Addon",
       "Нокауты",
       "Место",
-      "Комментарий",
     ],
     ...exportData.rows.map((row) => [
       row.player_id,
@@ -163,9 +163,12 @@ function buildLiveSheetValues(
       row.username ? `@${row.username}` : "",
       row.registration_status,
       "",
-      0,
-      0,
+      false,
       "",
+      0,
+      0,
+      0,
+      0,
       "",
     ]),
   ];
@@ -198,13 +201,18 @@ export async function syncTournamentSheet(
       console.error("Failed to append row to Лист1", error);
     }
   }
+
   const values =
     exportData.tournament.kind === "free"
       ? buildFreeSheetValues(exportData, rows, entryPrice, addonPrice, bountyPrice)
       : buildLiveSheetValues(exportData, entryPrice, addonPrice, bountyPrice);
 
   await replaceSpreadsheetTabValues(tabName, values);
-  await applyTournamentSheetFormatting(tabName, exportData.rows.length, 12);
+  await applyTournamentSheetFormatting(
+    tabName,
+    exportData.rows.length,
+    exportData.tournament.kind === "free" ? 14 : 12
+  );
   await setTournamentGoogleSheetTabName(tournamentId, tabName);
 
   return {

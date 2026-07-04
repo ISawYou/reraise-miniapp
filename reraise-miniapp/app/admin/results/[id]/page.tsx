@@ -28,6 +28,8 @@ type FreeFormRow = {
   username: string | null;
   arrived: boolean;
   paid: boolean;
+  payment_type: string;
+  free_reentries: string;
   rebuys: string;
   addons: string;
   knockouts: string;
@@ -40,6 +42,8 @@ type PulledFreeRow = {
   username: string | null;
   arrived: boolean;
   paid?: boolean;
+  payment_type?: string;
+  free_reentries: number;
   rebuys: number;
   addons: number;
   knockouts: number;
@@ -53,6 +57,8 @@ type LiveFormRow = {
   username: string | null;
   arrived: boolean;
   paid: boolean;
+  payment_type: string;
+  free_reentries: string;
   rebuys: string;
   addons: string;
   knockouts: string;
@@ -133,6 +139,8 @@ export default function AdminTournamentResultsPage() {
                 username: row.username,
                 arrived: row.arrived,
                 paid: row.paid ?? false,
+                payment_type: row.payment_type ?? "",
+                free_reentries: String(row.free_reentries ?? 0),
                 rebuys: String(row.rebuys),
                 addons: String(row.addons),
                 knockouts: String(row.knockouts),
@@ -154,6 +162,8 @@ export default function AdminTournamentResultsPage() {
               username: item.username,
               arrived: false,
               paid: false,
+              payment_type: "",
+              free_reentries: "0",
               rebuys: "0",
               addons: "0",
               knockouts: "0",
@@ -250,6 +260,10 @@ export default function AdminTournamentResultsPage() {
       username: item.username,
       arrived: item.arrived,
       paid: item.paid ?? false,
+      payment_type: (item as TournamentLiveEntry & { payment_type?: string }).payment_type ?? "",
+      free_reentries: String(
+        (item as TournamentLiveEntry & { free_reentries?: number }).free_reentries ?? 0
+      ),
       rebuys: String(item.rebuys),
       addons: String(item.addons),
       knockouts: String(item.knockouts),
@@ -272,7 +286,15 @@ export default function AdminTournamentResultsPage() {
 
   function updateFreeRow(
     playerId: string,
-    field: "arrived" | "paid" | "rebuys" | "addons" | "knockouts" | "place",
+    field:
+      | "arrived"
+      | "paid"
+      | "payment_type"
+      | "free_reentries"
+      | "rebuys"
+      | "addons"
+      | "knockouts"
+      | "place",
     value: boolean | string
   ) {
     setFreeRows((prev) =>
@@ -284,7 +306,15 @@ export default function AdminTournamentResultsPage() {
 
   function updateLiveRow(
     playerId: string,
-    field: "arrived" | "paid" | "rebuys" | "addons" | "knockouts" | "place",
+    field:
+      | "arrived"
+      | "paid"
+      | "payment_type"
+      | "free_reentries"
+      | "rebuys"
+      | "addons"
+      | "knockouts"
+      | "place",
     value: boolean | string
   ) {
     setLiveRows((prev) =>
@@ -304,6 +334,7 @@ export default function AdminTournamentResultsPage() {
 
     for (const row of freeRows) {
       if (
+        Number(row.free_reentries || 0) < 0 ||
         Number(row.rebuys || 0) < 0 ||
         Number(row.addons || 0) < 0 ||
         Number(row.knockouts || 0) < 0
@@ -333,6 +364,8 @@ export default function AdminTournamentResultsPage() {
               player_id: row.player_id,
               arrived: row.arrived,
               paid: row.paid,
+              payment_type: row.payment_type.trim(),
+              free_reentries: Number(row.free_reentries || 0),
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
@@ -388,6 +421,8 @@ export default function AdminTournamentResultsPage() {
         username: row.username,
         arrived: row.arrived,
         paid: row.paid ?? false,
+        payment_type: row.payment_type ?? "",
+        free_reentries: String(row.free_reentries ?? 0),
         rebuys: String(row.rebuys),
         addons: String(row.addons),
         knockouts: String(row.knockouts),
@@ -442,6 +477,8 @@ export default function AdminTournamentResultsPage() {
               player_id: row.player_id,
               arrived: row.arrived,
               paid: row.paid,
+              payment_type: row.payment_type.trim(),
+              free_reentries: Number(row.free_reentries || 0),
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
@@ -478,6 +515,7 @@ export default function AdminTournamentResultsPage() {
 
     for (const row of liveRows) {
       if (
+        Number(row.free_reentries || 0) < 0 ||
         Number(row.rebuys || 0) < 0 ||
         Number(row.addons || 0) < 0 ||
         Number(row.knockouts || 0) < 0
@@ -507,6 +545,8 @@ export default function AdminTournamentResultsPage() {
               player_id: row.player_id,
               arrived: row.arrived,
               paid: row.paid,
+              payment_type: row.payment_type.trim(),
+              free_reentries: Number(row.free_reentries || 0),
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
@@ -598,6 +638,26 @@ export default function AdminTournamentResultsPage() {
         `/api/admin/tournaments/${tournamentId}/complete-live`,
         {
           method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            rows: liveRows.map((row) => ({
+              player_id: row.player_id,
+              registration_id: row.registration_id,
+              arrived: row.arrived,
+              paid: row.paid,
+              payment_type: row.payment_type.trim(),
+              free_reentries: Number(row.free_reentries || 0),
+              rebuys: Number(row.rebuys || 0),
+              addons: Number(row.addons || 0),
+              knockouts: Number(row.knockouts || 0),
+              place: row.place ? Number(row.place) : null,
+            })),
+            entryPrice: Number(entryPrice || 0),
+            addonPrice: Number(addonPrice || 0),
+            bountyPrice: Number(bountyPrice || 0),
+          }),
         }
       );
 
@@ -836,15 +896,17 @@ export default function AdminTournamentResultsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-5 gap-2 text-center text-[11px] font-medium text-white/60">
+                  <div className="mt-3 grid grid-cols-7 gap-2 text-center text-[11px] font-medium text-white/60">
                     <span>Пришел</span>
                     <span>Оплатил</span>
+                    <span>Нал/карта</span>
+                    <span>Беспл. re-entry</span>
                     <span>Re-buy</span>
                     <span>Addon</span>
                     <span>Nok</span>
                   </div>
 
-                  <div className="mt-2 grid grid-cols-5 gap-2">
+                  <div className="mt-2 grid grid-cols-7 gap-2">
                     <label className="flex h-11 items-center justify-center">
                       <input
                         type="checkbox"
@@ -866,6 +928,40 @@ export default function AdminTournamentResultsPage() {
                         className="h-4 w-4 accent-green-500"
                       />
                     </label>
+
+                    <input
+                      type="text"
+                      value={row.payment_type}
+                      onChange={(e) =>
+                        updateFreeRow(row.player_id, "payment_type", e.target.value)
+                      }
+                      placeholder="нал / карта"
+                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-center text-sm outline-none"
+                    />
+
+                    <input
+                      type="number"
+                      min="0"
+                      value={row.free_reentries}
+                      onFocus={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "free_reentries",
+                          clearZeroValue(row.free_reentries)
+                        )
+                      }
+                      onBlur={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "free_reentries",
+                          restoreZeroValue(row.free_reentries)
+                        )
+                      }
+                      onChange={(e) =>
+                        updateFreeRow(row.player_id, "free_reentries", e.target.value)
+                      }
+                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
+                    />
 
                     <input
                       type="number"
@@ -975,15 +1071,17 @@ export default function AdminTournamentResultsPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-5 gap-2 text-center text-[11px] font-medium text-white/60">
+                <div className="mt-3 grid grid-cols-7 gap-2 text-center text-[11px] font-medium text-white/60">
                   <span>Пришел</span>
                   <span>Оплатил</span>
+                  <span>Нал/карта</span>
+                  <span>Беспл. re-entry</span>
                   <span>Re-buy</span>
                   <span>Addon</span>
                   <span>Nok</span>
                 </div>
 
-                <div className="mt-2 grid grid-cols-5 gap-2">
+                <div className="mt-2 grid grid-cols-7 gap-2">
                   <label className="flex h-11 items-center justify-center">
                     <input
                       type="checkbox"
@@ -1005,6 +1103,40 @@ export default function AdminTournamentResultsPage() {
                       className="h-4 w-4 accent-green-500"
                     />
                   </label>
+
+                  <input
+                    type="text"
+                    value={row.payment_type}
+                    onChange={(e) =>
+                      updateLiveRow(row.player_id, "payment_type", e.target.value)
+                    }
+                    placeholder="нал / карта"
+                    className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-center text-sm outline-none"
+                  />
+
+                  <input
+                    type="number"
+                    min="0"
+                    value={row.free_reentries}
+                    onFocus={() =>
+                      updateLiveRow(
+                        row.player_id,
+                        "free_reentries",
+                        clearZeroValue(row.free_reentries)
+                      )
+                    }
+                    onBlur={() =>
+                      updateLiveRow(
+                        row.player_id,
+                        "free_reentries",
+                        restoreZeroValue(row.free_reentries)
+                      )
+                    }
+                    onChange={(e) =>
+                      updateLiveRow(row.player_id, "free_reentries", e.target.value)
+                    }
+                    className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
+                  />
 
                   <input
                     type="number"
