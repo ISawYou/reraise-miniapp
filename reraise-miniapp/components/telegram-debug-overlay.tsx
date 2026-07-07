@@ -15,6 +15,7 @@ type DebugState = {
   version: string;
   isExpanded: string;
   isFullscreen: string;
+  isVerticalSwipesEnabled: string;
   viewportHeight: string;
   viewportStableHeight: string;
   safeTop: string;
@@ -62,6 +63,7 @@ function readState(
     version?: string;
     isExpanded?: boolean;
     isFullscreen?: boolean;
+    isVerticalSwipesEnabled?: boolean;
     viewportHeight?: number;
     viewportStableHeight?: number;
   }) | null;
@@ -95,6 +97,7 @@ function readState(
     version: str(wa?.version),
     isExpanded: str(wa?.isExpanded),
     isFullscreen: str(wa?.isFullscreen),
+    isVerticalSwipesEnabled: str(wa?.isVerticalSwipesEnabled),
     viewportHeight: str(wa?.viewportHeight),
     viewportStableHeight: str(wa?.viewportStableHeight),
     safeTop: str(safeTop),
@@ -242,6 +245,7 @@ export function TelegramDebugOverlay() {
       `version: ${state.version}`,
       `isExpanded: ${state.isExpanded}`,
       `isFullscreen: ${state.isFullscreen}`,
+      `isVerticalSwipesEnabled: ${state.isVerticalSwipesEnabled}`,
       `viewportHeight: ${state.viewportHeight}`,
       `viewportStableHeight: ${state.viewportStableHeight}`,
       `safeAreaInset: top=${state.safeTop} right=${state.safeRight} bottom=${state.safeBottom} left=${state.safeLeft}`,
@@ -268,6 +272,9 @@ export function TelegramDebugOverlay() {
   const badSum = sumNum !== null && sumNum < 50;
   const badOffset = state.cssOffset === "0px" || state.cssOffset === "–";
   const badPadding = state.containerPaddingTop === "0px";
+  // true (swipes still enabled) is the bad state here — we call
+  // disableVerticalSwipes() on init, so this should read "false".
+  const badSwipes = state.isVerticalSwipesEnabled === "true";
 
   const row = (label: string, value: string, bad?: boolean) => (
     <div
@@ -324,6 +331,7 @@ export function TelegramDebugOverlay() {
       {row("version", state.version)}
       {row("isExpanded", state.isExpanded)}
       {row("isFullscreen", state.isFullscreen)}
+      {row("isVerticalSwipesEnabled", state.isVerticalSwipesEnabled, badSwipes)}
       {row("viewportHeight", state.viewportHeight)}
       {row("viewportStableHeight", state.viewportStableHeight)}
 

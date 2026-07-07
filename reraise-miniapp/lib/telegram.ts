@@ -24,6 +24,10 @@ export type TelegramWebApp = {
   };
   safeAreaInset?: TelegramWebAppInset;
   contentSafeAreaInset?: TelegramWebAppInset;
+  // Read-only ground truth for whether Telegram's own swipe-to-close/minimize
+  // gesture is currently active — lets us verify disableVerticalSwipes()
+  // actually took effect instead of inferring it from side-effect logs.
+  isVerticalSwipesEnabled?: boolean;
   ready?: () => void;
   expand?: () => void;
   requestFullscreen?: () => void;
