@@ -849,59 +849,122 @@ export default function AdminTournamentResultsPage() {
 
   if (!accessChecked || loading) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
-        <div className="mx-auto max-w-4xl">
-          <p className="text-sm text-white/70">Загружаем страницу...</p>
-        </div>
-      </main>
+      <div
+        className="admin-results-scroll-area fixed inset-0 overflow-y-auto bg-black"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          overscrollBehaviorY: "contain",
+          boxSizing: "border-box",
+          paddingTop: "var(--app-top-offset, 0px)",
+          paddingRight:
+            "max(var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)), var(--tg-content-safe-area-inset-right, 0px))",
+          paddingBottom:
+            "max(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), var(--tg-content-safe-area-inset-bottom, 0px))",
+          paddingLeft:
+            "max(var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--tg-content-safe-area-inset-left, 0px))",
+        }}
+      >
+        <main className="px-4 py-6 text-white">
+          <div className="mx-auto max-w-4xl">
+            <p className="text-sm text-white/70">Загружаем страницу...</p>
+          </div>
+        </main>
+      </div>
     );
   }
 
   if (player?.role !== "admin") {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
-        <div className="mx-auto max-w-4xl">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </button>
+      <div
+        className="admin-results-scroll-area fixed inset-0 overflow-y-auto bg-black"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          overscrollBehaviorY: "contain",
+          boxSizing: "border-box",
+          paddingTop: "var(--app-top-offset, 0px)",
+          paddingRight:
+            "max(var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)), var(--tg-content-safe-area-inset-right, 0px))",
+          paddingBottom:
+            "max(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), var(--tg-content-safe-area-inset-bottom, 0px))",
+          paddingLeft:
+            "max(var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--tg-content-safe-area-inset-left, 0px))",
+        }}
+      >
+        <main className="px-4 py-6 text-white">
+          <div className="mx-auto max-w-4xl">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            >
+              ← Назад
+            </button>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <h1 className="text-xl font-semibold">Доступ запрещен</h1>
-            <p className="mt-2 text-sm text-white/70">
-              Эта страница доступна только администратору.
-            </p>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <h1 className="text-xl font-semibold">Доступ запрещен</h1>
+              <p className="mt-2 text-sm text-white/70">
+                Эта страница доступна только администратору.
+              </p>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     );
   }
 
   if (error && !tournament) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
-        <div className="mx-auto max-w-4xl">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </button>
+      <div
+        className="admin-results-scroll-area fixed inset-0 overflow-y-auto bg-black"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          overscrollBehaviorY: "contain",
+          boxSizing: "border-box",
+          paddingTop: "var(--app-top-offset, 0px)",
+          paddingRight:
+            "max(var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)), var(--tg-content-safe-area-inset-right, 0px))",
+          paddingBottom:
+            "max(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), var(--tg-content-safe-area-inset-bottom, 0px))",
+          paddingLeft:
+            "max(var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--tg-content-safe-area-inset-left, 0px))",
+        }}
+      >
+        <main className="px-4 py-6 text-white">
+          <div className="mx-auto max-w-4xl">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+            >
+              ← Назад
+            </button>
 
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-            {error}
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+              {error}
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
+    <div
+      className="admin-results-scroll-area fixed inset-0 overflow-y-auto bg-black"
+      style={{
+        WebkitOverflowScrolling: "touch",
+        overscrollBehaviorY: "contain",
+        boxSizing: "border-box",
+        paddingTop: "var(--app-top-offset, 0px)",
+        paddingRight:
+          "max(var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)), var(--tg-content-safe-area-inset-right, 0px))",
+        paddingBottom:
+          "max(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), var(--tg-content-safe-area-inset-bottom, 0px))",
+        paddingLeft:
+          "max(var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--tg-content-safe-area-inset-left, 0px))",
+      }}
+    >
+      <main className="px-4 py-6 text-white">
       <div className="mx-auto max-w-4xl">
         <button
           type="button"
@@ -1421,6 +1484,7 @@ export default function AdminTournamentResultsPage() {
           )}
         </div>
       </div>
-    </main>
+      </main>
+    </div>
   );
 }

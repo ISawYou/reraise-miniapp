@@ -379,6 +379,33 @@ export function TelegramDebugOverlay() {
         {copied ? "✓ Скопировано" : "Copy debug info"}
       </button>
 
+      {/* Disable button */}
+      <button
+        onClick={() => {
+          try {
+            localStorage.setItem(TG_DEBUG_STORAGE_KEY, "false");
+          } catch {
+            // ignore
+          }
+          window.dispatchEvent(new Event(TG_DEBUG_TOGGLE_EVENT));
+        }}
+        style={{
+          width: "100%",
+          padding: "4px 0",
+          background: "rgba(255,255,255,0.06)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 4,
+          color: "rgba(255,255,255,0.7)",
+          fontSize: 9,
+          fontWeight: 700,
+          cursor: "pointer",
+          marginBottom: 6,
+          fontFamily: "monospace",
+        }}
+      >
+        Выключить дебаг
+      </button>
+
       {/* Event log */}
       <div style={{ color: "#f5c451", fontSize: 9, fontWeight: 700, marginBottom: 2 }}>EVENTS</div>
       {logs.map((l, i) => (
