@@ -149,7 +149,8 @@ export async function replaceSpreadsheetTabValues(
 export async function applyTournamentSheetFormatting(
   tabName: string,
   playerRowsCount?: number,
-  columnCount = 12
+  columnCount = 12,
+  extraBooleanColumns?: number[]
 ) {
   const sheets = getGoogleSheetsClient();
   const spreadsheetId = getSpreadsheetId();
@@ -165,6 +166,25 @@ export async function applyTournamentSheetFormatting(
   }
 
   const dataEndRowIndex = 7 + Math.max(playerRowsCount ?? 0, 0);
+
+  const extraBooleanColumnRequests = (extraBooleanColumns ?? []).map((columnIndex) => ({
+    setDataValidation: {
+      range: {
+        sheetId,
+        startRowIndex: 7,
+        endRowIndex: dataEndRowIndex,
+        startColumnIndex: columnIndex,
+        endColumnIndex: columnIndex + 1,
+      },
+      rule: {
+        condition: {
+          type: "BOOLEAN",
+        },
+        strict: true,
+        showCustomUi: true,
+      },
+    },
+  }));
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
@@ -492,6 +512,7 @@ export async function applyTournamentSheetFormatting(
             },
           },
         },
+        ...extraBooleanColumnRequests,
       ],
     },
   });

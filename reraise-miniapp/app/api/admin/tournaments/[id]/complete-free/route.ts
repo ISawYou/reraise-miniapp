@@ -20,6 +20,8 @@ export async function POST(
         addons?: number;
         knockouts: number;
         place: number;
+        eliminated?: boolean;
+        eliminated_at?: string | null;
       }>;
       entryPrice?: number;
       addonPrice?: number;
@@ -65,6 +67,8 @@ export async function POST(
         knockouts: row.knockouts,
         place: row.place,
         rating_points: ratingMap.get(row.player_id) ?? 0,
+        eliminated: row.eliminated ?? false,
+        eliminated_at: row.eliminated_at ?? null,
       })),
       body.entryPrice ?? 0,
       body.addonPrice ?? 0,

@@ -73,6 +73,14 @@ export type TournamentLiveEntryRow = {
   updated_at: string;
 };
 
+export type TournamentPlayerEliminationRow = {
+  tournament_id: string;
+  player_id: string;
+  eliminated: boolean;
+  eliminated_at: string | null;
+  updated_at: string;
+};
+
 export type PlayerAchievementRow = {
   id: string;
   player_id: string;

@@ -23,7 +23,23 @@ type FreeSheetRowInput = {
   knockouts: number;
   place: number | null;
   rating_points?: number;
+  eliminated?: boolean;
+  eliminated_at?: string | null;
 };
+
+function formatEliminationTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  return new Date(value).toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function buildTabName(title: string, startAt: string, tournamentId: string) {
   const date = new Date(startAt);
@@ -106,6 +122,8 @@ function buildFreeSheetValues(
       "Nok",
       "Место",
       "Рейтинг",
+      "Выбыл",
+      "Время выбытия",
     ],
     ...exportData.rows.map((row) => {
       const values = rowsMap.get(row.player_id);
@@ -125,6 +143,8 @@ function buildFreeSheetValues(
         values?.knockouts ?? 0,
         values?.place ?? "",
         values?.rating_points ?? row.rating_points ?? "",
+        values?.eliminated ?? false,
+        formatEliminationTimestamp(values?.eliminated_at),
       ];
     }),
   ];
@@ -211,7 +231,8 @@ export async function syncTournamentSheet(
   await applyTournamentSheetFormatting(
     tabName,
     exportData.rows.length,
-    exportData.tournament.kind === "free" ? 14 : 12
+    exportData.tournament.kind === "free" ? 16 : 12,
+    exportData.tournament.kind === "free" ? [14] : undefined
   );
   await setTournamentGoogleSheetTabName(tournamentId, tabName);
 

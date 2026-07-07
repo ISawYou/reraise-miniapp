@@ -16,6 +16,7 @@ import type {
 import type {
   RegistrationRow,
   TournamentLiveEntryRow,
+  TournamentPlayerEliminationRow,
   TournamentRow,
 } from "@/types/database";
 
@@ -1606,6 +1607,89 @@ export async function getSeasonLeaderboard(seasonId: string) {
   }
 
   return Array.from(leaderboardMap.values()).sort((a, b) => b.rating - a.rating);
+}
+
+export async function getTournamentEliminations(
+  tournamentId: string
+): Promise<Map<string, { eliminated: boolean; eliminated_at: string | null }>> {
+  const { data, error } = await supabase
+    .from("tournament_player_eliminations")
+    .select("player_id, eliminated, eliminated_at")
+    .eq("tournament_id", tournamentId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return new Map(
+    (data ?? []).map((row: any) => [
+      row.player_id as string,
+      {
+        eliminated: row.eliminated as boolean,
+        eliminated_at: row.eliminated_at as string | null,
+      },
+    ])
+  );
+}
+
+export async function setTournamentPlayerElimination(
+  tournamentId: string,
+  playerId: string,
+  eliminated: boolean
+): Promise<{ eliminated: boolean; eliminated_at: string | null }> {
+  if (!eliminated) {
+    const { error } = await supabase
+      .from("tournament_player_eliminations")
+      .upsert(
+        {
+          tournament_id: tournamentId,
+          player_id: playerId,
+          eliminated: false,
+          eliminated_at: null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "tournament_id,player_id" }
+      );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return { eliminated: false, eliminated_at: null };
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("tournament_player_eliminations")
+    .select("eliminated_at")
+    .eq("tournament_id", tournamentId)
+    .eq("player_id", playerId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  const eliminatedAt = (existing as TournamentPlayerEliminationRow | null)?.eliminated_at
+    ?? new Date().toISOString();
+
+  const { error } = await supabase
+    .from("tournament_player_eliminations")
+    .upsert(
+      {
+        tournament_id: tournamentId,
+        player_id: playerId,
+        eliminated: true,
+        eliminated_at: eliminatedAt,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "tournament_id,player_id" }
+    );
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { eliminated: true, eliminated_at: eliminatedAt };
 }
 
 export async function getActiveSeason() {

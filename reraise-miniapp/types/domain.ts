@@ -122,6 +122,12 @@ export type TournamentLiveEntry = {
   sheet_row_number: number | null;
 };
 
+export type TournamentPlayerElimination = {
+  player_id: string;
+  eliminated: boolean;
+  eliminated_at: string | null;
+};
+
 export type PlayerAchievement = {
   id: string;
   player_id: string;
