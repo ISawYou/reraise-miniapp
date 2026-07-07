@@ -50,6 +50,12 @@ export function BottomNav() {
     return null;
   }
 
+  // Admin pages manage their own layout/back-navigation and don't leave
+  // room for a fixed bottom bar — it ends up overlapping content instead.
+  if (pathname?.startsWith("/admin")) {
+    return null;
+  }
+
   const profileHref = `/players/${player.id}`;
   const isHome = pathname === "/";
   const isTournaments = pathname.startsWith("/tournaments");
