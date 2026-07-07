@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   getTournamentById,
-  getTournamentEliminations,
   getTournamentLiveEntries,
   getTournamentResultsDraft,
 } from "@/features/tournaments";
@@ -35,12 +34,6 @@ type FreeFormRow = {
   addons: string;
   knockouts: string;
   place: string;
-  eliminated: boolean;
-  eliminated_at: string | null;
-  // UI-only: true when `place` was filled in automatically by the
-  // "Выбыл" checkbox, so unchecking it can safely clear the place again.
-  // Never sent to the server or Google Sheets.
-  placeAutoAssigned: boolean;
 };
 
 type PulledFreeRow = {
@@ -86,58 +79,6 @@ function clearZeroValue(value: string) {
 
 function restoreZeroValue(value: string) {
   return value.trim() === "" ? "0" : value;
-}
-
-function formatEliminationTime(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  return new Date(value).toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-// Largest finishing position (1..totalCount) not already taken by another
-// row — i.e. "the last free place". First player eliminated gets the worst
-// (highest-numbered) remaining place, matching standard elimination order.
-function computeAutoPlace(rows: FreeFormRow[], playerId: string): string | null {
-  const totalCount = rows.length;
-  const occupied = new Set(
-    rows
-      .filter((row) => row.player_id !== playerId && row.place.trim() !== "")
-      .map((row) => Number(row.place))
-  );
-
-  for (let candidate = totalCount; candidate >= 1; candidate -= 1) {
-    if (!occupied.has(candidate)) {
-      return String(candidate);
-    }
-  }
-
-  return null;
-}
-
-// Strips UI-only / already-durably-saved fields before diffing snapshots,
-// so toggling "Выбыл" (auto-saved instantly to the DB) doesn't trigger a
-// false "unsaved changes" warning on its own.
-function snapshotFreeRows(rows: FreeFormRow[]) {
-  return JSON.stringify(
-    rows.map((row) => ({
-      player_id: row.player_id,
-      display_name: row.display_name,
-      username: row.username,
-      arrived: row.arrived,
-      paid: row.paid,
-      payment_type: row.payment_type,
-      free_reentries: row.free_reentries,
-      rebuys: row.rebuys,
-      addons: row.addons,
-      knockouts: row.knockouts,
-      place: row.place,
-    }))
-  );
 }
 
 export default function AdminTournamentResultsPage() {
@@ -204,9 +145,6 @@ export default function AdminTournamentResultsPage() {
                 addons: String(row.addons),
                 knockouts: String(row.knockouts),
                 place: row.place == null ? "" : String(row.place),
-                eliminated: false,
-                eliminated_at: null,
-                placeAutoAssigned: false,
               }));
               if (payload.entryPrice !== undefined) setEntryPrice(String(payload.entryPrice));
               if (payload.addonPrice !== undefined) setAddonPrice(String(payload.addonPrice));
@@ -230,22 +168,11 @@ export default function AdminTournamentResultsPage() {
               addons: "0",
               knockouts: "0",
               place: "",
-              eliminated: false,
-              eliminated_at: null,
-              placeAutoAssigned: false,
             }));
           }
 
-          const eliminations = await getTournamentEliminations(tournamentId);
-          nextRows = nextRows.map((row) => {
-            const elimination = eliminations.get(row.player_id);
-            return elimination
-              ? { ...row, eliminated: elimination.eliminated, eliminated_at: elimination.eliminated_at }
-              : row;
-          });
-
           setFreeRows(nextRows);
-          setInitialFreeSnapshot(snapshotFreeRows(nextRows));
+          setInitialFreeSnapshot(JSON.stringify(nextRows));
         } else {
           let entries = await getTournamentLiveEntries(tournamentId);
 
@@ -294,7 +221,7 @@ export default function AdminTournamentResultsPage() {
       return false;
     }
 
-    return snapshotFreeRows(freeRows) !== initialFreeSnapshot;
+    return JSON.stringify(freeRows) !== initialFreeSnapshot;
   }, [freeRows, initialFreeSnapshot, isFreeTournament]);
 
   const hasUnsavedLiveChanges = useMemo(() => {
@@ -372,90 +299,9 @@ export default function AdminTournamentResultsPage() {
   ) {
     setFreeRows((prev) =>
       prev.map((row) =>
-        row.player_id === playerId
-          ? {
-              ...row,
-              [field]: value,
-              // Typing a place manually always takes precedence: it's no
-              // longer safe to auto-clear it if the checkbox is unchecked.
-              ...(field === "place" ? { placeAutoAssigned: false } : null),
-            }
-          : row
+        row.player_id === playerId ? { ...row, [field]: value } : row
       )
     );
-  }
-
-  async function handleToggleFreeEliminated(playerId: string, checked: boolean) {
-    if (!tournamentId) {
-      return;
-    }
-
-    const previousRow = freeRows.find((row) => row.player_id === playerId);
-
-    if (!previousRow) {
-      return;
-    }
-
-    let nextPlace = previousRow.place;
-    let nextPlaceAutoAssigned = previousRow.placeAutoAssigned;
-
-    if (checked) {
-      if (!previousRow.place.trim()) {
-        const autoPlace = computeAutoPlace(freeRows, playerId);
-
-        if (autoPlace) {
-          nextPlace = autoPlace;
-          nextPlaceAutoAssigned = true;
-        }
-      }
-    } else if (previousRow.placeAutoAssigned) {
-      nextPlace = "";
-      nextPlaceAutoAssigned = false;
-    }
-
-    const optimisticEliminatedAt = checked
-      ? previousRow.eliminated_at ?? new Date().toISOString()
-      : null;
-
-    setFreeRows((prev) =>
-      prev.map((row) =>
-        row.player_id === playerId
-          ? {
-              ...row,
-              place: nextPlace,
-              placeAutoAssigned: nextPlaceAutoAssigned,
-              eliminated: checked,
-              eliminated_at: optimisticEliminatedAt,
-            }
-          : row
-      )
-    );
-
-    try {
-      const result = await fetchAdminJson<{ eliminated: boolean; eliminated_at: string | null }>(
-        `/api/admin/tournaments/${tournamentId}/eliminate`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ player_id: playerId, eliminated: checked }),
-        }
-      );
-
-      setFreeRows((prev) =>
-        prev.map((row) =>
-          row.player_id === playerId
-            ? { ...row, eliminated: result.eliminated, eliminated_at: result.eliminated_at }
-            : row
-        )
-      );
-    } catch (err) {
-      setFreeRows((prev) =>
-        prev.map((row) => (row.player_id === playerId ? previousRow : row))
-      );
-      setError(
-        err instanceof Error ? err.message : "Не удалось сохранить отметку о выбытии"
-      );
-    }
   }
 
   function updateLiveRow(
@@ -524,8 +370,6 @@ export default function AdminTournamentResultsPage() {
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
               place: row.place ? Number(row.place) : null,
-              eliminated: row.eliminated,
-              eliminated_at: row.eliminated_at,
             })),
             entryPrice: Number(entryPrice || 0),
             addonPrice: Number(addonPrice || 0),
@@ -537,7 +381,7 @@ export default function AdminTournamentResultsPage() {
       setTournament((current) =>
         current ? { ...current, google_sheet_tab_name: payload.tabName } : current
       );
-      setInitialFreeSnapshot(snapshotFreeRows(freeRows));
+      setInitialFreeSnapshot(JSON.stringify(freeRows));
       setMessage("Данные турнира сохранены");
     } catch (err) {
       const nextMessage =
@@ -571,7 +415,7 @@ export default function AdminTournamentResultsPage() {
         }
       );
 
-      let nextRows: FreeFormRow[] = payload.rows.map((row) => ({
+      const nextRows = payload.rows.map((row) => ({
         player_id: row.player_id,
         display_name: row.display_name,
         username: row.username,
@@ -583,21 +427,9 @@ export default function AdminTournamentResultsPage() {
         addons: String(row.addons),
         knockouts: String(row.knockouts),
         place: row.place == null ? "" : String(row.place),
-        eliminated: false,
-        eliminated_at: null,
-        placeAutoAssigned: false,
       }));
-
-      const eliminations = await getTournamentEliminations(tournamentId);
-      nextRows = nextRows.map((row) => {
-        const elimination = eliminations.get(row.player_id);
-        return elimination
-          ? { ...row, eliminated: elimination.eliminated, eliminated_at: elimination.eliminated_at }
-          : row;
-      });
-
       setFreeRows(nextRows);
-      setInitialFreeSnapshot(snapshotFreeRows(nextRows));
+      setInitialFreeSnapshot(JSON.stringify(nextRows));
       if (payload.entryPrice !== undefined) setEntryPrice(String(payload.entryPrice));
       if (payload.addonPrice !== undefined) setAddonPrice(String(payload.addonPrice));
       if (payload.bountyPrice !== undefined) setBountyPrice(String(payload.bountyPrice));
@@ -651,8 +483,6 @@ export default function AdminTournamentResultsPage() {
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
               place: Number(row.place),
-              eliminated: row.eliminated,
-              eliminated_at: row.eliminated_at,
             })),
             entryPrice: Number(entryPrice || 0),
             addonPrice: Number(addonPrice || 0),
@@ -664,7 +494,7 @@ export default function AdminTournamentResultsPage() {
       setTournament((current) =>
         current ? { ...current, status: "completed" } : current
       );
-      setInitialFreeSnapshot(snapshotFreeRows(freeRows));
+      setInitialFreeSnapshot(JSON.stringify(freeRows));
       setMessage("Турнир завершен, данные сохранены и обновлены в GS");
     } catch (err) {
       const nextMessage =
@@ -1041,11 +871,7 @@ export default function AdminTournamentResultsPage() {
               freeRows.map((row) => (
                 <div
                   key={row.player_id}
-                  className={`rounded-xl border p-3 ${
-                    row.eliminated
-                      ? "border-red-500/25 bg-red-500/6"
-                      : "border-white/10 bg-white/5"
-                  }`}
+                  className="rounded-xl border border-white/10 bg-white/5 p-3"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -1056,40 +882,19 @@ export default function AdminTournamentResultsPage() {
                         <p className="mt-1 text-sm text-white/45">@{row.username}</p>
                       ) : null}
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <label className="flex flex-col items-center gap-1">
-                        <span className="text-[11px] font-medium text-white/60">
-                          Выбыл
-                        </span>
-                        <input
-                          type="checkbox"
-                          checked={row.eliminated}
-                          onChange={(e) =>
-                            handleToggleFreeEliminated(row.player_id, e.target.checked)
-                          }
-                          className="h-5 w-5 accent-red-500"
-                        />
-                      </label>
-                      <div className="flex flex-col items-center gap-1">
-                        <p className="text-[11px] font-medium text-white/60">Место</p>
-                        <input
-                          type="number"
-                          min="1"
-                          value={row.place}
-                          onChange={(e) =>
-                            updateFreeRow(row.player_id, "place", e.target.value)
-                          }
-                          className="h-9 w-16 rounded-lg border border-white/10 bg-black/30 px-2 text-center text-base outline-none"
-                        />
-                      </div>
+                    <div className="flex shrink-0 flex-col items-center gap-1">
+                      <p className="text-[11px] font-medium text-white/60">Место</p>
+                      <input
+                        type="number"
+                        min="1"
+                        value={row.place}
+                        onChange={(e) =>
+                          updateFreeRow(row.player_id, "place", e.target.value)
+                        }
+                        className="h-9 w-16 rounded-lg border border-white/10 bg-black/30 px-2 text-center text-base outline-none"
+                      />
                     </div>
                   </div>
-
-                  {row.eliminated_at ? (
-                    <p className="mt-1 text-right text-[11px] text-white/45">
-                      Выбыл в {formatEliminationTime(row.eliminated_at)}
-                    </p>
-                  ) : null}
 
                   <div className="mt-3 grid grid-cols-7 gap-2 text-center text-[11px] font-medium text-white/60">
                     <span>Пришел</span>
