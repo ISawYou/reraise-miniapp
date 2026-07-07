@@ -849,122 +849,59 @@ export default function AdminTournamentResultsPage() {
 
   if (!accessChecked || loading) {
     return (
-      <div
-        className="admin-results-scroll-area fixed inset-0 overflow-y-auto bg-black"
-        style={{
-          WebkitOverflowScrolling: "touch",
-          overscrollBehaviorY: "contain",
-          boxSizing: "border-box",
-          paddingTop: "var(--app-top-offset, 0px)",
-          paddingRight:
-            "max(var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)), var(--tg-content-safe-area-inset-right, 0px))",
-          paddingBottom:
-            "max(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), var(--tg-content-safe-area-inset-bottom, 0px))",
-          paddingLeft:
-            "max(var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--tg-content-safe-area-inset-left, 0px))",
-        }}
-      >
-        <main className="px-4 py-6 text-white">
-          <div className="mx-auto max-w-4xl">
-            <p className="text-sm text-white/70">Загружаем страницу...</p>
-          </div>
-        </main>
-      </div>
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
+        <div className="mx-auto max-w-4xl">
+          <p className="text-sm text-white/70">Загружаем страницу...</p>
+        </div>
+      </main>
     );
   }
 
   if (player?.role !== "admin") {
     return (
-      <div
-        className="admin-results-scroll-area fixed inset-0 overflow-y-auto bg-black"
-        style={{
-          WebkitOverflowScrolling: "touch",
-          overscrollBehaviorY: "contain",
-          boxSizing: "border-box",
-          paddingTop: "var(--app-top-offset, 0px)",
-          paddingRight:
-            "max(var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)), var(--tg-content-safe-area-inset-right, 0px))",
-          paddingBottom:
-            "max(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), var(--tg-content-safe-area-inset-bottom, 0px))",
-          paddingLeft:
-            "max(var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--tg-content-safe-area-inset-left, 0px))",
-        }}
-      >
-        <main className="px-4 py-6 text-white">
-          <div className="mx-auto max-w-4xl">
-            <button
-              type="button"
-              onClick={handleBack}
-              className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-            >
-              ← Назад
-            </button>
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
+        <div className="mx-auto max-w-4xl">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          >
+            ← Назад
+          </button>
 
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <h1 className="text-xl font-semibold">Доступ запрещен</h1>
-              <p className="mt-2 text-sm text-white/70">
-                Эта страница доступна только администратору.
-              </p>
-            </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <h1 className="text-xl font-semibold">Доступ запрещен</h1>
+            <p className="mt-2 text-sm text-white/70">
+              Эта страница доступна только администратору.
+            </p>
           </div>
-        </main>
-      </div>
+        </div>
+      </main>
     );
   }
 
   if (error && !tournament) {
     return (
-      <div
-        className="admin-results-scroll-area fixed inset-0 overflow-y-auto bg-black"
-        style={{
-          WebkitOverflowScrolling: "touch",
-          overscrollBehaviorY: "contain",
-          boxSizing: "border-box",
-          paddingTop: "var(--app-top-offset, 0px)",
-          paddingRight:
-            "max(var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)), var(--tg-content-safe-area-inset-right, 0px))",
-          paddingBottom:
-            "max(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), var(--tg-content-safe-area-inset-bottom, 0px))",
-          paddingLeft:
-            "max(var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--tg-content-safe-area-inset-left, 0px))",
-        }}
-      >
-        <main className="px-4 py-6 text-white">
-          <div className="mx-auto max-w-4xl">
-            <button
-              type="button"
-              onClick={handleBack}
-              className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-            >
-              ← Назад
-            </button>
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
+        <div className="mx-auto max-w-4xl">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
+          >
+            ← Назад
+          </button>
 
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-              {error}
-            </div>
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+            {error}
           </div>
-        </main>
-      </div>
+        </div>
+      </main>
     );
   }
 
   return (
-    <div
-      className="admin-results-scroll-area fixed inset-0 overflow-y-auto bg-black"
-      style={{
-        WebkitOverflowScrolling: "touch",
-        overscrollBehaviorY: "contain",
-        boxSizing: "border-box",
-        paddingTop: "var(--app-top-offset, 0px)",
-        paddingRight:
-          "max(var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)), var(--tg-content-safe-area-inset-right, 0px))",
-        paddingBottom:
-          "max(var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), var(--tg-content-safe-area-inset-bottom, 0px))",
-        paddingLeft:
-          "max(var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)), var(--tg-content-safe-area-inset-left, 0px))",
-      }}
-    >
-      <main className="px-4 py-6 text-white">
+    <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-4xl">
         <button
           type="button"
@@ -1104,62 +1041,68 @@ export default function AdminTournamentResultsPage() {
               freeRows.map((row) => (
                 <div
                   key={row.player_id}
-                  className={`rounded-2xl border p-3.5 ${
+                  className={`rounded-xl border p-3 ${
                     row.eliminated
                       ? "border-red-500/25 bg-red-500/6"
                       : "border-white/10 bg-white/5"
                   }`}
                 >
-                  {/* Игрок */}
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-semibold text-white">
-                      {row.display_name}
-                    </p>
-                    {row.username ? (
-                      <p className="mt-0.5 text-xs text-white/45">@{row.username}</p>
-                    ) : null}
-                  </div>
-
-                  {/* Финиш: выбытие + место — сгруппированы вместе, т.к. чекбокс управляет местом */}
-                  <div className="mt-3 flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-2">
-                    <label className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 pl-1.5 active:bg-white/5">
-                      <input
-                        type="checkbox"
-                        checked={row.eliminated}
-                        onChange={(e) =>
-                          handleToggleFreeEliminated(row.player_id, e.target.checked)
-                        }
-                        className="h-5 w-5 shrink-0 accent-red-500"
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-white">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-base font-semibold text-white">
+                        {row.display_name}
+                      </p>
+                      {row.username ? (
+                        <p className="mt-1 text-sm text-white/45">@{row.username}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <label className="flex flex-col items-center gap-1">
+                        <span className="text-[11px] font-medium text-white/60">
                           Выбыл
                         </span>
-                        {row.eliminated_at ? (
-                          <span className="block text-[11px] text-white/50">
-                            {formatEliminationTime(row.eliminated_at)}
-                          </span>
-                        ) : null}
-                      </span>
-                    </label>
-
-                    <div className="flex shrink-0 flex-col items-center gap-1 pr-1">
-                      <p className="text-[11px] font-medium text-white/60">Место</p>
-                      <input
-                        type="number"
-                        min="1"
-                        value={row.place}
-                        onChange={(e) =>
-                          updateFreeRow(row.player_id, "place", e.target.value)
-                        }
-                        className="h-10 w-16 rounded-lg border border-white/10 bg-black/30 px-2 text-center text-base outline-none"
-                      />
+                        <input
+                          type="checkbox"
+                          checked={row.eliminated}
+                          onChange={(e) =>
+                            handleToggleFreeEliminated(row.player_id, e.target.checked)
+                          }
+                          className="h-5 w-5 accent-red-500"
+                        />
+                      </label>
+                      <div className="flex flex-col items-center gap-1">
+                        <p className="text-[11px] font-medium text-white/60">Место</p>
+                        <input
+                          type="number"
+                          min="1"
+                          value={row.place}
+                          onChange={(e) =>
+                            updateFreeRow(row.player_id, "place", e.target.value)
+                          }
+                          className="h-9 w-16 rounded-lg border border-white/10 bg-black/30 px-2 text-center text-base outline-none"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Статус: явка / оплата */}
-                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    <label className="flex h-10 items-center gap-1.5 rounded-lg border border-white/10 bg-black/20 px-3 active:bg-white/5">
+                  {row.eliminated_at ? (
+                    <p className="mt-1 text-right text-[11px] text-white/45">
+                      Выбыл в {formatEliminationTime(row.eliminated_at)}
+                    </p>
+                  ) : null}
+
+                  <div className="mt-3 grid grid-cols-7 gap-2 text-center text-[11px] font-medium text-white/60">
+                    <span>Пришел</span>
+                    <span>Оплатил</span>
+                    <span>Нал/карта</span>
+                    <span>Беспл. re-entry</span>
+                    <span>Re-buy</span>
+                    <span>Addon</span>
+                    <span>Nok</span>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-7 gap-2">
+                    <label className="flex h-11 items-center justify-center">
                       <input
                         type="checkbox"
                         checked={row.arrived}
@@ -1168,10 +1111,9 @@ export default function AdminTournamentResultsPage() {
                         }
                         className="h-4 w-4 accent-yellow-500"
                       />
-                      <span className="text-xs font-medium text-white/75">Пришёл</span>
                     </label>
 
-                    <label className="flex h-10 items-center gap-1.5 rounded-lg border border-white/10 bg-black/20 px-3 active:bg-white/5">
+                    <label className="flex h-11 items-center justify-center">
                       <input
                         type="checkbox"
                         checked={row.paid}
@@ -1180,7 +1122,6 @@ export default function AdminTournamentResultsPage() {
                         }
                         className="h-4 w-4 accent-green-500"
                       />
-                      <span className="text-xs font-medium text-white/75">Оплатил</span>
                     </label>
 
                     <input
@@ -1190,119 +1131,104 @@ export default function AdminTournamentResultsPage() {
                         updateFreeRow(row.player_id, "payment_type", e.target.value)
                       }
                       placeholder="нал / карта"
-                      className="h-10 min-w-28 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 text-sm outline-none"
+                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-2 text-center text-sm outline-none"
                     />
-                  </div>
 
-                  {/* Счётчики */}
-                  <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
-                        Free re-entry
-                      </p>
-                      <input
-                        type="number"
-                        min="0"
-                        value={row.free_reentries}
-                        onFocus={() =>
-                          updateFreeRow(
-                            row.player_id,
-                            "free_reentries",
-                            clearZeroValue(row.free_reentries)
-                          )
-                        }
-                        onBlur={() =>
-                          updateFreeRow(
-                            row.player_id,
-                            "free_reentries",
-                            restoreZeroValue(row.free_reentries)
-                          )
-                        }
-                        onChange={(e) =>
-                          updateFreeRow(row.player_id, "free_reentries", e.target.value)
-                        }
-                        className="mt-0.5 h-8 w-full bg-transparent text-left text-base outline-none"
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      value={row.free_reentries}
+                      onFocus={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "free_reentries",
+                          clearZeroValue(row.free_reentries)
+                        )
+                      }
+                      onBlur={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "free_reentries",
+                          restoreZeroValue(row.free_reentries)
+                        )
+                      }
+                      onChange={(e) =>
+                        updateFreeRow(row.player_id, "free_reentries", e.target.value)
+                      }
+                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
+                    />
 
-                    <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
-                        Re-buy
-                      </p>
-                      <input
-                        type="number"
-                        min="0"
-                        value={row.rebuys}
-                        onFocus={() =>
-                          updateFreeRow(row.player_id, "rebuys", clearZeroValue(row.rebuys))
-                        }
-                        onBlur={() =>
-                          updateFreeRow(
-                            row.player_id,
-                            "rebuys",
-                            restoreZeroValue(row.rebuys)
-                          )
-                        }
-                        onChange={(e) =>
-                          updateFreeRow(row.player_id, "rebuys", e.target.value)
-                        }
-                        className="mt-0.5 h-8 w-full bg-transparent text-left text-base outline-none"
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      value={row.rebuys}
+                      onFocus={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "rebuys",
+                          clearZeroValue(row.rebuys)
+                        )
+                      }
+                      onBlur={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "rebuys",
+                          restoreZeroValue(row.rebuys)
+                        )
+                      }
+                      onChange={(e) =>
+                        updateFreeRow(row.player_id, "rebuys", e.target.value)
+                      }
+                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
+                    />
 
-                    <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
-                        Addon
-                      </p>
-                      <input
-                        type="number"
-                        min="0"
-                        value={row.addons}
-                        onFocus={() =>
-                          updateFreeRow(row.player_id, "addons", clearZeroValue(row.addons))
-                        }
-                        onBlur={() =>
-                          updateFreeRow(
-                            row.player_id,
-                            "addons",
-                            restoreZeroValue(row.addons)
-                          )
-                        }
-                        onChange={(e) =>
-                          updateFreeRow(row.player_id, "addons", e.target.value)
-                        }
-                        className="mt-0.5 h-8 w-full bg-transparent text-left text-base outline-none"
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      value={row.addons}
+                      onFocus={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "addons",
+                          clearZeroValue(row.addons)
+                        )
+                      }
+                      onBlur={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "addons",
+                          restoreZeroValue(row.addons)
+                        )
+                      }
+                      onChange={(e) =>
+                        updateFreeRow(row.player_id, "addons", e.target.value)
+                      }
+                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
+                    />
 
-                    <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
-                        Nok
-                      </p>
-                      <input
-                        type="number"
-                        min="0"
-                        value={row.knockouts}
-                        onFocus={() =>
-                          updateFreeRow(
-                            row.player_id,
-                            "knockouts",
-                            clearZeroValue(row.knockouts)
-                          )
-                        }
-                        onBlur={() =>
-                          updateFreeRow(
-                            row.player_id,
-                            "knockouts",
-                            restoreZeroValue(row.knockouts)
-                          )
-                        }
-                        onChange={(e) =>
-                          updateFreeRow(row.player_id, "knockouts", e.target.value)
-                        }
-                        className="mt-0.5 h-8 w-full bg-transparent text-left text-base outline-none"
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      value={row.knockouts}
+                      onFocus={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "knockouts",
+                          clearZeroValue(row.knockouts)
+                        )
+                      }
+                      onBlur={() =>
+                        updateFreeRow(
+                          row.player_id,
+                          "knockouts",
+                          restoreZeroValue(row.knockouts)
+                        )
+                      }
+                      onChange={(e) =>
+                        updateFreeRow(row.player_id, "knockouts", e.target.value)
+                      }
+                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
+                    />
                   </div>
                 </div>
               ))
@@ -1484,7 +1410,6 @@ export default function AdminTournamentResultsPage() {
           )}
         </div>
       </div>
-      </main>
-    </div>
+    </main>
   );
 }
