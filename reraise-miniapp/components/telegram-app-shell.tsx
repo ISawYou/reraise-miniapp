@@ -122,14 +122,32 @@ export function TelegramAppShell() {
 
       if (!webApp || cancelled) return;
 
-      try {
-        webApp.ready?.();
-        webApp.expand?.();
-        webApp.requestFullscreen?.();
-        webApp.disableVerticalSwipes?.();
-        webApp.setBackgroundColor?.("#000000");
-        webApp.setHeaderColor?.("#000000");
+      // Each Telegram WebApp method is version-gated on the client (e.g.
+      // requestFullscreen throws a synchronous WebAppMethodUnsupported on
+      // older clients/platforms). These calls used to share one try block,
+      // so a throw from an earlier call (typically requestFullscreen)
+      // silently skipped every call after it — including
+      // disableVerticalSwipes(), which is what stops Telegram's own
+      // swipe-to-close gesture recognizer from eating vertical drags that
+      // should scroll the page. Isolate each call so one unsupported method
+      // can never block the rest.
+      const safeInvoke = (fn: (() => void) | undefined, label: string) => {
+        if (typeof fn !== "function") return;
+        try {
+          fn();
+        } catch (error) {
+          console.error(`Telegram WebApp.${label} failed:`, error);
+        }
+      };
 
+      safeInvoke(webApp.ready?.bind(webApp), "ready");
+      safeInvoke(webApp.expand?.bind(webApp), "expand");
+      safeInvoke(webApp.requestFullscreen?.bind(webApp), "requestFullscreen");
+      safeInvoke(webApp.disableVerticalSwipes?.bind(webApp), "disableVerticalSwipes");
+      safeInvoke(() => webApp.setBackgroundColor?.("#000000"), "setBackgroundColor");
+      safeInvoke(() => webApp.setHeaderColor?.("#000000"), "setHeaderColor");
+
+      try {
         // Initial read — values may be 0 before safeAreaChanged fires.
         computeAndApplyOffset(webApp);
 
