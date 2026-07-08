@@ -1,4 +1,5 @@
 import { SupabaseTournamentRepository } from "./SupabaseTournamentRepository";
+import { PostgresTournamentRepository } from "./PostgresTournamentRepository";
 import type { TournamentRepository } from "./TournamentRepository";
 
 export type {
@@ -7,5 +8,8 @@ export type {
   TournamentPatch,
 } from "./TournamentRepository";
 
-export const tournamentRepository: TournamentRepository =
-  new SupabaseTournamentRepository();
+const usePostgres = process.env.DATABASE_PROVIDER === "postgres";
+
+export const tournamentRepository: TournamentRepository = usePostgres
+  ? new PostgresTournamentRepository()
+  : new SupabaseTournamentRepository();

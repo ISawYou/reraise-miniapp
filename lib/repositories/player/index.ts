@@ -1,4 +1,5 @@
 import { SupabasePlayerRepository } from "./SupabasePlayerRepository";
+import { PostgresPlayerRepository } from "./PostgresPlayerRepository";
 import type { PlayerRepository } from "./PlayerRepository";
 
 export type {
@@ -11,4 +12,8 @@ export type {
   ReferralFields,
 } from "./PlayerRepository";
 
-export const playerRepository: PlayerRepository = new SupabasePlayerRepository();
+const usePostgres = process.env.DATABASE_PROVIDER === "postgres";
+
+export const playerRepository: PlayerRepository = usePostgres
+  ? new PostgresPlayerRepository()
+  : new SupabasePlayerRepository();
