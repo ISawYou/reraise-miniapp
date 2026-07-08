@@ -1,0 +1,53 @@
+
+# Standalone PostgreSQL infrastructure — prepared ahead of the Supabase
+# migration, not yet used by the app. Deliberately a separate compose file
+# from docker-compose.yml (the `app` service there is untouched by this
+# phase): the goal here is only to prove the schema/migrations work against
+# a real Postgres, not to wire anything into the running application.
+#
+# Usage:
+#   docker compose -f docker-compose.postgres.yml up -d db
+#   docker compose -f docker-compose.postgres.yml run --rm migrator npm run db:migrate
+#   docker compose -f docker-compose.postgres.yml run --rm migrator npm run db:generate
+#   docker compose -f docker-compose.postgres.yml down            # keeps the volume
+#   docker compose -f docker-compose.postgres.yml down -v         # also wipes data
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: re-raise-postgres
+    restart: unless-stopped
+    # Loopback-only — reachable from the host for local tooling (drizzle-kit,
+    # psql), never from outside this machine even if this file is later run
+    # on a public host. Same reasoning as poker-clock's own db service.
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - reraise_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrator:
+    build:
+      context: .
+      target: migrator
+    image: re-raise-migrator:latest
+    container_name: re-raise-migrator
+    # Not started by `docker compose up` — one-off tool container, invoked
+    # explicitly (see usage above). Same `profiles: ["tools"]` convention as
+    # poker-clock's migrator service.
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+
+volumes:
+  reraise_postgres_data:

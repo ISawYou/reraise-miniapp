@@ -30,7 +30,20 @@ ENV SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
 
 RUN npm run build
 
-# ── Stage 3: production runner ───────────────────────────────────────────────
+# ── Stage 3: migrator ────────────────────────────────────────────────────────
+# Runs Drizzle Kit (generate/migrate/push/studio) against Postgres. Extends
+# `builder` directly — same node_modules (devDependencies included, so
+# drizzle-kit is present) and full source (drizzle.config.ts, lib/db/), no
+# separate install step. Placed BEFORE `runner` so `runner` stays the last
+# stage — docker-compose.yml's `app` service has no explicit `target:` and
+# must keep resolving to `runner` by default. Never built as part of the
+# default `docker build` (last stage) and never referenced by it — only
+# reachable via `docker compose -f docker-compose.postgres.yml run --rm
+# migrator ...`, so it has zero effect on the production app image.
+FROM builder AS migrator
+CMD ["npm", "run", "db:migrate"]
+
+# ── Stage 4: production runner ───────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
 
