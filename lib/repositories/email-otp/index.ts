@@ -1,4 +1,5 @@
 import { SupabaseEmailOtpRepository } from "./SupabaseEmailOtpRepository";
+import { PostgresEmailOtpRepository } from "./PostgresEmailOtpRepository";
 import type { EmailOtpRepository } from "./EmailOtpRepository";
 
 export type {
@@ -8,5 +9,8 @@ export type {
   EmailOtpPurpose,
 } from "./EmailOtpRepository";
 
-export const emailOtpRepository: EmailOtpRepository =
-  new SupabaseEmailOtpRepository();
+const usePostgres = process.env.DATABASE_PROVIDER === "postgres";
+
+export const emailOtpRepository: EmailOtpRepository = usePostgres
+  ? new PostgresEmailOtpRepository()
+  : new SupabaseEmailOtpRepository();

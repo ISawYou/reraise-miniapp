@@ -1,4 +1,5 @@
 import { SupabaseActivityRepository } from "./SupabaseActivityRepository";
+import { PostgresActivityRepository } from "./PostgresActivityRepository";
 import type { ActivityRepository } from "./ActivityRepository";
 
 export type {
@@ -8,5 +9,8 @@ export type {
   ActivityEventSummary,
 } from "./ActivityRepository";
 
-export const activityRepository: ActivityRepository =
-  new SupabaseActivityRepository();
+const usePostgres = process.env.DATABASE_PROVIDER === "postgres";
+
+export const activityRepository: ActivityRepository = usePostgres
+  ? new PostgresActivityRepository()
+  : new SupabaseActivityRepository();
