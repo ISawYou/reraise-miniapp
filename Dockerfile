@@ -67,6 +67,13 @@ RUN addgroup --system --gid 1001 nodejs && \
 # Public assets
 COPY --from=builder /app/public ./public
 
+# Uploaded avatars land here (see
+# lib/repositories/avatar-storage/LocalAvatarStorageRepository.ts).
+# Pre-created with nextjs ownership so the non-root runtime user can write
+# to it even before docker-compose.yml's bind mount is attached over it.
+RUN mkdir -p public/storage/avatars && \
+    chown -R nextjs:nodejs public/storage
+
 # Next.js standalone output: when WORKDIR is /app the basename is "app", so
 # the standalone server lands at .next/standalone/app/ — copy that directory
 # directly into /app so server.js sits at the container root.

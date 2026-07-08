@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 import { NextResponse } from "next/server";
-import { avatarStorageRepository, playerRepository } from "@/lib/repositories";
+import { avatarStorageRepository, contentTypeToExtension, playerRepository } from "@/lib/repositories";
 
 function validateTelegramInitData(initData: string) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -93,7 +93,7 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const filePath = `${player.id}/avatar`;
+    const filePath = `${player.id}/avatar.${contentTypeToExtension(file.type)}`;
     const { error: uploadError } = await avatarStorageRepository.upload(
       filePath,
       file,

@@ -16,10 +16,23 @@ services:
     container_name: re-raise
     restart: unless-stopped
     ports:
-      # Loopback-only: this is a parallel test deployment, production traffic
-      # still goes through Vercel. Reach it via SSH tunnel or a temporary
-      # nginx server block, not directly from the internet.
+      # Loopback-only by design, not a limitation: nginx on this same VPS
+      # terminates TLS for re-raise.ru/www.re-raise.ru and reverse-proxies
+      # `location /` straight to 127.0.0.1:3002 (see
+      # /etc/nginx/sites-enabled/re-raise) -- this container IS the real
+      # production backend for the re-raise.ru website. The Telegram Mini
+      # App (opened from the bot's menu button, inside Telegram's WebView)
+      # is a separate deployment on Vercel and is not affected by anything
+      # in this compose file.
       - "127.0.0.1:3002:3000"
+    volumes:
+      # Uploaded avatars — bind mount (not a named volume) so the same host
+      # path can also be read directly by nginx (see
+      # /etc/nginx/sites-enabled/re-raise, location ^~ /storage/) for
+      # efficient static serving, and so files survive `docker compose
+      # build`/`down` since they live outside the container entirely. Same
+      # pattern as poker-clock's ./storage:/app/public/storage.
+      - ./storage:/app/public/storage
     environment:
       # Also available at runtime, not just baked into the client bundle at
       # build time (server components / API routes read these directly).
@@ -37,6 +50,14 @@ services:
       - GOOGLE_CLIENT_EMAIL=${GOOGLE_CLIENT_EMAIL}
       - GOOGLE_PRIVATE_KEY=${GOOGLE_PRIVATE_KEY}
       - GOOGLE_SHEETS_SPREADSHEET_ID=${GOOGLE_SHEETS_SPREADSHEET_ID}
+      # Postgres cutover for the re-raise.ru website (this container) --
+      # the Vercel-hosted Telegram Mini App deployment has its own,
+      # separate DATABASE_PROVIDER (still Supabase) and is untouched by
+      # this file. DATABASE_URL resolves poker-clock-db because of the
+      # `networks:` override below (same external-network pattern
+      # docker-compose.postgres.yml already uses).
+      - DATABASE_PROVIDER=${DATABASE_PROVIDER}
+      - DATABASE_URL=${DATABASE_URL}
     healthcheck:
       test:
         ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]
@@ -44,3 +65,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+networks:
+  default:
+    name: poker-clock_default
+    external: true

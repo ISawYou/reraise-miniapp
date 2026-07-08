@@ -1,6 +1,6 @@
 import "server-only";
 
-import { avatarStorageRepository, playerRepository } from "@/lib/repositories";
+import { avatarStorageRepository, contentTypeToExtension, playerRepository } from "@/lib/repositories";
 import type { Player } from "@/types/domain";
 
 const TELEGRAM_SYNC_FILENAME = "telegram-avatar";
@@ -70,8 +70,8 @@ export async function syncTelegramAvatar(
     return player;
   }
 
-  // --- Загружаем в Supabase Storage ---
-  const filePath = `${player.id}/${TELEGRAM_SYNC_FILENAME}`;
+  // --- Загружаем в Storage ---
+  const filePath = `${player.id}/${TELEGRAM_SYNC_FILENAME}.${contentTypeToExtension(contentType)}`;
 
   const { error: uploadError } = await avatarStorageRepository.upload(
     filePath,

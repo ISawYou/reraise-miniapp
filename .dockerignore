@@ -8,3 +8,5 @@ npm-debug.log*
 *.md
 .migration-backup
 screenshots
+storage
+public/storage
