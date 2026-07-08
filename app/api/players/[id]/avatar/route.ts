@@ -1,17 +1,6 @@
 import { createHmac } from "crypto";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-function createSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    throw new Error("Supabase admin env is not configured");
-  }
-
-  return createClient(url, serviceRoleKey);
-}
+import { avatarStorageRepository, playerRepository } from "@/lib/repositories";
 
 function validateTelegramInitData(initData: string) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -93,15 +82,10 @@ export async function POST(
     }
 
     const telegramUser = validateTelegramInitData(telegramInitData);
-    const supabase = createSupabaseAdmin();
 
-    const { data: player, error: playerError } = await supabase
-      .from("players")
-      .select("*")
-      .eq("telegram_id", telegramUser.id)
-      .single();
+    const player = await playerRepository.findByTelegramId(telegramUser.id);
 
-    if (playerError || !player) {
+    if (!player) {
       return NextResponse.json({ error: "Player not found" }, { status: 404 });
     }
 
@@ -110,32 +94,30 @@ export async function POST(
     }
 
     const filePath = `${player.id}/avatar`;
-    const { error: uploadError } = await supabase.storage
-      .from("avatars")
-      .upload(filePath, file, {
-        upsert: true,
-        contentType: file.type,
-      });
+    const { error: uploadError } = await avatarStorageRepository.upload(
+      filePath,
+      file,
+      file.type
+    );
 
     if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 400 });
+      return NextResponse.json({ error: uploadError }, { status: 400 });
     }
 
-    const { data: publicData } = supabase.storage.from("avatars").getPublicUrl(filePath);
-    const versionedUrl = `${publicData.publicUrl}?v=${Date.now()}`;
+    const publicUrl = avatarStorageRepository.getPublicUrl(filePath);
+    const versionedUrl = `${publicUrl}?v=${Date.now()}`;
 
-    const { data: updatedPlayer, error: updateError } = await supabase
-      .from("players")
-      .update({
+    let updatedPlayer;
+    try {
+      updatedPlayer = await playerRepository.update(player.id, {
         custom_avatar_url: versionedUrl,
         avatar_updated_at: new Date().toISOString(),
-      })
-      .eq("id", player.id)
-      .select("*")
-      .single();
-
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 400 });
+      });
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({ player: updatedPlayer });

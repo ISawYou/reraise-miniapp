@@ -1,5 +1,5 @@
 import "server-only";
-import { getSupabaseServer } from "@/lib/supabase-server";
+import { activityRepository } from "@/lib/repositories";
 import { getAppSetting } from "@/lib/app-settings";
 
 export async function logActivityEvent({
@@ -25,8 +25,7 @@ export async function logActivityEvent({
       if (includeAdmin !== true) return;
     }
 
-    const db = getSupabaseServer();
-    await db.from("activity_events").insert({
+    await activityRepository.create({
       player_id,
       event_type,
       event_label: event_label ?? null,

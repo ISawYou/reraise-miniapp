@@ -1,58 +1,22 @@
-import { supabase } from "@/lib/supabase";
+import {
+  playerRepository,
+  tournamentLiveStateRepository,
+  achievementRepository,
+  resultRepository,
+  registrationRepository,
+} from "@/lib/repositories";
 import type { Player } from "@/types/domain";
-import type { PlayerRow } from "@/types/database";
 
-function mapPlayerRowToDomain(row: PlayerRow): Player {
-  return {
-    id: row.id,
-    telegram_id: row.telegram_id,
-    email: row.email ?? undefined,
-    username: row.username,
-    display_name: row.display_name,
-    admin_display_name: row.admin_display_name ?? undefined,
-    telegram_avatar_url: row.telegram_avatar_url ?? undefined,
-    custom_avatar_url: row.custom_avatar_url ?? undefined,
-    avatar_updated_at: row.avatar_updated_at ?? undefined,
-    role: row.role as "player" | "admin",
-    accepted_terms_at: row.accepted_terms_at ?? undefined,
-    accepted_terms_version: row.accepted_terms_version ?? undefined,
-    profile_completed_at: row.profile_completed_at ?? undefined,
-    nickname_status: (row.nickname_status as "approved" | "pending") ?? undefined,
-    pending_display_name: row.pending_display_name ?? undefined,
-    can_access_free: row.can_access_free,
-    can_access_paid: row.can_access_paid,
-    can_access_cash: row.can_access_cash,
-    referral_count: row.referral_count,
-    free_reentries_balance: row.free_reentries_balance,
-    yandex_review_bonus_claimed: row.yandex_review_bonus_claimed,
-    created_at: row.created_at,
-  };
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 export async function getPlayersForAccessManagement(): Promise<Player[]> {
-  const { data, error } = await supabase
-    .from("players")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw new Error(`Ошибка загрузки игроков: ${error.message}`);
-  }
-
-  return (data ?? []).map((row) => mapPlayerRowToDomain(row as PlayerRow));
+  return playerRepository.listOrderedByCreatedAtDesc();
 }
 
 export async function getPlayersForNicknameDirectory(): Promise<Player[]> {
-  const { data, error } = await supabase
-    .from("players")
-    .select("*")
-    .order("display_name", { ascending: true });
-
-  if (error) {
-    throw new Error(`Ошибка загрузки игроков: ${error.message}`);
-  }
-
-  return (data ?? []).map((row) => mapPlayerRowToDomain(row as PlayerRow));
+  return playerRepository.listOrderedByDisplayName();
 }
 
 export async function updatePlayerAdminDisplayName(
@@ -61,65 +25,26 @@ export async function updatePlayerAdminDisplayName(
 ): Promise<Player> {
   const normalizedDisplayName = adminDisplayName?.trim() ?? "";
 
-  const { data, error } = await supabase
-    .from("players")
-    .update({
+  try {
+    return await playerRepository.update(playerId, {
       admin_display_name: normalizedDisplayName || null,
-    })
-    .eq("id", playerId)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Ошибка обновления админского ника: ${error.message}`);
+    });
+  } catch (err) {
+    throw new Error(`Ошибка обновления админского ника: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export async function deleteManualPlayer(playerId: string): Promise<void> {
-  const { data: player, error: fetchError } = await supabase
-    .from("players")
-    .select("id")
-    .eq("id", playerId)
-    .single();
+  const player = await playerRepository.findById(playerId);
 
-  if (fetchError || !player) throw new Error("Игрок не найден");
+  if (!player) throw new Error("Игрок не найден");
 
-  const { error: liveEntriesError } = await supabase
-    .from("tournament_live_entries")
-    .delete()
-    .eq("player_id", playerId);
-  if (liveEntriesError) {
-    throw new Error(`Ошибка удаления live-записей: ${liveEntriesError.message}`);
-  }
+  await tournamentLiveStateRepository.deleteLiveEntriesByPlayerId(playerId);
+  await achievementRepository.deleteByPlayerId(playerId);
+  await resultRepository.deleteByPlayerId(playerId);
+  await registrationRepository.deleteByPlayerId(playerId);
 
-  const { error: achievementsError } = await supabase
-    .from("player_achievements")
-    .delete()
-    .eq("player_id", playerId);
-  if (achievementsError) {
-    throw new Error(`Ошибка удаления достижений: ${achievementsError.message}`);
-  }
-
-  const { error: resultsError } = await supabase
-    .from("results")
-    .delete()
-    .eq("player_id", playerId);
-  if (resultsError) {
-    throw new Error(`Ошибка удаления results: ${resultsError.message}`);
-  }
-
-  const { error: registrationsError } = await supabase
-    .from("registrations")
-    .delete()
-    .eq("player_id", playerId);
-  if (registrationsError) {
-    throw new Error(`Ошибка удаления registrations: ${registrationsError.message}`);
-  }
-
-  const { error } = await supabase.from("players").delete().eq("id", playerId);
-  if (error) throw new Error(`Ошибка удаления: ${error.message}`);
+  await playerRepository.delete(playerId);
 }
 
 export async function updatePlayerTournamentAccess(
@@ -148,18 +73,11 @@ export async function updatePlayerTournamentAccess(
     payload.can_access_cash = input.can_access_cash;
   }
 
-  const { data, error } = await supabase
-    .from("players")
-    .update(payload)
-    .eq("id", playerId)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Ошибка обновления доступа: ${error.message}`);
+  try {
+    return await playerRepository.update(playerId, payload);
+  } catch (err) {
+    throw new Error(`Ошибка обновления доступа: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export type ReferralAction =
@@ -170,16 +88,7 @@ export type ReferralAction =
   | "set_yandex_review";
 
 export async function getPlayersForReferral(): Promise<Player[]> {
-  const { data, error } = await supabase
-    .from("players")
-    .select("*")
-    .order("display_name", { ascending: true });
-
-  if (error) {
-    throw new Error(`Ошибка загрузки игроков: ${error.message}`);
-  }
-
-  return (data ?? []).map((row) => mapPlayerRowToDomain(row as PlayerRow));
+  return playerRepository.listOrderedByDisplayName();
 }
 
 export async function updatePlayerReferralData(
@@ -187,45 +96,35 @@ export async function updatePlayerReferralData(
   action: ReferralAction,
   value?: boolean
 ): Promise<Player> {
-  const { data: current, error: fetchError } = await supabase
-    .from("players")
-    .select("referral_count, free_reentries_balance, yandex_review_bonus_claimed")
-    .eq("id", playerId)
-    .single();
+  const current = await playerRepository.findReferralFieldsById(playerId);
 
-  if (fetchError || !current) {
+  if (!current) {
     throw new Error("Игрок не найден");
   }
-
-  const currentRow = current as {
-    referral_count: number;
-    free_reentries_balance: number;
-    yandex_review_bonus_claimed: boolean;
-  };
 
   let update: Record<string, number | boolean> = {};
 
   if (action === "increment_referral") {
     update = {
-      referral_count: currentRow.referral_count + 1,
-      free_reentries_balance: currentRow.free_reentries_balance + 1,
+      referral_count: current.referral_count + 1,
+      free_reentries_balance: current.free_reentries_balance + 1,
     };
   } else if (action === "decrement_referral") {
     update = {
-      referral_count: Math.max(0, currentRow.referral_count - 1),
-      free_reentries_balance: Math.max(0, currentRow.free_reentries_balance - 1),
+      referral_count: Math.max(0, current.referral_count - 1),
+      free_reentries_balance: Math.max(0, current.free_reentries_balance - 1),
     };
   } else if (action === "increment_free_reentries") {
-    update = { free_reentries_balance: currentRow.free_reentries_balance + 1 };
+    update = { free_reentries_balance: current.free_reentries_balance + 1 };
   } else if (action === "decrement_free_reentries") {
-    update = { free_reentries_balance: Math.max(0, currentRow.free_reentries_balance - 1) };
+    update = { free_reentries_balance: Math.max(0, current.free_reentries_balance - 1) };
   } else if (action === "set_yandex_review") {
     const newValue = !!value;
-    let newBalance = currentRow.free_reentries_balance;
+    let newBalance = current.free_reentries_balance;
 
-    if (newValue && !currentRow.yandex_review_bonus_claimed) {
+    if (newValue && !current.yandex_review_bonus_claimed) {
       newBalance += 1;
-    } else if (!newValue && currentRow.yandex_review_bonus_claimed) {
+    } else if (!newValue && current.yandex_review_bonus_claimed) {
       newBalance = Math.max(0, newBalance - 1);
     }
 
@@ -235,16 +134,9 @@ export async function updatePlayerReferralData(
     };
   }
 
-  const { data, error } = await supabase
-    .from("players")
-    .update(update)
-    .eq("id", playerId)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Ошибка обновления: ${error.message}`);
+  try {
+    return await playerRepository.update(playerId, update);
+  } catch (err) {
+    throw new Error(`Ошибка обновления: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }

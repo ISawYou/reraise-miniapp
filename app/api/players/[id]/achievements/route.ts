@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase-server";
+import { achievementRepository } from "@/lib/repositories";
 
 export async function GET(
   _request: Request,
@@ -7,19 +7,19 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    const db = getSupabaseServer();
 
-    const { data, error } = await db
-      .from("player_achievements")
-      .select("achievement_code, current_value, completed_at")
-      .eq("player_id", id);
-
-    if (error) {
-      console.error("[GET /api/players/[id]/achievements] DB error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    let data;
+    try {
+      data = await achievementRepository.findSummariesByPlayerId(id);
+    } catch (dbError) {
+      console.error("[GET /api/players/[id]/achievements] DB error:", dbError);
+      return NextResponse.json(
+        { error: dbError instanceof Error ? dbError.message : String(dbError) },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json(data ?? []);
+    return NextResponse.json(data);
   } catch (error) {
     console.error("[GET /api/players/[id]/achievements] Unexpected error:", error);
     return NextResponse.json(

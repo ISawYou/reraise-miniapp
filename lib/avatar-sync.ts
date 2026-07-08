@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getSupabaseServer } from "@/lib/supabase-server";
+import { avatarStorageRepository, playerRepository } from "@/lib/repositories";
 import type { Player } from "@/types/domain";
 
 const TELEGRAM_SYNC_FILENAME = "telegram-avatar";
@@ -71,35 +71,29 @@ export async function syncTelegramAvatar(
   }
 
   // --- Загружаем в Supabase Storage ---
-  const supabase = getSupabaseServer();
   const filePath = `${player.id}/${TELEGRAM_SYNC_FILENAME}`;
 
-  const { error: uploadError } = await supabase.storage
-    .from("avatars")
-    .upload(filePath, arrayBuffer, {
-      upsert: true,
-      contentType,
-    });
+  const { error: uploadError } = await avatarStorageRepository.upload(
+    filePath,
+    arrayBuffer,
+    contentType
+  );
 
   if (uploadError) {
-    console.warn("[avatar-sync] Storage upload failed:", uploadError.message);
+    console.warn("[avatar-sync] Storage upload failed:", uploadError);
     return player;
   }
 
-  const { data: publicData } = supabase.storage
-    .from("avatars")
-    .getPublicUrl(filePath);
-
-  const localUrl = publicData.publicUrl;
+  const localUrl = avatarStorageRepository.getPublicUrl(filePath);
 
   // --- Сохраняем URL в БД ---
-  const { error: updateError } = await supabase
-    .from("players")
-    .update({ custom_avatar_url: localUrl })
-    .eq("id", player.id);
-
-  if (updateError) {
-    console.warn("[avatar-sync] DB update failed:", updateError.message);
+  try {
+    await playerRepository.update(player.id, { custom_avatar_url: localUrl });
+  } catch (err) {
+    console.warn(
+      "[avatar-sync] DB update failed:",
+      err instanceof Error ? err.message : String(err)
+    );
     return player;
   }
 

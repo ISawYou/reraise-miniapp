@@ -1,27 +1,14 @@
 ﻿import "server-only";
 
 import { createHash, randomInt } from "crypto";
-import { getSupabaseServer } from "@/lib/supabase-server";
+import { emailOtpRepository } from "@/lib/repositories";
+import type { EmailOtpPurpose } from "@/lib/repositories";
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_MS = 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 5;
 
-export type EmailOtpPurpose = "login" | "link_email";
-
-type EmailOtpRow = {
-  id: string;
-  email: string;
-  purpose: EmailOtpPurpose;
-  player_id: string | null;
-  code_hash: string;
-  expires_at: string;
-  resend_after_at: string;
-  failed_attempts: number;
-  consumed_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
+export type { EmailOtpPurpose } from "@/lib/repositories";
 
 function getOtpSecret() {
   const secret = process.env.SESSION_SECRET;
@@ -54,25 +41,9 @@ function generateOtpCode() {
 export async function getLatestActiveOtp(
   email: string,
   purpose: EmailOtpPurpose
-): Promise<EmailOtpRow | null> {
+) {
   const normalized = normalizeEmail(email);
-  const supabaseServer = getSupabaseServer();
-
-  const { data, error } = await supabaseServer
-    .from("email_otp_codes")
-    .select("*")
-    .eq("email", normalized)
-    .eq("purpose", purpose)
-    .is("consumed_at", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to load OTP record: ${error.message}`);
-  }
-
-  return (data as EmailOtpRow | null) ?? null;
+  return emailOtpRepository.findLatestActive(normalized, purpose);
 }
 
 export async function createEmailOtpCode(params: {
@@ -98,23 +69,14 @@ export async function createEmailOtpCode(params: {
     }
   }
 
-  const supabaseServer = getSupabaseServer();
-  await supabaseServer
-    .from("email_otp_codes")
-    .update({
-      consumed_at: new Date(now).toISOString(),
-      updated_at: new Date(now).toISOString(),
-    })
-    .eq("email", normalized)
-    .eq("purpose", params.purpose)
-    .is("consumed_at", null);
+  await emailOtpRepository.invalidateActive(normalized, params.purpose);
 
   const code = generateOtpCode();
   const codeHash = hashOtpCode(normalized, params.purpose, code);
   const expiresAt = new Date(now + OTP_TTL_MS).toISOString();
   const resendAfterAt = new Date(now + OTP_RESEND_MS).toISOString();
 
-  const { error } = await supabaseServer.from("email_otp_codes").insert({
+  await emailOtpRepository.create({
     email: normalized,
     purpose: params.purpose,
     player_id: params.playerId ?? null,
@@ -123,10 +85,6 @@ export async function createEmailOtpCode(params: {
     resend_after_at: resendAfterAt,
     failed_attempts: 0,
   });
-
-  if (error) {
-    throw new Error(`Failed to store OTP code: ${error.message}`);
-  }
 
   return {
     ok: true as const,
@@ -141,7 +99,6 @@ export async function verifyEmailOtpCode(params: {
   code: string;
 }) {
   const normalized = normalizeEmail(params.email);
-  const supabaseServer = getSupabaseServer();
   const record = await getLatestActiveOtp(normalized, params.purpose);
 
   if (!record) {
@@ -165,17 +122,7 @@ export async function verifyEmailOtpCode(params: {
   if (record.code_hash !== expectedHash) {
     const nextFailedAttempts = record.failed_attempts + 1;
 
-    const { error } = await supabaseServer
-      .from("email_otp_codes")
-      .update({
-        failed_attempts: nextFailedAttempts,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", record.id);
-
-    if (error) {
-      throw new Error(`Failed to update OTP attempts: ${error.message}`);
-    }
+    await emailOtpRepository.incrementFailedAttempts(record.id, nextFailedAttempts);
 
     return {
       ok: false as const,
@@ -187,17 +134,7 @@ export async function verifyEmailOtpCode(params: {
     };
   }
 
-  const { error } = await supabaseServer
-    .from("email_otp_codes")
-    .update({
-      consumed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", record.id);
-
-  if (error) {
-    throw new Error(`Failed to consume OTP code: ${error.message}`);
-  }
+  await emailOtpRepository.markConsumed(record.id);
 
   return {
     ok: true as const,

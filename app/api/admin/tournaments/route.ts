@@ -3,7 +3,7 @@ import {
   getAdminNotificationTournaments,
   getOpenTournaments,
 } from "@/features/tournaments";
-import { getSupabaseServer } from "@/lib/supabase-server";
+import { seasonRepository, tournamentRepository } from "@/lib/repositories";
 
 export async function GET(request: Request) {
   try {
@@ -45,34 +45,28 @@ export async function POST(request: Request) {
         | "win_the_button";
     };
 
-    const supabase = getSupabaseServer();
-
-    const { data: activeSeason, error: activeSeasonError } = await supabase
-      .from("seasons")
-      .select("id")
-      .eq("is_active", true)
-      .limit(1)
-      .single();
-
-    if (activeSeasonError) {
-      if (activeSeasonError.code === "PGRST116") {
-        return NextResponse.json(
-          { error: "Активный сезон не найден" },
-          { status: 400 }
-        );
-      }
-
+    let activeSeason;
+    try {
+      activeSeason = await seasonRepository.findActive();
+    } catch (err) {
       return NextResponse.json(
         {
-          error: `Не удалось получить активный сезон: ${activeSeasonError.message}`,
+          error: `Не удалось получить активный сезон: ${err instanceof Error ? err.message : String(err)}`,
         },
         { status: 500 }
       );
     }
 
-    const { data: tournament, error: createError } = await supabase
-      .from("tournaments")
-      .insert({
+    if (!activeSeason) {
+      return NextResponse.json(
+        { error: "Активный сезон не найден" },
+        { status: 400 }
+      );
+    }
+
+    let tournament;
+    try {
+      tournament = await tournamentRepository.create({
         title: body.title,
         description: body.description,
         location: body.location,
@@ -82,13 +76,12 @@ export async function POST(request: Request) {
         tournament_type: body.tournament_type ?? "classic",
         status: "open",
         season_id: activeSeason.id,
-      })
-      .select("*")
-      .single();
-
-    if (createError) {
+      });
+    } catch (err) {
       return NextResponse.json(
-        { error: `Не удалось создать турнир: ${createError.message}` },
+        {
+          error: `Не удалось создать турнир: ${err instanceof Error ? err.message : String(err)}`,
+        },
         { status: 500 }
       );
     }

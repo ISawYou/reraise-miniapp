@@ -1,24 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase-server";
+import { activityRepository, playerRepository } from "@/lib/repositories";
 
 // Admin-only — middleware already verified initData + admin role
 
 export async function GET(request: NextRequest) {
   try {
-    const db = getSupabaseServer();
     const url = new URL(request.url);
     const playerId = url.searchParams.get("player_id");
 
     // User history mode
     if (playerId) {
-      const { data: events } = await db
-        .from("activity_events")
-        .select("event_type, event_label, metadata, platform, session_id, created_at")
-        .eq("player_id", playerId)
-        .order("created_at", { ascending: false })
-        .limit(50);
+      const events = await activityRepository.findByPlayerId(playerId, 50);
 
-      return NextResponse.json({ events: events ?? [] });
+      return NextResponse.json({ events });
     }
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -26,14 +20,7 @@ export async function GET(request: NextRequest) {
     todayStart.setHours(0, 0, 0, 0);
     const todayStartIso = todayStart.toISOString();
 
-    const { data: events7d } = await db
-      .from("activity_events")
-      .select("player_id, event_type, created_at")
-      .gte("created_at", sevenDaysAgo)
-      .order("created_at", { ascending: false })
-      .limit(10000);
-
-    const events = events7d ?? [];
+    const events = await activityRepository.findSince(sevenDaysAgo, 10000);
 
     const activeTodaySet = new Set<string>();
     const active7dSet = new Set<string>();
@@ -58,12 +45,9 @@ export async function GET(request: NextRequest) {
 
     // Fetch player details (including role so KPIs can exclude admins)
     const playerIds = [...active7dSet];
-    const { data: players } = playerIds.length
-      ? await db
-          .from("players")
-          .select("id, display_name, username, email, role")
-          .in("id", playerIds.slice(0, 500))
-      : { data: [] };
+    const players = playerIds.length
+      ? await playerRepository.findSummariesByIds(playerIds.slice(0, 500))
+      : [];
 
     const playerMap = new Map((players ?? []).map((p) => [p.id, p]));
     const adminIds = new Set(

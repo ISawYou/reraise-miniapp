@@ -1,7 +1,4 @@
-import { supabase } from "@/lib/supabase";
-import { getSupabaseServer } from "@/lib/supabase-server";
-import type { PlayerAchievement } from "@/types/domain";
-import type { PlayerAchievementRow } from "@/types/database";
+import { achievementRepository, resultRepository } from "@/lib/repositories";
 
 const ACHIEVEMENT_TARGETS = {
   first_tournament: 1,
@@ -11,85 +8,33 @@ const ACHIEVEMENT_TARGETS = {
   pro_1000_rating: 1000,
 } as const;
 
-function mapPlayerAchievementRow(row: PlayerAchievementRow): PlayerAchievement {
-  return {
-    id: row.id,
-    player_id: row.player_id,
-    achievement_code: row.achievement_code,
-    current_value: row.current_value,
-    completed_at: row.completed_at,
-    updated_at: row.updated_at,
-  };
-}
-
 export async function getPlayerAchievements(playerId: string) {
-  const { data, error } = await supabase
-    .from("player_achievements")
-    .select("*")
-    .eq("player_id", playerId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return (data ?? []).map((row) =>
-    mapPlayerAchievementRow(row as PlayerAchievementRow)
-  );
+  return achievementRepository.findByPlayerId(playerId);
 }
 
 async function getPlayerAchievementStats(playerId: string) {
-  // Use service role client: anon client has no auth context on the server
-  // and may be blocked by RLS policies on the results table.
-  const db = getSupabaseServer();
-  const [
-    { count: playedCount, error: playedError },
-    { data: winsData, error: winsError },
-    { data: ratingData, error: ratingError },
-  ] =
-    await Promise.all([
-      db
-        .from("results")
-        .select("*", { count: "exact", head: true })
-        .eq("player_id", playerId),
-      db
-        .from("results")
-        .select("id")
-        .eq("player_id", playerId)
-        .eq("place", 1),
-      db
-        .from("results")
-        .select("rating_points")
-        .eq("player_id", playerId),
-    ]);
+  const [playedCount, winIds, ratingRows] = await Promise.all([
+    resultRepository.countByPlayerId(playerId),
+    resultRepository.findWinIdsByPlayerId(playerId),
+    resultRepository.findRatingPointsByPlayerId(playerId),
+  ]);
 
-  if (playedError) {
-    throw new Error(playedError.message);
-  }
-
-  if (winsError) {
-    throw new Error(winsError.message);
-  }
-
-  if (ratingError) {
-    throw new Error(ratingError.message);
-  }
-
-  const ratingTotal = (ratingData ?? []).reduce(
-    (sum, row: any) => sum + (row.rating_points ?? 0),
+  const ratingTotal = ratingRows.reduce(
+    (sum, row) => sum + (row.rating_points ?? 0),
     0
   );
 
   return {
     first_tournament: Math.min(
-      playedCount ?? 0,
+      playedCount,
       ACHIEVEMENT_TARGETS.first_tournament
     ),
     ten_tournaments: Math.min(
-      playedCount ?? 0,
+      playedCount,
       ACHIEVEMENT_TARGETS.ten_tournaments
     ),
     first_win: Math.min(
-      (winsData ?? []).length,
+      winIds.length,
       ACHIEVEMENT_TARGETS.first_win
     ),
     rookie_100_rating: Math.min(
@@ -120,13 +65,7 @@ export async function syncPlayerAchievements(playerId: string) {
     };
   });
 
-  const { error } = await getSupabaseServer()
-    .from("player_achievements")
-    .upsert(payload, { onConflict: "player_id,achievement_code" });
-
-  if (error) {
-    throw new Error(error.message);
-  }
+  await achievementRepository.upsertMany(payload);
 }
 
 export async function syncPlayersAchievements(playerIds: string[]) {

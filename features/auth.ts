@@ -1,75 +1,27 @@
-import { supabase } from "@/lib/supabase";
+import { playerRepository } from "@/lib/repositories";
 import type { Player } from "@/types/domain";
-import type { PlayerRow } from "@/types/database";
 import type { TelegramWebAppUser } from "@/lib/telegram";
-
-function mapPlayerRowToDomain(row: PlayerRow): Player {
-  return {
-    id: row.id,
-    telegram_id: row.telegram_id,
-    email: row.email ?? undefined,
-    username: row.username,
-    display_name: row.display_name,
-    admin_display_name: row.admin_display_name ?? undefined,
-    telegram_avatar_url: row.telegram_avatar_url ?? undefined,
-    custom_avatar_url: row.custom_avatar_url ?? undefined,
-    avatar_updated_at: row.avatar_updated_at ?? undefined,
-    role: row.role as "player" | "admin",
-    accepted_terms_at: row.accepted_terms_at ?? undefined,
-    accepted_terms_version: row.accepted_terms_version ?? undefined,
-    profile_completed_at: row.profile_completed_at ?? undefined,
-    nickname_status: (row.nickname_status as "approved" | "pending") ?? undefined,
-    pending_display_name: row.pending_display_name ?? undefined,
-    can_access_free: row.can_access_free,
-    can_access_paid: row.can_access_paid,
-    can_access_cash: row.can_access_cash,
-    referral_count: row.referral_count,
-    free_reentries_balance: row.free_reentries_balance,
-    yandex_review_bonus_claimed: row.yandex_review_bonus_claimed,
-    created_at: row.created_at,
-  };
-}
 
 function getTelegramAvatarUrl(telegramUser: TelegramWebAppUser): string | null {
   return telegramUser.photo_url ?? null;
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export async function getPlayerByTelegramId(
   telegramId: number
 ): Promise<Player | null> {
-  const { data, error } = await supabase
-    .from("players")
-    .select("*")
-    .eq("telegram_id", telegramId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to fetch player: ${error.message}`);
-  }
-
-  if (!data) {
-    return null;
-  }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
+  return playerRepository.findByTelegramId(telegramId);
 }
 
 export async function getPlayerById(playerId: string): Promise<Player | null> {
-  const { data, error } = await supabase
-    .from("players")
-    .select("*")
-    .eq("id", playerId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to fetch player: ${error.message}`);
+  try {
+    return await playerRepository.findById(playerId);
+  } catch (err) {
+    throw new Error(`Failed to fetch player: ${errorMessage(err)}`);
   }
-
-  if (!data) {
-    return null;
-  }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export async function createPlayerFromTelegramUser(
@@ -80,22 +32,16 @@ export async function createPlayerFromTelegramUser(
     [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(" ") ||
     `Player ${telegramUser.id}`;
 
-  const { data, error } = await supabase
-    .from("players")
-    .insert({
+  try {
+    return await playerRepository.create({
       telegram_id: telegramUser.id,
       username: telegramUser.username ?? null,
       display_name: displayName,
       telegram_avatar_url: getTelegramAvatarUrl(telegramUser),
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to create player: ${error.message}`);
+    });
+  } catch (err) {
+    throw new Error(`Failed to create player: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export async function ensurePlayerFromTelegramUser(
@@ -110,20 +56,13 @@ export async function ensurePlayerFromTelegramUser(
       nextTelegramAvatarUrl &&
       existingPlayer.telegram_avatar_url !== nextTelegramAvatarUrl
     ) {
-      const { data, error } = await supabase
-        .from("players")
-        .update({
+      try {
+        return await playerRepository.update(existingPlayer.id, {
           telegram_avatar_url: nextTelegramAvatarUrl,
-        })
-        .eq("id", existingPlayer.id)
-        .select("*")
-        .single();
-
-      if (error) {
-        throw new Error(`Failed to sync telegram avatar: ${error.message}`);
+        });
+      } catch (err) {
+        throw new Error(`Failed to sync telegram avatar: ${errorMessage(err)}`);
       }
-
-      return mapPlayerRowToDomain(data as PlayerRow);
     }
 
     return existingPlayer;
@@ -136,41 +75,27 @@ export async function updatePlayerCustomAvatar(
   playerId: string,
   customAvatarUrl: string
 ): Promise<Player> {
-  const { data, error } = await supabase
-    .from("players")
-    .update({
+  try {
+    return await playerRepository.update(playerId, {
       custom_avatar_url: customAvatarUrl,
       avatar_updated_at: new Date().toISOString(),
-    })
-    .eq("id", playerId)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to update custom avatar: ${error.message}`);
+    });
+  } catch (err) {
+    throw new Error(`Failed to update custom avatar: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export const TERMS_VERSION = "v1";
 
 export async function acceptTerms(playerId: string): Promise<Player> {
-  const { data, error } = await supabase
-    .from("players")
-    .update({
+  try {
+    return await playerRepository.update(playerId, {
       accepted_terms_at: new Date().toISOString(),
       accepted_terms_version: TERMS_VERSION,
-    })
-    .eq("id", playerId)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to accept terms: ${error.message}`);
+    });
+  } catch (err) {
+    throw new Error(`Failed to accept terms: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export async function isDisplayNameTaken(
@@ -178,17 +103,9 @@ export async function isDisplayNameTaken(
   currentPlayerId: string
 ): Promise<boolean> {
   const normalizedDisplayName = displayName.trim();
+  const candidates = await playerRepository.listDisplayNameCandidates(currentPlayerId);
 
-  const { data, error } = await supabase
-    .from("players")
-    .select("id, display_name, pending_display_name")
-    .neq("id", currentPlayerId);
-
-  if (error) {
-    throw new Error(`Failed to check display name: ${error.message}`);
-  }
-
-  return (data ?? []).some((player: any) => {
+  return candidates.some((player) => {
     const currentDisplayName = (player.display_name ?? "").trim().toLowerCase();
     const pendingDisplayName = (player.pending_display_name ?? "").trim().toLowerCase();
 
@@ -221,46 +138,30 @@ export async function completeProfile(
       throw new Error("Данный ник уже занят");
     }
 
-    const { data, error } = await supabase
-      .from("players")
-      .update({
+    try {
+      const updated = await playerRepository.update(player.id, {
         profile_completed_at: new Date().toISOString(),
         nickname_status: "pending",
         pending_display_name: normalizedDisplayName,
-      })
-      .eq("id", player.id)
-      .select("*")
-      .single();
+      });
 
-    if (error) {
-      throw new Error(`Failed to complete profile: ${error.message}`);
+      return { player: updated, moderationRequired: true };
+    } catch (err) {
+      throw new Error(`Failed to complete profile: ${errorMessage(err)}`);
     }
-
-    return {
-      player: mapPlayerRowToDomain(data as PlayerRow),
-      moderationRequired: true,
-    };
   }
 
-  const { data, error } = await supabase
-    .from("players")
-    .update({
+  try {
+    const updated = await playerRepository.update(player.id, {
       profile_completed_at: new Date().toISOString(),
       nickname_status: "approved",
       pending_display_name: null,
-    })
-    .eq("id", player.id)
-    .select("*")
-    .single();
+    });
 
-  if (error) {
-    throw new Error(`Failed to complete profile: ${error.message}`);
+    return { player: updated, moderationRequired: false };
+  } catch (err) {
+    throw new Error(`Failed to complete profile: ${errorMessage(err)}`);
   }
-
-  return {
-    player: mapPlayerRowToDomain(data as PlayerRow),
-    moderationRequired: false,
-  };
 }
 
 export async function submitNicknameForModeration(
@@ -290,21 +191,14 @@ export async function submitNicknameForModeration(
     throw new Error("Данный ник уже занят");
   }
 
-  const { data, error } = await supabase
-    .from("players")
-    .update({
+  try {
+    return await playerRepository.update(player.id, {
       nickname_status: "pending",
       pending_display_name: normalizedDisplayName,
-    })
-    .eq("id", player.id)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to submit nickname for moderation: ${error.message}`);
+    });
+  } catch (err) {
+    throw new Error(`Failed to submit nickname for moderation: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 // ==========================
@@ -312,71 +206,37 @@ export async function submitNicknameForModeration(
 // ==========================
 
 export async function getPendingNicknames(): Promise<Player[]> {
-  const { data, error } = await supabase
-    .from("players")
-    .select("*")
-    .eq("nickname_status", "pending")
-    .not("pending_display_name", "is", null)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw new Error(`Failed to fetch pending nicknames: ${error.message}`);
-  }
-
-  return (data ?? []).map((row) => mapPlayerRowToDomain(row as PlayerRow));
+  return playerRepository.listPendingNicknames();
 }
 
 export async function approveNickname(playerId: string): Promise<Player> {
-  const { data: currentPlayer, error: fetchError } = await supabase
-    .from("players")
-    .select("*")
-    .eq("id", playerId)
-    .single();
-
-  if (fetchError) {
-    throw new Error(`Failed to fetch player: ${fetchError.message}`);
-  }
-
+  const currentPlayer = await playerRepository.findByIdOrThrow(playerId);
   const newDisplayName = currentPlayer.pending_display_name?.trim();
 
   if (!newDisplayName) {
     throw new Error("Нет ника на модерации");
   }
 
-  const { data, error } = await supabase
-    .from("players")
-    .update({
+  try {
+    return await playerRepository.update(playerId, {
       display_name: newDisplayName,
       pending_display_name: null,
       nickname_status: "approved",
-    })
-    .eq("id", playerId)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to approve nickname: ${error.message}`);
+    });
+  } catch (err) {
+    throw new Error(`Failed to approve nickname: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export async function rejectNickname(playerId: string): Promise<Player> {
-  const { data, error } = await supabase
-    .from("players")
-    .update({
+  try {
+    return await playerRepository.update(playerId, {
       pending_display_name: null,
       nickname_status: "approved",
-    })
-    .eq("id", playerId)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to reject nickname: ${error.message}`);
+    });
+  } catch (err) {
+    throw new Error(`Failed to reject nickname: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 // ==========================
@@ -389,22 +249,7 @@ function normalizeEmail(email: string): string {
 
 export async function getPlayerByEmail(email: string): Promise<Player | null> {
   const normalized = normalizeEmail(email);
-
-  const { data, error } = await supabase
-    .from("players")
-    .select("*")
-    .eq("email", normalized)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Failed to fetch player by email: ${error.message}`);
-  }
-
-  if (!data) {
-    return null;
-  }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
+  return playerRepository.findByEmail(normalized);
 }
 
 export async function ensurePlayerFromEmail(email: string): Promise<Player> {
@@ -418,21 +263,15 @@ export async function ensurePlayerFromEmail(email: string): Promise<Player> {
   const localPart = normalized.split("@")[0] ?? "player";
   const displayName = localPart.replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, "") || "Игрок";
 
-  const { data, error } = await supabase
-    .from("players")
-    .insert({
+  try {
+    return await playerRepository.create({
       email: normalized,
       display_name: displayName,
       telegram_id: null,
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to create player from email: ${error.message}`);
+    });
+  } catch (err) {
+    throw new Error(`Failed to create player from email: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }
 
 export async function linkEmailToPlayer(playerId: string, email: string): Promise<Player> {
@@ -443,16 +282,9 @@ export async function linkEmailToPlayer(playerId: string, email: string): Promis
     throw new Error("Этот email уже привязан к другому игроку");
   }
 
-  const { data, error } = await supabase
-    .from("players")
-    .update({ email: normalized })
-    .eq("id", playerId)
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to link email to player: ${error.message}`);
+  try {
+    return await playerRepository.update(playerId, { email: normalized });
+  } catch (err) {
+    throw new Error(`Failed to link email to player: ${errorMessage(err)}`);
   }
-
-  return mapPlayerRowToDomain(data as PlayerRow);
 }

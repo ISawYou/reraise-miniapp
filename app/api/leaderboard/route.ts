@@ -1,38 +1,23 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase-server";
+import { seasonRepository, resultRepository } from "@/lib/repositories";
 
 export const revalidate = 60;
 
 export async function GET() {
-  const supabase = getSupabaseServer();
+  const season = await seasonRepository.findActive();
 
-  const { data: season, error: seasonError } = await supabase
-    .from("seasons")
-    .select("id, title")
-    .eq("is_active", true)
-    .limit(1)
-    .single();
-
-  if (seasonError || !season) {
+  if (!season) {
     return NextResponse.json({ error: "Активный сезон не найден" }, { status: 404 });
   }
 
-  const { data: results, error: resultsError } = await supabase
-    .from("results")
-    .select(`
-      player_id,
-      rating_points,
-      players (
-        username,
-        display_name,
-        telegram_avatar_url,
-        custom_avatar_url
-      )
-    `)
-    .eq("season_id", season.id);
-
-  if (resultsError) {
-    return NextResponse.json({ error: resultsError.message }, { status: 500 });
+  let results;
+  try {
+    results = await resultRepository.findWithPlayerBySeasonId(season.id);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
   }
 
   const leaderboardMap = new Map<
@@ -47,21 +32,17 @@ export async function GET() {
     }
   >();
 
-  for (const row of results ?? []) {
-    const player = Array.isArray((row as any).players)
-      ? (row as any).players[0]
-      : (row as any).players;
-
+  for (const row of results) {
     const existing = leaderboardMap.get(row.player_id);
     if (existing) {
       existing.rating += row.rating_points ?? 0;
     } else {
       leaderboardMap.set(row.player_id, {
         player_id: row.player_id,
-        username: player?.username ?? null,
-        display_name: player?.display_name ?? "Игрок",
-        telegram_avatar_url: player?.telegram_avatar_url ?? null,
-        custom_avatar_url: player?.custom_avatar_url ?? null,
+        username: row.username,
+        display_name: row.display_name,
+        telegram_avatar_url: row.telegram_avatar_url,
+        custom_avatar_url: row.custom_avatar_url,
         rating: row.rating_points ?? 0,
       });
     }

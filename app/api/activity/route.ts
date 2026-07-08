@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { logActivityEvent } from "@/lib/activity-logger";
-import { getSupabaseServer } from "@/lib/supabase-server";
+import { playerRepository } from "@/lib/repositories";
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,12 +10,7 @@ export async function POST(request: NextRequest) {
     if (!player_id || typeof player_id !== "string") return NextResponse.json({ ok: true });
     if (!event_type || typeof event_type !== "string") return NextResponse.json({ ok: true });
 
-    const db = getSupabaseServer();
-    const { data: player } = await db
-      .from("players")
-      .select("id, role")
-      .eq("id", player_id)
-      .maybeSingle();
+    const player = await playerRepository.findRoleById(player_id);
 
     if (!player) return NextResponse.json({ ok: true });
 
