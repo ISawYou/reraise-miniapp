@@ -1,0 +1,46 @@
+services:
+  app:
+    build:
+      context: .
+      # NEXT_PUBLIC_* vars are baked into the client JS bundle at build time.
+      # Changing them here requires a full rebuild (docker compose build).
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_TELEGRAM_BOT_ID: ${NEXT_PUBLIC_TELEGRAM_BOT_ID}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        # Needed at build time too: /api/leaderboard is statically generated
+        # via `revalidate` and queries Supabase during `next build`.
+        SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    image: re-raise:latest
+    container_name: re-raise
+    restart: unless-stopped
+    ports:
+      # Loopback-only: this is a parallel test deployment, production traffic
+      # still goes through Vercel. Reach it via SSH tunnel or a temporary
+      # nginx server block, not directly from the internet.
+      - "127.0.0.1:3002:3000"
+    environment:
+      # Also available at runtime, not just baked into the client bundle at
+      # build time (server components / API routes read these directly).
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - NEXT_PUBLIC_TELEGRAM_BOT_ID=${NEXT_PUBLIC_TELEGRAM_BOT_ID}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+      # Server-only secrets — never exposed to the browser.
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - SUPPORT_ADMIN_CHAT_ID=${SUPPORT_ADMIN_CHAT_ID}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - EMAIL_FROM=${EMAIL_FROM}
+      - GOOGLE_CLIENT_EMAIL=${GOOGLE_CLIENT_EMAIL}
+      - GOOGLE_PRIVATE_KEY=${GOOGLE_PRIVATE_KEY}
+      - GOOGLE_SHEETS_SPREADSHEET_ID=${GOOGLE_SHEETS_SPREADSHEET_ID}
+    healthcheck:
+      test:
+        ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
