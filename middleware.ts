@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { playerRepository } from "@/lib/repositories";
+import { COOKIE_NAME, verifySession } from "@/lib/telegram-web-session";
 
 async function verifyTelegramInitData(
   initData: string,
@@ -82,53 +83,6 @@ async function verifyTelegramInitData(
   }
 }
 
-// Mirrors lib/telegram-web-session.ts's COOKIE_NAME -- can't import that
-// module directly (it pulls in Node's `crypto`, which breaks the Edge
-// Runtime build, same reason this file already carries its own inline
-// Supabase client and its own Telegram HMAC check instead of importing
-// PlayerRepository).
-const SESSION_COOKIE_NAME = "reraise_session";
-
-// Edge-Runtime-compatible re-implementation of lib/telegram-web-session.ts's
-// verifySession() -- same algorithm (HMAC-SHA256 over the player id, same
-// "playerId.mac" hex format, same SESSION_SECRET), just using Web Crypto
-// instead of Node's `crypto`/`Buffer` (unavailable here). Not a second
-// session scheme, just this one made reachable from Edge middleware.
-async function verifySessionCookie(value: string): Promise<string | null> {
-  const dot = value.lastIndexOf(".");
-  if (dot === -1) return null;
-
-  const playerId = value.slice(0, dot);
-  const mac = value.slice(dot + 1);
-  const secret = process.env.SESSION_SECRET || "dev-insecure-secret";
-
-  try {
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(playerId));
-    const expectedMac = Array.from(new Uint8Array(signature))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    if (mac.length !== expectedMac.length) return null;
-
-    // Constant-time compare (timingSafeEqual isn't available here either).
-    let diff = 0;
-    for (let i = 0; i < mac.length; i += 1) {
-      diff |= mac.charCodeAt(i) ^ expectedMac.charCodeAt(i);
-    }
-    return diff === 0 ? playerId : null;
-  } catch {
-    return null;
-  }
-}
-
 type PlayerLookupKey =
   | { column: "telegram_id"; value: number }
   | { column: "id"; value: string };
@@ -162,8 +116,8 @@ async function resolveCallerLookupKey(request: NextRequest): Promise<PlayerLooku
     return { column: "telegram_id", value: telegramId };
   }
 
-  const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const playerId = sessionCookie ? await verifySessionCookie(sessionCookie) : null;
+  const sessionCookie = request.cookies.get(COOKIE_NAME)?.value;
+  const playerId = sessionCookie ? verifySession(sessionCookie) : null;
 
   if (!playerId) {
     console.log("[admin-auth] 401: no x-telegram-init-data header and no valid reraise_session cookie");
@@ -180,20 +134,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
-
-  const { data: player } = await supabase
-    .from("players")
-    .select("role")
-    .eq(lookupKey.column, lookupKey.value)
-    .maybeSingle();
+  const player =
+    lookupKey.column === "telegram_id"
+      ? await playerRepository.findByTelegramId(lookupKey.value)
+      : await playerRepository.findById(lookupKey.value);
 
   if (!player) {
     console.log("[admin-auth] 401: player not found", lookupKey);
@@ -208,5 +152,6 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
+  runtime: "nodejs",
   matcher: ["/api/admin/:path*"],
 };
