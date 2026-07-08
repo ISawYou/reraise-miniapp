@@ -6,6 +6,7 @@ import type {
   ActivityEventInsert,
   ActivityEventDetail,
   ActivityEventSummary,
+  ActivityEventFullRow,
 } from "./ActivityRepository";
 
 // Current, active implementation — wraps the exact same Supabase queries
@@ -44,5 +45,19 @@ export class SupabaseActivityRepository implements ActivityRepository {
       .order("created_at", { ascending: false })
       .limit(limit);
     return (data ?? []) as ActivityEventSummary[];
+  }
+
+  async listAll(): Promise<ActivityEventFullRow[]> {
+    const db = getSupabaseServer();
+    const { data, error } = await db
+      .from("activity_events")
+      .select("player_id, event_type, event_label, metadata, platform, session_id, created_at")
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []) as ActivityEventFullRow[];
   }
 }

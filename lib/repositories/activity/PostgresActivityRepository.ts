@@ -1,6 +1,6 @@
 import "server-only";
 
-import { desc, eq, gte } from "drizzle-orm";
+import { asc, desc, eq, gte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { activityEvents } from "@/lib/db/schema";
 import type {
@@ -8,6 +8,7 @@ import type {
   ActivityEventInsert,
   ActivityEventDetail,
   ActivityEventSummary,
+  ActivityEventFullRow,
 } from "./ActivityRepository";
 
 // Drizzle/Postgres counterpart of SupabaseActivityRepository. All three
@@ -32,6 +33,11 @@ export class PostgresActivityRepository implements ActivityRepository {
         metadata: event.metadata,
         platform: event.platform,
         sessionId: event.session_id,
+        // Omitted entirely (not just undefined) when absent, so the
+        // column's defaultNow() applies exactly as it did before
+        // created_at existed on this type — only the backfill script
+        // supplies it.
+        ...(event.created_at ? { createdAt: new Date(event.created_at) } : {}),
       });
     } catch {
       // Silently ignored — matches the Supabase implementation.
@@ -77,5 +83,22 @@ export class PostgresActivityRepository implements ActivityRepository {
     } catch {
       return [];
     }
+  }
+
+  async listAll(): Promise<ActivityEventFullRow[]> {
+    const rows = await db
+      .select({
+        player_id: activityEvents.playerId,
+        event_type: activityEvents.eventType,
+        event_label: activityEvents.eventLabel,
+        metadata: activityEvents.metadata,
+        platform: activityEvents.platform,
+        session_id: activityEvents.sessionId,
+        created_at: activityEvents.createdAt,
+      })
+      .from(activityEvents)
+      .orderBy(asc(activityEvents.createdAt));
+
+    return rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() }));
   }
 }

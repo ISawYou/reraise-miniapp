@@ -91,4 +91,15 @@ export class SupabaseEmailOtpRepository implements EmailOtpRepository {
       throw new Error(`Failed to consume OTP code: ${error.message}`);
     }
   }
+
+  async listAll(): Promise<EmailOtpRow[]> {
+    const supabaseServer = getSupabaseServer();
+    const { data, error } = await supabaseServer.from("email_otp_codes").select("*");
+
+    if (error) {
+      throw new Error(`Failed to list OTP records: ${error.message}`);
+    }
+
+    return (data ?? []) as EmailOtpRow[];
+  }
 }

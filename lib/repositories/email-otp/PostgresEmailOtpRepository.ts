@@ -115,4 +115,13 @@ export class PostgresEmailOtpRepository implements EmailOtpRepository {
       throw new Error(`Failed to consume OTP code: ${errorMessage(err)}`);
     }
   }
+
+  async listAll(): Promise<EmailOtpRow[]> {
+    try {
+      const rows = await db.select().from(emailOtpCodes);
+      return rows.map(toRow);
+    } catch (err) {
+      throw new Error(`Failed to list OTP records: ${errorMessage(err)}`);
+    }
+  }
 }

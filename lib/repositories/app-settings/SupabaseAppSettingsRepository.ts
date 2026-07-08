@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSupabaseServer } from "@/lib/database";
-import type { AppSettingsRepository } from "./AppSettingsRepository";
+import type { AppSettingsRepository, AppSettingRow } from "./AppSettingsRepository";
 
 // Current, active implementation — wraps the exact same Supabase queries
 // lib/app-settings.ts used to call directly. No new behavior: errors are
@@ -22,5 +22,16 @@ export class SupabaseAppSettingsRepository implements AppSettingsRepository {
     await supabase
       .from("app_settings")
       .upsert({ key, value, updated_at: new Date().toISOString() });
+  }
+
+  async listAll(): Promise<AppSettingRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase.from("app_settings").select("key, value");
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []) as AppSettingRow[];
   }
 }

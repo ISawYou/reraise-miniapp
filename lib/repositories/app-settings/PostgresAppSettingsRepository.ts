@@ -3,7 +3,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { appSettings } from "@/lib/db/schema";
-import type { AppSettingsRepository } from "./AppSettingsRepository";
+import type { AppSettingsRepository, AppSettingRow } from "./AppSettingsRepository";
 
 // Drizzle/Postgres counterpart of SupabaseAppSettingsRepository — same
 // contract, same "errors are silently ignored" behavior on both read and
@@ -37,5 +37,9 @@ export class PostgresAppSettingsRepository implements AppSettingsRepository {
     } catch {
       // Silently ignored — matches the Supabase implementation.
     }
+  }
+
+  async listAll(): Promise<AppSettingRow[]> {
+    return db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings);
   }
 }

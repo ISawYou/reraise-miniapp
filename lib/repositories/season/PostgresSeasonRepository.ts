@@ -3,7 +3,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { seasons } from "@/lib/db/schema";
-import type { SeasonRepository, SeasonRow } from "./SeasonRepository";
+import type { SeasonRepository, SeasonRow, SeasonFullRow, SeasonInsert } from "./SeasonRepository";
 
 // Drizzle/Postgres counterpart of SupabaseSeasonRepository. Drizzle has no
 // `.maybeSingle()` — `.limit(1)` + destructuring the first array element is
@@ -20,5 +20,32 @@ export class PostgresSeasonRepository implements SeasonRepository {
       .limit(1);
 
     return row ?? null;
+  }
+
+  async listAll(): Promise<SeasonFullRow[]> {
+    const rows = await db.select().from(seasons);
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      start_date: row.startDate,
+      end_date: row.endDate,
+      is_active: row.isActive,
+      created_at: row.createdAt.toISOString(),
+    }));
+  }
+
+  async create(data: SeasonInsert): Promise<void> {
+    await db
+      .insert(seasons)
+      .values({
+        id: data.id,
+        title: data.title,
+        startDate: data.start_date,
+        endDate: data.end_date,
+        isActive: data.is_active,
+        createdAt: new Date(data.created_at),
+      })
+      .onConflictDoNothing({ target: seasons.id });
   }
 }

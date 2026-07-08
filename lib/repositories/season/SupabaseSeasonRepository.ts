@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSupabaseServer } from "@/lib/database";
-import type { SeasonRepository, SeasonRow } from "./SeasonRepository";
+import type { SeasonRepository, SeasonRow, SeasonFullRow, SeasonInsert } from "./SeasonRepository";
 
 // Current, active implementation — wraps the exact same
 // "is_active=true, limit 1" query that used to be duplicated across
@@ -24,5 +24,25 @@ export class SupabaseSeasonRepository implements SeasonRepository {
     }
 
     return data ?? null;
+  }
+
+  async listAll(): Promise<SeasonFullRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase.from("seasons").select("*");
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []) as SeasonFullRow[];
+  }
+
+  async create(data: SeasonInsert): Promise<void> {
+    const supabase = getSupabaseServer();
+    const { error } = await supabase.from("seasons").upsert(data, { onConflict: "id" });
+
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 }

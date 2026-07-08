@@ -40,4 +40,8 @@ export interface EmailOtpRepository {
   create(data: EmailOtpInsert): Promise<void>;
   incrementFailedAttempts(id: string, failedAttempts: number): Promise<void>;
   markConsumed(id: string): Promise<void>;
+  // Added for the Supabase→PostgreSQL backfill script — every existing
+  // method requires an email/purpose or id upfront, with no way to
+  // enumerate every row. Not used by any route/feature today.
+  listAll(): Promise<EmailOtpRow[]>;
 }
