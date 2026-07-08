@@ -20,6 +20,12 @@ export const tournamentLiveEntries = pgTable("tournament_live_entries", {
   rebuys: integer().notNull().default(0),
   addons: integer().notNull().default(0),
   knockouts: integer().notNull().default(0),
+
+  // Boss Bounty format: live count of Boss knockouts during play, mirrors
+  // results.bossKnockouts once the tournament completes (sql/boss_bounty.sql
+  // — ported into schema.ts as the source of truth).
+  bossKnockouts: integer("boss_knockouts").notNull().default(0),
+
   place: integer(),
   sheetRowNumber: integer("sheet_row_number"),
 

@@ -20,6 +20,11 @@ export const results = pgTable("results", {
   reentries: integer().notNull().default(0),
   knockouts: integer().notNull().default(0),
 
+  // Boss Bounty format: count of Boss knockouts, separate from regular
+  // knockouts above (sql/boss_bounty.sql — same column, ported into schema.ts
+  // as the source of truth instead of staying an out-of-band raw-SQL patch).
+  bossKnockouts: integer("boss_knockouts").notNull().default(0),
+
   // Frozen snapshot computed once at tournament completion
   // (features/rating.ts::calculateRatingPoints) — depends on that specific
   // tournament's field size, never recalculated retroactively if the
