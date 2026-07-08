@@ -1,4 +1,7 @@
+"use server";
+
 import { playerRepository } from "@/lib/repositories";
+import { TERMS_VERSION } from "@/lib/terms";
 import type { Player } from "@/types/domain";
 import type { TelegramWebAppUser } from "@/lib/telegram";
 
@@ -84,8 +87,6 @@ export async function updatePlayerCustomAvatar(
     throw new Error(`Failed to update custom avatar: ${errorMessage(err)}`);
   }
 }
-
-export const TERMS_VERSION = "v1";
 
 export async function acceptTerms(playerId: string): Promise<Player> {
   try {
