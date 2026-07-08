@@ -48,7 +48,7 @@ function buildReadmeSheetValues() {
     ["README - live-данные турниров"],
     [],
     ["Эта таблица синхронизируется с Mini App."],
-    ["Редактировать можно поля: Пришел, Оплатил, Нал/карта, Беспл. re-entry, Re-buy, Addon, Nok, Место."],
+    ["Редактировать можно поля: Пришел, Оплатил, Нал/карта, Беспл. re-entry, Re-buy, Addon, Nok, Boss-нокауты, Место."],
     ["Технические поля скрыты и нужны только для синхронизации."],
   ];
 }
@@ -62,6 +62,8 @@ function buildLiveSheetValues(
   addonPrice = 0,
   bountyPrice = 0
 ) {
+  const isBossBounty = exportData.tournament.tournament_type === "boss_bounty";
+
   return [
     ["Tournament ID", exportData.tournament.id],
     ["", "", "Название", exportData.tournament.title, entryPrice, addonPrice, bountyPrice],
@@ -82,6 +84,7 @@ function buildLiveSheetValues(
       "Re-buy",
       "Addon",
       "Nok",
+      ...(isBossBounty ? ["Boss-нокауты"] : []),
       "Место",
     ],
     ...exportData.rows.map((row) => [
@@ -97,6 +100,7 @@ function buildLiveSheetValues(
       row.rebuys,
       row.addons,
       row.knockouts,
+      ...(isBossBounty ? [row.boss_knockouts ?? 0] : []),
       row.place ?? "",
     ]),
   ];
@@ -113,6 +117,7 @@ export async function syncTournamentLiveSheet(
     rebuys: number;
     addons: number;
     knockouts: number;
+    boss_knockouts?: number;
     place: number | null;
   }>,
   entryPrice = 0,
@@ -130,6 +135,7 @@ export async function syncTournamentLiveSheet(
         rebuys: row.rebuys,
         addons: row.addons,
         knockouts: row.knockouts,
+        boss_knockouts: row.boss_knockouts ?? 0,
         place: row.place,
       }))
     );
@@ -169,7 +175,9 @@ export async function syncTournamentLiveSheet(
       bountyPrice
     )
   );
-  await applyTournamentSheetFormatting(tabName, exportData.rows.length, 13);
+
+  const columnCount = tournament.tournament_type === "boss_bounty" ? 14 : 13;
+  await applyTournamentSheetFormatting(tabName, exportData.rows.length, columnCount);
   await setTournamentGoogleSheetTabName(tournamentId, tabName);
 
   return {
@@ -196,6 +204,7 @@ export async function POST(
             rebuys: number;
             addons: number;
             knockouts: number;
+            boss_knockouts?: number;
             place: number | null;
           }>;
           entryPrice?: number;

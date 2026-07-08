@@ -20,6 +20,7 @@ export type ResultInsert = {
   place: number;
   reentries: number;
   knockouts: number;
+  boss_knockouts?: number;
   rating_points: number;
 };
 
@@ -36,6 +37,7 @@ export type ResultHistoryRow = {
   tournament_id: string;
   place: number;
   knockouts: number;
+  boss_knockouts?: number;
   reentries: number;
   rating_points: number;
   tournament: TournamentRow | null;

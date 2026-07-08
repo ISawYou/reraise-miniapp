@@ -27,6 +27,7 @@ const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> =
   { value: "phoenix", label: "Phoenix" },
   { value: "deep_stack", label: "Deep Stack" },
   { value: "bounty", label: "Bounty" },
+  { value: "boss_bounty", label: "Boss Bounty" },
   { value: "win_the_button", label: "Win The Button" },
 ];
 

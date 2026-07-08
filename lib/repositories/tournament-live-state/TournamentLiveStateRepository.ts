@@ -25,6 +25,7 @@ export type LiveEntryWithDetailsRow = {
   rebuys: number;
   addons: number;
   knockouts: number;
+  boss_knockouts?: number;
   place: number | null;
   sheet_row_number: number | null;
   registrations: LiveEntryRegistrationJoin;
@@ -39,6 +40,7 @@ export type LiveEntryInsert = {
   rebuys: number;
   addons: number;
   knockouts: number;
+  boss_knockouts?: number;
   place: number | null;
 };
 
@@ -47,6 +49,7 @@ export type LiveEntryPatch = {
   rebuys: number;
   addons: number;
   knockouts: number;
+  boss_knockouts?: number;
   place: number | null;
   updated_at: string;
   sheet_row_number?: number;

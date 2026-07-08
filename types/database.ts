@@ -32,7 +32,13 @@ export type TournamentRow = {
   start_at: string;
   max_players: number;
   kind: "free" | "paid" | "cash";
-  tournament_type: "classic" | "phoenix" | "deep_stack" | "bounty" | "win_the_button";
+  tournament_type:
+    | "classic"
+    | "phoenix"
+    | "deep_stack"
+    | "bounty"
+    | "boss_bounty"
+    | "win_the_button";
   season_id: string | null;
   status: string;
   created_at: string;
@@ -54,6 +60,7 @@ export type ResultRow = {
   place: number;
   reentries: number;
   knockouts: number;
+  boss_knockouts?: number;
   rating_points: number;
   created_at: string;
 };
@@ -67,6 +74,7 @@ export type TournamentLiveEntryRow = {
   rebuys: number;
   addons: number;
   knockouts: number;
+  boss_knockouts?: number;
   place: number | null;
   sheet_row_number: number | null;
   created_at: string;

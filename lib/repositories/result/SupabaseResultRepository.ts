@@ -104,6 +104,7 @@ export class SupabaseResultRepository implements ResultRepository {
         player_id,
         place,
         knockouts,
+        boss_knockouts,
         reentries,
         rating_points,
         players (
@@ -126,6 +127,7 @@ export class SupabaseResultRepository implements ResultRepository {
         player_id: row.player_id,
         place: row.place,
         knockouts: row.knockouts,
+        boss_knockouts: row.boss_knockouts ?? 0,
         reentries: row.reentries,
         rating_points: row.rating_points,
         username: player?.username ?? null,
@@ -180,6 +182,7 @@ export class SupabaseResultRepository implements ResultRepository {
         tournament_id,
         place,
         knockouts,
+        boss_knockouts,
         reentries,
         rating_points,
         tournament:tournaments (*)
@@ -197,6 +200,7 @@ export class SupabaseResultRepository implements ResultRepository {
       tournament_id: row.tournament_id,
       place: row.place,
       knockouts: row.knockouts,
+      boss_knockouts: row.boss_knockouts ?? 0,
       reentries: row.reentries,
       rating_points: row.rating_points,
       tournament: flattenEmbedded(row.tournament),

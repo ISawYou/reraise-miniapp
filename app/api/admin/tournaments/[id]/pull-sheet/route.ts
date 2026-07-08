@@ -44,6 +44,7 @@ export async function POST(
     const entryPrice = parseNumberCell(values[1]?.[4]);
     const addonPrice = parseNumberCell(values[1]?.[5]);
     const bountyPrice = parseNumberCell(values[1]?.[6]);
+    const isBossBounty = tournament.tournament_type === "boss_bounty";
 
     if (tournament.kind === "free") {
       type FreeSheetRow = {
@@ -57,8 +58,13 @@ export async function POST(
         rebuys: number;
         addons: number;
         knockouts: number;
+        boss_knockouts: number;
         place: number | null;
       };
+
+      const knockoutsIndex = 11;
+      const bossKnockoutsIndex = isBossBounty ? 12 : null;
+      const placeIndex = isBossBounty ? 13 : 12;
 
       const sheetRows: FreeSheetRow[] = dataRows
         .map((row: string[]) => ({
@@ -71,8 +77,10 @@ export async function POST(
           free_reentries: parseNumberCell(row[8]),
           rebuys: parseNumberCell(row[9]),
           addons: parseNumberCell(row[10]),
-          knockouts: parseNumberCell(row[11]),
-          place: parseNullableNumberCell(row[12]),
+          knockouts: parseNumberCell(row[knockoutsIndex]),
+          boss_knockouts:
+            bossKnockoutsIndex == null ? 0 : parseNumberCell(row[bossKnockoutsIndex]),
+          place: parseNullableNumberCell(row[placeIndex]),
         }))
         .filter(
           (row: FreeSheetRow) =>
@@ -97,6 +105,7 @@ export async function POST(
           rebuys: sheetRow?.rebuys ?? 0,
           addons: sheetRow?.addons ?? 0,
           knockouts: sheetRow?.knockouts ?? 0,
+          boss_knockouts: sheetRow?.boss_knockouts ?? 0,
           place: sheetRow?.place ?? null,
         };
       });
@@ -119,20 +128,27 @@ export async function POST(
       rebuys: number;
       addons: number;
       knockouts: number;
+      boss_knockouts: number;
       place: number | null;
       sheet_row_number: number;
     };
 
+    const knockoutsIndex = 10;
+    const bossKnockoutsIndex = isBossBounty ? 11 : null;
+    const placeIndex = isBossBounty ? 12 : 11;
+
     const rawUpdates: LiveSheetUpdate[] = dataRows.map((row: string[], index: number) => ({
       player_id: row[0] as string,
-      arrived: parseBooleanCell(row[5]),
-      paid: parseBooleanCell(row[6]),
-      payment_type: (row[7] ?? "").trim(),
-      free_reentries: parseNumberCell(row[8]),
-      rebuys: parseNumberCell(row[9]),
-      addons: parseNumberCell(row[10]),
-      knockouts: parseNumberCell(row[11]),
-      place: parseNullableNumberCell(row[12]),
+      arrived: parseBooleanCell(row[4]),
+      paid: parseBooleanCell(row[5]),
+      payment_type: (row[6] ?? "").trim(),
+      free_reentries: parseNumberCell(row[7]),
+      rebuys: parseNumberCell(row[8]),
+      addons: parseNumberCell(row[9]),
+      knockouts: parseNumberCell(row[knockoutsIndex]),
+      boss_knockouts:
+        bossKnockoutsIndex == null ? 0 : parseNumberCell(row[bossKnockoutsIndex]),
+      place: parseNullableNumberCell(row[placeIndex]),
       sheet_row_number: index + 8,
     }));
 

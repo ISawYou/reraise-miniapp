@@ -2,6 +2,7 @@ import type { TournamentType } from "@/types/domain";
 import {
   getExpectedPrizePlaces,
   getTournamentTypeMultiplier,
+  supportsTournamentBossKnockouts,
   supportsTournamentKnockouts,
 } from "@/lib/tournament-helpers";
 
@@ -9,6 +10,7 @@ export type PlayerRatingInput = {
   player_id: string;
   place: number;
   knockouts: number;
+  boss_knockouts?: number;
   arrived: boolean;
 };
 
@@ -60,6 +62,9 @@ export function calculateRatingPoints(
     const basePlacePoints =
       player.place <= ratingZoneSize ? getBasePlacePoints(player.place) : 0;
     const knockoutPoints = hasKnockouts ? player.knockouts * 5 : 0;
+    const bossKnockoutPoints = supportsTournamentBossKnockouts(tournamentType)
+      ? (player.boss_knockouts ?? 0) * 10
+      : 0;
     const placePoints =
       basePlacePoints > 0
         ? Math.round(basePlacePoints * fieldCoefficient * tournamentMultiplier)
@@ -67,7 +72,7 @@ export function calculateRatingPoints(
 
     return {
       player_id: player.player_id,
-      rating_points: placePoints + knockoutPoints + 2,
+      rating_points: placePoints + knockoutPoints + bossKnockoutPoints + 2,
     };
   });
 }

@@ -34,6 +34,7 @@ type FreeFormRow = {
   rebuys: string;
   addons: string;
   knockouts: string;
+  boss_knockouts: string;
   place: string;
   eliminated: boolean;
   eliminated_at: string | null;
@@ -54,6 +55,7 @@ type PulledFreeRow = {
   rebuys: number;
   addons: number;
   knockouts: number;
+  boss_knockouts?: number;
   place: number | null;
 };
 
@@ -69,6 +71,7 @@ type LiveFormRow = {
   rebuys: string;
   addons: string;
   knockouts: string;
+  boss_knockouts: string;
   place: string;
 };
 
@@ -135,6 +138,7 @@ function snapshotFreeRows(rows: FreeFormRow[]) {
       rebuys: row.rebuys,
       addons: row.addons,
       knockouts: row.knockouts,
+      boss_knockouts: row.boss_knockouts,
       place: row.place,
     }))
   );
@@ -203,6 +207,7 @@ export default function AdminTournamentResultsPage() {
                 rebuys: String(row.rebuys),
                 addons: String(row.addons),
                 knockouts: String(row.knockouts),
+                boss_knockouts: String(row.boss_knockouts ?? 0),
                 place: row.place == null ? "" : String(row.place),
                 eliminated: false,
                 eliminated_at: null,
@@ -229,6 +234,7 @@ export default function AdminTournamentResultsPage() {
               rebuys: "0",
               addons: "0",
               knockouts: "0",
+              boss_knockouts: "0",
               place: "",
               eliminated: false,
               eliminated_at: null,
@@ -289,6 +295,7 @@ export default function AdminTournamentResultsPage() {
   }, [tournamentId]);
 
   const isFreeTournament = tournament?.kind === "free";
+  const isBossBountyTournament = tournament?.tournament_type === "boss_bounty";
   const hasUnsavedFreeChanges = useMemo(() => {
     if (!isFreeTournament || !initialFreeSnapshot) {
       return false;
@@ -340,6 +347,7 @@ export default function AdminTournamentResultsPage() {
       rebuys: String(item.rebuys),
       addons: String(item.addons),
       knockouts: String(item.knockouts),
+      boss_knockouts: String(item.boss_knockouts ?? 0),
       place: item.place == null ? "" : String(item.place),
     }));
   }
@@ -367,6 +375,7 @@ export default function AdminTournamentResultsPage() {
       | "rebuys"
       | "addons"
       | "knockouts"
+      | "boss_knockouts"
       | "place",
     value: boolean | string
   ) {
@@ -468,6 +477,7 @@ export default function AdminTournamentResultsPage() {
       | "rebuys"
       | "addons"
       | "knockouts"
+      | "boss_knockouts"
       | "place",
     value: boolean | string
   ) {
@@ -491,7 +501,8 @@ export default function AdminTournamentResultsPage() {
         Number(row.free_reentries || 0) < 0 ||
         Number(row.rebuys || 0) < 0 ||
         Number(row.addons || 0) < 0 ||
-        Number(row.knockouts || 0) < 0
+        Number(row.knockouts || 0) < 0 ||
+        Number(row.boss_knockouts || 0) < 0
       ) {
         setError(`Проверьте числовые поля у игрока ${row.display_name}`);
         return;
@@ -523,6 +534,7 @@ export default function AdminTournamentResultsPage() {
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
+              boss_knockouts: Number(row.boss_knockouts || 0),
               place: row.place ? Number(row.place) : null,
               eliminated: row.eliminated,
               eliminated_at: row.eliminated_at,
@@ -582,6 +594,7 @@ export default function AdminTournamentResultsPage() {
         rebuys: String(row.rebuys),
         addons: String(row.addons),
         knockouts: String(row.knockouts),
+        boss_knockouts: String(row.boss_knockouts ?? 0),
         place: row.place == null ? "" : String(row.place),
         eliminated: false,
         eliminated_at: null,
@@ -650,6 +663,7 @@ export default function AdminTournamentResultsPage() {
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
+              boss_knockouts: Number(row.boss_knockouts || 0),
               place: Number(row.place),
               eliminated: row.eliminated,
               eliminated_at: row.eliminated_at,
@@ -688,7 +702,8 @@ export default function AdminTournamentResultsPage() {
         Number(row.free_reentries || 0) < 0 ||
         Number(row.rebuys || 0) < 0 ||
         Number(row.addons || 0) < 0 ||
-        Number(row.knockouts || 0) < 0
+        Number(row.knockouts || 0) < 0 ||
+        Number(row.boss_knockouts || 0) < 0
       ) {
         setError(`Проверьте числовые поля у игрока ${row.display_name}`);
         return;
@@ -720,6 +735,7 @@ export default function AdminTournamentResultsPage() {
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
+              boss_knockouts: Number(row.boss_knockouts || 0),
               place: row.place ? Number(row.place) : null,
             })),
             entryPrice: Number(entryPrice || 0),
@@ -822,6 +838,7 @@ export default function AdminTournamentResultsPage() {
               rebuys: Number(row.rebuys || 0),
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
+              boss_knockouts: Number(row.boss_knockouts || 0),
               place: row.place ? Number(row.place) : null,
             })),
             entryPrice: Number(entryPrice || 0),
@@ -1240,6 +1257,37 @@ export default function AdminTournamentResultsPage() {
                         className="mt-0.5 h-8 w-full bg-transparent text-left text-base outline-none"
                       />
                     </div>
+
+                    {isBossBountyTournament ? (
+                      <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
+                          Boss Nok
+                        </p>
+                        <input
+                          type="number"
+                          min="0"
+                          value={row.boss_knockouts}
+                          onFocus={() =>
+                            updateFreeRow(
+                              row.player_id,
+                              "boss_knockouts",
+                              clearZeroValue(row.boss_knockouts)
+                            )
+                          }
+                          onBlur={() =>
+                            updateFreeRow(
+                              row.player_id,
+                              "boss_knockouts",
+                              restoreZeroValue(row.boss_knockouts)
+                            )
+                          }
+                          onChange={(e) =>
+                            updateFreeRow(row.player_id, "boss_knockouts", e.target.value)
+                          }
+                          className="mt-0.5 h-8 w-full bg-transparent text-left text-base outline-none"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))
@@ -1277,7 +1325,7 @@ export default function AdminTournamentResultsPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-7 gap-2 text-center text-[11px] font-medium text-white/60">
+                <div className={`mt-3 grid gap-2 text-center text-[11px] font-medium text-white/60 ${isBossBountyTournament ? "grid-cols-8" : "grid-cols-7"}`}>
                   <span>Пришел</span>
                   <span>Оплатил</span>
                   <span>Нал/карта</span>
@@ -1285,9 +1333,10 @@ export default function AdminTournamentResultsPage() {
                   <span>Re-buy</span>
                   <span>Addon</span>
                   <span>Nok</span>
+                  {isBossBountyTournament ? <span>Boss Nok</span> : null}
                 </div>
 
-                <div className="mt-2 grid grid-cols-7 gap-2">
+                <div className={`mt-2 grid gap-2 ${isBossBountyTournament ? "grid-cols-8" : "grid-cols-7"}`}>
                   <label className="flex h-11 items-center justify-center">
                     <input
                       type="checkbox"
@@ -1415,6 +1464,32 @@ export default function AdminTournamentResultsPage() {
                     }
                     className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
                   />
+
+                  {isBossBountyTournament ? (
+                    <input
+                      type="number"
+                      min="0"
+                      value={row.boss_knockouts}
+                      onFocus={() =>
+                        updateLiveRow(
+                          row.player_id,
+                          "boss_knockouts",
+                          clearZeroValue(row.boss_knockouts)
+                        )
+                      }
+                      onBlur={() =>
+                        updateLiveRow(
+                          row.player_id,
+                          "boss_knockouts",
+                          restoreZeroValue(row.boss_knockouts)
+                        )
+                      }
+                      onChange={(e) =>
+                        updateLiveRow(row.player_id, "boss_knockouts", e.target.value)
+                      }
+                      className="h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-center text-base outline-none"
+                    />
+                  ) : null}
                 </div>
               </div>
             ))

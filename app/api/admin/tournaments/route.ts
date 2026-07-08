@@ -42,6 +42,7 @@ export async function POST(request: Request) {
         | "phoenix"
         | "deep_stack"
         | "bounty"
+        | "boss_bounty"
         | "win_the_button";
     };
 

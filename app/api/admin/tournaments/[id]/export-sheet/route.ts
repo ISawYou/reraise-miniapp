@@ -21,6 +21,7 @@ type FreeSheetRowInput = {
   rebuys: number;
   addons: number;
   knockouts: number;
+  boss_knockouts?: number;
   place: number | null;
   rating_points?: number;
   eliminated?: boolean;
@@ -99,6 +100,7 @@ function buildFreeSheetValues(
   bountyPrice = 0
 ) {
   const rowsMap = new Map((rows ?? []).map((row) => [row.player_id, row]));
+  const isBossBounty = exportData.tournament.tournament_type === "boss_bounty";
 
   return [
     ["Tournament ID", exportData.tournament.id],
@@ -120,6 +122,7 @@ function buildFreeSheetValues(
       "Re-buy",
       "Addon",
       "Nok",
+      ...(isBossBounty ? ["Boss Nok"] : []),
       "Место",
       "Рейтинг",
       "Выбыл",
@@ -141,6 +144,7 @@ function buildFreeSheetValues(
         values?.rebuys ?? 0,
         values?.addons ?? 0,
         values?.knockouts ?? 0,
+        ...(isBossBounty ? [values?.boss_knockouts ?? 0] : []),
         values?.place ?? "",
         values?.rating_points ?? row.rating_points ?? "",
         values?.eliminated ?? false,
@@ -156,6 +160,8 @@ function buildLiveSheetValues(
   addonPrice = 0,
   bountyPrice = 0
 ) {
+  const isBossBounty = exportData.tournament.tournament_type === "boss_bounty";
+
   return [
     ["Tournament ID", exportData.tournament.id],
     ["", "", "Название", exportData.tournament.title, entryPrice, addonPrice, bountyPrice],
@@ -175,6 +181,7 @@ function buildLiveSheetValues(
       "Re-buy",
       "Addon",
       "Нокауты",
+      ...(isBossBounty ? ["Boss-нокауты"] : []),
       "Место",
     ],
     ...exportData.rows.map((row) => [
@@ -189,6 +196,7 @@ function buildLiveSheetValues(
       0,
       0,
       0,
+      ...(isBossBounty ? [0] : []),
       "",
     ]),
   ];
@@ -228,11 +236,26 @@ export async function syncTournamentSheet(
       : buildLiveSheetValues(exportData, entryPrice, addonPrice, bountyPrice);
 
   await replaceSpreadsheetTabValues(tabName, values);
+
+  const isBossBounty = exportData.tournament.tournament_type === "boss_bounty";
+  const columnCount =
+    exportData.tournament.kind === "free"
+      ? isBossBounty
+        ? 17
+        : 16
+      : isBossBounty
+        ? 13
+        : 12;
+  const ratingColumns =
+    exportData.tournament.kind === "free"
+      ? [isBossBounty ? 15 : 14]
+      : undefined;
+
   await applyTournamentSheetFormatting(
     tabName,
     exportData.rows.length,
-    exportData.tournament.kind === "free" ? 16 : 12,
-    exportData.tournament.kind === "free" ? [14] : undefined
+    columnCount,
+    ratingColumns
   );
   await setTournamentGoogleSheetTabName(tournamentId, tabName);
 
@@ -272,10 +295,7 @@ export async function POST(
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to export tournament sheet",
+        error: error instanceof Error ? error.message : "Failed to export sheet",
       },
       { status: 500 }
     );

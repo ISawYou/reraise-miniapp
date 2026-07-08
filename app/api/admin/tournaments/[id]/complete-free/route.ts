@@ -19,6 +19,7 @@ export async function POST(
         rebuys: number;
         addons?: number;
         knockouts: number;
+        boss_knockouts?: number;
         place: number;
         eliminated?: boolean;
         eliminated_at?: string | null;
@@ -37,6 +38,7 @@ export async function POST(
           player_id: row.player_id,
           place: row.place,
           knockouts: row.knockouts,
+          boss_knockouts: row.boss_knockouts ?? 0,
           arrived: row.arrived ?? false,
         })),
         tournament.tournament_type
@@ -50,6 +52,7 @@ export async function POST(
         place: row.place,
         reentries: row.rebuys,
         knockouts: row.knockouts,
+        boss_knockouts: row.boss_knockouts ?? 0,
         rating_points: ratingMap.get(row.player_id) ?? 0,
       }))
     );
@@ -65,6 +68,7 @@ export async function POST(
         rebuys: row.rebuys,
         addons: row.addons ?? 0,
         knockouts: row.knockouts,
+        boss_knockouts: row.boss_knockouts ?? 0,
         place: row.place,
         rating_points: ratingMap.get(row.player_id) ?? 0,
         eliminated: row.eliminated ?? false,

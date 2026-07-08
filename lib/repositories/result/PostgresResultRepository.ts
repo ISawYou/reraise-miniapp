@@ -71,6 +71,7 @@ export class PostgresResultRepository implements ResultRepository {
         player_id: results.playerId,
         place: results.place,
         knockouts: results.knockouts,
+        boss_knockouts: sql<number>`coalesce(${sql.raw('"results"."boss_knockouts"')}, 0)`,
         reentries: results.reentries,
         rating_points: results.ratingPoints,
         players: {
@@ -89,6 +90,7 @@ export class PostgresResultRepository implements ResultRepository {
         player_id: row.player_id,
         place: row.place,
         knockouts: row.knockouts,
+        boss_knockouts: row.boss_knockouts ?? 0,
         reentries: row.reentries,
         rating_points: row.rating_points,
         username: player?.username ?? null,
@@ -133,6 +135,7 @@ export class PostgresResultRepository implements ResultRepository {
         tournament_id: results.tournamentId,
         place: results.place,
         knockouts: results.knockouts,
+        boss_knockouts: sql<number>`coalesce(${sql.raw('"results"."boss_knockouts"')}, 0)`,
         reentries: results.reentries,
         rating_points: results.ratingPoints,
         tournament: {
@@ -160,6 +163,7 @@ export class PostgresResultRepository implements ResultRepository {
       tournament_id: row.tournament_id,
       place: row.place,
       knockouts: row.knockouts,
+      boss_knockouts: row.boss_knockouts ?? 0,
       reentries: row.reentries,
       rating_points: row.rating_points,
       tournament: row.tournament
@@ -185,22 +189,36 @@ export class PostgresResultRepository implements ResultRepository {
   }
 
   async insertMany(rows: ResultInsert[]): Promise<void> {
-    // Supabase's `.insert([])` is a harmless no-op; Drizzle's `.values([])`
-    // throws ("values() must be called with at least one value"), so the
-    // empty case needs an explicit early return to keep behavior identical.
     if (rows.length === 0) {
       return;
     }
-    await db.insert(results).values(
-      rows.map((row) => ({
-        tournamentId: row.tournament_id,
-        playerId: row.player_id,
-        seasonId: row.season_id,
-        place: row.place,
-        reentries: row.reentries,
-        knockouts: row.knockouts,
-        ratingPoints: row.rating_points,
-      }))
+
+    const values = sql.join(
+      rows.map((row) => sql`(
+        ${row.tournament_id},
+        ${row.player_id},
+        ${row.season_id},
+        ${row.place},
+        ${row.reentries},
+        ${row.knockouts},
+        ${row.boss_knockouts ?? 0},
+        ${row.rating_points}
+      )`),
+      sql`, `
     );
+
+    await db.execute(sql`
+      insert into "results" (
+        "tournament_id",
+        "player_id",
+        "season_id",
+        "place",
+        "reentries",
+        "knockouts",
+        "boss_knockouts",
+        "rating_points"
+      )
+      values ${values}
+    `);
   }
 }

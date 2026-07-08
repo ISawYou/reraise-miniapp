@@ -19,6 +19,7 @@ export async function POST(
             rebuys: number;
             addons: number;
             knockouts: number;
+            boss_knockouts?: number;
             place: number | null;
           }>;
           entryPrice?: number;
@@ -26,6 +27,16 @@ export async function POST(
           bountyPrice?: number;
         }
       | null;
+
+    if (body?.rows?.length) {
+      await syncTournamentLiveSheet(
+        id,
+        body.rows,
+        body.entryPrice ?? 0,
+        body.addonPrice ?? 0,
+        body.bountyPrice ?? 0
+      );
+    }
 
     const result = await completeTournamentFromLiveEntries(id);
     await syncTournamentLiveSheet(

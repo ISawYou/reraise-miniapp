@@ -17,6 +17,7 @@ export type TournamentType =
   | "phoenix"
   | "deep_stack"
   | "bounty"
+  | "boss_bounty"
   | "win_the_button";
 
 export type Player = {
@@ -93,6 +94,7 @@ export type TournamentResultInput = {
   place: number;
   reentries: number;
   knockouts: number;
+  boss_knockouts?: number;
   rating_points: number;
 };
 
@@ -100,6 +102,7 @@ export type TournamentResult = {
   player_id: string;
   place: number;
   knockouts: number;
+  boss_knockouts?: number;
   reentries: number;
   rating_points: number;
   username: string | null;
@@ -118,6 +121,7 @@ export type TournamentLiveEntry = {
   rebuys: number;
   addons: number;
   knockouts: number;
+  boss_knockouts?: number;
   place: number | null;
   sheet_row_number: number | null;
 };

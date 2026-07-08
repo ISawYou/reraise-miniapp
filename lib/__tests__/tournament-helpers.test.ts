@@ -51,6 +51,7 @@ describe("getRegistrationStatus", () => {
 describe("tournament type helpers", () => {
   it("returns correct labels", () => {
     expect(getTournamentTypeLabel("classic")).toBe("Texas Classic");
+    expect(getTournamentTypeLabel("boss_bounty")).toBe("Boss Bounty");
     expect(getTournamentTypeLabel("win_the_button")).toBe("Win The Button");
   });
 
@@ -61,12 +62,17 @@ describe("tournament type helpers", () => {
 
   it("detects knockout formats", () => {
     expect(supportsTournamentKnockouts("bounty")).toBe(true);
+    expect(supportsTournamentKnockouts("boss_bounty")).toBe(true);
     expect(supportsTournamentKnockouts("classic")).toBe(false);
   });
 
   it("returns compact bonus lines", () => {
     expect(getTournamentTypeBonusLines("phoenix")).toEqual(["Бонус рейтинга x1.20"]);
     expect(getTournamentTypeBonusLines("bounty")).toEqual(["Нокауты: +5 очков"]);
+    expect(getTournamentTypeBonusLines("boss_bounty")).toEqual([
+      "Нокауты: +5 очков",
+      "Boss-нокауты: +10 очков",
+    ]);
   });
 });
 

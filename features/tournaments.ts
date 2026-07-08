@@ -54,6 +54,7 @@ export type TournamentLiveSheetRow = {
   rebuys: number;
   addons: number;
   knockouts: number;
+  boss_knockouts?: number;
   place: number | null;
   sheet_row_number: number | null;
 };
@@ -123,6 +124,7 @@ function mapTournamentLiveEntryRow(
     rebuys: row.rebuys,
     addons: row.addons,
     knockouts: row.knockouts,
+    boss_knockouts: row.boss_knockouts ?? 0,
     place: row.place,
     sheet_row_number: row.sheet_row_number,
   };
@@ -366,6 +368,7 @@ export async function getMyTournamentHistory(playerId: string) {
           player_id: row.player_id,
           place: row.place,
           knockouts: row.knockouts,
+          boss_knockouts: row.boss_knockouts ?? 0,
           reentries: row.reentries,
           rating_points: row.rating_points,
           username: null,
@@ -644,6 +647,7 @@ export async function ensureTournamentLiveEntries(tournamentId: string) {
       rebuys: 0,
       addons: 0,
       knockouts: 0,
+      boss_knockouts: 0,
       place: null,
     }));
 
@@ -688,6 +692,7 @@ export async function updateTournamentLiveEntries(
     rebuys: number;
     addons: number;
     knockouts: number;
+    boss_knockouts?: number;
     place: number | null;
   }>
 ) {
@@ -709,6 +714,7 @@ export async function updateTournamentLiveEntries(
       rebuys: row.rebuys,
       addons: row.addons,
       knockouts: row.knockouts,
+      boss_knockouts: row.boss_knockouts ?? 0,
       place: row.place,
       updated_at: new Date().toISOString(),
     });
@@ -738,6 +744,7 @@ export async function getTournamentLiveSheetData(
       rebuys: row.rebuys,
       addons: row.addons,
       knockouts: row.knockouts,
+      boss_knockouts: row.boss_knockouts ?? 0,
       place: row.place,
       sheet_row_number: row.sheet_row_number ?? index + 8,
     })),
@@ -752,6 +759,7 @@ export async function applyTournamentLiveSheetRows(
     rebuys: number;
     addons: number;
     knockouts: number;
+    boss_knockouts?: number;
     place: number | null;
     sheet_row_number?: number | null;
   }>
@@ -766,6 +774,7 @@ export async function applyTournamentLiveSheetRows(
       rebuys: row.rebuys,
       addons: row.addons,
       knockouts: row.knockouts,
+      boss_knockouts: row.boss_knockouts ?? 0,
       place: row.place,
       updated_at: new Date().toISOString(),
     };
@@ -813,6 +822,7 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
         player_id: entry.player_id,
         place: entry.place ?? 0,
         knockouts: entry.knockouts,
+        boss_knockouts: entry.boss_knockouts ?? 0,
         arrived: entry.arrived,
       })),
       tournament.tournament_type
@@ -826,6 +836,7 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     place: entry.place as number,
     reentries: entry.rebuys,
     knockouts: entry.knockouts,
+    boss_knockouts: entry.boss_knockouts ?? 0,
     rating_points: ratingMap.get(entry.player_id) ?? 0,
   }));
 
@@ -866,6 +877,7 @@ export async function saveTournamentResults(
     place: item.place,
     reentries: item.reentries,
     knockouts: item.knockouts,
+    boss_knockouts: item.boss_knockouts ?? 0,
     rating_points: item.rating_points,
   }));
 

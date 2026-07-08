@@ -27,6 +27,8 @@ export function getTournamentTypeLabel(type: TournamentType): string {
       return "Deep Stack";
     case "bounty":
       return "Bounty";
+    case "boss_bounty":
+      return "Boss Bounty";
     case "win_the_button":
       return "Win The Button";
     case "classic":
@@ -44,7 +46,11 @@ export function getTournamentTypeMultiplier(type: TournamentType): number {
 }
 
 export function supportsTournamentKnockouts(type: TournamentType): boolean {
-  return type === "bounty";
+  return type === "bounty" || type === "boss_bounty";
+}
+
+export function supportsTournamentBossKnockouts(type: TournamentType): boolean {
+  return type === "boss_bounty";
 }
 
 export function getTournamentTypeBonusLines(type: TournamentType): string[] {
@@ -57,6 +63,10 @@ export function getTournamentTypeBonusLines(type: TournamentType): string[] {
 
   if (supportsTournamentKnockouts(type)) {
     lines.push("Нокауты: +5 очков");
+  }
+
+  if (supportsTournamentBossKnockouts(type)) {
+    lines.push("Boss-нокауты: +10 очков");
   }
 
   return lines;

@@ -38,18 +38,36 @@ export class PostgresTournamentLiveStateRepository implements TournamentLiveStat
     if (rows.length === 0) {
       return;
     }
-    await db.insert(tournamentLiveEntries).values(
-      rows.map((row) => ({
-        tournamentId: row.tournament_id,
-        playerId: row.player_id,
-        registrationId: row.registration_id,
-        arrived: row.arrived,
-        rebuys: row.rebuys,
-        addons: row.addons,
-        knockouts: row.knockouts,
-        place: row.place,
-      }))
+
+    const values = sql.join(
+      rows.map((row) => sql`(
+        ${row.tournament_id},
+        ${row.player_id},
+        ${row.registration_id},
+        ${row.arrived},
+        ${row.rebuys},
+        ${row.addons},
+        ${row.knockouts},
+        ${row.boss_knockouts ?? 0},
+        ${row.place}
+      )`),
+      sql`, `
     );
+
+    await db.execute(sql`
+      insert into "tournament_live_entries" (
+        "tournament_id",
+        "player_id",
+        "registration_id",
+        "arrived",
+        "rebuys",
+        "addons",
+        "knockouts",
+        "boss_knockouts",
+        "place"
+      )
+      values ${values}
+    `);
   }
 
   async findLiveEntriesWithDetails(tournamentId: string): Promise<LiveEntryWithDetailsRow[]> {
@@ -63,6 +81,7 @@ export class PostgresTournamentLiveStateRepository implements TournamentLiveStat
         rebuys: tournamentLiveEntries.rebuys,
         addons: tournamentLiveEntries.addons,
         knockouts: tournamentLiveEntries.knockouts,
+        boss_knockouts: sql<number>`coalesce(${sql.raw('"tournament_live_entries"."boss_knockouts"')}, 0)`,
         place: tournamentLiveEntries.place,
         sheet_row_number: tournamentLiveEntries.sheetRowNumber,
         registrations: {
@@ -82,20 +101,39 @@ export class PostgresTournamentLiveStateRepository implements TournamentLiveStat
   }
 
   async updateLiveEntry(tournamentId: string, playerId: string, patch: LiveEntryPatch): Promise<void> {
-    await db
-      .update(tournamentLiveEntries)
-      .set({
-        arrived: patch.arrived,
-        rebuys: patch.rebuys,
-        addons: patch.addons,
-        knockouts: patch.knockouts,
-        place: patch.place,
-        updatedAt: new Date(patch.updated_at),
-        ...(patch.sheet_row_number !== undefined ? { sheetRowNumber: patch.sheet_row_number } : {}),
-      })
-      .where(
-        and(eq(tournamentLiveEntries.tournamentId, tournamentId), eq(tournamentLiveEntries.playerId, playerId))
-      );
+    if (patch.sheet_row_number === undefined) {
+      await db.execute(sql`
+        update "tournament_live_entries"
+        set
+          "arrived" = ${patch.arrived},
+          "rebuys" = ${patch.rebuys},
+          "addons" = ${patch.addons},
+          "knockouts" = ${patch.knockouts},
+          "boss_knockouts" = ${patch.boss_knockouts ?? 0},
+          "place" = ${patch.place},
+          "updated_at" = ${new Date(patch.updated_at)}
+        where
+          "tournament_id" = ${tournamentId}
+          and "player_id" = ${playerId}
+      `);
+      return;
+    }
+
+    await db.execute(sql`
+      update "tournament_live_entries"
+      set
+        "arrived" = ${patch.arrived},
+        "rebuys" = ${patch.rebuys},
+        "addons" = ${patch.addons},
+        "knockouts" = ${patch.knockouts},
+        "boss_knockouts" = ${patch.boss_knockouts ?? 0},
+        "place" = ${patch.place},
+        "updated_at" = ${new Date(patch.updated_at)},
+        "sheet_row_number" = ${patch.sheet_row_number}
+      where
+        "tournament_id" = ${tournamentId}
+        and "player_id" = ${playerId}
+    `);
   }
 
   async deleteLiveEntriesByPlayerId(playerId: string): Promise<void> {
