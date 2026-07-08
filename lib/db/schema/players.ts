@@ -10,9 +10,13 @@ import { sql } from "drizzle-orm";
 export const players = pgTable("players", {
   id: uuid().primaryKey().defaultRandom(),
 
-  // Identity: either Telegram or email, never neither — see the
-  // players_identity_present check below. Both stay nullable because
-  // either origin can create a player without the other.
+  // Identity: usually Telegram or email, but neither is enforced at the DB
+  // level — addAdminTournamentParticipant() (features/tournaments.ts)
+  // deliberately creates offline/manual players with both null, and real
+  // production data already depends on that (see
+  // docs/POSTGRES_MIGRATION_AUDIT.md's follow-up: a players_identity_present
+  // CHECK was tried and reverted for exactly this reason). Both stay
+  // nullable because either origin -- or neither -- can create a player.
   telegramId: bigint("telegram_id", { mode: "number" }).unique(),
   email: text(),
   username: text(),
@@ -43,7 +47,6 @@ export const players = pgTable("players", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("players_role_check", sql`${table.role} IN ('player', 'admin')`),
-  check("players_identity_present", sql`${table.telegramId} IS NOT NULL OR ${table.email} IS NOT NULL`),
   check("players_display_name_length", sql`char_length(${table.displayName}) BETWEEN 1 AND 100`),
   check(
     "players_pending_display_name_length",
