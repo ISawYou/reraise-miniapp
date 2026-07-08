@@ -210,6 +210,34 @@ async function tableRowCount(db, table) {
   return rows[0].count;
 }
 
+// PostgREST (Supabase's query API) caps any single .select() at 1000 rows
+// regardless of table size -- a plain, unranged select silently truncates
+// instead of erroring. This reads a Supabase table in full by paging
+// through .range() until a page comes back short. Only activity_events
+// needs this today (the only source table over 1000 rows); everything else
+// still uses a single select() as before.
+const SUPABASE_PAGE_SIZE = 1000;
+
+async function fetchAllRows(supabase, table, columns, orderColumn) {
+  const rows = [];
+  let from = 0;
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .order(orderColumn, { ascending: true })
+      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+    if (error) throw new Error(`Failed to read ${table} from Supabase: ${error.message}`);
+
+    rows.push(...data);
+    if (data.length < SUPABASE_PAGE_SIZE) break;
+    from += SUPABASE_PAGE_SIZE;
+  }
+
+  return rows;
+}
+
 // app_settings -- tiny, naturally idempotent via onConflictDoUpdate.
 async function backfillAppSettings({ supabase, db }) {
   const { data: rows, error } = await supabase.from("app_settings").select("key, value, updated_at");
@@ -251,18 +279,21 @@ async function backfillSeasons({ supabase, db }) {
 }
 
 // activity_events -- surrogate uuid PK, no natural conflict key ->
-// table-level guard instead of per-row idempotency.
+// table-level guard instead of per-row idempotency. Paginated read via
+// fetchAllRows: this table already has ~3900 rows, well past PostgREST's
+// 1000-row cap on a single select().
 async function backfillActivityEvents({ supabase, db }) {
   const existing = await tableRowCount(db, activityEventsTable);
   if (existing > 0) {
     return { status: "skipped", count: existing };
   }
 
-  const { data: rows, error } = await supabase
-    .from("activity_events")
-    .select("id, player_id, event_type, event_label, metadata, platform, session_id, created_at")
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(`Failed to read activity_events from Supabase: ${error.message}`);
+  const rows = await fetchAllRows(
+    supabase,
+    "activity_events",
+    "id, player_id, event_type, event_label, metadata, platform, session_id, created_at",
+    "created_at"
+  );
 
   for (const row of rows) {
     await db.insert(activityEventsTable).values({
