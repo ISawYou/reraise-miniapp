@@ -1,4 +1,5 @@
 import { SupabaseRegistrationRepository } from "./SupabaseRegistrationRepository";
+import { PostgresRegistrationRepository } from "./PostgresRegistrationRepository";
 import type { RegistrationRepository } from "./RegistrationRepository";
 
 export type {
@@ -14,5 +15,8 @@ export type {
   NotificationRecipientRow,
 } from "./RegistrationRepository";
 
-export const registrationRepository: RegistrationRepository =
-  new SupabaseRegistrationRepository();
+const usePostgres = process.env.DATABASE_PROVIDER === "postgres";
+
+export const registrationRepository: RegistrationRepository = usePostgres
+  ? new PostgresRegistrationRepository()
+  : new SupabaseRegistrationRepository();
