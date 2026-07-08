@@ -32,15 +32,24 @@ RUN npm run build
 
 # ── Stage 3: migrator ────────────────────────────────────────────────────────
 # Runs Drizzle Kit (generate/migrate/push/studio) against Postgres. Extends
-# `builder` directly — same node_modules (devDependencies included, so
-# drizzle-kit is present) and full source (drizzle.config.ts, lib/db/), no
-# separate install step. Placed BEFORE `runner` so `runner` stays the last
-# stage — docker-compose.yml's `app` service has no explicit `target:` and
-# must keep resolving to `runner` by default. Never built as part of the
-# default `docker build` (last stage) and never referenced by it — only
-# reachable via `docker compose -f docker-compose.postgres.yml run --rm
-# migrator ...`, so it has zero effect on the production app image.
-FROM builder AS migrator
+# `deps`, NOT `builder` — unlike poker-clock, Re-raise's /api/leaderboard
+# uses `revalidate`, which makes Next.js actually execute it (a real fetch
+# against Supabase) during `next build`'s static generation. That means
+# `builder` only succeeds with a genuine, working SUPABASE_SERVICE_ROLE_KEY
+# baked in as a build arg — acceptable for the real app image (it needs a
+# working build anyway), but not for a throwaway migrator image, which has
+# no reason to require production Supabase credentials just to run Drizzle
+# migrations. Building from `deps` instead skips `next build` entirely — the
+# migrator only ever needs node_modules (devDependencies included, so
+# drizzle-kit is present) plus the raw source (drizzle.config.ts, lib/db/).
+# Placed BEFORE `runner` so `runner` stays the last stage —
+# docker-compose.yml's `app` service has no explicit `target:` and must keep
+# resolving to `runner` by default. Never built as part of the default
+# `docker build` (last stage) and never referenced by it — only reachable
+# via an explicit `--target migrator` build, so it has zero effect on the
+# production app image.
+FROM deps AS migrator
+COPY . .
 CMD ["npm", "run", "db:migrate"]
 
 # ── Stage 4: production runner ───────────────────────────────────────────────
