@@ -5,6 +5,17 @@ import type { Player } from "@/types/domain";
 
 const TELEGRAM_SYNC_FILENAME = "telegram-avatar";
 
+// Telegram serves an SVG monogram placeholder (colored circle + initials)
+// instead of a real photo when the user has no visible profile picture --
+// same content-types contentTypeToExtension() actually knows how to name
+// on disk. Anything outside this set (notably image/svg+xml) isn't a real
+// photo worth persisting as the player's avatar.
+const SUPPORTED_TELEGRAM_AVATAR_CONTENT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
 // URL вида .../avatars/{id}/telegram-avatar
 function isTelegramSyncedUrl(url: string | null | undefined): boolean {
   return Boolean(url?.includes(`/${TELEGRAM_SYNC_FILENAME}`));
@@ -59,8 +70,8 @@ export async function syncTelegramAvatar(
 
     contentType = res.headers.get("content-type") ?? "image/jpeg";
 
-    if (!contentType.startsWith("image/")) {
-      console.warn("[avatar-sync] Unexpected content-type:", contentType);
+    if (!SUPPORTED_TELEGRAM_AVATAR_CONTENT_TYPES.has(contentType)) {
+      console.warn("[avatar-sync] Unsupported content-type, skipping:", contentType);
       return player;
     }
 
