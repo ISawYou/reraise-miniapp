@@ -88,6 +88,7 @@ export class PostgresTournamentLiveStateRepository implements TournamentLiveStat
           status: registrations.status,
         },
         players: {
+          id: players.id,
           username: players.username,
           admin_display_name: players.adminDisplayName,
           display_name: players.displayName,

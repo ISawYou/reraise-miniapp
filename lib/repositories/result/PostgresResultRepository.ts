@@ -75,6 +75,7 @@ export class PostgresResultRepository implements ResultRepository {
         reentries: results.reentries,
         rating_points: results.ratingPoints,
         players: {
+          id: players.id,
           username: players.username,
           display_name: players.displayName,
         },
@@ -105,6 +106,7 @@ export class PostgresResultRepository implements ResultRepository {
         player_id: results.playerId,
         rating_points: results.ratingPoints,
         players: {
+          id: players.id,
           username: players.username,
           display_name: players.displayName,
           telegram_avatar_url: players.telegramAvatarUrl,

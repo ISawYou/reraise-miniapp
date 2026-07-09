@@ -353,6 +353,7 @@ export class PostgresRegistrationRepository implements RegistrationRepository {
         status: registrations.status,
         player_id: registrations.playerId,
         players: {
+          id: players.id,
           admin_display_name: players.adminDisplayName,
           display_name: players.displayName,
           telegram_avatar_url: players.telegramAvatarUrl,
@@ -403,6 +404,7 @@ export class PostgresRegistrationRepository implements RegistrationRepository {
         player_id: registrations.playerId,
         status: registrations.status,
         players: {
+          id: players.id,
           telegram_id: players.telegramId,
           display_name: players.displayName,
         },
