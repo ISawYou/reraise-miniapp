@@ -2,10 +2,10 @@ name: Maintenance
 
 on:
   schedule:
-    # Every Sunday 02:00 UTC — low-traffic window. Cron in GitHub Actions
-    # is always UTC; adjust the hour if "night" should mean a different
-    # local timezone.
-    - cron: '0 2 * * 0'
+    # Monday 03:00 UTC = Monday 06:00 Moscow time (UTC+3, no DST) —
+    # deliberately after Sunday-night poker tournaments have wrapped up,
+    # not during. Cron in GitHub Actions is always UTC.
+    - cron: '0 3 * * 1'
   workflow_dispatch: {}
 
 permissions:
@@ -67,8 +67,8 @@ jobs:
           echo ""
           echo "================ CLEANUP ================"
 
-          echo "-- docker builder prune: BuildKit cache older than 168h (7 days) --"
-          docker builder prune -f --filter "until=168h"
+          echo "-- docker builder prune: BuildKit cache older than 72h (3 days) --"
+          docker builder prune -f --filter "until=72h"
 
           echo "-- docker image prune: dangling (untagged) images only --"
           docker image prune -f
