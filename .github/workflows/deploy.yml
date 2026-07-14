@@ -7,13 +7,14 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: production-deploy
-  cancel-in-progress: true
-
 jobs:
-  lint:
+  # Fast, cheap checks — safe to cancel a superseded run of this job the
+  # moment a newer commit is pushed, since it has no side effects.
+  checks:
     runs-on: ubuntu-latest
+    concurrency:
+      group: checks-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,59 +31,174 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+  # Everything below runs on the VPS: production `next build` (needs
+  # /opt/reraise/.env, not available on the GitHub runner), container
+  # recreation, and proof that the new code is actually live and healthy.
+  # cancel-in-progress is deliberately false: a `docker compose up -d`
+  # recreation caught mid-flight by a cancellation is exactly the kind of
+  # "server left in an in-between state" the app owner does not want. A
+  # newer push instead queues behind this one (and if a third push lands
+  # while one is already queued, GitHub keeps only the newest queued run —
+  # older superseded commits are dropped, not deployed one by one), so
+  # deploys always run to full completion and the server always converges
+  # on the latest pushed commit.
   deploy:
-    needs: lint
+    needs: checks
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    timeout-minutes: 15
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
       - name: Configure SSH
         run: |
+          set -Eeuo pipefail
           mkdir -p ~/.ssh
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
 
-      # The real `next build` happens here, inside `docker compose build app`
-      # on the VPS — not in the job above. docker compose auto-loads
-      # /opt/reraise/.env for the build args (NEXT_PUBLIC_SUPABASE_URL,
-      # SUPABASE_SERVICE_ROLE_KEY, etc.), exactly like the old manual deploy,
-      # so GitHub Actions never needs those values as Secrets. If the build
-      # fails, `set -e` stops the script before `up -d` runs, so a broken
-      # build never reaches the running container. Only the app service is
-      # touched: no `docker compose down`, `--no-deps` prevents any
-      # cross-service restart, poker-clock-db and the storage bind mount are
-      # untouched.
-      - name: Deploy to VPS
+      # Single SSH session, single strict-mode remote script: build the new
+      # image, recreate only the app container, prove the running container
+      # is that exact image (not a no-op deploy), wait for a genuine
+      # running+healthy state (not a one-shot check), smoke-test the public
+      # site, and only then prune dangling images. Any failing command
+      # aborts the whole script (set -Eeuo pipefail) and the step — and the
+      # job — end red. poker-clock-db, the external network, volumes and the
+      # storage bind mount are never touched: only `docker compose build
+      # app` / `up -d --no-deps app` run, never `down`.
+      - name: Build, deploy and verify on VPS
         run: |
+          set -Eeuo pipefail
           ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
             -o StrictHostKeyChecking=yes \
-            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" '
-              set -e
-              cd /opt/reraise
-              git pull --ff-only origin main
-              docker compose build app
-              docker compose up -d --no-deps app
-              docker image prune -f
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=6 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
 
-              for i in $(seq 1 10); do
-                if wget -q -O /dev/null http://127.0.0.1:3002/api/health; then
-                  echo "Container healthy"
-                  exit 0
-                fi
-                sleep 3
-              done
-              echo "Container did not become healthy in time" >&2
+          EXPECTED_SHA="${{ github.sha }}"
+          cd /opt/reraise
+
+          echo "== Syncing repo to the commit this workflow ran for =="
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          echo "Expected SHA: $EXPECTED_SHA"
+          echo "Actual SHA:   $ACTUAL_SHA"
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "SHA mismatch — main on the VPS does not match the commit this workflow was triggered for. Refusing to deploy." >&2
+            exit 1
+          fi
+
+          # Read the real image name from docker-compose.yml instead of
+          # assuming it — this is what `docker compose build/up` actually
+          # resolve to, so it can never drift from the compose file.
+          IMAGE_NAME="$(docker compose config --images app)"
+          echo "Image name from docker-compose.yml: $IMAGE_NAME"
+
+          echo "== Building production image (npm run build happens in here, using /opt/reraise/.env) =="
+          docker compose build app
+
+          NEW_IMAGE_ID="$(docker image inspect "$IMAGE_NAME" --format '{{.Id}}')"
+          echo "New image ID: $NEW_IMAGE_ID"
+
+          echo "== Recreating the app container only =="
+          docker compose up -d --no-deps app
+
+          CONTAINER_ID="$(docker compose ps -q app)"
+          if [ -z "$CONTAINER_ID" ]; then
+            echo "No 'app' container found after 'docker compose up -d'." >&2
+            exit 1
+          fi
+
+          RUNNING_IMAGE_ID="$(docker inspect "$CONTAINER_ID" --format '{{.Image}}')"
+          echo "Running container's image ID: $RUNNING_IMAGE_ID"
+          echo "Running container created at: $(docker inspect "$CONTAINER_ID" --format '{{.Created}}')"
+
+          if [ "$RUNNING_IMAGE_ID" != "$NEW_IMAGE_ID" ]; then
+            echo "The running container is not on the image that was just built — the deploy did not take effect." >&2
+            docker compose ps
+            exit 1
+          fi
+
+          echo "== Waiting for the container to report running+healthy =="
+          DEPLOY_TIMEOUT=120
+          INTERVAL=5
+          ELAPSED=0
+          while true; do
+            STATUS="$(docker inspect "$CONTAINER_ID" --format '{{.State.Status}}')"
+            HEALTH="$(docker inspect "$CONTAINER_ID" --format '{{.State.Health.Status}}')"
+
+            if [ "$STATUS" = "exited" ] || [ "$STATUS" = "dead" ]; then
+              echo "Container entered terminal state '$STATUS'." >&2
+              docker compose ps
+              docker compose logs --tail 200 app
               exit 1
-            '
-
-      - name: Verify API responds
-        run: |
-          for i in $(seq 1 10); do
-            if curl -fsS -o /dev/null https://re-raise.ru/api/settings; then
-              echo "API responded 200"
-              exit 0
             fi
-            sleep 3
+
+            if [ "$HEALTH" = "unhealthy" ]; then
+              echo "Container reported unhealthy." >&2
+              docker compose ps
+              docker compose logs --tail 200 app
+              exit 1
+            fi
+
+            if [ "$STATUS" = "running" ] && [ "$HEALTH" = "healthy" ]; then
+              echo "Container is running and healthy after ${ELAPSED}s."
+              break
+            fi
+
+            if [ "$ELAPSED" -ge "$DEPLOY_TIMEOUT" ]; then
+              echo "Timed out after ${DEPLOY_TIMEOUT}s waiting for running+healthy (status=$STATUS health=$HEALTH)." >&2
+              docker compose ps
+              docker compose logs --tail 200 app
+              exit 1
+            fi
+
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
           done
-          echo "API did not respond 200 in time" >&2
-          exit 1
+
+          echo "== Smoke-testing the public site =="
+
+          echo "GET https://re-raise.ru/api/health"
+          HEALTH_BODY="$(curl --fail --silent --show-error https://re-raise.ru/api/health)"
+          echo "Body: $HEALTH_BODY"
+          if [ "$HEALTH_BODY" != '{"ok":true}' ]; then
+            echo "Unexpected /api/health body: $HEALTH_BODY" >&2
+            exit 1
+          fi
+
+          echo "GET https://re-raise.ru/api/settings"
+          curl --fail --silent --show-error https://re-raise.ru/api/settings > /dev/null
+
+          echo "GET https://re-raise.ru/"
+          curl --fail --silent --show-error https://re-raise.ru/ > /dev/null
+
+          # /api/leaderboard legitimately returns 404 when there is no
+          # active season (see app/api/leaderboard/route.ts) — that is a
+          # real, documented business state, not a broken deploy. Only
+          # something other than 200/404 (5xx, unreachable, ...) fails here.
+          echo "GET https://re-raise.ru/api/leaderboard"
+          LEADERBOARD_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' https://re-raise.ru/api/leaderboard)"
+          echo "Status: $LEADERBOARD_STATUS"
+          case "$LEADERBOARD_STATUS" in
+            200|404) ;;
+            *)
+              echo "Unexpected /api/leaderboard status: $LEADERBOARD_STATUS" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "== All checks passed — pruning dangling images =="
+          docker image prune -f
+
+          echo "Deploy complete: $ACTUAL_SHA is live and healthy."
+          REMOTE_SCRIPT
