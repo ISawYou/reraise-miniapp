@@ -1,0 +1,114 @@
+name: Maintenance
+
+on:
+  schedule:
+    # Every Sunday 02:00 UTC — low-traffic window. Cron in GitHub Actions
+    # is always UTC; adjust the hour if "night" should mean a different
+    # local timezone.
+    - cron: '0 2 * * 0'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Deliberately the SAME concurrency group deploy.yml's `deploy` job
+    # uses — not a copy-paste accident. `docker builder prune` removing
+    # cache blobs at the exact moment `docker compose build app` is reading
+    # them (a real deploy running at the same time) is the one scenario
+    # that could turn a routine cleanup into a flaky deploy. Sharing the
+    # group means GitHub serializes maintenance and deploy runs against
+    # this VPS — whichever started first finishes before the other begins
+    # — without touching deploy.yml at all (concurrency groups are shared
+    # across workflow files by name). cancel-in-progress stays false for
+    # the same reason it does in deploy.yml: never abort mid-cleanup.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Configure SSH
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      # Every command here is scoped to either BuildKit's own cache store,
+      # dangling (untagged) images, systemd's journal, or npm's package
+      # cache — none of those code paths can touch a running container, a
+      # tagged image, a volume, or a bind mount. No `docker system prune`,
+      # no `-a`, no `docker volume prune`, no `docker container prune`
+      # anywhere in this script. See the PR/report for the per-command
+      # safety rationale.
+      - name: Run maintenance on VPS
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=6 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+
+          echo "================ BEFORE CLEANUP ================"
+          echo "--- df -h ---"
+          df -h
+          echo ""
+          echo "--- docker system df ---"
+          docker system df
+          echo ""
+          echo "--- docker builder du ---"
+          docker builder du
+
+          echo ""
+          echo "================ CLEANUP ================"
+
+          echo "-- docker builder prune: BuildKit cache older than 168h (7 days) --"
+          docker builder prune -f --filter "until=168h"
+
+          echo "-- docker image prune: dangling (untagged) images only --"
+          docker image prune -f
+
+          echo "-- journalctl --vacuum-time=14d: trim systemd journal to last 14 days --"
+          journalctl --vacuum-time=14d
+
+          echo "-- npm cache clean: host-level npm package cache (best-effort) --"
+          npm cache clean --force || true
+
+          echo ""
+          echo "================ AFTER CLEANUP ================"
+          echo "--- df -h ---"
+          df -h
+          echo ""
+          echo "--- docker system df ---"
+          docker system df
+          echo ""
+          echo "--- docker builder du ---"
+          docker builder du
+
+          echo ""
+          echo "================ APP STILL HEALTHY? ================"
+          CONTAINER_ID="$(docker compose -f /opt/reraise/docker-compose.yml ps -q app)"
+          if [ -z "$CONTAINER_ID" ]; then
+            echo "re-raise app container not found after maintenance." >&2
+            exit 1
+          fi
+
+          STATUS="$(docker inspect "$CONTAINER_ID" --format '{{.State.Status}}')"
+          HEALTH="$(docker inspect "$CONTAINER_ID" --format '{{.State.Health.Status}}')"
+          echo "Container status: $STATUS, health: $HEALTH"
+          if [ "$STATUS" != "running" ] || [ "$HEALTH" != "healthy" ]; then
+            echo "re-raise app is not running+healthy after maintenance." >&2
+            exit 1
+          fi
+
+          echo "GET https://re-raise.ru/api/health"
+          curl --fail --silent --show-error https://re-raise.ru/api/health
+          echo ""
+
+          echo "Maintenance complete — app confirmed running and healthy."
+          REMOTE_SCRIPT
