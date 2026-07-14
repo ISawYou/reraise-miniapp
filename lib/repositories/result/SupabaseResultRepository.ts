@@ -2,6 +2,7 @@ import "server-only";
 
 import { getSupabaseServer } from "@/lib/database";
 import type { TournamentResult } from "@/types/domain";
+import type { TournamentRow } from "@/types/database";
 import type {
   ResultRepository,
   ResultInsert,
@@ -15,6 +16,15 @@ function flattenEmbedded<T>(value: T | T[] | null | undefined): T | null {
   }
   return value ?? null;
 }
+
+type PlayerNameJoin = { username: string | null; display_name: string };
+
+type PlayerLeaderboardJoin = {
+  username: string | null;
+  display_name: string;
+  telegram_avatar_url: string | null;
+  custom_avatar_url: string | null;
+};
 
 // Current, active implementation — wraps the exact same Supabase queries
 // that were previously spread across features/tournaments.ts,
@@ -61,7 +71,7 @@ export class SupabaseResultRepository implements ResultRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    return (data ?? []).map((row: { rating_points: number | null }) => ({
       player_id: playerId,
       rating_points: row.rating_points,
     }));
@@ -120,7 +130,17 @@ export class SupabaseResultRepository implements ResultRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => {
+    type ResultWithPlayerNameRow = {
+      player_id: string;
+      place: number;
+      knockouts: number;
+      boss_knockouts: number | null;
+      reentries: number;
+      rating_points: number | null;
+      players: PlayerNameJoin | PlayerNameJoin[] | null;
+    };
+
+    return (data ?? []).map((row: ResultWithPlayerNameRow) => {
       const player = flattenEmbedded(row.players);
 
       return {
@@ -129,7 +149,7 @@ export class SupabaseResultRepository implements ResultRepository {
         knockouts: row.knockouts,
         boss_knockouts: row.boss_knockouts ?? 0,
         reentries: row.reentries,
-        rating_points: row.rating_points,
+        rating_points: row.rating_points ?? 0,
         username: player?.username ?? null,
         display_name: player?.display_name ?? "Игрок",
       };
@@ -158,7 +178,13 @@ export class SupabaseResultRepository implements ResultRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => {
+    type ResultWithPlayerLeaderboardRow = {
+      player_id: string;
+      rating_points: number | null;
+      players: PlayerLeaderboardJoin | PlayerLeaderboardJoin[] | null;
+    };
+
+    return (data ?? []).map((row: ResultWithPlayerLeaderboardRow) => {
       const player = flattenEmbedded(row.players);
 
       return {
@@ -195,14 +221,25 @@ export class SupabaseResultRepository implements ResultRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    type ResultWithTournamentRow = {
+      player_id: string;
+      tournament_id: string;
+      place: number;
+      knockouts: number;
+      boss_knockouts: number | null;
+      reentries: number;
+      rating_points: number | null;
+      tournament: TournamentRow | TournamentRow[] | null;
+    };
+
+    return (data ?? []).map((row: ResultWithTournamentRow) => ({
       player_id: row.player_id,
       tournament_id: row.tournament_id,
       place: row.place,
       knockouts: row.knockouts,
       boss_knockouts: row.boss_knockouts ?? 0,
       reentries: row.reentries,
-      rating_points: row.rating_points,
+      rating_points: row.rating_points ?? 0,
       tournament: flattenEmbedded(row.tournament),
     }));
   }

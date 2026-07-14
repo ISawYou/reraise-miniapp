@@ -15,19 +15,21 @@ import {
   registerPlayerForTournament,
 } from "@/features/tournaments";
 
-function makeChain(result: { data?: any; error?: any }) {
-  const chain: any = {};
+type ChainResult = { data?: unknown; error?: unknown };
+
+function makeChain(result: ChainResult) {
+  const chain: Record<string, unknown> = {};
   for (const method of ["select", "eq", "neq", "in", "order", "limit", "insert"]) {
     chain[method] = vi.fn().mockReturnValue(chain);
   }
   chain.update = vi.fn().mockReturnValue(chain);
   chain.single = vi.fn().mockResolvedValue(result);
-  chain.then = (resolve: any, reject: any) =>
+  chain.then = (resolve: (value: ChainResult) => void, reject: (reason?: unknown) => void) =>
     Promise.resolve(result).then(resolve, reject);
   return chain;
 }
 
-function reg(overrides: Record<string, any> = {}) {
+function reg(overrides: Record<string, unknown> = {}) {
   return {
     id: "reg-1",
     player_id: "player-1",

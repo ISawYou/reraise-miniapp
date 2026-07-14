@@ -35,7 +35,7 @@ export class SupabaseTournamentLiveStateRepository
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => row.player_id as string);
+    return (data ?? []).map((row: { player_id: string }) => row.player_id);
   }
 
   async insertLiveEntries(rows: LiveEntryInsert[]): Promise<void> {
@@ -73,7 +73,12 @@ export class SupabaseTournamentLiveStateRepository
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    type RawLiveEntryRow = Omit<LiveEntryWithDetailsRow, "registrations" | "players"> & {
+      registrations: unknown;
+      players: unknown;
+    };
+
+    return (data ?? []).map((row: RawLiveEntryRow) => ({
       ...row,
       registrations: flattenEmbedded(row.registrations),
       players: flattenEmbedded(row.players),
@@ -122,12 +127,14 @@ export class SupabaseTournamentLiveStateRepository
       throw new Error(error.message);
     }
 
+    type EliminationRow = { player_id: string; eliminated: boolean; eliminated_at: string | null };
+
     return new Map(
-      (data ?? []).map((row: any) => [
-        row.player_id as string,
+      (data ?? []).map((row: EliminationRow) => [
+        row.player_id,
         {
-          eliminated: row.eliminated as boolean,
-          eliminated_at: row.eliminated_at as string | null,
+          eliminated: row.eliminated,
+          eliminated_at: row.eliminated_at,
         },
       ])
     );

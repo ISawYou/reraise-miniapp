@@ -947,7 +947,7 @@ export async function getTournamentAccessRecipientsByKind(
   const recipientsMap = new Map<number, TournamentNotificationRecipient>();
 
   for (const row of data) {
-    const telegramId = (row as any).telegram_id;
+    const telegramId = row.telegram_id;
 
     if (typeof telegramId !== "number") {
       continue;
@@ -955,9 +955,9 @@ export async function getTournamentAccessRecipientsByKind(
 
     if (!recipientsMap.has(telegramId)) {
       recipientsMap.set(telegramId, {
-        player_id: (row as any).id,
+        player_id: row.id,
         telegram_id: telegramId,
-        display_name: (row as any).display_name ?? "Игрок",
+        display_name: row.display_name ?? "Игрок",
         registration_status: null,
       });
     }

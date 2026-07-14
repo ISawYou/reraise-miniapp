@@ -51,7 +51,7 @@ export async function ensureSpreadsheetTab(tabName: string) {
   const spreadsheetId = getSpreadsheetId();
   const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
   const existingSheet = spreadsheet.data.sheets?.find(
-    (sheet: any) => sheet.properties?.title === tabName
+    (sheet) => sheet.properties?.title === tabName
   );
 
   if (existingSheet?.properties?.sheetId != null) {
@@ -156,7 +156,7 @@ export async function applyTournamentSheetFormatting(
   const spreadsheetId = getSpreadsheetId();
   const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
   const targetSheet = spreadsheet.data.sheets?.find(
-    (sheet: any) => sheet.properties?.title === tabName
+    (sheet) => sheet.properties?.title === tabName
   );
 
   const sheetId = targetSheet?.properties?.sheetId;

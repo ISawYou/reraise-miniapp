@@ -16,15 +16,17 @@ import { removeAdminTournamentParticipant } from '@/features/tournaments';
 // Helpers — same pattern as waitlist.test.ts
 // ---------------------------------------------------------------------------
 
-function makeChain(result: { data?: any; error?: any }) {
-  const chain: any = {};
+type ChainResult = { data?: unknown; error?: unknown };
+
+function makeChain(result: ChainResult) {
+  const chain: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'neq', 'in', 'order', 'limit', 'insert']) {
     chain[m] = vi.fn().mockReturnValue(chain);
   }
   chain.update = vi.fn().mockReturnValue(chain);
   chain.delete = vi.fn().mockReturnValue(chain);
   chain.single = vi.fn().mockResolvedValue(result);
-  chain.then = (res: any, rej: any) =>
+  chain.then = (res: (value: ChainResult) => void, rej: (reason?: unknown) => void) =>
     Promise.resolve(result).then(res, rej);
   return chain;
 }

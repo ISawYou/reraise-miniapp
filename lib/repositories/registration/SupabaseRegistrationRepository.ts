@@ -33,6 +33,13 @@ function flattenEmbedded<T>(value: T | T[] | null | undefined): T | null {
   return value ?? null;
 }
 
+// Raw shape of a row as it comes back from Supabase before an embedded
+// relation (`players`/`tournament`) is flattened via flattenEmbedded — the
+// embed is `unknown` here because Supabase returns it as either a single
+// object or an array depending on the join, and the final `as TRow[]` cast
+// below is what asserts the real shape once it's been flattened.
+type RawJoinRow<TRow, TKey extends keyof TRow> = Omit<TRow, TKey> & Record<TKey, unknown>;
+
 // Current, active implementation — wraps the exact same Supabase queries
 // that were previously spread across features/tournaments.ts. No new
 // behavior.
@@ -283,7 +290,7 @@ export class SupabaseRegistrationRepository implements RegistrationRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    return (data ?? []).map((row: RawJoinRow<RegistrationWithTournamentRow, "tournament">) => ({
       ...row,
       tournament: flattenEmbedded(row.tournament),
     })) as RegistrationWithTournamentRow[];
@@ -315,7 +322,7 @@ export class SupabaseRegistrationRepository implements RegistrationRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    return (data ?? []).map((row: RawJoinRow<ExportParticipantRow, "players">) => ({
       ...row,
       players: flattenEmbedded(row.players),
     })) as ExportParticipantRow[];
@@ -351,7 +358,7 @@ export class SupabaseRegistrationRepository implements RegistrationRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    return (data ?? []).map((row: RawJoinRow<ParticipantWithRatingRow, "players">) => ({
       ...row,
       players: flattenEmbedded(row.players),
     })) as ParticipantWithRatingRow[];
@@ -386,7 +393,7 @@ export class SupabaseRegistrationRepository implements RegistrationRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    return (data ?? []).map((row: RawJoinRow<ResultsDraftParticipantRow, "players">) => ({
       ...row,
       players: flattenEmbedded(row.players),
     })) as ResultsDraftParticipantRow[];
@@ -417,7 +424,7 @@ export class SupabaseRegistrationRepository implements RegistrationRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    return (data ?? []).map((row: RawJoinRow<AdminParticipantRow, "players">) => ({
       ...row,
       players: flattenEmbedded(row.players),
     })) as AdminParticipantRow[];
@@ -448,7 +455,7 @@ export class SupabaseRegistrationRepository implements RegistrationRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    return (data ?? []).map((row: RawJoinRow<LiveEligibleRow, "players">) => ({
       ...row,
       players: flattenEmbedded(row.players),
     })) as LiveEligibleRow[];
@@ -478,7 +485,7 @@ export class SupabaseRegistrationRepository implements RegistrationRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row: any) => ({
+    return (data ?? []).map((row: RawJoinRow<NotificationRecipientRow, "players">) => ({
       ...row,
       players: flattenEmbedded(row.players),
     })) as NotificationRecipientRow[];

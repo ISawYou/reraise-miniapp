@@ -700,6 +700,10 @@ export default function FaqPage() {
       tab === "tournament-rules" ||
       tab === "rating-rules"
     ) {
+      // Runs after mount (not a lazy useState initializer) so the first
+      // client render matches the server-rendered "general" tab and avoids
+      // a hydration mismatch — window.location isn't available during SSR.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab(tab);
     }
   }, []);

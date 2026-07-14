@@ -8,13 +8,16 @@ vi.mock("@/lib/supabase", () => ({
 
 import { deleteManualPlayer } from "@/features/admin";
 
-function makeChain(result: { data?: any; error?: any }) {
-  const chain: any = {};
+type ChainResult = { data?: unknown; error?: unknown };
+
+function makeChain(result: ChainResult) {
+  const chain: Record<string, unknown> = {};
   for (const method of ["select", "eq", "delete"]) {
     chain[method] = vi.fn().mockReturnValue(chain);
   }
   chain.single = vi.fn().mockResolvedValue(result);
-  chain.then = (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject);
+  chain.then = (resolve: (value: ChainResult) => void, reject: (reason?: unknown) => void) =>
+    Promise.resolve(result).then(resolve, reject);
   return chain;
 }
 
