@@ -1,0 +1,98 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # /api/leaderboard uses `revalidate` and is statically generated during
+      # `next build`, which makes Next.js actually execute it against Supabase
+      # at build time (see Dockerfile) — this build needs real credentials,
+      # not just placeholders, or it fails the same way the Docker build would.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_TELEGRAM_BOT_ID: ${{ secrets.NEXT_PUBLIC_TELEGRAM_BOT_ID }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      # Only the app is touched: `docker compose build app` + `up -d --no-deps
+      # app` never restarts poker-clock-db (separate container, external
+      # network) and never runs `down`, so volumes/storage are untouched.
+      # `--no-deps` is a safety net even though this compose file has no
+      # `depends_on`. `.env` on the VPS already holds all runtime secrets —
+      # nothing app-specific is passed over SSH.
+      - name: Deploy to VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" '
+              set -e
+              cd /opt/reraise
+              git pull --ff-only origin main
+              docker compose build app
+              docker compose up -d --no-deps app
+              docker image prune -f
+
+              for i in $(seq 1 10); do
+                if wget -q -O /dev/null http://127.0.0.1:3002/api/health; then
+                  echo "Container healthy"
+                  exit 0
+                fi
+                sleep 3
+              done
+              echo "Container did not become healthy in time" >&2
+              exit 1
+            '
+
+      - name: Verify site responds
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" https://re-raise.ru/)
+            if [ "$code" = "200" ]; then
+              echo "Site responded 200"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Site did not respond 200 in time (last code: $code)" >&2
+          exit 1
