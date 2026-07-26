@@ -80,7 +80,7 @@ export default function LeaderboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
+    <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-md">
         <Link
           href="/"
