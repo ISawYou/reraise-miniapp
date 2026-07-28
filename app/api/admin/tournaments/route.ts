@@ -11,9 +11,11 @@ export async function GET(request: Request) {
     const scope = searchParams.get("scope");
 
     const tournaments =
-      scope === "all"
-        ? await getAdminNotificationTournaments()
-        : await getOpenTournaments();
+      scope === "manage"
+        ? await tournamentRepository.listByStatuses(["open", "completed"])
+        : scope === "all"
+          ? await getAdminNotificationTournaments()
+          : await getOpenTournaments();
 
     return NextResponse.json({ tournaments });
   } catch (error) {
@@ -52,7 +54,9 @@ export async function POST(request: Request) {
     } catch (err) {
       return NextResponse.json(
         {
-          error: `Не удалось получить активный сезон: ${err instanceof Error ? err.message : String(err)}`,
+          error: `Не удалось получить активный сезон: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
         },
         { status: 500 }
       );
@@ -81,7 +85,9 @@ export async function POST(request: Request) {
     } catch (err) {
       return NextResponse.json(
         {
-          error: `Не удалось создать турнир: ${err instanceof Error ? err.message : String(err)}`,
+          error: `Не удалось создать турнир: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
         },
         { status: 500 }
       );
