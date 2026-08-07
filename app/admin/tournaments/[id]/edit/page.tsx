@@ -29,6 +29,7 @@ const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> =
   { value: "bounty", label: "Bounty" },
   { value: "boss_bounty", label: "Boss Bounty" },
   { value: "win_the_button", label: "Win The Button" },
+  { value: "mystery_bounty", label: "Mystery Bounty" },
 ];
 
 function toDateTimeLocalValue(value: string): string {

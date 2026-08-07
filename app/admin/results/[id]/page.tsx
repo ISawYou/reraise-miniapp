@@ -15,7 +15,7 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
 } from "@/lib/tournament-helpers";
-import type { Player, Tournament, TournamentLiveEntry } from "@/types/domain";
+import type { Player, Tournament, TournamentLiveEntry, MysteryBountySnapshot } from "@/types/domain";
 
 type DraftRow = {
   player_id: string;
@@ -35,6 +35,7 @@ type FreeFormRow = {
   addons: string;
   knockouts: string;
   boss_knockouts: string;
+  mystery_bounty_points: string;
   place: string;
   eliminated: boolean;
   eliminated_at: string | null;
@@ -56,6 +57,7 @@ type PulledFreeRow = {
   addons: number;
   knockouts: number;
   boss_knockouts?: number;
+  mystery_bounty_points?: number;
   place: number | null;
 };
 
@@ -139,6 +141,7 @@ function snapshotFreeRows(rows: FreeFormRow[]) {
       addons: row.addons,
       knockouts: row.knockouts,
       boss_knockouts: row.boss_knockouts,
+      mystery_bounty_points: row.mystery_bounty_points,
       place: row.place,
     }))
   );
@@ -164,6 +167,10 @@ export default function AdminTournamentResultsPage() {
   const [initialLiveSnapshot, setInitialLiveSnapshot] = useState("");
   const [entryPrice, setEntryPrice] = useState("0");
   const [addonPrice, setAddonPrice] = useState("0");
+  const [mysteryBountySnapshot, setMysteryBountySnapshot] = useState<MysteryBountySnapshot | null>(null);
+  const [closingLateRegistration, setClosingLateRegistration] = useState(false);
+  const [activatingMysteryBounty, setActivatingMysteryBounty] = useState(false);
+  const [recalculatingMysteryBounty, setRecalculatingMysteryBounty] = useState(false);
   const [bountyPrice, setBountyPrice] = useState("0");
 
   useEffect(() => {
@@ -178,6 +185,17 @@ export default function AdminTournamentResultsPage() {
 
         const nextTournament = await getTournamentById(tournamentId);
         setTournament(nextTournament);
+
+        if (nextTournament.tournament_type === "mystery_bounty") {
+          try {
+            const snapshotPayload = await fetchAdminJson<{
+              snapshot: MysteryBountySnapshot | null;
+            }>(`/api/admin/tournaments/${tournamentId}/mystery-bounty`);
+            setMysteryBountySnapshot(snapshotPayload.snapshot);
+          } catch {
+            setMysteryBountySnapshot(null);
+          }
+        }
 
         if (nextTournament.kind === "free") {
           let nextRows: FreeFormRow[] = [];
@@ -208,6 +226,7 @@ export default function AdminTournamentResultsPage() {
                 addons: String(row.addons),
                 knockouts: String(row.knockouts),
                 boss_knockouts: String(row.boss_knockouts ?? 0),
+                mystery_bounty_points: String(row.mystery_bounty_points ?? 0),
                 place: row.place == null ? "" : String(row.place),
                 eliminated: false,
                 eliminated_at: null,
@@ -235,6 +254,7 @@ export default function AdminTournamentResultsPage() {
               addons: "0",
               knockouts: "0",
               boss_knockouts: "0",
+              mystery_bounty_points: "0",
               place: "",
               eliminated: false,
               eliminated_at: null,
@@ -296,6 +316,16 @@ export default function AdminTournamentResultsPage() {
 
   const isFreeTournament = tournament?.kind === "free";
   const isBossBountyTournament = tournament?.tournament_type === "boss_bounty";
+  const isMysteryBountyTournament = tournament?.tournament_type === "mystery_bounty";
+  const mysteryBountyAwarded = useMemo(
+    () =>
+      freeRows.reduce((sum, row) => sum + (Number(row.mystery_bounty_points) || 0), 0),
+    [freeRows]
+  );
+  const mysteryBountyRemaining = mysteryBountySnapshot
+    ? mysteryBountySnapshot.mystery_pool - mysteryBountyAwarded
+    : null;
+  const mysteryBountyAlreadyAwarded = mysteryBountyAwarded > 0;
   const hasUnsavedFreeChanges = useMemo(() => {
     if (!isFreeTournament || !initialFreeSnapshot) {
       return false;
@@ -376,9 +406,12 @@ export default function AdminTournamentResultsPage() {
       | "addons"
       | "knockouts"
       | "boss_knockouts"
+      | "mystery_bounty_points"
       | "place",
     value: boolean | string
   ) {
+    const previousRow = freeRows.find((row) => row.player_id === playerId);
+
     setFreeRows((prev) =>
       prev.map((row) =>
         row.player_id === playerId
@@ -392,6 +425,20 @@ export default function AdminTournamentResultsPage() {
           : row
       )
     );
+
+    // Mystery Bounty "bust -> rebuy -> active again": auto-clear "Выбыл"
+    // specifically on a genuine rebuy INCREASE, not as a standing
+    // rebuys>0 condition — re-marking the same player eliminated later
+    // (rebuys unchanged) must not be auto-cleared again on a subsequent
+    // save/recalculate. See features/mystery-bounty.ts's getActivePlayerIds.
+    if (
+      isMysteryBountyTournament &&
+      field === "rebuys" &&
+      previousRow?.eliminated &&
+      Number(value || 0) > Number(previousRow.rebuys || 0)
+    ) {
+      void handleToggleFreeEliminated(playerId, false);
+    }
   }
 
   async function handleToggleFreeEliminated(playerId: string, checked: boolean) {
@@ -502,7 +549,8 @@ export default function AdminTournamentResultsPage() {
         Number(row.rebuys || 0) < 0 ||
         Number(row.addons || 0) < 0 ||
         Number(row.knockouts || 0) < 0 ||
-        Number(row.boss_knockouts || 0) < 0
+        Number(row.boss_knockouts || 0) < 0 ||
+        Number(row.mystery_bounty_points || 0) < 0
       ) {
         setError(`Проверьте числовые поля у игрока ${row.display_name}`);
         return;
@@ -535,6 +583,7 @@ export default function AdminTournamentResultsPage() {
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
               boss_knockouts: Number(row.boss_knockouts || 0),
+              mystery_bounty_points: Number(row.mystery_bounty_points || 0),
               place: row.place ? Number(row.place) : null,
               eliminated: row.eliminated,
               eliminated_at: row.eliminated_at,
@@ -595,6 +644,7 @@ export default function AdminTournamentResultsPage() {
         addons: String(row.addons),
         knockouts: String(row.knockouts),
         boss_knockouts: String(row.boss_knockouts ?? 0),
+        mystery_bounty_points: String(row.mystery_bounty_points ?? 0),
         place: row.place == null ? "" : String(row.place),
         eliminated: false,
         eliminated_at: null,
@@ -643,6 +693,19 @@ export default function AdminTournamentResultsPage() {
       return;
     }
 
+    if (
+      isMysteryBountyTournament &&
+      mysteryBountySnapshot &&
+      mysteryBountyAwarded !== mysteryBountySnapshot.mystery_pool
+    ) {
+      setError(
+        mysteryBountyAwarded > mysteryBountySnapshot.mystery_pool
+          ? `Mystery Bounty: выдано больше очков (${mysteryBountyAwarded}), чем в пуле (${mysteryBountySnapshot.mystery_pool})`
+          : `Mystery Bounty: распределите оставшиеся ${mysteryBountyRemaining} очков перед завершением турнира`
+      );
+      return;
+    }
+
     try {
       setCompleting(true);
 
@@ -664,6 +727,7 @@ export default function AdminTournamentResultsPage() {
               addons: Number(row.addons || 0),
               knockouts: Number(row.knockouts || 0),
               boss_knockouts: Number(row.boss_knockouts || 0),
+              mystery_bounty_points: Number(row.mystery_bounty_points || 0),
               place: Number(row.place),
               eliminated: row.eliminated,
               eliminated_at: row.eliminated_at,
@@ -686,6 +750,113 @@ export default function AdminTournamentResultsPage() {
       setError(nextMessage);
     } finally {
       setCompleting(false);
+    }
+  }
+
+  function buildMysteryBountyRosterRows() {
+    return freeRows.map((row) => ({
+      player_id: row.player_id,
+      arrived: row.arrived,
+      rebuys: Number(row.rebuys || 0),
+      addons: Number(row.addons || 0),
+      mystery_bounty_points: Number(row.mystery_bounty_points || 0),
+    }));
+  }
+
+  async function handleCloseLateRegistration() {
+    if (!tournamentId) {
+      return;
+    }
+
+    setMessage(null);
+    setError(null);
+
+    try {
+      setClosingLateRegistration(true);
+
+      const payload = await fetchAdminJson<{ snapshot: MysteryBountySnapshot }>(
+        `/api/admin/tournaments/${tournamentId}/mystery-bounty/close-late-registration`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: buildMysteryBountyRosterRows() }),
+        }
+      );
+
+      setMysteryBountySnapshot(payload.snapshot);
+      setMessage("Late Registration закрыта, Mystery Bounty pool рассчитан");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось закрыть Late Registration"
+      );
+    } finally {
+      setClosingLateRegistration(false);
+    }
+  }
+
+  async function handleActivateMysteryBounty() {
+    if (!tournamentId) {
+      return;
+    }
+
+    setMessage(null);
+    setError(null);
+
+    try {
+      setActivatingMysteryBounty(true);
+
+      const payload = await fetchAdminJson<{ snapshot: MysteryBountySnapshot }>(
+        `/api/admin/tournaments/${tournamentId}/mystery-bounty/activate`,
+        { method: "POST" }
+      );
+
+      setMysteryBountySnapshot(payload.snapshot);
+      setMessage("Mystery Bounty активирован — можно вскрывать конверты");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось активировать Mystery Bounty"
+      );
+    } finally {
+      setActivatingMysteryBounty(false);
+    }
+  }
+
+  async function handleRecalculateMysteryBounty() {
+    if (!tournamentId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Пересчитать Mystery Bounty? Старые номиналы конвертов станут недействительными — подготовьте конверты заново."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setMessage(null);
+    setError(null);
+
+    try {
+      setRecalculatingMysteryBounty(true);
+
+      const payload = await fetchAdminJson<{ snapshot: MysteryBountySnapshot }>(
+        `/api/admin/tournaments/${tournamentId}/mystery-bounty/recalculate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: buildMysteryBountyRosterRows() }),
+        }
+      );
+
+      setMysteryBountySnapshot(payload.snapshot);
+      setMessage("Mystery Bounty пересчитан");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не удалось пересчитать Mystery Bounty"
+      );
+    } finally {
+      setRecalculatingMysteryBounty(false);
     }
   }
 
@@ -968,6 +1139,131 @@ export default function AdminTournamentResultsPage() {
             ) : null}
           </div>
         </div>
+
+        {isMysteryBountyTournament ? (
+          <div className="mt-4 rounded-xl border border-purple-400/25 bg-purple-500/10 p-4">
+            <p className="text-sm font-semibold text-white">Mystery Bounty</p>
+
+            {!mysteryBountySnapshot ? (
+              <>
+                <p className="mt-1 text-xs text-white/60">
+                  Late Registration: <span className="font-semibold text-yellow-300">OPEN</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCloseLateRegistration}
+                  disabled={closingLateRegistration || freeRows.length === 0}
+                  className="mt-3 w-full rounded-lg bg-purple-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                >
+                  {closingLateRegistration ? "Закрываем..." : "Закрыть позднюю регистрацию"}
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-xs text-white/60">
+                  Late Registration: <span className="font-semibold text-red-300">CLOSED</span>
+                  {" · "}Статус:{" "}
+                  <span className="font-semibold">
+                    {mysteryBountySnapshot.status === "active"
+                      ? "ACTIVE"
+                      : "Конверты не подготовлены"}
+                  </span>
+                </p>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
+                    <p className="text-white/45">Players</p>
+                    <p className="text-sm font-semibold text-white">
+                      {mysteryBountySnapshot.players_count}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
+                    <p className="text-white/45">Rebuys</p>
+                    <p className="text-sm font-semibold text-white">
+                      {mysteryBountySnapshot.rebuys_count}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
+                    <p className="text-white/45">Add-ons</p>
+                    <p className="text-sm font-semibold text-white">
+                      {mysteryBountySnapshot.addons_count}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
+                    <p className="text-white/45">Active players</p>
+                    <p className="text-sm font-semibold text-white">
+                      {mysteryBountySnapshot.active_players_count}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="mt-3 text-sm font-semibold text-white">
+                  Total Mystery Pool: {mysteryBountySnapshot.mystery_pool} points
+                </p>
+
+                <div className="mt-2 space-y-1 text-xs text-white/75">
+                  <p>Prepare {mysteryBountySnapshot.envelope_count} envelopes:</p>
+                  {mysteryBountySnapshot.small_count > 0 ? (
+                    <p>
+                      {mysteryBountySnapshot.small_value} points ×{" "}
+                      {mysteryBountySnapshot.small_count}
+                    </p>
+                  ) : null}
+                  {mysteryBountySnapshot.medium_count > 0 ? (
+                    <p>
+                      {mysteryBountySnapshot.medium_value} points ×{" "}
+                      {mysteryBountySnapshot.medium_count}
+                    </p>
+                  ) : null}
+                  <p>
+                    {mysteryBountySnapshot.jackpot_value} points × 1
+                    {mysteryBountySnapshot.envelope_count >= 3 ? " — JACKPOT" : ""}
+                  </p>
+                </div>
+
+                {mysteryBountySnapshot.status === "pending_envelopes" ? (
+                  <button
+                    type="button"
+                    onClick={handleActivateMysteryBounty}
+                    disabled={activatingMysteryBounty}
+                    className="mt-3 w-full rounded-lg bg-green-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                  >
+                    {activatingMysteryBounty ? "Активируем..." : "Конверты подготовлены"}
+                  </button>
+                ) : (
+                  <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-2.5 text-xs">
+                    <p>
+                      Awarded:{" "}
+                      <span className="font-semibold text-white">{mysteryBountyAwarded}</span>
+                      {" · "}Remaining:{" "}
+                      <span
+                        className={`font-semibold ${
+                          mysteryBountyRemaining === 0 ? "text-green-400" : "text-yellow-300"
+                        }`}
+                      >
+                        {mysteryBountyRemaining}
+                      </span>
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleRecalculateMysteryBounty}
+                  disabled={recalculatingMysteryBounty || mysteryBountyAlreadyAwarded}
+                  title={
+                    mysteryBountyAlreadyAwarded
+                      ? "Нельзя пересчитать: у игроков уже есть выданные очки"
+                      : undefined
+                  }
+                  className="mt-2 w-full rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 disabled:opacity-40"
+                >
+                  {recalculatingMysteryBounty ? "Пересчитываем..." : "Пересчитать Mystery Bounty"}
+                </button>
+              </>
+            )}
+          </div>
+        ) : null}
 
         {(isFreeTournament ? freeRows.length > 0 : liveRows.length > 0) ? (
           <>
@@ -1283,6 +1579,37 @@ export default function AdminTournamentResultsPage() {
                           }
                           onChange={(e) =>
                             updateFreeRow(row.player_id, "boss_knockouts", e.target.value)
+                          }
+                          className="mt-0.5 h-8 w-full bg-transparent text-left text-base outline-none"
+                        />
+                      </div>
+                    ) : null}
+
+                    {isMysteryBountyTournament ? (
+                      <div className="rounded-lg border border-purple-400/25 bg-purple-500/10 px-2.5 py-1.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
+                          Bounty Points
+                        </p>
+                        <input
+                          type="number"
+                          min="0"
+                          value={row.mystery_bounty_points}
+                          onFocus={() =>
+                            updateFreeRow(
+                              row.player_id,
+                              "mystery_bounty_points",
+                              clearZeroValue(row.mystery_bounty_points)
+                            )
+                          }
+                          onBlur={() =>
+                            updateFreeRow(
+                              row.player_id,
+                              "mystery_bounty_points",
+                              restoreZeroValue(row.mystery_bounty_points)
+                            )
+                          }
+                          onChange={(e) =>
+                            updateFreeRow(row.player_id, "mystery_bounty_points", e.target.value)
                           }
                           className="mt-0.5 h-8 w-full bg-transparent text-left text-base outline-none"
                         />

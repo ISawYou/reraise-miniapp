@@ -19,4 +19,5 @@ export * from "./achievement";
 export * from "./tournament";
 export * from "./registration";
 export * from "./tournament-live-state";
+export * from "./tournament-mystery-bounty";
 export * from "./result";

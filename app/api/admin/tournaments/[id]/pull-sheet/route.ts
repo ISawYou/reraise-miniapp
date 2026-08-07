@@ -45,6 +45,11 @@ export async function POST(
     const addonPrice = parseNumberCell(values[1]?.[5]);
     const bountyPrice = parseNumberCell(values[1]?.[6]);
     const isBossBounty = tournament.tournament_type === "boss_bounty";
+    // Mystery Bounty's aggregate pool/envelope metrics are write-only in the
+    // sheet (see export-sheet's buildFreeSheetValues) — only the per-player
+    // Bounty Points column round-trips back, exactly like knockouts/rebuys.
+    const isMysteryBounty = tournament.tournament_type === "mystery_bounty";
+    const hasExtraFreeColumn = isBossBounty || isMysteryBounty;
 
     if (tournament.kind === "free") {
       type FreeSheetRow = {
@@ -59,12 +64,14 @@ export async function POST(
         addons: number;
         knockouts: number;
         boss_knockouts: number;
+        mystery_bounty_points: number;
         place: number | null;
       };
 
       const knockoutsIndex = 11;
       const bossKnockoutsIndex = isBossBounty ? 12 : null;
-      const placeIndex = isBossBounty ? 13 : 12;
+      const mysteryBountyPointsIndex = isMysteryBounty ? 12 : null;
+      const placeIndex = hasExtraFreeColumn ? 13 : 12;
 
       const sheetRows: FreeSheetRow[] = dataRows
         .map((row: string[]) => ({
@@ -80,6 +87,8 @@ export async function POST(
           knockouts: parseNumberCell(row[knockoutsIndex]),
           boss_knockouts:
             bossKnockoutsIndex == null ? 0 : parseNumberCell(row[bossKnockoutsIndex]),
+          mystery_bounty_points:
+            mysteryBountyPointsIndex == null ? 0 : parseNumberCell(row[mysteryBountyPointsIndex]),
           place: parseNullableNumberCell(row[placeIndex]),
         }))
         .filter(
@@ -106,6 +115,7 @@ export async function POST(
           addons: sheetRow?.addons ?? 0,
           knockouts: sheetRow?.knockouts ?? 0,
           boss_knockouts: sheetRow?.boss_knockouts ?? 0,
+          mystery_bounty_points: sheetRow?.mystery_bounty_points ?? 0,
           place: sheetRow?.place ?? null,
         };
       });

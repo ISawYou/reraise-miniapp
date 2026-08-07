@@ -18,7 +18,8 @@ export type TournamentType =
   | "deep_stack"
   | "bounty"
   | "boss_bounty"
-  | "win_the_button";
+  | "win_the_button"
+  | "mystery_bounty";
 
 export type Player = {
   id: string;
@@ -95,6 +96,7 @@ export type TournamentResultInput = {
   reentries: number;
   knockouts: number;
   boss_knockouts?: number;
+  mystery_bounty_points?: number;
   rating_points: number;
 };
 
@@ -103,10 +105,38 @@ export type TournamentResult = {
   place: number;
   knockouts: number;
   boss_knockouts?: number;
+  mystery_bounty_points?: number;
   reentries: number;
   rating_points: number;
   username: string | null;
   display_name: string;
+};
+
+// Mystery Bounty — frozen snapshot computed once when an admin closes Late
+// Registration for a `tournament_type: "mystery_bounty"` tournament. See
+// docs/MYSTERY_BOUNTY_RESEARCH.md — deliberately its own domain, not folded
+// into Tournament/TournamentLiveEntry: it tracks a one-time pool/envelope
+// calculation, not per-player live state.
+export type MysteryBountyStatus = "pending_envelopes" | "active";
+
+export type MysteryBountySnapshot = {
+  tournament_id: string;
+  late_registration_status: "open" | "closed";
+  status: MysteryBountyStatus;
+  players_count: number;
+  rebuys_count: number;
+  addons_count: number;
+  active_players_count: number;
+  mystery_pool: number;
+  envelope_count: number;
+  small_count: number;
+  small_value: number;
+  medium_count: number;
+  medium_value: number;
+  jackpot_value: number;
+  closed_at: string;
+  activated_at: string | null;
+  recalculated_at: string | null;
 };
 
 export type TournamentLiveEntry = {

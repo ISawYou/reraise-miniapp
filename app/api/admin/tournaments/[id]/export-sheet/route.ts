@@ -3,6 +3,7 @@ import {
   getTournamentSheetExportData,
   setTournamentGoogleSheetTabName,
 } from "@/features/tournaments";
+import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
 import {
   applyTournamentSheetFormatting,
   appendReportRow,
@@ -11,6 +12,7 @@ import {
   ensureSpreadsheetTab,
   replaceSpreadsheetTabValues,
 } from "@/lib/google-sheets";
+import type { MysteryBountySnapshot } from "@/types/domain";
 
 type FreeSheetRowInput = {
   player_id: string;
@@ -22,6 +24,7 @@ type FreeSheetRowInput = {
   addons: number;
   knockouts: number;
   boss_knockouts?: number;
+  mystery_bounty_points?: number;
   place: number | null;
   rating_points?: number;
   eliminated?: boolean;
@@ -97,17 +100,123 @@ function buildFreeSheetValues(
   rows?: FreeSheetRowInput[],
   entryPrice = 0,
   addonPrice = 0,
-  bountyPrice = 0
+  bountyPrice = 0,
+  mysteryBountySnapshot?: MysteryBountySnapshot | null
 ) {
   const rowsMap = new Map((rows ?? []).map((row) => [row.player_id, row]));
   const isBossBounty = exportData.tournament.tournament_type === "boss_bounty";
+  const isMysteryBounty = exportData.tournament.tournament_type === "mystery_bounty";
+
+  // Mystery Bounty snapshot metrics are write-only display cells appended
+  // to the existing header rows (never new rows — data always starts at
+  // row 8 / index 7, which pull-sheet's `values.slice(7)` depends on).
+  // The app computes and freezes this once; the sheet never generates its
+  // own values (spec §18).
+  const mysteryBountyHeaderExtra: string[][] = mysteryBountySnapshot
+    ? [
+        [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "Small×Cnt",
+          `${mysteryBountySnapshot.small_value}×${mysteryBountySnapshot.small_count}`,
+          "Medium×Cnt",
+          `${mysteryBountySnapshot.medium_value}×${mysteryBountySnapshot.medium_count}`,
+          "Jackpot",
+          `${mysteryBountySnapshot.jackpot_value}`,
+        ],
+        [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "Players",
+          `${mysteryBountySnapshot.players_count}`,
+          "Active",
+          `${mysteryBountySnapshot.active_players_count}`,
+        ],
+        [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "Rebuys",
+          `${mysteryBountySnapshot.rebuys_count}`,
+          "Addons",
+          `${mysteryBountySnapshot.addons_count}`,
+        ],
+        [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "Late Reg",
+          "CLOSED",
+          "Status",
+          mysteryBountySnapshot.status === "active" ? "ACTIVE" : "PENDING",
+        ],
+        [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "Mystery Pool",
+          `${mysteryBountySnapshot.mystery_pool}`,
+          "Envelopes",
+          `${mysteryBountySnapshot.envelope_count}`,
+        ],
+      ]
+    : [[], [], [], [], []];
+
+  function mergeRow(base: (string | number | boolean)[], extra: string[]) {
+    const merged = [...base];
+    extra.forEach((cell, index) => {
+      if (cell !== "") {
+        merged[base.length + index] = cell;
+      }
+    });
+    return merged;
+  }
 
   return [
-    ["Tournament ID", exportData.tournament.id],
-    ["", "", "Название", exportData.tournament.title, entryPrice, addonPrice, bountyPrice],
-    ["", "", "Дата", formatTournamentDate(exportData.tournament.start_at), "Entry price", "Addon price", "Bounty price"],
-    ["", "", "Локация", exportData.tournament.location ?? ""],
-    ["", "", "Статус", getFreeTournamentStatusLabel(exportData.tournament.status)],
+    mergeRow(["Tournament ID", exportData.tournament.id], mysteryBountyHeaderExtra[0]),
+    mergeRow(
+      ["", "", "Название", exportData.tournament.title, entryPrice, addonPrice, bountyPrice],
+      mysteryBountyHeaderExtra[1]
+    ),
+    mergeRow(
+      [
+        "",
+        "",
+        "Дата",
+        formatTournamentDate(exportData.tournament.start_at),
+        "Entry price",
+        "Addon price",
+        "Bounty price",
+      ],
+      mysteryBountyHeaderExtra[2]
+    ),
+    mergeRow(["", "", "Локация", exportData.tournament.location ?? ""], mysteryBountyHeaderExtra[3]),
+    mergeRow(
+      ["", "", "Статус", getFreeTournamentStatusLabel(exportData.tournament.status)],
+      mysteryBountyHeaderExtra[4]
+    ),
     [],
     [
       "Player ID",
@@ -123,6 +232,7 @@ function buildFreeSheetValues(
       "Addon",
       "Nok",
       ...(isBossBounty ? ["Boss Nok"] : []),
+      ...(isMysteryBounty ? ["Bounty Points"] : []),
       "Место",
       "Рейтинг",
       "Выбыл",
@@ -145,6 +255,7 @@ function buildFreeSheetValues(
         values?.addons ?? 0,
         values?.knockouts ?? 0,
         ...(isBossBounty ? [values?.boss_knockouts ?? 0] : []),
+        ...(isMysteryBounty ? [values?.mystery_bounty_points ?? 0] : []),
         values?.place ?? "",
         values?.rating_points ?? row.rating_points ?? "",
         values?.eliminated ?? false,
@@ -230,17 +341,24 @@ export async function syncTournamentSheet(
     }
   }
 
+  const mysteryBountySnapshot =
+    exportData.tournament.tournament_type === "mystery_bounty"
+      ? await getMysteryBountySnapshot(tournamentId)
+      : null;
+
   const values =
     exportData.tournament.kind === "free"
-      ? buildFreeSheetValues(exportData, rows, entryPrice, addonPrice, bountyPrice)
+      ? buildFreeSheetValues(exportData, rows, entryPrice, addonPrice, bountyPrice, mysteryBountySnapshot)
       : buildLiveSheetValues(exportData, entryPrice, addonPrice, bountyPrice);
 
   await replaceSpreadsheetTabValues(tabName, values);
 
   const isBossBounty = exportData.tournament.tournament_type === "boss_bounty";
+  const isMysteryBounty = exportData.tournament.tournament_type === "mystery_bounty";
+  const hasExtraFreeColumn = isBossBounty || isMysteryBounty;
   const columnCount =
     exportData.tournament.kind === "free"
-      ? isBossBounty
+      ? hasExtraFreeColumn
         ? 17
         : 16
       : isBossBounty
@@ -248,7 +366,7 @@ export async function syncTournamentSheet(
         : 12;
   const ratingColumns =
     exportData.tournament.kind === "free"
-      ? [isBossBounty ? 15 : 14]
+      ? [hasExtraFreeColumn ? 15 : 14]
       : undefined;
 
   await applyTournamentSheetFormatting(

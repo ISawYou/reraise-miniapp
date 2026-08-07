@@ -878,6 +878,7 @@ export async function saveTournamentResults(
     reentries: item.reentries,
     knockouts: item.knockouts,
     boss_knockouts: item.boss_knockouts ?? 0,
+    mystery_bounty_points: item.mystery_bounty_points ?? 0,
     rating_points: item.rating_points,
   }));
 

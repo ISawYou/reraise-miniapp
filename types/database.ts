@@ -38,7 +38,8 @@ export type TournamentRow = {
     | "deep_stack"
     | "bounty"
     | "boss_bounty"
-    | "win_the_button";
+    | "win_the_button"
+    | "mystery_bounty";
   season_id: string | null;
   status: string;
   created_at: string;
@@ -61,6 +62,7 @@ export type ResultRow = {
   reentries: number;
   knockouts: number;
   boss_knockouts?: number;
+  mystery_bounty_points?: number;
   rating_points: number;
   created_at: string;
 };

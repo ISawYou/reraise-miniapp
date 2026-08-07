@@ -31,10 +31,16 @@ export function getTournamentTypeLabel(type: TournamentType): string {
       return "Boss Bounty";
     case "win_the_button":
       return "Win The Button";
+    case "mystery_bounty":
+      return "Mystery Bounty";
     case "classic":
     default:
       return "Texas Classic";
   }
+}
+
+export function supportsMysteryBounty(type: TournamentType): boolean {
+  return type === "mystery_bounty";
 }
 
 export function getTournamentTypeMultiplier(type: TournamentType): number {

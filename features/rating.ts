@@ -11,6 +11,11 @@ export type PlayerRatingInput = {
   place: number;
   knockouts: number;
   boss_knockouts?: number;
+  // Mystery Bounty: sum of physical envelope values a player drew. Added
+  // on top of the existing formula unconditionally — for every other
+  // tournament type this is always undefined/0, so the formula's output
+  // for classic/phoenix/bounty/boss_bounty/etc. is byte-for-byte unchanged.
+  mystery_bounty_points?: number;
   arrived: boolean;
 };
 
@@ -72,7 +77,8 @@ export function calculateRatingPoints(
 
     return {
       player_id: player.player_id,
-      rating_points: placePoints + knockoutPoints + bossKnockoutPoints + 2,
+      rating_points:
+        placePoints + knockoutPoints + bossKnockoutPoints + 2 + (player.mystery_bounty_points ?? 0),
     };
   });
 }

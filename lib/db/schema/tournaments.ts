@@ -26,7 +26,7 @@ export const tournaments = pgTable("tournaments", {
   check("tournaments_kind_check", sql`${table.kind} IN ('free', 'paid', 'cash')`),
   check(
     "tournaments_tournament_type_check",
-    sql`${table.tournamentType} IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button')`,
+    sql`${table.tournamentType} IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty')`,
   ),
 
   // One duplicate pair collapsed (idx_tournaments_status / tournaments_status_idx

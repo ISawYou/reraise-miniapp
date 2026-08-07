@@ -25,6 +25,12 @@ export const results = pgTable("results", {
   // as the source of truth instead of staying an out-of-band raw-SQL patch).
   bossKnockouts: integer("boss_knockouts").notNull().default(0),
 
+  // Mystery Bounty format: sum of physical envelope values a player drew
+  // (sql/mystery_bounty.sql). Frozen the same way as ratingPoints below —
+  // "current value", not a running total; complete-free overwrites it via
+  // the same delete-then-insert as every other result column.
+  mysteryBountyPoints: integer("mystery_bounty_points").notNull().default(0),
+
   // Frozen snapshot computed once at tournament completion
   // (features/rating.ts::calculateRatingPoints) — depends on that specific
   // tournament's field size, never recalculated retroactively if the
