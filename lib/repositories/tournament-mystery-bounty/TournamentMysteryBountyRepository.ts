@@ -13,6 +13,7 @@ export type MysteryBountyRow = {
   tournament_id: string;
   status: MysteryBountyStatusRow;
   players_count: number;
+  total_entries_count: number;
   rebuys_count: number;
   addons_count: number;
   active_players_count: number;
@@ -38,6 +39,7 @@ export type MysteryBountyPatch = Partial<
     MysteryBountyRow,
     | "status"
     | "players_count"
+    | "total_entries_count"
     | "rebuys_count"
     | "addons_count"
     | "active_players_count"

@@ -124,6 +124,12 @@ export type MysteryBountySnapshot = {
   late_registration_status: "open" | "closed";
   status: MysteryBountyStatus;
   players_count: number;
+  // Raw sum of the shared "Re-buy" field across arrived players — Total
+  // Entries (Initial Entries + Rebuys), not a rebuy count on its own.
+  total_entries_count: number;
+  // Derived: max(0, total_entries_count - players_count). Kept for
+  // display/diagnostics; the Mystery Pool formula uses total_entries_count
+  // directly.
   rebuys_count: number;
   addons_count: number;
   active_players_count: number;

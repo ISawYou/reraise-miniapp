@@ -7,8 +7,16 @@
 // existing free-tournament flow rather than a new `kind`.
 
 export type MysteryPoolInput = {
-  players: number;
-  rebuys: number;
+  // Total Entries = Initial Entries + Rebuys, summed across every arrived
+  // player. NOT "Players" and NOT "Rebuys" on their own — Google Sheets
+  // (and the shared free-tournament "Re-buy" field generally) never stores
+  // initial entries and rebuys as separate values, only this combined
+  // count per player. Players + Rebuys = Total Entries by definition, so
+  // using Total Entries directly here is the safe form of the formula: it
+  // can never diverge from (players + rebuys) the way computing the two
+  // separately and re-adding them could if a caller ever got the
+  // Total-Entries-vs-Rebuys distinction wrong upstream.
+  totalEntries: number;
   addons: number;
 };
 
@@ -21,11 +29,23 @@ export type EnvelopeBreakdown = {
   jackpotValue: number;
 };
 
-// Raw Pool = (Players + Rebuys) × 6 + Addons × 12, rounded UP to the
-// nearest 10. Bounty of the eventual winner is not subtracted (spec §3).
+// Raw Pool = Total Entries × 6 + Addons × 12, rounded UP to the nearest 10.
+// Bounty of the eventual winner is not subtracted (spec §3).
 export function computeMysteryPool(input: MysteryPoolInput): number {
-  const rawPool = (input.players + input.rebuys) * 6 + input.addons * 12;
+  const rawPool = input.totalEntries * 6 + input.addons * 12;
   return Math.ceil(rawPool / 10) * 10;
+}
+
+// True Rebuys, derived from the aggregated Total-Entries figure for
+// display/diagnostics only — never fed back into the pool formula above
+// (which uses Total Entries directly to avoid a players+rebuys reconciliation
+// gap). Clamped at 0: Total Entries should never be lower than Players (every
+// arrived player has at least one entry), but if upstream data is wrong this
+// surfaces as Rebuys=0 rather than a negative number, so the anomaly is
+// visible by comparing the raw Total Entries/Players the UI shows separately
+// rather than hidden inside a nonsensical negative Rebuys.
+export function computeRebuys(totalEntries: number, players: number): number {
+  return Math.max(0, totalEntries - players);
 }
 
 // N = Active Players at Late Registration Close − 1 (spec §4). Rebuys/addons

@@ -150,6 +150,8 @@ function buildFreeSheetValues(
           "",
           "",
           "",
+          "Total Entries",
+          `${mysteryBountySnapshot.total_entries_count}`,
           "Rebuys",
           `${mysteryBountySnapshot.rebuys_count}`,
           "Addons",

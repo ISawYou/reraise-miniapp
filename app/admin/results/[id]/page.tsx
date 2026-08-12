@@ -1170,11 +1170,17 @@ export default function AdminTournamentResultsPage() {
                   </span>
                 </p>
 
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
                   <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
                     <p className="text-white/45">Players</p>
                     <p className="text-sm font-semibold text-white">
                       {mysteryBountySnapshot.players_count}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
+                    <p className="text-white/45">Total entries</p>
+                    <p className="text-sm font-semibold text-white">
+                      {mysteryBountySnapshot.total_entries_count}
                     </p>
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
@@ -1196,6 +1202,10 @@ export default function AdminTournamentResultsPage() {
                     </p>
                   </div>
                 </div>
+                <p className="mt-1 text-[11px] text-white/40">
+                  Rebuys = Total entries − Players (Google Sheets хранит только
+                  суммарное количество входов, без отдельного счётчика ре-баев)
+                </p>
 
                 <p className="mt-3 text-sm font-semibold text-white">
                   Total Mystery Pool: {mysteryBountySnapshot.mystery_pool} points

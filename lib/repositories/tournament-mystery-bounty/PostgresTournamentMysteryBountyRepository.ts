@@ -15,6 +15,7 @@ function mapRow(row: typeof tournamentMysteryBounty.$inferSelect): MysteryBounty
     tournament_id: row.tournamentId,
     status: row.status as MysteryBountyRow["status"],
     players_count: row.playersCount,
+    total_entries_count: row.totalEntriesCount,
     rebuys_count: row.rebuysCount,
     addons_count: row.addonsCount,
     active_players_count: row.activePlayersCount,
@@ -53,6 +54,7 @@ export class PostgresTournamentMysteryBountyRepository
         tournamentId: data.tournament_id,
         status: data.status,
         playersCount: data.players_count,
+        totalEntriesCount: data.total_entries_count,
         rebuysCount: data.rebuys_count,
         addonsCount: data.addons_count,
         activePlayersCount: data.active_players_count,
@@ -76,6 +78,7 @@ export class PostgresTournamentMysteryBountyRepository
     const values: Partial<typeof tournamentMysteryBounty.$inferInsert> = {};
     if (patch.status !== undefined) values.status = patch.status;
     if (patch.players_count !== undefined) values.playersCount = patch.players_count;
+    if (patch.total_entries_count !== undefined) values.totalEntriesCount = patch.total_entries_count;
     if (patch.rebuys_count !== undefined) values.rebuysCount = patch.rebuys_count;
     if (patch.addons_count !== undefined) values.addonsCount = patch.addons_count;
     if (patch.active_players_count !== undefined) values.activePlayersCount = patch.active_players_count;

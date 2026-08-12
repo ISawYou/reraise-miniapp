@@ -16,6 +16,7 @@ import type { MysteryBountyRow } from "@/lib/repositories";
 import {
   computeEnvelopeDistribution,
   computeMysteryPool,
+  computeRebuys,
   type EnvelopeBreakdown,
 } from "@/lib/mystery-bounty";
 import type { MysteryBountySnapshot } from "@/types/domain";
@@ -38,6 +39,7 @@ function mapRow(row: MysteryBountyRow): MysteryBountySnapshot {
     late_registration_status: "closed",
     status: row.status,
     players_count: row.players_count,
+    total_entries_count: row.total_entries_count,
     rebuys_count: row.rebuys_count,
     addons_count: row.addons_count,
     active_players_count: row.active_players_count,
@@ -95,6 +97,7 @@ async function getActivePlayerIds(
 
 type ComputedSnapshotInputs = {
   playersCount: number;
+  totalEntriesCount: number;
   rebuysCount: number;
   addonsCount: number;
   activePlayersCount: number;
@@ -109,7 +112,18 @@ async function computeSnapshotInputs(
   const arrivedRows = rows.filter((row) => row.arrived);
   const uniqueArrivedPlayerIds = new Set(arrivedRows.map((row) => row.player_id));
   const playersCount = uniqueArrivedPlayerIds.size;
-  const rebuysCount = arrivedRows.reduce((sum, row) => sum + Math.max(0, row.rebuys), 0);
+
+  // `row.rebuys` is the shared free-tournament "Re-buy" field — typed
+  // directly by the admin or pulled from Google Sheets, there is no
+  // separate channel for either. Google Sheets never stores initial
+  // entries and rebuys separately, so this number is each player's TOTAL
+  // ENTRIES (initial buy-in + every rebuy), not a rebuy count on its own.
+  // Summed across arrived players this is the tournament's Total Entries;
+  // true Rebuys is Total Entries minus Players (computeRebuys), kept only
+  // for display/diagnostics — the pool formula uses Total Entries
+  // directly (see computeMysteryPool's doc comment for why).
+  const totalEntriesCount = arrivedRows.reduce((sum, row) => sum + Math.max(0, row.rebuys), 0);
+  const rebuysCount = computeRebuys(totalEntriesCount, playersCount);
   const addonsCount = arrivedRows.reduce((sum, row) => sum + Math.max(0, row.addons), 0);
 
   const activePlayerIds = await getActivePlayerIds(tournamentId, arrivedRows);
@@ -122,13 +136,20 @@ async function computeSnapshotInputs(
   }
 
   const mysteryPool = computeMysteryPool({
-    players: playersCount,
-    rebuys: rebuysCount,
+    totalEntries: totalEntriesCount,
     addons: addonsCount,
   });
   const breakdown = computeEnvelopeDistribution(mysteryPool, activePlayersCount);
 
-  return { playersCount, rebuysCount, addonsCount, activePlayersCount, mysteryPool, breakdown };
+  return {
+    playersCount,
+    totalEntriesCount,
+    rebuysCount,
+    addonsCount,
+    activePlayersCount,
+    mysteryPool,
+    breakdown,
+  };
 }
 
 export async function getMysteryBountySnapshot(
@@ -155,13 +176,21 @@ export async function closeMysteryBountyLateRegistration(
     );
   }
 
-  const { playersCount, rebuysCount, addonsCount, activePlayersCount, mysteryPool, breakdown } =
-    await computeSnapshotInputs(tournamentId, rows);
+  const {
+    playersCount,
+    totalEntriesCount,
+    rebuysCount,
+    addonsCount,
+    activePlayersCount,
+    mysteryPool,
+    breakdown,
+  } = await computeSnapshotInputs(tournamentId, rows);
 
   const row = await tournamentMysteryBountyRepository.insert({
     tournament_id: tournamentId,
     status: "pending_envelopes",
     players_count: playersCount,
+    total_entries_count: totalEntriesCount,
     rebuys_count: rebuysCount,
     addons_count: addonsCount,
     active_players_count: activePlayersCount,
@@ -234,12 +263,20 @@ export async function recalculateMysteryBounty(
     );
   }
 
-  const { playersCount, rebuysCount, addonsCount, activePlayersCount, mysteryPool, breakdown } =
-    await computeSnapshotInputs(tournamentId, rows);
+  const {
+    playersCount,
+    totalEntriesCount,
+    rebuysCount,
+    addonsCount,
+    activePlayersCount,
+    mysteryPool,
+    breakdown,
+  } = await computeSnapshotInputs(tournamentId, rows);
 
   const row = await tournamentMysteryBountyRepository.update(tournamentId, {
     status: "pending_envelopes",
     players_count: playersCount,
+    total_entries_count: totalEntriesCount,
     rebuys_count: rebuysCount,
     addons_count: addonsCount,
     active_players_count: activePlayersCount,

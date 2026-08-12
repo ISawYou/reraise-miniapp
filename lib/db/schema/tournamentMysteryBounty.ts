@@ -18,6 +18,14 @@ export const tournamentMysteryBounty = pgTable("tournament_mystery_bounty", {
   status: text().notNull().default("pending_envelopes"),
 
   playersCount: integer("players_count").notNull(),
+  // Sum of the shared free-tournament "Re-buy" field across arrived
+  // players — Google Sheets never stores initial entries and rebuys
+  // separately, so this is each player's TOTAL entries (initial buy-in +
+  // rebuys), not a rebuy count. rebuysCount below is the derived value
+  // (total_entries_count - players_count, floored at 0) kept for
+  // display/diagnostics; the pool formula uses totalEntriesCount directly
+  // (see lib/mystery-bounty.ts).
+  totalEntriesCount: integer("total_entries_count").notNull(),
   rebuysCount: integer("rebuys_count").notNull(),
   addonsCount: integer("addons_count").notNull(),
   activePlayersCount: integer("active_players_count").notNull(),
@@ -39,6 +47,10 @@ export const tournamentMysteryBounty = pgTable("tournament_mystery_bounty", {
     sql`${table.status} IN ('pending_envelopes', 'active')`,
   ),
   check("tournament_mystery_bounty_players_check", sql`${table.playersCount} >= 0`),
+  check(
+    "tournament_mystery_bounty_total_entries_check",
+    sql`${table.totalEntriesCount} >= ${table.playersCount}`,
+  ),
   check("tournament_mystery_bounty_active_players_check", sql`${table.activePlayersCount} >= 2`),
   check("tournament_mystery_bounty_pool_check", sql`${table.mysteryPool} >= 0`),
 ]);

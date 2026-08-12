@@ -1,0 +1,2 @@
+ALTER TABLE "tournament_mystery_bounty" ADD COLUMN "total_entries_count" integer NOT NULL;--> statement-breakpoint
+ALTER TABLE "tournament_mystery_bounty" ADD CONSTRAINT "tournament_mystery_bounty_total_entries_check" CHECK ("tournament_mystery_bounty"."total_entries_count" >= "tournament_mystery_bounty"."players_count");
