@@ -73,6 +73,7 @@ export class PostgresResultRepository implements ResultRepository {
         knockouts: results.knockouts,
         boss_knockouts: sql<number>`coalesce(${sql.raw('"results"."boss_knockouts"')}, 0)`,
         mystery_bounty_points: sql<number>`coalesce(${sql.raw('"results"."mystery_bounty_points"')}, 0)`,
+        addons: results.addons,
         reentries: results.reentries,
         rating_points: results.ratingPoints,
         players: {
@@ -94,6 +95,7 @@ export class PostgresResultRepository implements ResultRepository {
         knockouts: row.knockouts,
         boss_knockouts: row.boss_knockouts ?? 0,
         mystery_bounty_points: row.mystery_bounty_points ?? 0,
+        addons: row.addons ?? 0,
         reentries: row.reentries,
         rating_points: row.rating_points,
         username: player?.username ?? null,
@@ -207,6 +209,7 @@ export class PostgresResultRepository implements ResultRepository {
         ${row.knockouts},
         ${row.boss_knockouts ?? 0},
         ${row.mystery_bounty_points ?? 0},
+        ${row.addons ?? 0},
         ${row.rating_points}
       )`),
       sql`, `
@@ -222,6 +225,7 @@ export class PostgresResultRepository implements ResultRepository {
         "knockouts",
         "boss_knockouts",
         "mystery_bounty_points",
+        "addons",
         "rating_points"
       )
       values ${values}

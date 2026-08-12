@@ -9,28 +9,36 @@ import {
 
 describe("computeMysteryPool", () => {
   it("rounds the raw pool up to the nearest 10", () => {
-    // totalEntries=20 (15 players + 5 rebuys) * 6 + 4*12 = 168 -> 170
-    expect(computeMysteryPool({ totalEntries: 20, addons: 4 })).toBe(170);
-  });
-
-  it("rounds up even when already close to a multiple of 10", () => {
-    // totalEntries=26 (20 players + 6 rebuys) * 6 = 156, +1*12 = 168 -> 170
-    expect(computeMysteryPool({ totalEntries: 26, addons: 1 })).toBe(170);
+    // totalEntries=21 (Rating Engine v2 formula: ×5 entries, ×10 addons --
+    // an add-on carries 2x the weight of a plain entry/rebuy) * 5 + 1*10
+    // = 105 + 10 = 115 -> rounded up to 120
+    expect(computeMysteryPool({ totalEntries: 21, addons: 1 })).toBe(120);
   });
 
   it("leaves an exact multiple of 10 unchanged", () => {
-    // 10*6 = 60
-    expect(computeMysteryPool({ totalEntries: 10, addons: 0 })).toBe(60);
+    // 20*5 + 4*10 = 100 + 40 = 140, already an exact multiple of 10
+    expect(computeMysteryPool({ totalEntries: 20, addons: 4 })).toBe(140);
   });
 
   it("does not subtract the winner's own bounty", () => {
-    // 8*6 = 48 -> rounded up to 50; nothing is subtracted for the winner.
-    expect(computeMysteryPool({ totalEntries: 8, addons: 0 })).toBe(50);
+    // 9*5 = 45 -> rounded up to 50; nothing is subtracted for the winner.
+    expect(computeMysteryPool({ totalEntries: 9, addons: 0 })).toBe(50);
   });
 
-  it("matches the ТЗ example: Players=14, Total Entries=28, Addons=10 -> Pool=290", () => {
-    // 28*6 + 10*12 = 168 + 120 = 288 -> rounded up to 290
-    expect(computeMysteryPool({ totalEntries: 28, addons: 10 })).toBe(290);
+  it("an add-on is worth exactly 2x an entry/rebuy, never 1x", () => {
+    // Compare deltas of +2 (not +1) so every raw pool lands exactly on a
+    // multiple of 10 -- isolates the 2x weighting from ceil-to-10 rounding
+    // artifacts, which a +1 delta can otherwise mask or distort.
+    const base = computeMysteryPool({ totalEntries: 20, addons: 0 }); // 100
+    const plusTwoEntries = computeMysteryPool({ totalEntries: 22, addons: 0 }); // 110
+    const plusTwoAddons = computeMysteryPool({ totalEntries: 20, addons: 2 }); // 120
+    expect(plusTwoEntries - base).toBe(10); // 5 points per entry
+    expect(plusTwoAddons - base).toBe(20); // 10 points per addon -- exactly 2x
+  });
+
+  it("matches the corrected ТЗ example: Players=14, Total Entries=28, Addons=10 -> Pool=240", () => {
+    // 28*5 + 10*10 = 140 + 100 = 240 (already an exact multiple of 10)
+    expect(computeMysteryPool({ totalEntries: 28, addons: 10 })).toBe(240);
   });
 });
 
@@ -108,29 +116,29 @@ describe("computeEnvelopeDistribution — case C (N>=3)", () => {
     expect(b.mediumCount).toBe(5);
   });
 
-  it("matches the full worked example from the spec (players=15, total entries=20, addons=4, active=10)", () => {
+  it("matches a full worked example (players=15, total entries=20, addons=4, active=10)", () => {
     const pool = computeMysteryPool({ totalEntries: 20, addons: 4 });
-    expect(pool).toBe(170);
+    expect(pool).toBe(140); // 20*5 + 4*10
     expect(computeRebuys(20, 15)).toBe(5);
 
     const breakdown = computeEnvelopeDistribution(pool, 10);
     expect(breakdown).toEqual({
       envelopeCount: 9,
       smallCount: 5,
-      smallValue: 10,
+      smallValue: 5,
       mediumCount: 3,
-      mediumValue: 20,
-      jackpotValue: 60,
+      mediumValue: 10,
+      jackpotValue: 85,
     });
 
     const total =
       breakdown.smallCount * breakdown.smallValue +
       breakdown.mediumCount * breakdown.mediumValue +
       breakdown.jackpotValue;
-    expect(total).toBe(170);
+    expect(total).toBe(140);
   });
 
-  it("matches the ТЗ example end-to-end: Players=14, Total Entries=28, Addons=10, Active=14", () => {
+  it("matches the corrected ТЗ example end-to-end: Players=14, Total Entries=28, Addons=10, Active=14", () => {
     const totalEntries = 28;
     const players = 14;
     const addons = 10;
@@ -139,7 +147,7 @@ describe("computeEnvelopeDistribution — case C (N>=3)", () => {
     expect(computeRebuys(totalEntries, players)).toBe(14);
 
     const pool = computeMysteryPool({ totalEntries, addons });
-    expect(pool).toBe(290);
+    expect(pool).toBe(240); // 28*5 + 10*10, NOT the old 290/380
 
     expect(getEnvelopeCount(activePlayers)).toBe(13);
 
@@ -150,7 +158,7 @@ describe("computeEnvelopeDistribution — case C (N>=3)", () => {
       breakdown.smallCount * breakdown.smallValue +
       breakdown.mediumCount * breakdown.mediumValue +
       breakdown.jackpotValue;
-    expect(total).toBe(290);
+    expect(total).toBe(240);
   });
 
   it("Medium is always exactly double Small", () => {

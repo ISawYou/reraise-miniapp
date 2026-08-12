@@ -63,6 +63,7 @@ export default function AdminTournamentEditPage() {
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
   const [tournamentType, setTournamentType] = useState<TournamentType>("classic");
+  const [ratingGuarantee, setRatingGuarantee] = useState("");
   const [participants, setParticipants] = useState<AdminTournamentParticipant[]>([]);
   const [showAddParticipantForm, setShowAddParticipantForm] = useState(false);
   const [newParticipantNick, setNewParticipantNick] = useState("");
@@ -106,6 +107,9 @@ export default function AdminTournamentEditPage() {
         setStartAt(toDateTimeLocalValue(tournament.start_at));
         setMaxPlayers(String(tournament.max_players));
         setTournamentType(tournament.tournament_type ?? "classic");
+        setRatingGuarantee(
+          tournament.rating_guarantee != null ? String(tournament.rating_guarantee) : ""
+        );
         setParticipants(participantsData);
       } catch (err) {
         const nextMessage =
@@ -162,6 +166,10 @@ export default function AdminTournamentEditPage() {
         start_at: new Date(startAt).toISOString(),
         max_players: Number(maxPlayers),
         tournament_type: tournamentType,
+        rating_guarantee:
+          tournamentType === "phoenix" && ratingGuarantee.trim() !== ""
+            ? Number(ratingGuarantee)
+            : null,
       });
 
       setMessage("Турнир обновлен");
@@ -417,6 +425,26 @@ export default function AdminTournamentEditPage() {
               </option>
             ))}
           </select>
+
+          {tournamentType === "phoenix" ? (
+            <>
+              <label className="mt-4 block text-sm text-white/80">
+                Rating Guarantee (опционально)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={ratingGuarantee}
+                onChange={(e) => setRatingGuarantee(e.target.value)}
+                placeholder="Например, 600"
+                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
+              />
+              <p className="mt-1 text-xs text-white/50">
+                Гарантированный итоговый рейтинговый пул турнира (участие + места).
+                Если оставить пустым — гарантии нет, начисляется обычный расчётный пул.
+              </p>
+            </>
+          ) : null}
 
           <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
             <p className="text-xs text-white/50">Тип турнира</p>

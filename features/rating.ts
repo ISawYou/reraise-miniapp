@@ -34,11 +34,15 @@ const BASE_PLACE_POINTS: Record<number, number> = {
   12: 6,
 };
 
-function getBasePlacePoints(place: number): number {
+// Exported (in addition to being used locally below) so features/rating-v2.ts
+// can reuse the exact same base-place table and field-coefficient buckets
+// instead of duplicating them -- purely additive, zero behavior change to
+// calculateRatingPoints() itself.
+export function getBasePlacePoints(place: number): number {
   return BASE_PLACE_POINTS[place] ?? 5;
 }
 
-function getFieldCoefficient(fieldSize: number): number {
+export function getFieldCoefficient(fieldSize: number): number {
   if (fieldSize <= 7) return 0.7;
   if (fieldSize <= 11) return 0.85;
   if (fieldSize <= 15) return 1.0;

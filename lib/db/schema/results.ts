@@ -20,6 +20,14 @@ export const results = pgTable("results", {
   reentries: integer().notNull().default(0),
   knockouts: integer().notNull().default(0),
 
+  // Rating Engine v2: per-player add-on count, mirrors
+  // tournament_live_entries.addons for free tournaments. Previously
+  // collected by the admin UI and synced to Google Sheets but never
+  // persisted here (features/rating.ts's legacy formula never reads it).
+  // 0 for every pre-v2 row -- an honest placeholder, not a fabricated
+  // historical fact, since the legacy formula never consulted this value.
+  addons: integer().notNull().default(0),
+
   // Boss Bounty format: count of Boss knockouts, separate from regular
   // knockouts above (sql/boss_bounty.sql — same column, ported into schema.ts
   // as the source of truth instead of staying an out-of-band raw-SQL patch).

@@ -26,6 +26,7 @@ export default function AdminTournamentCreatePage() {
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
   const [tournamentType, setTournamentType] = useState<TournamentType>("classic");
+  const [ratingGuarantee, setRatingGuarantee] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +89,10 @@ export default function AdminTournamentCreatePage() {
           start_at: new Date(startAt).toISOString(),
           max_players: Number(maxPlayers),
           tournament_type: tournamentType,
+          rating_guarantee:
+            tournamentType === "phoenix" && ratingGuarantee.trim() !== ""
+              ? Number(ratingGuarantee)
+              : null,
         }),
       });
 
@@ -98,6 +103,7 @@ export default function AdminTournamentCreatePage() {
       setStartAt("");
       setMaxPlayers("20");
       setTournamentType("classic");
+      setRatingGuarantee("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка создания турнира");
     } finally {
@@ -227,6 +233,26 @@ export default function AdminTournamentCreatePage() {
               </option>
             ))}
           </select>
+
+          {tournamentType === "phoenix" ? (
+            <>
+              <label className="mt-4 block text-sm text-white/80">
+                Rating Guarantee (опционально)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={ratingGuarantee}
+                onChange={(e) => setRatingGuarantee(e.target.value)}
+                placeholder="Например, 600"
+                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
+              />
+              <p className="mt-1 text-xs text-white/50">
+                Гарантированный итоговый рейтинговый пул турнира (участие + места).
+                Если оставить пустым — гарантии нет, начисляется обычный расчётный пул.
+              </p>
+            </>
+          ) : null}
 
           <button
             type="button"

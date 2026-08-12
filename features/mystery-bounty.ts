@@ -19,7 +19,19 @@ import {
   computeRebuys,
   type EnvelopeBreakdown,
 } from "@/lib/mystery-bounty";
-import type { MysteryBountySnapshot } from "@/types/domain";
+import type { MysteryBountySnapshot, RatingFormulaVersion } from "@/types/domain";
+
+// Pre-v2 Mystery Pool formula (Total Entries x6 + Addons x12, ceil to 10) --
+// kept only so a Mystery Bounty tournament whose rating_formula_version is
+// still "legacy" (Late Registration was opened before the v2 rollout, if
+// one ever exists) keeps computing the pool it was created under, instead
+// of silently jumping to the new x5/x10 weights mid-flight. Every
+// completed Mystery Bounty tournament is unaffected either way -- its
+// snapshot is frozen once points are awarded and never recomputed.
+function computeLegacyMysteryPool(input: { totalEntries: number; addons: number }): number {
+  const rawPool = input.totalEntries * 6 + input.addons * 12;
+  return Math.ceil(rawPool / 10) * 10;
+}
 
 export type MysteryBountyRosterRow = {
   player_id: string;
@@ -107,7 +119,8 @@ type ComputedSnapshotInputs = {
 
 async function computeSnapshotInputs(
   tournamentId: string,
-  rows: MysteryBountyRosterRow[]
+  rows: MysteryBountyRosterRow[],
+  ratingFormulaVersion: RatingFormulaVersion
 ): Promise<ComputedSnapshotInputs> {
   const arrivedRows = rows.filter((row) => row.arrived);
   const uniqueArrivedPlayerIds = new Set(arrivedRows.map((row) => row.player_id));
@@ -135,10 +148,10 @@ async function computeSnapshotInputs(
     );
   }
 
-  const mysteryPool = computeMysteryPool({
-    totalEntries: totalEntriesCount,
-    addons: addonsCount,
-  });
+  const mysteryPool =
+    ratingFormulaVersion === "legacy"
+      ? computeLegacyMysteryPool({ totalEntries: totalEntriesCount, addons: addonsCount })
+      : computeMysteryPool({ totalEntries: totalEntriesCount, addons: addonsCount });
   const breakdown = computeEnvelopeDistribution(mysteryPool, activePlayersCount);
 
   return {
@@ -184,7 +197,7 @@ export async function closeMysteryBountyLateRegistration(
     activePlayersCount,
     mysteryPool,
     breakdown,
-  } = await computeSnapshotInputs(tournamentId, rows);
+  } = await computeSnapshotInputs(tournamentId, rows, tournament.rating_formula_version);
 
   const row = await tournamentMysteryBountyRepository.insert({
     tournament_id: tournamentId,
@@ -271,7 +284,7 @@ export async function recalculateMysteryBounty(
     activePlayersCount,
     mysteryPool,
     breakdown,
-  } = await computeSnapshotInputs(tournamentId, rows);
+  } = await computeSnapshotInputs(tournamentId, rows, tournament.rating_formula_version);
 
   const row = await tournamentMysteryBountyRepository.update(tournamentId, {
     status: "pending_envelopes",

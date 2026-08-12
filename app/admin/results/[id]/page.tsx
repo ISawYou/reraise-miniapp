@@ -15,6 +15,7 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
 } from "@/lib/tournament-helpers";
+import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import type { Player, Tournament, TournamentLiveEntry, MysteryBountySnapshot } from "@/types/domain";
 
 type DraftRow = {
@@ -76,6 +77,34 @@ type LiveFormRow = {
   boss_knockouts: string;
   place: string;
 };
+
+function formatRatingEngineMetaLines(meta: RatingPointsV2Meta): string[] {
+  switch (meta.kind) {
+    case "volume":
+      return [`Volume Multiplier: ×${meta.volumeMultiplier.toFixed(3)}`];
+    case "addon_share":
+      return [`Placement Multiplier: ×${meta.placementMultiplier.toFixed(3)}`];
+    case "mystery":
+      return [];
+    case "phoenix": {
+      const lines = [
+        `Volume Multiplier: ×${meta.volumeMultiplier.toFixed(3)}`,
+        `Natural Pool: ${meta.naturalPool}`,
+      ];
+      if (meta.guarantee != null) {
+        lines.push(`Guarantee: ${meta.guarantee}`);
+        lines.push(
+          meta.topUp > 0
+            ? `Top-up: +${meta.topUp} → Final Pool: ${meta.finalPool}`
+            : "Guarantee not triggered (natural pool already covers it)"
+        );
+      }
+      return lines;
+    }
+    default:
+      return [];
+  }
+}
 
 function getTournamentModeTitle(tournament: Tournament | null) {
   if (!tournament) {
@@ -344,9 +373,51 @@ export default function AdminTournamentResultsPage() {
   const hasUnsavedChanges = hasUnsavedFreeChanges || hasUnsavedLiveChanges;
   const currentEntriesCount = isFreeTournament ? freeRows.length : liveRows.length;
   const expectedPrizePlaces = getExpectedPrizePlaces(currentEntriesCount);
-  const tournamentTypeBonusLines = tournament
-    ? getTournamentTypeBonusLines(tournament.tournament_type)
-    : [];
+  const isLegacyFormula = tournament?.rating_formula_version === "legacy";
+  // The old "Бонус рейтинга x1.20" line only ever applied under the legacy
+  // formula (features/rating.ts) -- v2 tournaments never call
+  // getTournamentTypeMultiplier at all (see features/rating-v2.ts), so
+  // showing it there would be actively misleading.
+  const tournamentTypeBonusLines =
+    tournament && isLegacyFormula ? getTournamentTypeBonusLines(tournament.tournament_type) : [];
+
+  // Live Rating Engine v2 preview -- computed client-side from the current
+  // (possibly unsaved) freeRows state via the exact same pure engine the
+  // server uses at completion time (features/rating-v2.ts), so admins see
+  // real numbers while editing, not an approximation.
+  const ratingEngineV2Summary = useMemo(() => {
+    if (!tournament || tournament.rating_formula_version !== "v2" || !isFreeTournament) {
+      return null;
+    }
+
+    const players = freeRows.map((row) => ({
+      player_id: row.player_id,
+      place: row.place ? Number(row.place) : 0,
+      knockouts: Number(row.knockouts || 0),
+      boss_knockouts: Number(row.boss_knockouts || 0),
+      mystery_bounty_points: Number(row.mystery_bounty_points || 0),
+      arrived: row.arrived,
+      entries: Number(row.rebuys || 0),
+      addons: Number(row.addons || 0),
+    }));
+
+    const arrivedRows = players.filter((p) => p.arrived);
+    const totalEntries = arrivedRows.reduce((sum, p) => sum + p.entries, 0);
+    const totalAddons = arrivedRows.reduce((sum, p) => sum + p.addons, 0);
+    const rebuys = Math.max(0, totalEntries - arrivedRows.length);
+
+    const { meta } = calculateRatingPointsV2(players, tournament.tournament_type, {
+      ratingGuarantee: tournament.rating_guarantee,
+    });
+
+    return {
+      players: arrivedRows.length,
+      totalEntries,
+      rebuys,
+      totalAddons,
+      meta,
+    };
+  }, [freeRows, tournament, isFreeTournament]);
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -1139,6 +1210,23 @@ export default function AdminTournamentResultsPage() {
             ) : null}
           </div>
         </div>
+
+        {ratingEngineV2Summary ? (
+          <div className="mt-2 rounded-xl border border-white/10 bg-white/5 p-3">
+            <p className="text-[11px] font-medium text-white/50">Rating Engine v2</p>
+            <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-white/70 sm:grid-cols-4">
+              <span>Players: {ratingEngineV2Summary.players}</span>
+              <span>Entries: {ratingEngineV2Summary.totalEntries}</span>
+              <span>Rebuys: {ratingEngineV2Summary.rebuys}</span>
+              <span>Add-ons: {ratingEngineV2Summary.totalAddons}</span>
+            </div>
+            {formatRatingEngineMetaLines(ratingEngineV2Summary.meta).length > 0 ? (
+              <p className="mt-1.5 text-xs text-white/60">
+                {formatRatingEngineMetaLines(ratingEngineV2Summary.meta).join(" · ")}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {isMysteryBountyTournament ? (
           <div className="mt-4 rounded-xl border border-purple-400/25 bg-purple-500/10 p-4">

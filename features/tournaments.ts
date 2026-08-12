@@ -10,7 +10,7 @@ import {
 } from "@/lib/repositories";
 import type { LiveEntryPatch } from "@/lib/repositories";
 import { syncPlayersAchievements } from "@/features/achievements";
-import { calculateRatingPoints } from "@/features/rating";
+import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import type {
   Registration,
   RegistrationStatus,
@@ -96,6 +96,8 @@ function mapTournamentRow(row: TournamentRow): Tournament {
     season_id: row.season_id,
     status: row.status as TournamentStatus,
     created_at: row.created_at,
+    rating_formula_version: row.rating_formula_version ?? "legacy",
+    rating_guarantee: row.rating_guarantee ?? null,
   };
 }
 
@@ -434,6 +436,7 @@ export async function updateTournament(
     start_at: string;
     max_players: number;
     tournament_type: TournamentType;
+    rating_guarantee?: number | null;
   }
 ) {
   return tournamentRepository.update(tournamentId, {
@@ -443,6 +446,7 @@ export async function updateTournament(
     start_at: input.start_at,
     max_players: input.max_players,
     tournament_type: input.tournament_type,
+    rating_guarantee: input.rating_guarantee ?? null,
   });
 }
 
@@ -816,18 +820,24 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
 
   await resultRepository.deleteByTournamentId(tournamentId);
 
-  const ratingMap = new Map(
-    calculateRatingPoints(
-      liveEntries.map((entry) => ({
-        player_id: entry.player_id,
-        place: entry.place ?? 0,
-        knockouts: entry.knockouts,
-        boss_knockouts: entry.boss_knockouts ?? 0,
-        arrived: entry.arrived,
-      })),
-      tournament.tournament_type
-    ).map((r) => [r.player_id, r.rating_points])
+  // entry.rebuys is each player's TOTAL entries (initial entry + every
+  // rebuy) -- the same admin-facing field/convention used throughout the
+  // app (see lib/mystery-bounty.ts's doc comment), not a rebuy-only count.
+  const { results: ratingResults } = calculateRatingPointsForTournament(
+    liveEntries.map((entry) => ({
+      player_id: entry.player_id,
+      place: entry.place ?? 0,
+      knockouts: entry.knockouts,
+      boss_knockouts: entry.boss_knockouts ?? 0,
+      arrived: entry.arrived,
+      entries: entry.rebuys,
+      addons: entry.addons,
+    })),
+    tournament.tournament_type,
+    tournament.rating_formula_version,
+    { ratingGuarantee: tournament.rating_guarantee }
   );
+  const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r.rating_points]));
 
   const payload = liveEntries.map((entry) => ({
     tournament_id: tournamentId,
@@ -837,6 +847,7 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     reentries: entry.rebuys,
     knockouts: entry.knockouts,
     boss_knockouts: entry.boss_knockouts ?? 0,
+    addons: entry.addons,
     rating_points: ratingMap.get(entry.player_id) ?? 0,
   }));
 
@@ -879,6 +890,7 @@ export async function saveTournamentResults(
     knockouts: item.knockouts,
     boss_knockouts: item.boss_knockouts ?? 0,
     mystery_bounty_points: item.mystery_bounty_points ?? 0,
+    addons: item.addons ?? 0,
     rating_points: item.rating_points,
   }));
 

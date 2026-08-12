@@ -46,6 +46,10 @@ export async function POST(request: Request) {
         | "bounty"
         | "boss_bounty"
         | "win_the_button";
+      // Phoenix Rating Guarantee (spec §15) -- only meaningful for
+      // tournament_type "phoenix", but not rejected for other types (same
+      // "not DB-constrained to it" approach as the schema check).
+      rating_guarantee?: number | null;
     };
 
     let activeSeason;
@@ -81,6 +85,7 @@ export async function POST(request: Request) {
         tournament_type: body.tournament_type ?? "classic",
         status: "open",
         season_id: activeSeason.id,
+        rating_guarantee: body.rating_guarantee ?? null,
       });
     } catch (err) {
       return NextResponse.json(

@@ -116,6 +116,7 @@ export class SupabaseResultRepository implements ResultRepository {
         knockouts,
         boss_knockouts,
         mystery_bounty_points,
+        addons,
         reentries,
         rating_points,
         players (
@@ -137,6 +138,7 @@ export class SupabaseResultRepository implements ResultRepository {
       knockouts: number;
       boss_knockouts: number | null;
       mystery_bounty_points: number | null;
+      addons: number | null;
       reentries: number;
       rating_points: number | null;
       players: PlayerNameJoin | PlayerNameJoin[] | null;
@@ -151,6 +153,7 @@ export class SupabaseResultRepository implements ResultRepository {
         knockouts: row.knockouts,
         boss_knockouts: row.boss_knockouts ?? 0,
         mystery_bounty_points: row.mystery_bounty_points ?? 0,
+        addons: row.addons ?? 0,
         reentries: row.reentries,
         rating_points: row.rating_points ?? 0,
         username: player?.username ?? null,

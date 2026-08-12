@@ -27,6 +27,8 @@ export function mapTournamentRow(row: TournamentRow): Tournament {
     season_id: row.season_id,
     status: row.status as TournamentStatus,
     created_at: row.created_at,
+    rating_formula_version: row.rating_formula_version ?? "legacy",
+    rating_guarantee: row.rating_guarantee ?? null,
   };
 }
 

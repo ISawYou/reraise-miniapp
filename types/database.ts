@@ -43,6 +43,8 @@ export type TournamentRow = {
   season_id: string | null;
   status: string;
   created_at: string;
+  rating_formula_version: "legacy" | "v2";
+  rating_guarantee: number | null;
 };
 
 export type RegistrationRow = {
@@ -63,6 +65,7 @@ export type ResultRow = {
   knockouts: number;
   boss_knockouts?: number;
   mystery_bounty_points?: number;
+  addons?: number;
   rating_points: number;
   created_at: string;
 };

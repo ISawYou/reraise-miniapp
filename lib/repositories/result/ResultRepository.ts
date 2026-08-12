@@ -22,6 +22,7 @@ export type ResultInsert = {
   knockouts: number;
   boss_knockouts?: number;
   mystery_bounty_points?: number;
+  addons?: number;
   rating_points: number;
 };
 

@@ -29,10 +29,16 @@ export type EnvelopeBreakdown = {
   jackpotValue: number;
 };
 
-// Raw Pool = Total Entries × 6 + Addons × 12, rounded UP to the nearest 10.
-// Bounty of the eventual winner is not subtracted (spec §3).
+// Rating Engine v2 formula (replaces the old ×6/×12 weights): Raw Pool =
+// Total Entries × 5 + Addons × 10 -- an add-on carries 2x the weight of a
+// plain entry/rebuy, same as everywhere else in the v2 engine (see
+// features/rating-v2.ts) -- rounded UP to the nearest 10. Bounty of the
+// eventual winner is not subtracted (spec §11).
+//
+// Worked example: Total Entries=28, Addons=10 -> 28*5 + 10*10 = 140+100 = 240
+// -> Mystery Pool = 240.
 export function computeMysteryPool(input: MysteryPoolInput): number {
-  const rawPool = input.totalEntries * 6 + input.addons * 12;
+  const rawPool = input.totalEntries * 5 + input.addons * 10;
   return Math.ceil(rawPool / 10) * 10;
 }
 

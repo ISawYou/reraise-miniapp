@@ -46,6 +46,8 @@ export type Player = {
   created_at: string;
 };
 
+export type RatingFormulaVersion = "legacy" | "v2";
+
 export type Tournament = {
   id: string;
   title: string;
@@ -59,6 +61,15 @@ export type Tournament = {
   description?: string
   location?: string
   google_sheet_tab_name?: string | null;
+  // Rating Engine v2: which formula this tournament's results were/will be
+  // computed with -- frozen at completion time. "legacy" for every
+  // tournament that existed before the v2 migration; "v2" for everything
+  // created afterwards. See features/rating.ts vs features/rating-v2.ts.
+  rating_formula_version: RatingFormulaVersion;
+  // Phoenix Rating Guarantee (spec §15) -- admin-set target TOTAL rating
+  // pool (participation + placement). null = no guarantee. Only meaningful
+  // for tournament_type = "phoenix".
+  rating_guarantee: number | null;
 };
 
 export type Registration = {
@@ -97,6 +108,7 @@ export type TournamentResultInput = {
   knockouts: number;
   boss_knockouts?: number;
   mystery_bounty_points?: number;
+  addons?: number;
   rating_points: number;
 };
 
@@ -107,6 +119,7 @@ export type TournamentResult = {
   boss_knockouts?: number;
   mystery_bounty_points?: number;
   reentries: number;
+  addons?: number;
   rating_points: number;
   username: string | null;
   display_name: string;

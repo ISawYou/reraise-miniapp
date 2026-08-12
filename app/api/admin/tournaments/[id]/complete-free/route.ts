@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTournamentById, saveTournamentResults } from "@/features/tournaments";
-import { calculateRatingPoints } from "@/features/rating";
+import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
 
@@ -63,19 +63,25 @@ export async function POST(
       }
     }
 
-    const ratingMap = new Map(
-      calculateRatingPoints(
-        rows.map((row) => ({
-          player_id: row.player_id,
-          place: row.place,
-          knockouts: row.knockouts,
-          boss_knockouts: row.boss_knockouts ?? 0,
-          mystery_bounty_points: row.mystery_bounty_points ?? 0,
-          arrived: row.arrived ?? false,
-        })),
-        tournament.tournament_type
-      ).map((r) => [r.player_id, r.rating_points])
+    // row.rebuys is each player's TOTAL entries (initial entry + every
+    // rebuy) -- the same admin-facing field/convention used throughout the
+    // app (see lib/mystery-bounty.ts's doc comment), not a rebuy-only count.
+    const { results: ratingResults } = calculateRatingPointsForTournament(
+      rows.map((row) => ({
+        player_id: row.player_id,
+        place: row.place,
+        knockouts: row.knockouts,
+        boss_knockouts: row.boss_knockouts ?? 0,
+        mystery_bounty_points: row.mystery_bounty_points ?? 0,
+        arrived: row.arrived ?? false,
+        entries: row.rebuys,
+        addons: row.addons ?? 0,
+      })),
+      tournament.tournament_type,
+      tournament.rating_formula_version,
+      { ratingGuarantee: tournament.rating_guarantee }
     );
+    const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r.rating_points]));
 
     await saveTournamentResults(
       id,
@@ -86,6 +92,7 @@ export async function POST(
         knockouts: row.knockouts,
         boss_knockouts: row.boss_knockouts ?? 0,
         mystery_bounty_points: row.mystery_bounty_points ?? 0,
+        addons: row.addons ?? 0,
         rating_points: ratingMap.get(row.player_id) ?? 0,
       }))
     );

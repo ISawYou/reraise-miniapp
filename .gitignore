@@ -52,3 +52,6 @@ next-env.d.ts
 .vercel
 .env*
 docs/POSTGRES_MIGRATION_AUDIT.md
+
+# graphify (generated graph — rebuild locally with `python -m graphify update .`)
+graphify-out/

@@ -4,6 +4,7 @@ import {
   setTournamentGoogleSheetTabName,
 } from "@/features/tournaments";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
+import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import {
   applyTournamentSheetFormatting,
   appendReportRow,
@@ -76,6 +77,44 @@ function getFreeTournamentStatusLabel(status: string) {
   return "Черновик";
 }
 
+// Rating Engine v2 -- write-only display info, same pattern as
+// mysteryBountyHeaderExtra below (5 rows, aligned with the "Tournament
+// ID"/"Название"/"Дата"/"Локация"/"Статус" header rows). pull-sheet never
+// reads these cells, so there is no round-trip index to protect.
+function buildRatingEngineHeaderExtra(meta: RatingPointsV2Meta): string[][] {
+  switch (meta.kind) {
+    case "volume":
+      return [
+        [],
+        ["Weighted Volume", `${meta.weightedVolume}`, "Extra Volume", `${meta.extraVolume}`],
+        ["Volume Share", meta.volumeShare.toFixed(4), "Volume Multiplier", meta.volumeMultiplier.toFixed(4)],
+        [],
+        [],
+      ];
+    case "addon_share":
+      return [
+        [],
+        ["Weighted Volume", `${meta.weightedVolume}`, "Addon Share", meta.addonShare.toFixed(4)],
+        ["Placement Multiplier", meta.placementMultiplier.toFixed(4)],
+        [],
+        [],
+      ];
+    case "phoenix":
+      return [
+        [],
+        ["Weighted Volume", `${meta.weightedVolume}`, "Extra Volume", `${meta.extraVolume}`],
+        ["Volume Share", meta.volumeShare.toFixed(4), "Volume Multiplier", meta.volumeMultiplier.toFixed(4)],
+        ["Natural Pool", `${meta.naturalPool}`, "Guarantee", meta.guarantee != null ? `${meta.guarantee}` : "—"],
+        ["Top-up", `${meta.topUp}`, "Final Pool", `${meta.finalPool}`],
+      ];
+    case "mystery":
+    default:
+      // Mystery Bounty already has its own dedicated header block
+      // (mysteryBountyHeaderExtra) -- nothing extra to show here.
+      return [[], [], [], [], []];
+  }
+}
+
 function buildReadmeSheetValues() {
   return [
     ["README - Google Sheets для турнирного администратора"],
@@ -106,6 +145,29 @@ function buildFreeSheetValues(
   const rowsMap = new Map((rows ?? []).map((row) => [row.player_id, row]));
   const isBossBounty = exportData.tournament.tournament_type === "boss_bounty";
   const isMysteryBounty = exportData.tournament.tournament_type === "mystery_bounty";
+  const isV2 = exportData.tournament.rating_formula_version === "v2";
+
+  // Rating Engine v2 -- only for non-Mystery v2 tournaments with at least
+  // one row to compute from (Mystery keeps its own dedicated block below).
+  const ratingEngineHeaderExtra: string[][] =
+    isV2 && !isMysteryBounty && rows && rows.length > 0
+      ? buildRatingEngineHeaderExtra(
+          calculateRatingPointsV2(
+            rows.map((row) => ({
+              player_id: row.player_id,
+              place: row.place ?? 0,
+              knockouts: row.knockouts,
+              boss_knockouts: row.boss_knockouts ?? 0,
+              mystery_bounty_points: row.mystery_bounty_points ?? 0,
+              arrived: row.arrived,
+              entries: row.rebuys,
+              addons: row.addons,
+            })),
+            exportData.tournament.tournament_type,
+            { ratingGuarantee: exportData.tournament.rating_guarantee }
+          ).meta
+        )
+      : [[], [], [], [], []];
 
   // Mystery Bounty snapshot metrics are write-only display cells appended
   // to the existing header rows (never new rows — data always starts at
@@ -186,6 +248,12 @@ function buildFreeSheetValues(
       ]
     : [[], [], [], [], []];
 
+  // Mutually exclusive by tournament_type (Mystery Bounty always uses its
+  // own block; every other v2 type uses the rating-engine block; legacy
+  // tournaments and Mystery-without-a-snapshot-yet get neither) -- safe to
+  // pick a single block per header row rather than merge both.
+  const headerExtraBlock = mysteryBountySnapshot ? mysteryBountyHeaderExtra : ratingEngineHeaderExtra;
+
   function mergeRow(base: (string | number | boolean)[], extra: string[]) {
     const merged = [...base];
     extra.forEach((cell, index) => {
@@ -197,10 +265,10 @@ function buildFreeSheetValues(
   }
 
   return [
-    mergeRow(["Tournament ID", exportData.tournament.id], mysteryBountyHeaderExtra[0]),
+    mergeRow(["Tournament ID", exportData.tournament.id], headerExtraBlock[0]),
     mergeRow(
       ["", "", "Название", exportData.tournament.title, entryPrice, addonPrice, bountyPrice],
-      mysteryBountyHeaderExtra[1]
+      headerExtraBlock[1]
     ),
     mergeRow(
       [
@@ -212,12 +280,12 @@ function buildFreeSheetValues(
         "Addon price",
         "Bounty price",
       ],
-      mysteryBountyHeaderExtra[2]
+      headerExtraBlock[2]
     ),
-    mergeRow(["", "", "Локация", exportData.tournament.location ?? ""], mysteryBountyHeaderExtra[3]),
+    mergeRow(["", "", "Локация", exportData.tournament.location ?? ""], headerExtraBlock[3]),
     mergeRow(
       ["", "", "Статус", getFreeTournamentStatusLabel(exportData.tournament.status)],
-      mysteryBountyHeaderExtra[4]
+      headerExtraBlock[4]
     ),
     [],
     [
