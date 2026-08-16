@@ -16,6 +16,7 @@ import {
   getTournamentTypeLabel,
 } from "@/lib/tournament-helpers";
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
+import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
 import type { Player, Tournament, TournamentLiveEntry, MysteryBountySnapshot } from "@/types/domain";
 
 type DraftRow = {
@@ -626,11 +627,24 @@ export default function AdminTournamentResultsPage() {
         setError(`Проверьте числовые поля у игрока ${row.display_name}`);
         return;
       }
+    }
 
-      if (row.place && Number(row.place) <= 0) {
-        setError(`Укажите корректное место для игрока ${row.display_name}`);
-        return;
-      }
+    // Rows without a place yet are still a valid draft (see
+    // handlePullFreeRows) -- only the ones an admin already filled in get
+    // checked for a duplicate/invalid place here.
+    const placeIssue = describeResultPlaceIssues(
+      freeRows
+        .filter((row) => row.place.trim() !== "")
+        .map((row) => ({
+          player_id: row.player_id,
+          place: Number(row.place),
+          display_name: row.display_name,
+        }))
+    );
+
+    if (placeIssue) {
+      setError(placeIssue);
+      return;
     }
 
     try {
@@ -764,6 +778,19 @@ export default function AdminTournamentResultsPage() {
       return;
     }
 
+    const placeIssue = describeResultPlaceIssues(
+      freeRows.map((row) => ({
+        player_id: row.player_id,
+        place: Number(row.place),
+        display_name: row.display_name,
+      }))
+    );
+
+    if (placeIssue) {
+      setError(placeIssue);
+      return;
+    }
+
     if (
       isMysteryBountyTournament &&
       mysteryBountySnapshot &&
@@ -790,6 +817,7 @@ export default function AdminTournamentResultsPage() {
           body: JSON.stringify({
             rows: freeRows.map((row) => ({
               player_id: row.player_id,
+              display_name: row.display_name,
               arrived: row.arrived,
               paid: row.paid,
               payment_type: row.payment_type.trim(),
@@ -950,11 +978,23 @@ export default function AdminTournamentResultsPage() {
         setError(`Проверьте числовые поля у игрока ${row.display_name}`);
         return;
       }
+    }
 
-      if (row.place && Number(row.place) <= 0) {
-        setError(`Укажите корректное место для игрока ${row.display_name}`);
-        return;
-      }
+    // Rows without a place yet are still a valid draft -- only the ones an
+    // admin already filled in get checked for a duplicate/invalid place.
+    const placeIssue = describeResultPlaceIssues(
+      liveRows
+        .filter((row) => row.place.trim() !== "")
+        .map((row) => ({
+          player_id: row.player_id,
+          place: Number(row.place),
+          display_name: row.display_name,
+        }))
+    );
+
+    if (placeIssue) {
+      setError(placeIssue);
+      return;
     }
 
     try {
@@ -1056,6 +1096,19 @@ export default function AdminTournamentResultsPage() {
           .map((row) => row.display_name)
           .join(", ")}`
       );
+      return;
+    }
+
+    const placeIssue = describeResultPlaceIssues(
+      liveRows.map((row) => ({
+        player_id: row.player_id,
+        place: Number(row.place),
+        display_name: row.display_name,
+      }))
+    );
+
+    if (placeIssue) {
+      setError(placeIssue);
       return;
     }
 

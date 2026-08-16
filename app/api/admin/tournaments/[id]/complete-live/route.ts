@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { completeTournamentFromLiveEntries } from "@/features/tournaments";
 import { syncTournamentLiveSheet } from "@/app/api/admin/tournaments/[id]/live-sync/route";
+import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
+
+const OPERATION = "complete-live";
 
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await context.params;
+
   try {
-    const { id } = await context.params;
     const body = (await request.json().catch(() => null)) as
       | {
           rows?: Array<{
@@ -52,14 +56,9 @@ export async function POST(
       ...result,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to complete live tournament",
-      },
-      { status: 500 }
-    );
+    logCompletionError({ operation: OPERATION, tournamentId: id, error });
+    const { status, message } = resolveCompletionError(error);
+
+    return NextResponse.json({ error: message }, { status });
   }
 }

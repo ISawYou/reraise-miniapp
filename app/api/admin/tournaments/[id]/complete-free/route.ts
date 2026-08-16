@@ -3,16 +3,21 @@ import { getTournamentById, saveTournamentResults } from "@/features/tournaments
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
+import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
+
+const OPERATION = "complete-free";
 
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await context.params;
+
   try {
-    const { id } = await context.params;
     const body = (await request.json()) as {
       rows?: Array<{
         player_id: string;
+        display_name?: string;
         arrived?: boolean;
         paid?: boolean;
         payment_type?: string;
@@ -87,6 +92,7 @@ export async function POST(
       id,
       rows.map((row) => ({
         player_id: row.player_id,
+        display_name: row.display_name,
         place: row.place,
         reentries: row.rebuys,
         knockouts: row.knockouts,
@@ -125,14 +131,9 @@ export async function POST(
       completedCount: rows.length,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to complete free tournament",
-      },
-      { status: 500 }
-    );
+    logCompletionError({ operation: OPERATION, tournamentId: id, error });
+    const { status, message } = resolveCompletionError(error);
+
+    return NextResponse.json({ error: message }, { status });
   }
 }

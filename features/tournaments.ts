@@ -11,6 +11,7 @@ import {
 import type { LiveEntryPatch } from "@/lib/repositories";
 import { syncPlayersAchievements } from "@/features/achievements";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
+import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import type {
   Registration,
   RegistrationStatus,
@@ -816,6 +817,14 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     );
   }
 
+  assertValidResultPlaces(
+    liveEntries.map((entry) => ({
+      player_id: entry.player_id,
+      place: entry.place as number,
+      display_name: entry.display_name,
+    }))
+  );
+
   const tournamentRow = await tournamentRepository.findSeasonIdById(tournamentId);
 
   await resultRepository.deleteByTournamentId(tournamentId);
@@ -877,6 +886,14 @@ export async function saveTournamentResults(
   tournamentId: string,
   results: TournamentResultInput[]
 ) {
+  assertValidResultPlaces(
+    results.map((item) => ({
+      player_id: item.player_id,
+      place: item.place,
+      display_name: item.display_name,
+    }))
+  );
+
   const tournamentRow = await tournamentRepository.findSeasonIdById(tournamentId);
 
   await resultRepository.deleteByTournamentId(tournamentId);

@@ -110,6 +110,10 @@ export type TournamentResultInput = {
   mystery_bounty_points?: number;
   addons?: number;
   rating_points: number;
+  // Not persisted -- only used to name players in place-validation error
+  // messages (lib/tournament-results-validation.ts). Falls back to
+  // player_id when omitted.
+  display_name?: string;
 };
 
 export type TournamentResult = {

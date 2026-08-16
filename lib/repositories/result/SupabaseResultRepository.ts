@@ -279,7 +279,11 @@ export class SupabaseResultRepository implements ResultRepository {
     const { error } = await supabase.from("results").insert(rows);
 
     if (error) {
-      throw new Error(error.message);
+      // { cause: error } preserves PostgrestError's `code`/`details` so
+      // lib/db/postgres-error.ts can recognize a unique-violation
+      // regardless of DATABASE_PROVIDER, instead of only working for the
+      // Postgres/Drizzle path.
+      throw new Error(error.message, { cause: error });
     }
   }
 }

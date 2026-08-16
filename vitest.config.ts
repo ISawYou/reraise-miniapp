@@ -12,6 +12,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Next.js's webpack build resolves the bare `import "server-only"`
+      // side-effect import internally without it being an installed
+      // dependency; vitest has no equivalent, so every server-only-guarded
+      // file (all Postgres/Supabase repositories) fails to load without
+      // this alias.
+      'server-only': path.resolve(__dirname, 'lib/__tests__/server-only-stub.ts'),
       '@': path.resolve(__dirname, '.'),
     },
   },
