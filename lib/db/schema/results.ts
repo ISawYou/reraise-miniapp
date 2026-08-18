@@ -1,4 +1,4 @@
-import { pgTable, uuid, integer, timestamp, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, integer, boolean, timestamp, uniqueIndex, index, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { players } from "./players";
 import { tournaments } from "./tournaments";
@@ -46,10 +46,56 @@ export const results = pgTable("results", {
   // invalidate.
   ratingPoints: integer("rating_points").notNull(),
 
+  // Rating Breakdown: frozen components of ratingPoints above, computed by
+  // the SAME calculator that produces ratingPoints
+  // (features/rating.ts::calculateRatingPoints /
+  // features/rating-v2.ts::calculateRatingPointsV2, via the shared
+  // RatingPointsBreakdown shape) -- not a second, independently maintained
+  // formula. See docs/RATING_BREAKDOWN_ANALYSIS.md.
+  //
+  // Deliberately nullable with no default, unlike addons/mysteryBountyPoints
+  // above: every pre-existing row (750+ at the time this was added) has a
+  // real historical rating_points value whose breakdown genuinely needs
+  // reconstruction, not a value the old formula simply never consulted (that
+  // was addons's case, where 0 is an honest fact, not a guess -- see that
+  // column's comment). A blanket NOT NULL DEFAULT would make every
+  // historical row look like "verified zero ITM/knockout/etc.", which is
+  // false for rows where it isn't. New writes always populate all five
+  // fields explicitly (see features/tournaments.ts); historical rows stay
+  // NULL until a reviewed backfill (scripts/backfill-rating-breakdown.mjs,
+  // dry-run only as of this migration) sets them from the reconstruction
+  // proven safe in docs/RATING_BREAKDOWN_ANALYSIS.md. NOT NULL is added in
+  // a later migration, only after backfill is approved and run.
+  arrived: boolean("arrived"),
+  participationPoints: integer("participation_points"),
+  knockoutPoints: integer("knockout_points"),
+  bossBountyPoints: integer("boss_bounty_points"),
+  itmPoints: integer("itm_points"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("results_place_check", sql`${table.place} > 0`),
   check("results_rating_points_check", sql`${table.ratingPoints} >= 0`),
+
+  // Non-negativity, same style as results_rating_points_check. NULL-tolerant
+  // by ordinary SQL three-valued logic (a NULL operand makes the whole
+  // comparison evaluate to NULL, which Postgres CHECK treats as satisfied,
+  // not violated) -- so these do not block the nullable rows described
+  // above, only ever reject a populated component that's actually negative.
+  check("results_participation_points_check", sql`${table.participationPoints} >= 0`),
+  check("results_knockout_points_check", sql`${table.knockoutPoints} >= 0`),
+  check("results_boss_bounty_points_check", sql`${table.bossBountyPoints} >= 0`),
+  check("results_itm_points_check", sql`${table.itmPoints} >= 0`),
+
+  // The core invariant this whole feature exists to guarantee. Same NULL
+  // tolerance as above: a row with any component still NULL (i.e. not yet
+  // backfilled) satisfies this trivially; once all five are populated
+  // (new write, edit, or backfill), Postgres enforces they sum to the
+  // already-frozen rating_points on every future write.
+  check(
+    "results_rating_points_breakdown_check",
+    sql`${table.ratingPoints} = ${table.participationPoints} + ${table.knockoutPoints} + ${table.bossBountyPoints} + ${table.mysteryBountyPoints} + ${table.itmPoints}`,
+  ),
 
   uniqueIndex("results_tournament_id_player_id_key").on(table.tournamentId, table.playerId),
   uniqueIndex("results_tournament_id_place_key").on(table.tournamentId, table.place),

@@ -43,6 +43,13 @@
       "when": 1786555486562,
       "tag": "0005_same_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787058018503,
+      "tag": "0006_rating_breakdown",
+      "breakpoints": true
     }
   ]
 }

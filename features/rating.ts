@@ -19,6 +19,26 @@ export type PlayerRatingInput = {
   arrived: boolean;
 };
 
+// Frozen components of rating_points (results.participation_points /
+// knockout_points / boss_bounty_points / mystery_bounty_points / itm_points
+// — see lib/db/schema/results.ts). Shared by v1 (below) and v2
+// (features/rating-v2.ts) so there is exactly one definition of what each
+// component means, and both formulas are checked against the same shape.
+//
+// Invariant every caller can rely on:
+//   rating_points === participation_points + knockout_points
+//     + boss_bounty_points + mystery_bounty_points + itm_points
+// enforced at the DB layer by results_rating_points_breakdown_check, and by
+// construction here: `rating_points` below is computed as the sum of these
+// same five values, not a separately-derived number.
+export type RatingPointsBreakdown = {
+  participation_points: number;
+  knockout_points: number;
+  boss_bounty_points: number;
+  mystery_bounty_points: number;
+  itm_points: number;
+};
+
 const BASE_PLACE_POINTS: Record<number, number> = {
   1: 100,
   2: 75,
@@ -56,7 +76,7 @@ export function getFieldCoefficient(fieldSize: number): number {
 export function calculateRatingPoints(
   players: PlayerRatingInput[],
   tournamentType: TournamentType
-): Array<{ player_id: string; rating_points: number }> {
+): Array<{ player_id: string; rating_points: number } & RatingPointsBreakdown> {
   const fieldSize = players.filter((p) => p.arrived).length;
   const ratingZoneSize = getExpectedPrizePlaces(fieldSize);
   const fieldCoefficient = getFieldCoefficient(fieldSize);
@@ -65,7 +85,15 @@ export function calculateRatingPoints(
 
   return players.map((player) => {
     if (!player.arrived) {
-      return { player_id: player.player_id, rating_points: 0 };
+      return {
+        player_id: player.player_id,
+        rating_points: 0,
+        participation_points: 0,
+        knockout_points: 0,
+        boss_bounty_points: 0,
+        mystery_bounty_points: 0,
+        itm_points: 0,
+      };
     }
 
     const basePlacePoints =
@@ -74,15 +102,28 @@ export function calculateRatingPoints(
     const bossKnockoutPoints = supportsTournamentBossKnockouts(tournamentType)
       ? (player.boss_knockouts ?? 0) * 10
       : 0;
-    const placePoints =
+    // Renamed from the original `placePoints` local -- same expression,
+    // same value, now returned as the ITM component instead of only being
+    // folded into the total inline.
+    const itmPoints =
       basePlacePoints > 0
         ? Math.round(basePlacePoints * fieldCoefficient * tournamentMultiplier)
         : 0;
+    const participationPoints = 2;
+    const mysteryBountyPoints = player.mystery_bounty_points ?? 0;
 
     return {
       player_id: player.player_id,
+      // Same sum as before, just built from the now-named components below
+      // instead of inline literals -- addition is commutative/associative
+      // over integers, so this produces the identical rating_points value.
       rating_points:
-        placePoints + knockoutPoints + bossKnockoutPoints + 2 + (player.mystery_bounty_points ?? 0),
+        participationPoints + knockoutPoints + bossKnockoutPoints + mysteryBountyPoints + itmPoints,
+      participation_points: participationPoints,
+      knockout_points: knockoutPoints,
+      boss_bounty_points: bossKnockoutPoints,
+      mystery_bounty_points: mysteryBountyPoints,
+      itm_points: itmPoints,
     };
   });
 }

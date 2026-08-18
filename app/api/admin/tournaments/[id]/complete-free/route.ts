@@ -86,21 +86,32 @@ export async function POST(
       tournament.rating_formula_version,
       { ratingGuarantee: tournament.rating_guarantee }
     );
-    const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r.rating_points]));
+    const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r]));
 
     await saveTournamentResults(
       id,
-      rows.map((row) => ({
-        player_id: row.player_id,
-        display_name: row.display_name,
-        place: row.place,
-        reentries: row.rebuys,
-        knockouts: row.knockouts,
-        boss_knockouts: row.boss_knockouts ?? 0,
-        mystery_bounty_points: row.mystery_bounty_points ?? 0,
-        addons: row.addons ?? 0,
-        rating_points: ratingMap.get(row.player_id) ?? 0,
-      }))
+      rows.map((row) => {
+        const rating = ratingMap.get(row.player_id);
+
+        return {
+          player_id: row.player_id,
+          display_name: row.display_name,
+          place: row.place,
+          reentries: row.rebuys,
+          knockouts: row.knockouts,
+          boss_knockouts: row.boss_knockouts ?? 0,
+          mystery_bounty_points: row.mystery_bounty_points ?? 0,
+          addons: row.addons ?? 0,
+          rating_points: rating?.rating_points ?? 0,
+          // Rating Breakdown -- same calculator call above, not a second
+          // computation.
+          arrived: row.arrived ?? false,
+          participation_points: rating?.participation_points ?? null,
+          knockout_points: rating?.knockout_points ?? null,
+          boss_bounty_points: rating?.boss_bounty_points ?? null,
+          itm_points: rating?.itm_points ?? null,
+        };
+      })
     );
 
     await syncTournamentSheet(
@@ -117,7 +128,7 @@ export async function POST(
         boss_knockouts: row.boss_knockouts ?? 0,
         mystery_bounty_points: row.mystery_bounty_points ?? 0,
         place: row.place,
-        rating_points: ratingMap.get(row.player_id) ?? 0,
+        rating_points: ratingMap.get(row.player_id)?.rating_points ?? 0,
         eliminated: row.eliminated ?? false,
         eliminated_at: row.eliminated_at ?? null,
       })),

@@ -12,7 +12,9 @@
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
     "db:push": "node --env-file-if-exists=.env.local ./node_modules/drizzle-kit/bin.cjs push",
     "db:studio": "node --env-file-if-exists=.env.local ./node_modules/drizzle-kit/bin.cjs studio",
-    "backfill:postgres": "node --env-file-if-exists=.env.local scripts/backfill-postgres.mjs"
+    "backfill:postgres": "node --env-file-if-exists=.env.local scripts/backfill-postgres.mjs",
+    "backfill:rating-breakdown": "node --env-file-if-exists=.env.local scripts/backfill-rating-breakdown.mjs",
+    "backfill:rating-breakdown:postgres": "node scripts/backfill-rating-breakdown-postgres.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",

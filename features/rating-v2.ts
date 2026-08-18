@@ -1,5 +1,10 @@
 import type { RatingFormulaVersion, TournamentType } from "@/types/domain";
-import { calculateRatingPoints, getBasePlacePoints, getFieldCoefficient } from "@/features/rating";
+import {
+  calculateRatingPoints,
+  getBasePlacePoints,
+  getFieldCoefficient,
+  type RatingPointsBreakdown,
+} from "@/features/rating";
 import {
   getExpectedPrizePlaces,
   supportsTournamentBossKnockouts,
@@ -9,8 +14,11 @@ import {
 // Rating Engine v2 -- pure, framework-free (no "use server", importable from
 // both server route handlers and client components, same as features/rating.ts).
 // Dispatched to only for tournaments with rating_formula_version = "v2";
-// features/rating.ts (v1/"legacy") stays byte-for-byte unchanged and keeps
-// producing historically-frozen results for every pre-existing tournament.
+// features/rating.ts (v1/"legacy") keeps its exact original rating_points
+// arithmetic (see that file's calculateRatingPoints) and keeps producing
+// historically-frozen results for every pre-existing tournament -- it now
+// also returns the same total's frozen components (Rating Breakdown), but
+// that is purely additive to what it already computed.
 //
 // Business rule confirmed explicitly: an add-on carries 2x the weight of a
 // plain entry/rebuy in every volume/share calculation below (Weighted
@@ -65,10 +73,17 @@ export type RatingPointsV2Meta =
       finalPool: number;
     };
 
+// itm_points here is placement-only for every non-Phoenix format. For
+// Phoenix specifically, when the Rating Guarantee triggers, its top-up is
+// folded into itm_points too -- per the fixed product decision, the
+// Guarantee is not a separate kind of points, only a mechanism for
+// determining the rating-zone pool's final size, so its effect belongs
+// wherever placement points already live. There is no separate
+// phoenix_guarantee_points field, in the type or in the DB.
 export type RatingPointsV2Result = {
   player_id: string;
   rating_points: number;
-};
+} & RatingPointsBreakdown;
 
 // Explicit, language-independent round-half-up -- do not rely on Math.round
 // (correct for our positive-only inputs, but the spec asks for a named
@@ -226,18 +241,40 @@ export function calculateRatingPointsV2(
 
   const naturalResults = players.map((player) => {
     if (!player.arrived) {
-      return { player_id: player.player_id, natural: 0, naturalPlacement: 0 };
+      return {
+        player_id: player.player_id,
+        natural: 0,
+        naturalPlacement: 0,
+        participation_points: 0,
+        knockout_points: 0,
+        boss_bounty_points: 0,
+        mystery_bounty_points: 0,
+        itm_points: 0,
+      };
     }
 
     const placement = placementPointsFor(player.place);
     const knockoutPoints = hasKnockouts ? player.knockouts * 5 : 0;
     const bossKnockoutPoints = hasBossKnockouts ? (player.boss_knockouts ?? 0) * 10 : 0;
     const mysteryPoints = isMystery ? player.mystery_bounty_points ?? 0 : 0;
+    const participationPoints = 2;
 
     // Participation +2 stays flat/unmultiplied for every format, exactly
     // like v1 (spec §19).
-    const natural = placement + knockoutPoints + bossKnockoutPoints + 2 + mysteryPoints;
-    return { player_id: player.player_id, natural, naturalPlacement: placement };
+    const natural = placement + knockoutPoints + bossKnockoutPoints + participationPoints + mysteryPoints;
+    return {
+      player_id: player.player_id,
+      natural,
+      naturalPlacement: placement,
+      participation_points: participationPoints,
+      knockout_points: knockoutPoints,
+      boss_bounty_points: bossKnockoutPoints,
+      mystery_bounty_points: mysteryPoints,
+      // Pre-Phoenix-topUp value. For Phoenix specifically this gets the
+      // Guarantee top-up folded in below when it triggers; every other
+      // format returns this as-is.
+      itm_points: placement,
+    };
   });
 
   if (tournamentType !== "phoenix") {
@@ -248,7 +285,15 @@ export function calculateRatingPointsV2(
         : { kind: "volume", weightedVolume, extraVolume, volumeShare, volumeMultiplier };
 
     return {
-      results: naturalResults.map((r) => ({ player_id: r.player_id, rating_points: r.natural })),
+      results: naturalResults.map((r) => ({
+        player_id: r.player_id,
+        rating_points: r.natural,
+        participation_points: r.participation_points,
+        knockout_points: r.knockout_points,
+        boss_bounty_points: r.boss_bounty_points,
+        mystery_bounty_points: r.mystery_bounty_points,
+        itm_points: r.itm_points,
+      })),
       meta,
     };
   }
@@ -276,16 +321,33 @@ export function calculateRatingPointsV2(
 
     const topUpMap = distributePhoenixTopUp(prizeZonePlacements, topUp);
 
-    finalResults = naturalResults.map((r) => ({
-      ...r,
-      natural: r.natural + (topUpMap.get(r.player_id) ?? 0),
-    }));
+    finalResults = naturalResults.map((r) => {
+      const share = topUpMap.get(r.player_id) ?? 0;
+      return {
+        ...r,
+        natural: r.natural + share,
+        // Guarantee top-up only ever reaches prize-zone (arrived,
+        // place <= ratingZoneSize) rows -- distributePhoenixTopUp is called
+        // with exactly that filtered list above -- so folding it into
+        // itm_points here can never turn a non-ITM/non-arrived row's
+        // itm_points positive.
+        itm_points: r.itm_points + share,
+      };
+    });
   }
 
   const finalPool = finalResults.reduce((sum, r) => sum + r.natural, 0);
 
   return {
-    results: finalResults.map((r) => ({ player_id: r.player_id, rating_points: r.natural })),
+    results: finalResults.map((r) => ({
+      player_id: r.player_id,
+      rating_points: r.natural,
+      participation_points: r.participation_points,
+      knockout_points: r.knockout_points,
+      boss_bounty_points: r.boss_bounty_points,
+      mystery_bounty_points: r.mystery_bounty_points,
+      itm_points: r.itm_points,
+    })),
     meta: {
       kind: "phoenix",
       weightedVolume,
@@ -312,8 +374,13 @@ export function calculateRatingPointsForTournament(
   options: CalculateRatingPointsV2Options = {}
 ): { results: RatingPointsV2Result[]; meta: RatingPointsV2Meta | null } {
   if (ratingFormulaVersion === "legacy") {
-    // features/rating.ts::calculateRatingPoints -- UNTOUCHED, byte-for-byte
-    // identical to every historical tournament's original scoring.
+    // features/rating.ts::calculateRatingPoints -- its `rating_points`
+    // arithmetic is untouched (same operations, same operands, same order);
+    // the only change since Rating Breakdown was added is that it also
+    // returns the components that arithmetic is built from, alongside the
+    // total. features/__tests__/rating.test.ts's pre-existing golden values
+    // and features/__tests__/rating-breakdown.test.ts both assert the
+    // returned `rating_points` is numerically identical to before.
     const results = calculateRatingPoints(
       players.map((p) => ({
         player_id: p.player_id,

@@ -24,6 +24,18 @@ export type ResultInsert = {
   mystery_bounty_points?: number;
   addons?: number;
   rating_points: number;
+  // Rating Breakdown (see lib/db/schema/results.ts) -- optional here for the
+  // same reason boss_knockouts/mystery_bounty_points/addons are: every real
+  // write path always provides all five explicitly (features/tournaments.ts),
+  // this is just type-level flexibility matching the rest of this shape, not
+  // a signal that omitting them is a normal case. Nullable columns, so a
+  // caller that genuinely doesn't have a value yet can pass `null` rather
+  // than a guessed number/boolean.
+  arrived?: boolean | null;
+  participation_points?: number | null;
+  knockout_points?: number | null;
+  boss_bounty_points?: number | null;
+  itm_points?: number | null;
 };
 
 export type RatingPointsRow = {

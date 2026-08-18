@@ -110,6 +110,13 @@ export type TournamentResultInput = {
   mystery_bounty_points?: number;
   addons?: number;
   rating_points: number;
+  // Rating Breakdown -- see lib/repositories/result/ResultRepository.ts's
+  // ResultInsert for why these stay optional/nullable rather than required.
+  arrived?: boolean | null;
+  participation_points?: number | null;
+  knockout_points?: number | null;
+  boss_bounty_points?: number | null;
+  itm_points?: number | null;
   // Not persisted -- only used to name players in place-validation error
   // messages (lib/tournament-results-validation.ts). Falls back to
   // player_id when omitted.

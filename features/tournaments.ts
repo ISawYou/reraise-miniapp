@@ -846,19 +846,31 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     tournament.rating_formula_version,
     { ratingGuarantee: tournament.rating_guarantee }
   );
-  const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r.rating_points]));
+  const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r]));
 
-  const payload = liveEntries.map((entry) => ({
-    tournament_id: tournamentId,
-    player_id: entry.player_id,
-    season_id: tournamentRow.season_id ?? null,
-    place: entry.place as number,
-    reentries: entry.rebuys,
-    knockouts: entry.knockouts,
-    boss_knockouts: entry.boss_knockouts ?? 0,
-    addons: entry.addons,
-    rating_points: ratingMap.get(entry.player_id) ?? 0,
-  }));
+  const payload = liveEntries.map((entry) => {
+    const rating = ratingMap.get(entry.player_id);
+
+    return {
+      tournament_id: tournamentId,
+      player_id: entry.player_id,
+      season_id: tournamentRow.season_id ?? null,
+      place: entry.place as number,
+      reentries: entry.rebuys,
+      knockouts: entry.knockouts,
+      boss_knockouts: entry.boss_knockouts ?? 0,
+      addons: entry.addons,
+      rating_points: rating?.rating_points ?? 0,
+      // Rating Breakdown -- same calculator call above, threaded straight
+      // through to the insert payload (see ResultInsert's doc comment for
+      // why these stay nullable rather than defaulting to 0/false here).
+      arrived: entry.arrived,
+      participation_points: rating?.participation_points ?? null,
+      knockout_points: rating?.knockout_points ?? null,
+      boss_bounty_points: rating?.boss_bounty_points ?? null,
+      itm_points: rating?.itm_points ?? null,
+    };
+  });
 
   await resultRepository.insertMany(payload);
 
@@ -909,6 +921,14 @@ export async function saveTournamentResults(
     mystery_bounty_points: item.mystery_bounty_points ?? 0,
     addons: item.addons ?? 0,
     rating_points: item.rating_points,
+    // Rating Breakdown -- caller (complete-free route) computes these via
+    // the same calculateRatingPointsForTournament call it already uses for
+    // rating_points; threaded through as-is.
+    arrived: item.arrived ?? null,
+    participation_points: item.participation_points ?? null,
+    knockout_points: item.knockout_points ?? null,
+    boss_bounty_points: item.boss_bounty_points ?? null,
+    itm_points: item.itm_points ?? null,
   }));
 
   await resultRepository.insertMany(payload);

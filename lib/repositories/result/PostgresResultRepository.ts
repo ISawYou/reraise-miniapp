@@ -210,7 +210,12 @@ export class PostgresResultRepository implements ResultRepository {
         ${row.boss_knockouts ?? 0},
         ${row.mystery_bounty_points ?? 0},
         ${row.addons ?? 0},
-        ${row.rating_points}
+        ${row.rating_points},
+        ${row.arrived ?? null},
+        ${row.participation_points ?? null},
+        ${row.knockout_points ?? null},
+        ${row.boss_bounty_points ?? null},
+        ${row.itm_points ?? null}
       )`),
       sql`, `
     );
@@ -226,7 +231,12 @@ export class PostgresResultRepository implements ResultRepository {
         "boss_knockouts",
         "mystery_bounty_points",
         "addons",
-        "rating_points"
+        "rating_points",
+        "arrived",
+        "participation_points",
+        "knockout_points",
+        "boss_bounty_points",
+        "itm_points"
       )
       values ${values}
     `);
