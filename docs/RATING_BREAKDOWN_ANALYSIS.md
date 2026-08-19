@@ -1,7 +1,9 @@
 # Rating Breakdown — анализ и migration plan
 
 **Дата:** 2026-08-18
-**Статус:** schema migration + calculator breakdown + write-path threading реализованы. Production dry-run выполнен успешно против реального VPS Postgres (594/594 rows, 0 аномалий) — см. раздел 6. Реальная запись (backfill `--apply`) НЕ выполнялась, ждёт отдельного явного подтверждения.
+**Статус:** schema migration 0006, application-код и **historical backfill — все выполнены в production**. Commit `c3ae484` (ветка `feature/rating-breakdown`, смёржена в `origin/main` fast-forward'ом от `e158887`) задеплоен и подтверждён живым. Все 594 historical rows теперь имеют заполненный Rating Breakdown; `rating_points` не изменился (checksum до/после backfill идентичен: `sum_rating_points = 17619` в обоих случаях). См. раздел 9.
+
+Важно: этот коммит содержит ТОЛЬКО Rating Breakdown — собран поверх `main` (не поверх `feature/achievements`), чтобы не задеплоить в production ещё не готовую Achievement System (новый Evaluator engine, каталог достижений и т.д.), которая по-прежнему живёт исключительно в `feature/achievements` и намеренно не тронута. См. раздел 8 (ниже) для деталей деплоя.
 
 **Важное уточнение архитектуры (актуализировано в этом раунде):** продакшен этого приложения — VPS + Docker + self-hosted PostgreSQL (`DATABASE_PROVIDER=postgres`). Supabase/Vercel в продакшене больше не используются вообще (более ранняя версия этого документа ошибочно опиралась на переходное состояние из `docs/architecture.md`, где Vercel-деплой ещё оставался на Supabase — по прямому уточнению пользователя это больше не так). Из-за этого исходный dry-run скрипт (`scripts/backfill-rating-breakdown.mjs`, на `@supabase/supabase-js`) физически не может подключиться к продакшену — ему не к чему подключаться. Для реального прогона был написан новый, Postgres-native скрипт — см. раздел 6.
 
@@ -215,15 +217,153 @@ type, existing rating_points, reconstructed components, причина). `--appl
 
 ## 7. Что дальше (не реализовано на этом этапе)
 
-- Production dry-run выполнен и чист (594/594, 0 аномалий, раздел 6) —
-  реальный backfill (`--apply`) технически безопасен, но **не запущен**:
-  ждёт отдельного явного подтверждения пользователя, как и было условлено.
-- После подтверждения — отдельный, явно запрашиваемый write-путь (не эти
-  read-only скрипты) для реальной записи backfill-значений, с повторной
-  проверкой инвариантов перед каждым UPDATE и обновлением только строк,
-  прошедших проверку.
+- Реальный backfill (`--apply`) технически безопасен (доказано dry-run'ами
+  до и после деплоя), но **не запущен**: ждёт отдельного явного
+  подтверждения пользователя, как и было условлено.
+- После подтверждения — тот же `--apply` (preflight, единая транзакция,
+  post-write валидация до COMMIT — уже реализовано и закоммичено), запуск
+  тем же способом, что и dry-run (раздел 6), только без флага dry-run.
 - Только после успешного backfill и post-check — миграция, переводящая 5
   новых колонок в `NOT NULL` (сейчас они nullable намеренно).
 - `ITMEvaluator`/сбор `itm_finishes` — сознательно не реализованы в этом
   PR, ждут доказанной корректности Rating Breakdown (доказана в разделе 6,
   но реализация ITMEvaluator — отдельная, ещё не запрошенная задача).
+
+## 8. Деплой schema + application code в production
+
+Выполнено в этом раунде, по отдельному явному подтверждению пользователя.
+
+### Коммит
+
+`c3ae484` на новой ветке `feature/rating-breakdown`, созданной ОТ `main`
+(коммит `e158887`), а не от `feature/achievements`. Причина: рабочая копия
+изменений жила поверх `feature/achievements`, которая уже содержит
+закоммиченную, ещё не готовую к production Achievement System (новый
+Evaluator engine, каталог достижений и т.д. — по решению пользователя из
+более раннего этапа: "продолжим разработку достижений в отдельной ветке...
+когда закончим, сделаем мердж"). Деплой всей `feature/achievements`
+доставил бы Achievement System в прод как побочный эффект — нарушение
+явного требования "не менять/не деплоить Achievement System" в этом
+раунде. Вместо этого: patch только из 17 Rating-Breakdown-файлов
+(`git diff HEAD` на уже закоммиченном состоянии `feature/achievements`)
+применён поверх свежего worktree на `main` (`git apply`, оба общих файла —
+`ResultRepository.ts`/`PostgresResultRepository.ts` — проверены на
+неперекрывающиеся hunks с уже закоммиченным на achievements-ветке
+`findKnockoutsByPlayerId`), проверен (`tsc`/`lint`/`vitest` — идентичный
+существовавшему baseline, `drizzle-kit generate` → "No schema changes"),
+закоммичен, запушен fast-forward'ом прямо в `origin/main`
+(`e158887..c3ae484`). Локальная `feature/achievements` при этом не
+трогалась — её uncommitted diff остаётся как был, доступен на будущее для
+отдельного мерджа.
+
+### Порядок применения (сознательно migration → dry-run confirm → app code)
+
+GitHub Actions (`.github/workflows/deploy.yml`) триггерится на любой push в
+`main` и автоматически пересобирает/передеплоивает контейнер `app`, но
+**никогда не запускает миграции** — только `docker compose build/up` для
+`app`. Значит push в `main` неизбежно означает почти немедленный передеплой
+кода, который уже ожидает 5 новых колонок в каждом INSERT. Чтобы не
+получить окно, где новый код уже живой, а колонок в БД ещё нет (упавший
+INSERT при завершении любого турнира в этом окне), миграция 0006 применена
+**до** push: смонтирована поверх уже существующего (пересобирать не
+пришлось — `scripts/migrate.mjs` не менялся) образа `re-raise-migrator:latest`
+одноразовым `docker run` (`--network container:re-raise`, `--env-file
+/opt/reraise/.env`, `-v .../lib/db/migrations:/app/lib/db/migrations:ro`),
+результат — `Migrations applied successfully`, БЕЗ `git pull`/пересборки
+`app`. Только после проверки схемы (ниже) выполнен push в `main`.
+
+### Schema post-check (сразу после migration, до push кода)
+
+```
+results columns: ..., arrived, participation_points, knockout_points, boss_bounty_points, itm_points
+migrations applied: 7 -> ids: 1,2,3,4,5,6,7
+counts: {
+  "total_results": 594,
+  "total_tournaments": 42,
+  "all_breakdown_null": 594,
+  "any_breakdown_populated": 0,
+  "negative_rating_points": 0
+}
+rating_points checksum: {"sum_rating_points":"17619","n":594}
+```
+
+Все 5 колонок существуют; миграция 0006 применена ровно один раз (7-я
+запись в `drizzle.__drizzle_migrations`); 594/42 — без изменений;
+breakdown всех 594 строк остался полностью NULL (миграция ничего не
+заполнила); 0 отрицательных `rating_points`. `ALTER TABLE ... ADD COLUMN`
+без `DEFAULT` — чисто метаданная операция в Postgres, физически не может
+переписать существующие строки, так что дополнительный "before/after"
+diff по `rating_points` избыточен: DDL самой миграции (раздел, где
+приведён текст 0006) не содержит ни одного `UPDATE`.
+
+### Application deploy
+
+`git push origin feature/rating-breakdown:main` → GitHub Actions `deploy.yml`
+подхватил `main`, прогнал `checks` (lint + tsc на раннере), затем на VPS:
+`git pull --ff-only`, `docker compose build app`, `docker compose up -d
+--no-deps app`, health-poll, smoke-test `re-raise.ru`. Подтверждено
+независимо (не только по логам workflow, к которому не было доступа из
+этой сессии из-за сетевых ограничений на `gh`/GitHub API): `git rev-parse
+HEAD` на VPS = `c3ae484`, `docker inspect re-raise` — новый image ID,
+`CreatedAt` совпадает с моментом деплоя, `STATUS=running HEALTH=healthy`,
+`GET https://re-raise.ru/api/health` → `{"ok":true}`, `/api/leaderboard` →
+200. `poker-clock-db` (общий Postgres) и остальные контейнеры (`poker-app`,
+`poker-clock`, `spb-poker*`) деплоем не затронуты — workflow трогает только
+сервис `app`.
+
+### Post-deploy dry-run (повторный, после и schema, и app-кода)
+
+```
+total results rows checked:  594
+total tournaments:            42
+legacy formula rows:          516
+v2 formula rows:              78
+successfully reconstructed:   594
+failed / needs manual review: 0
+```
+
+Идентично pre-deploy прогону — за время деплоя новых турниров не
+завершилось, аномалий не появилось.
+
+## 9. Historical backfill (реальный `--apply`, выполнено)
+
+Выполнен по отдельному явному подтверждению пользователя, тем же
+`scripts/backfill-rating-breakdown-postgres.mjs`, той же
+reconstruction-логикой из `scripts/lib/rating-breakdown-reconstruct.mjs` —
+без нового/отдельного write-алгоритма. Запущен как одноразовый `docker run`
+через уже существующий на VPS `re-raise-migrator:latest`, со скриптами,
+смонтированными напрямую из `/opt/reraise/scripts` (уже часть
+задеплоенного `c3ae484`, копировать отдельно не понадобилось).
+
+```
+node scripts/backfill-rating-breakdown-postgres.mjs --apply --all
+```
+
+Preflight (полная read-only реконструкция) внутри самого `--apply`
+повторил проверку по всем 594 строкам заново и совпал с ожидаемым
+baseline — только после этого начались UPDATE. Всё выполнено в ОДНОЙ
+транзакции: 594 UPDATE (только `arrived`/`participation_points`/
+`knockout_points`/`boss_bounty_points`/`itm_points` — `rating_points` и
+`mystery_bounty_points` нигде не установлены в коде), post-write валидация
+до COMMIT — 0 NULL, 0 нарушений инварианта, 0 отрицательных компонентов →
+COMMIT.
+
+### Независимая post-COMMIT проверка (отдельный запрос, отдельное соединение)
+
+```
+до backfill:  total_results=594 total_tournaments=42 sum_rating_points=17619 null_breakdown_rows=594
+после backfill: total_results=594 total_tournaments=42 sum_rating_points=17619 null_breakdown_rows=0
+               invariant_violations=0 negative_components=0
+               arrived_true=594 arrived_false=0
+               itm_positive=197 itm_zero=397
+legacy: total=516 violations=0
+v2:     total=78  violations=0
+```
+
+`sum_rating_points` идентичен до и после (`17619` = `17619`) — прямое
+доказательство, что ни одна историческая `rating_points` не изменилась.
+`total_results`/`total_tournaments` тоже не изменились (594/42) — во время
+backfill новых турниров не завершалось. `arrived_false = 0` по всему
+датасету — реальная особенность этих 594 строк (в `results` есть записи
+только по игрокам, которые фактически участвовали; неявившиеся не создают
+строку `results` в этой модели данных), а не ошибка реконструкции.

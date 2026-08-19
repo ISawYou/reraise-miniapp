@@ -45,4 +45,16 @@ export class SupabaseSeasonRepository implements SeasonRepository {
       throw new Error(error.message);
     }
   }
+
+  async setActive(seasonId: string, isActive: boolean): Promise<void> {
+    const supabase = getSupabaseServer();
+    const { error } = await supabase
+      .from("seasons")
+      .update({ is_active: isActive })
+      .eq("id", seasonId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
 }

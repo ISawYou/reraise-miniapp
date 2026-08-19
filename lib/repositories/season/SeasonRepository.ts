@@ -37,4 +37,10 @@ export interface SeasonRepository {
   // doesn't duplicate or error. Not used by any route/feature today.
   listAll(): Promise<SeasonFullRow[]>;
   create(data: SeasonInsert): Promise<void>;
+  // Narrow, single-purpose write -- season finalization
+  // (features/seasons.ts::closeSeason) is the only caller today. No
+  // schema change: `is_active` already exists, this is the first place
+  // the app itself flips it (previously only ever set by the external
+  // process that manages seasons -- see the module comment above).
+  setActive(seasonId: string, isActive: boolean): Promise<void>;
 }

@@ -7,6 +7,9 @@ import type {
   ResultRepository,
   ResultInsert,
   RatingPointsRow,
+  KnockoutsRow,
+  BossKnockoutsRow,
+  ArrivedPlacementRow,
   ResultHistoryRow,
 } from "./ResultRepository";
 
@@ -45,6 +48,21 @@ export class SupabaseResultRepository implements ResultRepository {
     return count ?? 0;
   }
 
+  async countItmFinishesByPlayerId(playerId: string): Promise<number> {
+    const supabase = getSupabaseServer();
+    const { count, error } = await supabase
+      .from("results")
+      .select("*", { count: "exact", head: true })
+      .eq("player_id", playerId)
+      .gt("itm_points", 0);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return count ?? 0;
+  }
+
   async findWinIdsByPlayerId(playerId: string): Promise<{ id: string }[]> {
     const supabase = getSupabaseServer();
     const { data, error } = await supabase
@@ -74,6 +92,107 @@ export class SupabaseResultRepository implements ResultRepository {
     return (data ?? []).map((row: { rating_points: number | null }) => ({
       player_id: playerId,
       rating_points: row.rating_points,
+    }));
+  }
+
+  async findKnockoutsByPlayerId(playerId: string): Promise<KnockoutsRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("results")
+      .select("knockouts")
+      .eq("player_id", playerId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row: { knockouts: number }) => ({
+      player_id: playerId,
+      knockouts: row.knockouts,
+    }));
+  }
+
+  async findBossKnockoutsByPlayerId(playerId: string): Promise<BossKnockoutsRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("results")
+      .select("boss_knockouts")
+      .eq("player_id", playerId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row: { boss_knockouts: number | null }) => ({
+      player_id: playerId,
+      boss_knockouts: row.boss_knockouts ?? 0,
+    }));
+  }
+
+  async findArrivedTournamentIdsByPlayerId(playerId: string): Promise<{ tournament_id: string }[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("results")
+      .select("tournament_id")
+      .eq("player_id", playerId)
+      .eq("arrived", true);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []) as { tournament_id: string }[];
+  }
+
+  async findArrivedPlacementsByPlayerId(playerId: string): Promise<ArrivedPlacementRow[]> {
+    const supabase = getSupabaseServer();
+
+    // PostgREST has no correlated-subquery equivalent, so this is two
+    // queries + a JS-side join instead of PostgresResultRepository's
+    // single query: (1) the player's own arrived placements, (2) the
+    // arrived field size of every tournament those placements touch,
+    // counted client-side. field_size stays a plain count here too --
+    // the rating-zone formula (getExpectedPrizePlaces) is applied by the
+    // caller, not this repository (see ArrivedPlacementRow).
+    const { data: ownRows, error: ownError } = await supabase
+      .from("results")
+      .select("tournament_id, place")
+      .eq("player_id", playerId)
+      .eq("arrived", true);
+
+    if (ownError) {
+      throw new Error(ownError.message);
+    }
+
+    const placements = (ownRows ?? []) as { tournament_id: string; place: number }[];
+    if (placements.length === 0) {
+      return [];
+    }
+
+    const tournamentIds = Array.from(new Set(placements.map((row) => row.tournament_id)));
+
+    const { data: fieldRows, error: fieldError } = await supabase
+      .from("results")
+      .select("tournament_id")
+      .eq("arrived", true)
+      .in("tournament_id", tournamentIds);
+
+    if (fieldError) {
+      throw new Error(fieldError.message);
+    }
+
+    const fieldSizeByTournament = new Map<string, number>();
+    for (const row of (fieldRows ?? []) as { tournament_id: string }[]) {
+      fieldSizeByTournament.set(
+        row.tournament_id,
+        (fieldSizeByTournament.get(row.tournament_id) ?? 0) + 1
+      );
+    }
+
+    return placements.map((row) => ({
+      tournament_id: row.tournament_id,
+      place: row.place,
+      field_size: fieldSizeByTournament.get(row.tournament_id) ?? 0,
     }));
   }
 

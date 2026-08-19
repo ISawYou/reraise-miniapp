@@ -9,7 +9,7 @@ import {
   resultRepository,
 } from "@/lib/repositories";
 import type { LiveEntryPatch } from "@/lib/repositories";
-import { syncPlayersAchievements } from "@/features/achievements";
+import { syncPlayersAchievementsIfEnabled } from "@/features/achievements";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import type {
@@ -884,7 +884,7 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
   await tournamentRepository.patch(tournamentId, { status: "completed" });
 
   try {
-    await syncPlayersAchievements(playerIds);
+    await syncPlayersAchievementsIfEnabled(playerIds);
   } catch (achievementError) {
     console.error("[completeTournamentFromLiveEntries] Achievement sync failed:", achievementError);
   }
@@ -946,7 +946,7 @@ export async function saveTournamentResults(
 
   if (playerIds.length > 0) {
     try {
-      await syncPlayersAchievements(playerIds);
+      await syncPlayersAchievementsIfEnabled(playerIds);
     } catch (achievementError) {
       console.error("[saveTournamentResults] Achievement sync failed:", achievementError);
     }

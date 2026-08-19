@@ -7,6 +7,7 @@ export async function PATCH(request: NextRequest) {
     const body = (await request.json()) as {
       show_email_link_prompt?: boolean;
       include_admin_activity?: boolean;
+      automatic_achievements_enabled?: boolean;
     };
 
     if (typeof body.show_email_link_prompt === "boolean") {
@@ -17,9 +18,14 @@ export async function PATCH(request: NextRequest) {
       await setAppSetting("include_admin_activity", body.include_admin_activity);
     }
 
+    if (typeof body.automatic_achievements_enabled === "boolean") {
+      await setAppSetting("automatic_achievements_enabled", body.automatic_achievements_enabled);
+    }
+
     if (
       typeof body.show_email_link_prompt !== "boolean" &&
-      typeof body.include_admin_activity !== "boolean"
+      typeof body.include_admin_activity !== "boolean" &&
+      typeof body.automatic_achievements_enabled !== "boolean"
     ) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }

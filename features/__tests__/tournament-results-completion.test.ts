@@ -42,7 +42,7 @@ vi.mock("@/lib/repositories", () => ({
 }));
 
 vi.mock("@/features/achievements", () => ({
-  syncPlayersAchievements: vi.fn().mockResolvedValue(undefined),
+  syncPlayersAchievementsIfEnabled: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { completeTournamentFromLiveEntries, saveTournamentResults } from "@/features/tournaments";

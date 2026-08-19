@@ -43,6 +43,37 @@ export type RatingPointsRow = {
   rating_points: number | null;
 };
 
+// One row per result, mirroring RatingPointsRow's shape — the caller sums
+// these itself (see features/achievements.ts's rating_points handling),
+// not a SQL-side aggregate.
+export type KnockoutsRow = {
+  player_id: string;
+  knockouts: number;
+};
+
+// Boss knockouts only (results.boss_knockouts) -- a separate, non-overlapping
+// counter from ordinary knockouts (see supportsTournamentBossKnockouts /
+// Rating Engine, which already treat these as two distinct input fields, not
+// a subset relationship). Same per-row, caller-sums shape as KnockoutsRow.
+export type BossKnockoutsRow = {
+  player_id: string;
+  boss_knockouts: number;
+};
+
+// Marco Reus ("bubble"): the player's own place plus the arrived field
+// size of that SAME tournament, for every tournament they attended.
+// Deliberately data-only — field_size is a plain count (arrived = true
+// rows for that tournament_id), not the rating-zone size itself. Turning
+// field_size into a rating-zone boundary is business logic
+// (getExpectedPrizePlaces, lib/tournament-helpers.ts) and stays in
+// features/achievements.ts, not here — this type only carries the raw
+// inputs that formula needs.
+export type ArrivedPlacementRow = {
+  tournament_id: string;
+  place: number;
+  field_size: number;
+};
+
 // Mirrors getMyTournamentHistory's exact embedded select — the raw
 // TournamentRow embed, not yet mapped to the Tournament domain type (that
 // mapping is Tournament's, done by the caller).
@@ -59,6 +90,13 @@ export type ResultHistoryRow = {
 
 export interface ResultRepository {
   countByPlayerId(playerId: string): Promise<number>;
+  // ITM ("in the money") is defined exclusively as itm_points > 0 (see
+  // docs/RATING_BREAKDOWN_ANALYSIS.md) -- a plain count, not row-fetching,
+  // since callers (features/achievements.ts) only ever need the number.
+  // itm_points = 0 and itm_points IS NULL (not yet backfilled) both
+  // correctly fall outside "> 0" by ordinary SQL comparison semantics, no
+  // extra NULL-handling needed at the call site.
+  countItmFinishesByPlayerId(playerId: string): Promise<number>;
   // Mirrors getPlayerAchievementStats' "wins" query: select("id") where
   // place=1, returned as-is so the caller keeps doing `.length` exactly
   // like before (not converted to a count query — that would be a
@@ -67,6 +105,18 @@ export interface ResultRepository {
   findRatingPointsByPlayerId(playerId: string): Promise<RatingPointsRow[]>;
   findRatingPointsByTournamentId(tournamentId: string): Promise<RatingPointsRow[]>;
   findRatingPointsBySeasonId(seasonId: string): Promise<RatingPointsRow[]>;
+  findKnockoutsByPlayerId(playerId: string): Promise<KnockoutsRow[]>;
+  findBossKnockoutsByPlayerId(playerId: string): Promise<BossKnockoutsRow[]>;
+  // Tournament Streak: which completed tournaments this player actually
+  // arrived to (arrived = true, per Rating Breakdown -- see
+  // docs/RATING_BREAKDOWN_ANALYSIS.md), as a flat id list. The caller
+  // (features/achievements.ts) cross-references this against
+  // tournamentRepository.listCompleted()'s chronological order -- this
+  // method only answers "did this player attend tournament X", not
+  // ordering, which is TournamentRepository's job.
+  findArrivedTournamentIdsByPlayerId(playerId: string): Promise<{ tournament_id: string }[]>;
+  // Marco Reus — see ArrivedPlacementRow above.
+  findArrivedPlacementsByPlayerId(playerId: string): Promise<ArrivedPlacementRow[]>;
 
   findByTournamentIdWithPlayer(tournamentId: string): Promise<TournamentResult[]>;
   findWithPlayerBySeasonId(seasonId: string): Promise<

@@ -7,7 +7,7 @@ vi.mock('@/lib/supabase', () => ({
 }));
 
 vi.mock('@/features/achievements', () => ({
-  syncPlayersAchievements: vi.fn().mockResolvedValue(undefined),
+  syncPlayersAchievementsIfEnabled: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { removeAdminTournamentParticipant } from '@/features/tournaments';

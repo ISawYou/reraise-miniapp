@@ -1,10 +1,18 @@
 import "server-only";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { players, results, tournaments } from "@/lib/db/schema";
 import type { TournamentResult } from "@/types/domain";
-import type { ResultRepository, ResultInsert, RatingPointsRow, ResultHistoryRow } from "./ResultRepository";
+import type {
+  ResultRepository,
+  ResultInsert,
+  RatingPointsRow,
+  KnockoutsRow,
+  BossKnockoutsRow,
+  ArrivedPlacementRow,
+  ResultHistoryRow,
+} from "./ResultRepository";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -34,6 +42,14 @@ export class PostgresResultRepository implements ResultRepository {
     return rows[0]?.count ?? 0;
   }
 
+  async countItmFinishesByPlayerId(playerId: string): Promise<number> {
+    const rows = await db
+      .select({ count: sql`count(*)`.mapWith(Number) })
+      .from(results)
+      .where(and(eq(results.playerId, playerId), gt(results.itmPoints, 0)));
+    return rows[0]?.count ?? 0;
+  }
+
   async findWinIdsByPlayerId(playerId: string): Promise<{ id: string }[]> {
     return db
       .select({ id: results.id })
@@ -49,6 +65,49 @@ export class PostgresResultRepository implements ResultRepository {
     // Matches SupabaseResultRepository exactly: player_id comes from the
     // input parameter, not a selected column.
     return rows.map((row) => ({ player_id: playerId, rating_points: row.rating_points }));
+  }
+
+  async findKnockoutsByPlayerId(playerId: string): Promise<KnockoutsRow[]> {
+    const rows = await db
+      .select({ knockouts: results.knockouts })
+      .from(results)
+      .where(eq(results.playerId, playerId));
+    // Matches findRatingPointsByPlayerId exactly: player_id comes from the
+    // input parameter, not a selected column.
+    return rows.map((row) => ({ player_id: playerId, knockouts: row.knockouts }));
+  }
+
+  async findBossKnockoutsByPlayerId(playerId: string): Promise<BossKnockoutsRow[]> {
+    const rows = await db
+      .select({ boss_knockouts: results.bossKnockouts })
+      .from(results)
+      .where(eq(results.playerId, playerId));
+    return rows.map((row) => ({ player_id: playerId, boss_knockouts: row.boss_knockouts }));
+  }
+
+  async findArrivedTournamentIdsByPlayerId(playerId: string): Promise<{ tournament_id: string }[]> {
+    return db
+      .select({ tournament_id: results.tournamentId })
+      .from(results)
+      .where(and(eq(results.playerId, playerId), eq(results.arrived, true)));
+  }
+
+  async findArrivedPlacementsByPlayerId(playerId: string): Promise<ArrivedPlacementRow[]> {
+    // field_size: correlated subquery, count of arrived=true rows for the
+    // SAME tournament as the outer row -- deliberately a plain count, not
+    // the rating-zone size itself (that's business logic, computed by the
+    // caller via getExpectedPrizePlaces -- see ArrivedPlacementRow).
+    return db
+      .select({
+        tournament_id: results.tournamentId,
+        place: results.place,
+        field_size: sql<number>`(
+          select count(*)::int from "results" as r2
+          where r2.tournament_id = ${results.tournamentId} and r2.arrived = true
+        )`,
+      })
+      .from(results)
+      .where(and(eq(results.playerId, playerId), eq(results.arrived, true)));
   }
 
   async findRatingPointsByTournamentId(tournamentId: string): Promise<RatingPointsRow[]> {

@@ -48,4 +48,8 @@ export class PostgresSeasonRepository implements SeasonRepository {
       })
       .onConflictDoNothing({ target: seasons.id });
   }
+
+  async setActive(seasonId: string, isActive: boolean): Promise<void> {
+    await db.update(seasons).set({ isActive }).where(eq(seasons.id, seasonId));
+  }
 }
