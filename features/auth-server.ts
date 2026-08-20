@@ -1,6 +1,7 @@
 import "server-only";
 
 import { playerRepository } from "@/lib/repositories";
+import { verifySession } from "@/lib/telegram-web-session";
 import type { Player } from "@/types/domain";
 
 function normalizeEmail(email: string): string {
@@ -17,6 +18,14 @@ export async function getPlayerByIdServer(playerId: string): Promise<Player | nu
   } catch (err) {
     throw new Error(`Failed to fetch player by id: ${errorMessage(err)}`);
   }
+}
+
+export async function getPlayerFromSessionServer(
+  sessionValue: string | undefined,
+): Promise<Player | null> {
+  if (!sessionValue) return null;
+  const playerId = verifySession(sessionValue);
+  return playerId ? getPlayerByIdServer(playerId) : null;
 }
 
 export async function getPlayerByEmailServer(email: string): Promise<Player | null> {

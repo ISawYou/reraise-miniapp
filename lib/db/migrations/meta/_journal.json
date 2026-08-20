@@ -50,6 +50,13 @@
       "when": 1787058018503,
       "tag": "0006_rating_breakdown",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787228726499,
+      "tag": "0007_odd_annihilus",
+      "breakpoints": true
     }
   ]
 }
