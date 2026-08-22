@@ -12,3 +12,4 @@ export * from "./appSettings";
 export * from "./academyProgress";
 export * from "./clubActivityEvents";
 export * from "./achievementVisualConfigs";
+export * from "./playerFeaturedAchievements";
