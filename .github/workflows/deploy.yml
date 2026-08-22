@@ -58,6 +58,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # `${{ secrets.X }}` for a secret that was never configured silently
+      # resolves to an empty string -- it does NOT fail the workflow. Left
+      # unchecked, a missing secret here means "successfully" building and
+      # pushing a production image with blank NEXT_PUBLIC_* values baked
+      # into the client bundle, which only surfaces later as a broken site.
+      # Fail loudly before any build/push work happens instead.
+      - name: Verify required build secrets are present
+        run: |
+          set -Eeuo pipefail
+          missing=""
+          [ -z "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" ] && missing="$missing NEXT_PUBLIC_SUPABASE_URL"
+          [ -z "${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" ] && missing="$missing NEXT_PUBLIC_SUPABASE_ANON_KEY"
+          [ -z "${{ secrets.NEXT_PUBLIC_TELEGRAM_BOT_ID }}" ] && missing="$missing NEXT_PUBLIC_TELEGRAM_BOT_ID"
+          [ -z "${{ secrets.NEXT_PUBLIC_APP_URL }}" ] && missing="$missing NEXT_PUBLIC_APP_URL"
+          if [ -n "$missing" ]; then
+            echo "Missing required repository secrets:$missing" >&2
+            exit 1
+          fi
+          echo "All required build secrets are present."
+
       # The runner's default buildx builder uses the "docker" driver,
       # which can't export to the GitHub Actions cache backend
       # (cache-to/cache-from: type=gha below) -- only the "docker-container"
