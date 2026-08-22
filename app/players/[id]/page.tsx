@@ -19,6 +19,14 @@ import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { getTelegramWebApp } from "@/lib/telegram";
 import { logEvent } from "@/lib/activity-client";
+import { AchievementVisual } from "@/components/achievements/achievement-visual";
+import type { AchievementVisualConfig } from "@/config/achievement-visuals";
+import {
+  buildAchievementDisplayModel,
+  getEarnedFeaturedOptions,
+  resolveFeaturedAchievements,
+  type AchievementProgressRow,
+} from "@/lib/achievement-display";
 import type {
   Player,
   RegistrationStatus,
@@ -186,7 +194,12 @@ export default function PlayerProfilePage() {
   const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
-  const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
+  const [achievementRows, setAchievementRows] = useState<AchievementProgressRow[]>([]);
+  const [achievementVisuals, setAchievementVisuals] = useState<Record<string, AchievementVisualConfig>>({});
+  const [featuredKeys, setFeaturedKeys] = useState<string[]>([]);
+  const [featuredDraft, setFeaturedDraft] = useState<string[]>([]);
+  const [showFeaturedEditor, setShowFeaturedEditor] = useState(false);
+  const [featuredSaving, setFeaturedSaving] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -209,6 +222,8 @@ export default function PlayerProfilePage() {
           myTournaments,
           achievementRows,
           counts,
+          visualsData,
+          featuredData,
         ] = await Promise.all([
           ensuredViewer?.id === playerId
             ? Promise.resolve(ensuredViewer)
@@ -219,6 +234,8 @@ export default function PlayerProfilePage() {
           getMyTournaments(playerId),
           fetch(`/api/players/${playerId}/achievements`).then((r) => r.ok ? r.json() : []),
           getTournamentRegistrationCounts(),
+          fetch("/api/achievement-visuals").then((r) => r.json()),
+          fetch(`/api/players/${playerId}/featured-achievements`).then((r) => r.ok ? r.json() : { keys: [] }),
         ]);
 
         if (!playerData) {
@@ -249,11 +266,9 @@ export default function PlayerProfilePage() {
             )
         );
         setRegistrationCounts(counts);
-        setCompletedAchievementsCount(
-          achievementRows.filter(
-            (row: { completed_at: string | null }) => row.completed_at
-          ).length
-        );
+        setAchievementRows(achievementRows);
+        setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
+        setFeaturedKeys(featuredData.keys ?? []);
         logEvent("profile_opened", { metadata: { target_player_id: playerId } });
       } catch (err) {
         setError(
@@ -274,10 +289,33 @@ export default function PlayerProfilePage() {
     (sum, item) => sum + (item.result.knockouts ?? 0),
     0
   );
-  const achievementsProgressPercent = Math.round(
-    (completedAchievementsCount / 5) * 100
-  );
+  const achievementModel = buildAchievementDisplayModel(achievementRows);
+  const earnedFeaturedOptions = getEarnedFeaturedOptions(achievementRows);
+  const featuredAchievements = resolveFeaturedAchievements(achievementRows, featuredKeys);
+  const earnedFamiliesCount = achievementModel.families.filter((card) => card.currentTier).length;
+  const earnedLegendaryCount = achievementModel.legendary.filter((card) => card.earned).length;
   const showTournamentKindTags = false;
+
+  async function saveFeaturedAchievements() {
+    if (!player) return;
+    setFeaturedSaving(true);
+    try {
+      const response = await fetch(`/api/players/${player.id}/featured-achievements`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keys: featuredDraft }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Не удалось сохранить");
+      setFeaturedKeys(data.keys);
+      setShowFeaturedEditor(false);
+    } catch (error) {
+      setAvatarError(error instanceof Error ? error.message : "Не удалось сохранить достижения");
+    } finally {
+      setFeaturedSaving(false);
+    }
+  }
 
   function getStatusText(status: RegistrationStatus) {
     if (status === "registered") {
@@ -500,6 +538,19 @@ export default function PlayerProfilePage() {
                 </span>
               </div>
             ) : null}
+
+            {featuredAchievements.length > 0 || isOwnProfile ? (
+              <div className="mt-3 flex items-center gap-2">
+                {featuredAchievements.map((item) => (
+                  <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-11 w-11" />
+                ))}
+                {isOwnProfile ? (
+                  <button type="button" onClick={() => { setFeaturedDraft(featuredKeys); setShowFeaturedEditor(true); }} className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs text-white/65">
+                    Изменить достижения
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -583,23 +634,21 @@ export default function PlayerProfilePage() {
             href={`/players/${player.id}/achievements`}
             className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"
           >
-            <p className="text-2xl font-semibold text-white">Достижения</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xl font-semibold text-white">Достижения</p>
+              <ArrowRightIcon />
+            </div>
 
-            <div className="mt-5 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80">
-                <TrophyIcon />
+            <div className="mt-4 flex items-center justify-between gap-4">
+              <div className="flex -space-x-2">
+                {[...achievementModel.families.filter((card) => card.currentTier), ...achievementModel.legendary.filter((card) => card.earned)].slice(0, 4).map((card) => (
+                  <AchievementVisual key={"family" in card ? card.family : card.code} visualKey={card.visualKey} tier={"currentTier" in card ? card.currentTier : null} configs={achievementVisuals} className="h-12 w-12 rounded-full bg-[#0b100d]" />
+                ))}
+                {earnedFamiliesCount + earnedLegendaryCount === 0 ? <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.07] text-white/60"><TrophyIcon /></div> : null}
               </div>
-
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-white/70">
-                  {completedAchievementsCount}/5
-                </p>
-                <div className="mt-2 h-2 rounded-full bg-white/[0.08]">
-                  <div
-                    className="h-2 rounded-full bg-white"
-                    style={{ width: `${achievementsProgressPercent}%` }}
-                  />
-                </div>
+              <div className="text-right text-xs text-white/50">
+                <p>{earnedFamiliesCount + earnedLegendaryCount} из 12 открыто</p>
+                <p className="mt-1">Legendary {earnedLegendaryCount}/4</p>
               </div>
             </div>
           </Link>
@@ -739,6 +788,33 @@ export default function PlayerProfilePage() {
           )}
         </section>
       </div>
+
+      {showFeaturedEditor && isOwnProfile ? (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/70" onClick={() => setShowFeaturedEditor(false)}>
+          <section className="w-full rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] backdrop-blur-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto max-w-md">
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
+              <h2 className="text-xl font-semibold">Любимые достижения</h2>
+              <p className="mt-1 text-sm text-white/50">Выберите до трёх полученных достижений</p>
+              <div className="mt-4 grid max-h-[48vh] grid-cols-2 gap-2 overflow-y-auto">
+                {earnedFeaturedOptions.map((item) => {
+                  const selected = featuredDraft.includes(item.key);
+                  return (
+                    <button key={item.key} type="button" onClick={() => setFeaturedDraft((current) => selected ? current.filter((key) => key !== item.key) : current.length < 3 ? [...current, item.key] : current)} className={`flex min-w-0 items-center gap-2 rounded-2xl border p-2 text-left ${selected ? "border-[#d5b867]/50 bg-[#d5b867]/10" : "border-white/10 bg-white/[0.04]"}`}>
+                      <AchievementVisual visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-12 w-12 shrink-0" />
+                      <span className="truncate text-sm">{item.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-5 flex gap-2">
+                <button type="button" onClick={() => setShowFeaturedEditor(false)} className="flex-1 rounded-2xl border border-white/10 py-3 text-sm text-white/65">Отмена</button>
+                <button type="button" disabled={featuredSaving} onClick={() => void saveFeaturedAchievements()} className="flex-1 rounded-2xl bg-[#d5b867] py-3 text-sm font-semibold text-black disabled:opacity-50">{featuredSaving ? "Сохраняем..." : `Сохранить (${featuredDraft.length}/3)`}</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

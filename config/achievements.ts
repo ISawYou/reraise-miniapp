@@ -172,45 +172,53 @@ export const ACHIEVEMENT_FAMILIES = {
     name: "В игре",
     visualKey: ACHIEVEMENT_VISUAL_KEY.IN_GAME,
     unit: "турниров",
+    description: "Чем чаще ты садишься за стол RERAISE, тем выше уровень достижения.",
   },
   [ACHIEVEMENT_FAMILY.TRIUMPHATOR]: {
     name: "Триумфатор",
     visualKey: ACHIEVEMENT_VISUAL_KEY.TRIUMPHATOR,
     unit: "побед",
+    description: "Побеждай в турнирах RERAISE и поднимай уровень Триумфатора.",
   },
   [ACHIEVEMENT_FAMILY.PLAYER_PATH]: {
     name: "Путь игрока",
     visualKey: ACHIEVEMENT_VISUAL_KEY.PLAYER_PATH,
     unit: "очков",
+    description: "Набирай рейтинговые очки на протяжении всей истории игры в клубе.",
   },
   [ACHIEVEMENT_FAMILY.ITM]: {
     name: "ITM",
     visualKey: ACHIEVEMENT_VISUAL_KEY.ITM,
     unit: "попаданий",
+    description: "Стабильно добирайся до рейтинговой зоны турниров.",
   },
   [ACHIEVEMENT_FAMILY.COMMUNITY]: {
     name: "Своя тусовка",
     visualKey: ACHIEVEMENT_VISUAL_KEY.COMMUNITY,
     unit: "друзей",
+    description: "Приглашай друзей в RERAISE и развивай клубное комьюнити.",
   },
   [ACHIEVEMENT_FAMILY.TERMINATOR]: {
     name: "Terminator",
     visualKey: ACHIEVEMENT_VISUAL_KEY.TERMINATOR,
     unit: "нокаутов",
+    description: "Выбивай соперников из турниров. Учитываются обычные нокауты.",
   },
   [ACHIEVEMENT_FAMILY.BOSS_HUNTER]: {
     name: "Boss Hunter",
     visualKey: ACHIEVEMENT_VISUAL_KEY.BOSS_HUNTER,
     unit: "Boss-нокаутов",
+    description: "Охоться на игроков со статусом Boss и собирай особые нокауты.",
   },
   [ACHIEVEMENT_FAMILY.STREAK]: {
     name: "Streak",
     visualKey: ACHIEVEMENT_VISUAL_KEY.STREAK,
     unit: "турниров подряд",
+    description: "Не пропускай турниры клуба и собирай серии участий.",
   },
 } as const satisfies Record<
   AchievementFamily,
-  { name: string; visualKey: AchievementVisualKey; unit: string }
+  { name: string; visualKey: AchievementVisualKey; unit: string; description: string }
 >;
 
 // Reserved for a future reward system (e.g. cosmetic unlocks, bonus

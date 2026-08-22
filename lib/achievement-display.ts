@@ -20,6 +20,7 @@ export type TieredAchievementCard = {
   name: string;
   visualKey: AchievementVisualKey;
   unit: string;
+  description: string;
   currentValue: number;
   currentTier: AchievementTierLevel | null;
   currentTierLabel: string | null;
@@ -27,7 +28,15 @@ export type TieredAchievementCard = {
   nextTierLabel: string | null;
   nextTarget: number | null;
   maxLevel: boolean;
-  tiers: Array<{ tier: AchievementTierLevel; earned: boolean; target: number }>;
+  tiers: Array<{
+    code: string;
+    tier: AchievementTierLevel;
+    name: string;
+    description: string;
+    earned: boolean;
+    target: number;
+    completedAt: string | null;
+  }>;
 };
 
 export type LegendaryAchievementCard = {
@@ -37,6 +46,7 @@ export type LegendaryAchievementCard = {
   visualKey: AchievementVisualKey;
   earned: boolean;
   hidden: boolean;
+  completedAt: string | null;
 };
 
 const TIER_ORDER: AchievementTierLevel[] = [
@@ -88,6 +98,7 @@ export function buildAchievementDisplayModel(rows: AchievementProgressRow[]) {
         name: metadata.name,
         visualKey: metadata.visualKey,
         unit: metadata.unit,
+        description: metadata.description,
         currentValue,
         currentTier: currentDefinition?.tier ?? null,
         currentTierLabel: currentDefinition
@@ -104,9 +115,13 @@ export function buildAchievementDisplayModel(rows: AchievementProgressRow[]) {
         nextTarget: nextDefinition?.target ?? null,
         maxLevel: currentDefinition?.tier === ACHIEVEMENT_TIER.PLATINUM,
         tiers: definitions.map((definition) => ({
+          code: definition.code,
           tier: definition.tier!,
+          name: definition.name,
+          description: definition.description,
           target: definition.target!,
           earned: progress.get(definition.code)?.completed_at != null,
+          completedAt: progress.get(definition.code)?.completed_at ?? null,
         })),
       };
     },
@@ -126,8 +141,50 @@ export function buildAchievementDisplayModel(rows: AchievementProgressRow[]) {
       visualKey: definition.visualKey!,
       earned,
       hidden: definition.hidden === true,
+      completedAt: progress.get(definition.code)?.completed_at ?? null,
     };
   });
 
   return { families, legendary };
+}
+
+export type FeaturedAchievementKey = AchievementFamily | string;
+
+export function getEarnedFeaturedOptions(rows: AchievementProgressRow[]) {
+  const model = buildAchievementDisplayModel(rows);
+  return [
+    ...model.families.filter((card) => card.currentTier).map((card) => ({
+      key: card.family,
+      name: card.name,
+      visualKey: card.visualKey,
+      tier: card.currentTier,
+    })),
+    ...model.legendary.filter((card) => card.earned).map((card) => ({
+      key: card.code,
+      name: card.name,
+      visualKey: card.visualKey,
+      tier: null,
+    })),
+  ];
+}
+
+export function resolveFeaturedAchievements(
+  rows: AchievementProgressRow[],
+  selectedKeys: string[],
+) {
+  const earned = new Map(getEarnedFeaturedOptions(rows).map((item) => [item.key, item]));
+  return selectedKeys.map((key) => earned.get(key)).filter((item) => item != null);
+}
+
+export function validateFeaturedAchievementKeys(
+  rows: AchievementProgressRow[],
+  selectedKeys: string[],
+): string[] {
+  const unique = [...new Set(selectedKeys)];
+  if (unique.length > 3) throw new Error("Можно выбрать не больше трёх достижений");
+  const earnedKeys = new Set(getEarnedFeaturedOptions(rows).map(({ key }) => key));
+  if (unique.some((key) => !earnedKeys.has(key))) {
+    throw new Error("Можно выбрать только полученные достижения");
+  }
+  return unique;
 }

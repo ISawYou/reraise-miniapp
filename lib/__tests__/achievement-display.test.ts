@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildAchievementDisplayModel } from "@/lib/achievement-display";
+import {
+  buildAchievementDisplayModel,
+  resolveFeaturedAchievements,
+  validateFeaturedAchievementKeys,
+} from "@/lib/achievement-display";
 import { ACHIEVEMENTS_CATALOG } from "@/config/achievements";
 
 describe("achievement display model", () => {
@@ -67,5 +71,29 @@ describe("achievement display model", () => {
     expect(locked.description).not.toMatch(/Роял/i);
     expect(unlocked.name).toBe("Royal Flush");
     expect(unlocked.earned).toBe(true);
+  });
+
+  it("accepts at most three earned featured achievements", () => {
+    const rows = [
+      { achievement_code: "first_tournament", current_value: 1, completed_at: "1" },
+      { achievement_code: "first_win", current_value: 1, completed_at: "2" },
+      { achievement_code: "first_itm", current_value: 1, completed_at: "3" },
+    ];
+    expect(validateFeaturedAchievementKeys(rows, ["in_game", "triumphator", "itm"]))
+      .toEqual(["in_game", "triumphator", "itm"]);
+    expect(() => validateFeaturedAchievementKeys(rows, ["in_game", "triumphator", "itm", "community"]))
+      .toThrow(/трёх/);
+    expect(() => validateFeaturedAchievementKeys(rows, ["community"])).toThrow();
+  });
+
+  it("resolves a selected family to its current earned tier", () => {
+    const rows = [
+      { achievement_code: "first_tournament", current_value: 1, completed_at: "1" },
+      { achievement_code: "ten_tournaments", current_value: 10, completed_at: "2" },
+    ];
+    const [selected] = resolveFeaturedAchievements(rows, ["in_game"]);
+    expect(selected).toMatchObject({ key: "in_game", tier: "silver" });
+    const family = buildAchievementDisplayModel(rows).families.find((card) => card.family === "in_game");
+    expect(family?.tiers[1]).toMatchObject({ tier: "silver", completedAt: "2", earned: true });
   });
 });

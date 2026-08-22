@@ -25,3 +25,4 @@ export * from "./academy-progress";
 export * from "./club-activity";
 export * from "./achievement-visual";
 export * from "./achievement-asset-storage";
+export * from "./featured-achievement";

@@ -15,6 +15,10 @@ import {
   getDefaultAchievementVisual,
   type AchievementVisualConfig,
 } from "@/config/achievement-visuals";
+import { buildAchievementDisplayModel, type AchievementProgressRow } from "@/lib/achievement-display";
+
+type PlayerOption = { id: string; display_name: string; username: string | null };
+type ManualAchievement = { code: string; name: string; description: string; granted: boolean; completed_at: string | null };
 
 type ResyncReport = {
   mode: "dry-run" | "apply";
@@ -50,6 +54,11 @@ export default function AdminAchievementsPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [report, setReport] = useState<ResyncReport | null>(null);
+  const [players, setPlayers] = useState<PlayerOption[]>([]);
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerOption | null>(null);
+  const [playerProgress, setPlayerProgress] = useState<AchievementProgressRow[]>([]);
+  const [manualAchievements, setManualAchievements] = useState<ManualAchievement[]>([]);
 
   async function loadVisuals() {
     const response = await fetch("/api/admin/achievements/visuals");
@@ -61,9 +70,32 @@ export default function AdminAchievementsPage() {
 
   useEffect(() => {
     void loadVisuals().catch((error) => setMessage(String(error)));
+    void fetch("/api/admin/players").then((response) => response.json()).then((data) => setPlayers(data.players ?? []));
     // Initial load only; selection updates draft separately below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function openPlayer(player: PlayerOption) {
+    setSelectedPlayer(player);
+    const [progressResponse, manualResponse] = await Promise.all([
+      fetch(`/api/players/${player.id}/achievements`),
+      fetch(`/api/admin/achievements/manual?playerId=${player.id}`),
+    ]);
+    setPlayerProgress(await progressResponse.json());
+    setManualAchievements((await manualResponse.json()).achievements ?? []);
+  }
+
+  async function updateManual(code: string, grant: boolean) {
+    if (!selectedPlayer || !window.confirm(`${grant ? "Выдать" : "Отозвать"} достижение?`)) return;
+    const response = await fetch("/api/admin/achievements/manual", {
+      method: grant ? "POST" : "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerId: selectedPlayer.id, code }),
+    });
+    const data = await response.json();
+    if (!response.ok) { setMessage(data.error ?? "Ошибка"); return; }
+    await openPlayer(selectedPlayer);
+  }
 
   function selectVisual(key: AchievementAssetKey) {
     setSelectedKey(key);
@@ -132,6 +164,8 @@ export default function AdminAchievementsPage() {
   const isFrame = (FRAME_KEYS as readonly string[]).includes(selectedKey);
   const previewConfigs = { ...configs, [selectedKey]: draft };
   const selectedCentral = CENTRAL_ITEMS.find((item) => item.key === selectedKey);
+  const filteredPlayers = players.filter((player) => `${player.display_name} ${player.username ?? ""}`.toLowerCase().includes(playerSearch.toLowerCase())).slice(0, 12);
+  const selectedPlayerModel = buildAchievementDisplayModel(playerProgress);
 
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
@@ -140,6 +174,23 @@ export default function AdminAchievementsPage() {
         <h1 className="mt-5 text-3xl font-bold">Достижения</h1>
 
         <section className="mt-7 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+          <h2 className="text-xl font-semibold">Достижения игроков</h2>
+          <input value={playerSearch} onChange={(event) => setPlayerSearch(event.target.value)} placeholder="Найти игрока" className="mt-3 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" />
+          {playerSearch && !selectedPlayer ? <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-1">{filteredPlayers.map((player) => <button key={player.id} type="button" onClick={() => void openPlayer(player)} className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-white/5">{player.display_name}{player.username ? ` · @${player.username}` : ""}</button>)}</div> : null}
+          {selectedPlayer ? (
+            <div className="mt-4">
+              <div className="flex items-center justify-between"><p className="font-semibold">{selectedPlayer.display_name}</p><button type="button" onClick={() => setSelectedPlayer(null)} className="text-xs text-white/50">Сменить</button></div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                {selectedPlayerModel.families.map((card) => <div key={card.family} className="rounded-xl bg-white/[0.04] p-2"><p>{card.name}</p><p className="mt-1 text-white/45">{card.currentValue} · {card.currentTierLabel ?? "не получено"}</p></div>)}
+              </div>
+              <div className="mt-4 space-y-2">
+                {manualAchievements.map((achievement) => <div key={achievement.code} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 p-3"><div><p className="text-sm font-medium">{achievement.name}</p><p className="mt-1 text-xs text-white/45">{achievement.granted ? "Получено" : "Не получено"}</p></div><button type="button" onClick={() => void updateManual(achievement.code, !achievement.granted)} className={`rounded-xl px-3 py-2 text-xs font-semibold ${achievement.granted ? "border border-red-300/20 text-red-200" : "bg-[#d5b867] text-black"}`}>{achievement.granted ? "Отозвать" : "Выдать"}</button></div>)}
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="mt-5 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
           <h2 className="text-xl font-semibold">Visuals</h2>
           <p className="mt-1 text-sm text-white/45">Единый preview для приложения и редактора</p>
 

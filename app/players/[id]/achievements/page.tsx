@@ -9,6 +9,8 @@ import {
   buildAchievementDisplayModel,
   TIER_LABELS,
   type AchievementProgressRow,
+  type LegendaryAchievementCard,
+  type TieredAchievementCard,
 } from "@/lib/achievement-display";
 
 export default function PlayerAchievementsPage() {
@@ -17,6 +19,11 @@ export default function PlayerAchievementsPage() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<AchievementProgressRow[]>([]);
   const [configs, setConfigs] = useState<Record<string, AchievementVisualConfig>>({});
+  const [detail, setDetail] = useState<
+    { kind: "family"; card: TieredAchievementCard }
+    | { kind: "legendary"; card: LegendaryAchievementCard }
+    | null
+  >(null);
 
   useEffect(() => {
     async function load() {
@@ -69,7 +76,7 @@ export default function PlayerAchievementsPage() {
                     ? 100
                     : Math.min(100, Math.round((card.currentValue / target) * 100));
                   return (
-                    <article key={card.family} className="rounded-3xl border border-white/10 bg-[#0d120f]/90 p-3.5">
+                    <button type="button" onClick={() => setDetail({ kind: "family", card })} key={card.family} className="rounded-3xl border border-white/10 bg-[#0d120f]/90 p-3.5 text-left">
                       <AchievementVisual
                         visualKey={card.visualKey}
                         tier={card.currentTier ?? card.nextTier ?? "bronze"}
@@ -100,7 +107,7 @@ export default function PlayerAchievementsPage() {
                           />
                         ))}
                       </div>
-                    </article>
+                    </button>
                   );
                 })}
               </div>
@@ -112,7 +119,7 @@ export default function PlayerAchievementsPage() {
               </h2>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 {model.legendary.map((card) => (
-                  <article key={card.code} className="rounded-3xl border border-white/10 bg-[#0d120f]/90 p-3.5">
+                  <button type="button" onClick={() => setDetail({ kind: "legendary", card })} key={card.code} className="rounded-3xl border border-white/10 bg-[#0d120f]/90 p-3.5 text-left">
                     <AchievementVisual
                       visualKey={card.visualKey}
                       configs={configs}
@@ -124,13 +131,60 @@ export default function PlayerAchievementsPage() {
                     <p className={`mt-2 text-[11px] font-semibold ${card.earned ? "text-[#d5b867]" : "text-white/30"}`}>
                       {card.earned ? "Получено" : "Заблокировано"}
                     </p>
-                  </article>
+                  </button>
                 ))}
               </div>
             </section>
           </>
         )}
       </div>
+
+      {detail ? (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/70" onClick={() => setDetail(null)}>
+          <section className="max-h-[86vh] w-full overflow-y-auto rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] shadow-2xl backdrop-blur-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
+            <div className="mx-auto max-w-md">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold">{detail.card.name}</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-white/55">{detail.card.description}</p>
+                </div>
+                <button type="button" onClick={() => setDetail(null)} className="rounded-full bg-white/10 px-3 py-1.5 text-sm text-white/70">Закрыть</button>
+              </div>
+
+              {detail.kind === "family" ? (
+                <>
+                  <p className="mt-4 text-sm text-white/70">Текущий результат: {detail.card.currentValue} {detail.card.unit}</p>
+                  <div className="mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2">
+                    {detail.card.tiers.map((tier) => {
+                      const status = tier.earned ? "Получено" : detail.card.currentValue > 0 ? "В процессе" : "Закрыто";
+                      return (
+                        <article key={tier.tier} className="w-[88%] shrink-0 snap-center rounded-3xl border border-white/10 bg-black/30 p-4">
+                          <AchievementVisual visualKey={detail.card.visualKey} tier={tier.tier} configs={configs} className="mx-auto h-40 w-40" />
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <h3 className="font-semibold">{detail.card.family === "player_path" ? tier.name : TIER_LABELS[tier.tier]}</h3>
+                            <span className={tier.earned ? "text-xs font-semibold text-[#d5b867]" : "text-xs text-white/40"}>{status}</span>
+                          </div>
+                          <p className="mt-2 text-sm text-white/60">{tier.description}</p>
+                          <p className="mt-1 text-xs text-white/40">Цель: {tier.target} {detail.card.unit}</p>
+                          {tier.completedAt ? <p className="mt-2 text-xs text-white/45">Получено {new Date(tier.completedAt).toLocaleDateString("ru-RU")}</p> : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="mt-5 rounded-3xl border border-white/10 bg-black/30 p-5 text-center">
+                  <AchievementVisual visualKey={detail.card.visualKey} configs={configs} locked={detail.card.hidden && !detail.card.earned} className="mx-auto h-44 w-44" />
+                  <p className="mt-4 text-sm leading-relaxed text-white/60">{detail.card.description}</p>
+                  <p className={`mt-3 text-xs font-semibold ${detail.card.earned ? "text-[#d5b867]" : "text-white/35"}`}>{detail.card.earned ? "Получено" : "Закрыто"}</p>
+                  {detail.card.completedAt ? <p className="mt-1 text-xs text-white/40">Получено {new Date(detail.card.completedAt).toLocaleDateString("ru-RU")}</p> : null}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
