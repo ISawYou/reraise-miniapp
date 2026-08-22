@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getLeaderboardPlaceTone, LEADERBOARD_GRID_CLASS } from "@/lib/leaderboard-display";
+import { getLeaderboardPlaceTone } from "@/lib/leaderboard-display";
 import { logEvent } from "@/lib/activity-client";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
@@ -90,17 +90,18 @@ export default function LeaderboardPage() {
           ← Назад
         </Link>
 
-        <div className="mb-6 flex items-start justify-between gap-3">
-          <div>
+        <div className="mb-6 flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">Рейтинг</h1>
             <p className="mt-2 text-sm text-white/70">{seasonTitle}</p>
           </div>
 
           <Link
             href="/faq?tab=rating-rules"
-            className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/80"
+            className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80 sm:px-4"
           >
-            Регламент рейтинга
+            <span className="sm:hidden">Регламент</span>
+            <span className="hidden sm:inline">Регламент рейтинга</span>
           </Link>
         </div>
 
@@ -108,7 +109,7 @@ export default function LeaderboardPage() {
           ТОП-9 → Финал месяца
         </div>
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-          <div className={`grid ${LEADERBOARD_GRID_CLASS} gap-2 border-b border-white/10 px-3 py-3 text-xs uppercase tracking-wide text-white/50 sm:gap-3 sm:px-4`}>
+          <div className="grid grid-cols-[36px_minmax(0,1fr)_64px] gap-2 border-b border-white/10 px-3 py-3 text-xs uppercase tracking-wide text-white/50 sm:grid-cols-[48px_minmax(0,1fr)_90px] sm:gap-3 sm:px-4">
             <div>#</div>
             <div>Игрок</div>
             <div className="text-right">Очки</div>
@@ -129,7 +130,7 @@ export default function LeaderboardPage() {
               <Link
                 key={row.player_id}
                 href={`/players/${row.player_id}`}
-                className={`grid ${LEADERBOARD_GRID_CLASS} gap-2 border-b px-3 py-4 last:border-b-0 sm:gap-3 sm:px-4 ${toneClass}`}
+                className={`grid grid-cols-[36px_minmax(0,1fr)_64px] gap-2 border-b px-3 py-4 last:border-b-0 sm:grid-cols-[48px_minmax(0,1fr)_90px] sm:gap-3 sm:px-4 ${toneClass}`}
               >
                 <div
                   className={`text-sm font-semibold ${
