@@ -1,0 +1,170 @@
+name: Production Diagnostics
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Serialize diagnostics with deploy and maintenance. The job only reads
+    # production state, but it should never inspect a half-recreated container.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Configure SSH
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Read-only diagnostics on VPS
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=6 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+
+          section() {
+            printf '\n================ %s ================\n' "$1"
+          }
+
+          section "HOST"
+          echo "--- hostname ---"
+          hostname
+          echo "--- uptime ---"
+          uptime
+          echo "--- load ---"
+          cat /proc/loadavg
+          echo "--- memory ---"
+          free -h
+          echo "--- disk ---"
+          df -h
+
+          section "RERAISE CHECKOUT"
+          cd /opt/reraise
+          echo "--- current commit ---"
+          git rev-parse HEAD
+          git log -1 --oneline --decorate
+          echo "--- git status ---"
+          git status --short --branch
+          echo "--- migration 0007 in checkout ---"
+          if test -f lib/db/migrations/0007_odd_annihilus.sql; then
+            echo "present: lib/db/migrations/0007_odd_annihilus.sql"
+            sha256sum lib/db/migrations/0007_odd_annihilus.sql
+          else
+            echo "absent: lib/db/migrations/0007_odd_annihilus.sql"
+          fi
+
+          section "DOCKER CONTAINERS"
+          docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+
+          for container in re-raise poker-clock-db; do
+            echo "--- $container ---"
+            if docker inspect "$container" >/dev/null 2>&1; then
+              docker inspect "$container" --format 'status={{.State.Status}} running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} oom_killed={{.State.OOMKilled}} exit_code={{.State.ExitCode}} started_at={{.State.StartedAt}} finished_at={{.State.FinishedAt}} image={{.Image}}'
+            else
+              echo "container not found"
+            fi
+          done
+
+          section "APPLICATION LOGS (LAST 15 MINUTES, MAX 150 LINES)"
+          if docker inspect re-raise >/dev/null 2>&1; then
+            docker logs --since 15m --tail 150 re-raise 2>&1 |
+              sed -E -e 's/(Bearer )[A-Za-z0-9._~+\/-]+/\1[REDACTED]/Ig' -e 's/((token|secret|password|cookie|authorization)[=: ]+)[^ ]+/\1[REDACTED]/Ig'
+          else
+            echo "re-raise container not found; logs unavailable"
+          fi
+
+          section "DOCKER DISK USAGE"
+          docker system df
+
+          section "OOM SIGNALS"
+          echo "--- Docker OOM flags are included above. Kernel journal, best effort ---"
+          if command -v journalctl >/dev/null 2>&1; then
+            OOM_LINES="$(
+              journalctl -k --since '24 hours ago' --no-pager 2>/dev/null |
+                grep -Ei 'out of memory|oom-kill|oom_reaper|killed process' |
+                tail -n 100 || true
+            )"
+            if test -n "$OOM_LINES"; then
+              printf '%s\n' "$OOM_LINES"
+            else
+              echo "No readable OOM entries found in the last 24 hours."
+            fi
+          else
+            echo "journalctl is unavailable."
+          fi
+
+          section "ACADEMY POSTGRES READ-ONLY VERIFICATION"
+          if ! docker inspect re-raise >/dev/null 2>&1; then
+            echo "re-raise container not found; database verification unavailable"
+          else
+            # Use the running app container's existing DATABASE_URL without
+            # printing it. PostgreSQL enforces READ ONLY for this transaction.
+            docker exec re-raise node -e '
+              const postgres = require("postgres");
+              const expectedHash = "4e1042a420f6a97a5988700bc639552d6c1885185d18b7abd6770d286d39cc01";
+              (async () => {
+                const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+                try {
+                  const result = await sql.begin(async (tx) => {
+                    await tx.unsafe("SET TRANSACTION READ ONLY");
+                    const objects = await tx.unsafe(`
+                      SELECT
+                        to_regclass(\x27public.academy_lesson_progress\x27)::text AS progress_table,
+                        to_regclass(\x27public.academy_training_attempts\x27)::text AS attempts_table,
+                        to_regprocedure(
+                          \x27public.record_academy_training_attempt(uuid,uuid,text,integer,boolean)\x27
+                        )::text AS record_function,
+                        to_regclass(\x27drizzle.__drizzle_migrations\x27)::text AS migrations_table
+                    `);
+
+                    let migration = [{ migration_0007_hash_present: false, migration_rows: null }];
+                    if (objects[0]?.migrations_table) {
+                      migration = await tx.unsafe(
+                        "SELECT EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = $1) AS migration_0007_hash_present, count(*)::int AS migration_rows FROM drizzle.__drizzle_migrations",
+                        [expectedHash],
+                      );
+                    }
+
+                    let academyRows = [{ progress_rows: null, attempt_rows: null }];
+                    if (objects[0]?.progress_table && objects[0]?.attempts_table) {
+                      academyRows = await tx.unsafe(`
+                        SELECT
+                          (SELECT count(*)::int FROM public.academy_lesson_progress) AS progress_rows,
+                          (SELECT count(*)::int FROM public.academy_training_attempts) AS attempt_rows
+                      `);
+                    }
+
+                    return { objects: objects[0], migration: migration[0], rows: academyRows[0] };
+                  });
+                  console.log(JSON.stringify(result, null, 2));
+                } finally {
+                  await sql.end();
+                }
+              })().catch((error) => {
+                console.error("Read-only Academy verification failed:", error.message);
+                process.exit(1);
+              });
+            '
+          fi
+
+          section "PUBLIC READ-ONLY SMOKE"
+          for url in https://re-raise.ru/api/health https://re-raise.ru/academy https://re-raise.ru/api/settings; do
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$url" || true)"
+            echo "$url -> $status"
+          done
+
+          echo ""
+          echo "Diagnostics completed. No production changes were requested."
+          REMOTE_SCRIPT
