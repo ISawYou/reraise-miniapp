@@ -1,0 +1,21 @@
+# Local-development-only override -- plain `docker compose` invocations
+# (no `-f` flags) auto-merge this on top of docker-compose.yml, giving
+# `docker compose build` / `up --build` back for anyone developing locally.
+# Production's deploy step always runs with `-f docker-compose.yml`
+# explicitly (see .github/workflows/deploy.yml and the comment in
+# docker-compose.yml), so this file -- even though it's checked out on the
+# VPS too, same as every other file in the repo -- never applies there.
+# This is the standard Docker Compose override pattern, not a bespoke one.
+services:
+  app:
+    build:
+      context: .
+      # NEXT_PUBLIC_* vars are baked into the client JS bundle at build
+      # time. Changing them here requires a full rebuild
+      # (docker compose build).
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_TELEGRAM_BOT_ID: ${NEXT_PUBLIC_TELEGRAM_BOT_ID}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+    image: re-raise:local

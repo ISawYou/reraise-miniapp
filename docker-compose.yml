@@ -1,18 +1,20 @@
 services:
   app:
-    build:
-      context: .
-      # NEXT_PUBLIC_* vars are baked into the client JS bundle at build time.
-      # Changing them here requires a full rebuild (docker compose build).
-      args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        NEXT_PUBLIC_TELEGRAM_BOT_ID: ${NEXT_PUBLIC_TELEGRAM_BOT_ID}
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-        # Needed at build time too: /api/leaderboard is statically generated
-        # via `revalidate` and queries Supabase during `next build`.
-        SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-    image: re-raise:latest
+    # Production always runs a prebuilt image pulled from GHCR -- this file
+    # alone (`docker compose -f docker-compose.yml ...`, exactly what
+    # .github/workflows/deploy.yml's VPS step invokes) never builds
+    # anything. RERAISE_IMAGE is exported by that deploy step to the
+    # specific immutable SHA tag (or, during a rollback, the previous
+    # image's id) it just verified; ${RERAISE_IMAGE:-...} falls back to
+    # `latest` for a manual `docker compose up` outside the deploy script.
+    #
+    # Local development still gets `docker compose build`/`up --build` for
+    # free: docker-compose.override.yml (auto-merged by plain `docker
+    # compose` invocations with no `-f`) adds the `build:` section back.
+    # The deploy script always passes `-f docker-compose.yml` explicitly,
+    # so the override -- even though it's checked out on the VPS too, same
+    # as everywhere else in this repo -- never applies there.
+    image: ${RERAISE_IMAGE:-ghcr.io/ISawYou/re-raise:latest}
     container_name: re-raise
     restart: unless-stopped
     ports:
