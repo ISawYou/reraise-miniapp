@@ -86,6 +86,16 @@ const ADMIN_SECTIONS = [
         ),
       },
       {
+        href: "/admin/news",
+        title: "Лента / Новости",
+        icon: (
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 5h16v14H4z" />
+            <path d="M8 9h8M8 13h8M8 17h5" />
+          </svg>
+        ),
+      },
+      {
         href: "/admin/settings",
         title: "Настройки",
         icon: (

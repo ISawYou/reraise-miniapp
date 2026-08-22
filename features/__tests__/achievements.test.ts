@@ -27,6 +27,7 @@ const mockTournamentRepository = {
 };
 
 const mockGetAppSetting = vi.fn();
+const mockPublishLegendaryAchievementEvent = vi.fn().mockResolvedValue(null);
 
 vi.mock("@/lib/repositories", () => ({
   achievementRepository: mockAchievementRepository,
@@ -37,6 +38,10 @@ vi.mock("@/lib/repositories", () => ({
 
 vi.mock("@/lib/app-settings", () => ({
   getAppSetting: mockGetAppSetting,
+}));
+
+vi.mock("@/features/club-activity", () => ({
+  publishLegendaryAchievementEvent: mockPublishLegendaryAchievementEvent,
 }));
 
 // Imported after the mock so features/achievements.ts picks up the fakes,
@@ -88,6 +93,7 @@ beforeEach(() => {
   mockResultRepository.findArrivedTournamentIdsByPlayerId.mockReset().mockResolvedValue([]);
   mockResultRepository.findArrivedPlacementsByPlayerId.mockReset().mockResolvedValue([]);
   mockTournamentRepository.listCompleted.mockReset().mockResolvedValue([]);
+  mockPublishLegendaryAchievementEvent.mockClear();
   // Default: no row in app_settings at all -- the real "first deploy,
   // nobody has touched the toggle yet" state. Individual tests override
   // this to simulate an explicit true/false/malformed value.
@@ -577,6 +583,26 @@ describe("syncPlayersAchievementsIfEnabled — the tournament-completion guard",
     await syncPlayersAchievementsIfEnabled(["player-a", "player-b"]);
 
     expect(mockAchievementRepository.upsertMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("historical/default resync never publishes feed events", async () => {
+    mockResultRepository.findKnockoutsByPlayerId.mockResolvedValue([
+      { player_id: PLAYER_ID, knockouts: 10 },
+    ]);
+
+    await syncPlayerAchievements(PLAYER_ID);
+
+    expect(mockPublishLegendaryAchievementEvent).not.toHaveBeenCalled();
+  });
+
+  it("runtime sync publishes only a newly completed Legendary achievement", async () => {
+    mockResultRepository.findKnockoutsByPlayerId.mockResolvedValue([
+      { player_id: PLAYER_ID, knockouts: 10 },
+    ]);
+
+    await syncPlayerAchievements(PLAYER_ID, { publishActivityEvents: true });
+
+    expect(mockPublishLegendaryAchievementEvent).toHaveBeenCalledWith(PLAYER_ID, "headhunter");
   });
 });
 

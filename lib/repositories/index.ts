@@ -22,3 +22,4 @@ export * from "./tournament-live-state";
 export * from "./tournament-mystery-bounty";
 export * from "./result";
 export * from "./academy-progress";
+export * from "./club-activity";

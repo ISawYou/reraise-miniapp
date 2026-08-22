@@ -57,6 +57,13 @@
       "when": 1787228726499,
       "tag": "0007_odd_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787397020042,
+      "tag": "0008_flashy_random",
+      "breakpoints": true
     }
   ]
 }

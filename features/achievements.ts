@@ -14,6 +14,7 @@ import type { PlayerAchievementMetrics } from "@/lib/achievement-engine";
 import { computeMaxTournamentStreak } from "@/lib/tournament-streak";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import { getAppSetting } from "@/lib/app-settings";
+import { publishLegendaryAchievementEvent } from "@/features/club-activity";
 
 // Same key/value app_settings store and the same "missing/anything-but-true
 // means false" convention already used by show_email_link_prompt /
@@ -171,7 +172,14 @@ export async function getPlayerAchievementProgress(playerId: string) {
   return runAchievementEngine(automaticDefinitions, metrics);
 }
 
-export async function syncPlayerAchievements(playerId: string) {
+type AchievementSyncOptions = {
+  publishActivityEvents?: boolean;
+};
+
+export async function syncPlayerAchievements(
+  playerId: string,
+  options: AchievementSyncOptions = {},
+) {
   const progress = await getPlayerAchievementProgress(playerId);
   const now = new Date().toISOString();
 
@@ -198,11 +206,28 @@ export async function syncPlayerAchievements(playerId: string) {
   }));
 
   await achievementRepository.upsertMany(payload);
+
+  if (options.publishActivityEvents) {
+    const newlyCompletedCodes = progress
+      .filter(({ code, completed }) => completed && !existingCompletedAt.get(code))
+      .map(({ code }) => code);
+
+    for (const code of newlyCompletedCodes) {
+      try {
+        await publishLegendaryAchievementEvent(playerId, code);
+      } catch (error) {
+        console.error("[syncPlayerAchievements] Activity event failed:", error);
+      }
+    }
+  }
 }
 
-export async function syncPlayersAchievements(playerIds: string[]) {
+export async function syncPlayersAchievements(
+  playerIds: string[],
+  options: AchievementSyncOptions = {},
+) {
   const uniqueIds = Array.from(new Set(playerIds));
-  await Promise.all(uniqueIds.map((playerId) => syncPlayerAchievements(playerId)));
+  await Promise.all(uniqueIds.map((playerId) => syncPlayerAchievements(playerId, options)));
 }
 
 // The ONLY entry point tournament completion (features/tournaments.ts) is
@@ -218,14 +243,17 @@ export async function syncPlayersAchievements(playerIds: string[]) {
 // human-triggered bulk recompute, not the automatic runtime path this flag
 // governs, and must keep working exactly as before regardless of this
 // setting (see the module comment above about not conflating the two).
-export async function syncPlayersAchievementsIfEnabled(playerIds: string[]) {
+export async function syncPlayersAchievementsIfEnabled(
+  playerIds: string[],
+  options: AchievementSyncOptions = {},
+) {
   const enabled = await isAutomaticAchievementsEnabled();
 
   if (!enabled) {
     return;
   }
 
-  await syncPlayersAchievements(playerIds);
+  await syncPlayersAchievements(playerIds, options);
 }
 
 // --- Grant helpers (manual admin moderation + event-based automatic) ---
@@ -259,7 +287,7 @@ export async function syncPlayersAchievementsIfEnabled(playerIds: string[]) {
 // resync's payload, and upsertMany never touches their row. This is the
 // actual protection mechanism, not a special exception coded into sync.
 
-async function upsertGrantedAchievement(playerId: string, code: string) {
+async function upsertGrantedAchievement(playerId: string, code: string): Promise<boolean> {
   const existing = await achievementRepository.findSummariesByPlayerId(playerId);
   const existingRow = existing.find((row) => row.achievement_code === code);
   const now = new Date().toISOString();
@@ -278,6 +306,8 @@ async function upsertGrantedAchievement(playerId: string, code: string) {
       updated_at: now,
     },
   ]);
+
+  return existingRow?.completed_at == null;
 }
 
 function assertManualAchievement(code: string) {
@@ -325,7 +355,14 @@ function assertEventAutomaticAchievement(code: string) {
 // only (currently just features/seasons.ts::closeSeason for "number_one").
 export async function grantEventAutomaticAchievement(playerId: string, code: string) {
   assertEventAutomaticAchievement(code);
-  await upsertGrantedAchievement(playerId, code);
+  const firstCompletion = await upsertGrantedAchievement(playerId, code);
+  if (firstCompletion) {
+    try {
+      await publishLegendaryAchievementEvent(playerId, code);
+    } catch (error) {
+      console.error("[grantEventAutomaticAchievement] Activity event failed:", error);
+    }
+  }
 }
 
 export async function getManualAchievementsForPlayer(playerId: string) {
@@ -348,7 +385,14 @@ export async function getManualAchievementsForPlayer(playerId: string) {
 
 export async function grantManualAchievement(playerId: string, code: string) {
   assertManualAchievement(code);
-  await upsertGrantedAchievement(playerId, code);
+  const firstCompletion = await upsertGrantedAchievement(playerId, code);
+  if (firstCompletion) {
+    try {
+      await publishLegendaryAchievementEvent(playerId, code);
+    } catch (error) {
+      console.error("[grantManualAchievement] Activity event failed:", error);
+    }
+  }
 }
 
 export async function revokeManualAchievement(playerId: string, code: string) {

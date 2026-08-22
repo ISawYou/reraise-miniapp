@@ -14,6 +14,7 @@ import {
   getTournamentRegistrationCounts,
 } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
+import { ClubActivityCard } from "@/components/club-activity-card";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import {
@@ -28,6 +29,7 @@ import { resolveCurrentPlayer } from "@/lib/current-player";
 import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
+import type { ClubActivityEvent } from "@/types/club-activity";
 
 type LeaderboardRow = {
   player_id: string;
@@ -201,6 +203,7 @@ export default function HomePage() {
   const [seasonTitle, setSeasonTitle] = useState("Активный сезон");
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
   const [homeDataLoading, setHomeDataLoading] = useState(true);
+  const [homeActivity, setHomeActivity] = useState<ClubActivityEvent[]>([]);
 
   const registrationsRef = useRef<Record<string, string>>({});
   const activeTournamentIndexRef = useRef(0);
@@ -342,7 +345,7 @@ export default function HomePage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts, achievementRows, ratingData] = await Promise.all([
+    const [registrations, tournaments, counts, achievementRows, ratingData, activityData] = await Promise.all([
       getPlayerRegistrations(currentPlayer.id),
       getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
@@ -372,6 +375,9 @@ export default function HomePage() {
           };
         }
       })(),
+      fetch("/api/club-activity?limit=3")
+        .then(async (response) => response.ok ? response.json() : { events: [] })
+        .catch(() => ({ events: [] })),
     ]);
 
     const nextMap: Record<string, string> = {};
@@ -409,6 +415,7 @@ export default function HomePage() {
     setActiveTournamentIndex(0);
     setSeasonTitle(ratingData.seasonTitle);
     setLeaderboardRows(ratingData.leaderboard);
+    setHomeActivity((activityData.events ?? []) as ClubActivityEvent[]);
     setCompletedAchievementsCount(
       (achievementRows as Array<{ completed_at: string | null }>).filter(
         (row) => row.completed_at
@@ -1417,6 +1424,22 @@ export default function HomePage() {
                 ) : null}
               </div>
             </section>
+
+            {homeActivity.length > 0 ? (
+              <section className="mt-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h2 className="text-lg font-bold text-white">В клубе</h2>
+                  <Link href="/activity" className="text-sm font-medium text-[#d7b55a]">
+                    Все события →
+                  </Link>
+                </div>
+                <div className="space-y-2">
+                  {homeActivity.map((event) => (
+                    <ClubActivityCard key={event.id} event={event} compact />
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             <button
               type="button"
