@@ -176,43 +176,82 @@ type AchievementSyncOptions = {
   publishActivityEvents?: boolean;
 };
 
+const CATALOG_CODES = new Set<string>(ACHIEVEMENTS_CATALOG.map((definition) => definition.code));
+
+async function buildAchievementSyncPlan(playerId: string) {
+  const [progress, existing] = await Promise.all([
+    getPlayerAchievementProgress(playerId),
+    achievementRepository.findSummariesByPlayerId(playerId),
+  ]);
+  const now = new Date().toISOString();
+  const existingByCode = new Map(existing.map((row) => [row.achievement_code, row]));
+
+  const payload = progress.map(({ code, currentValue, completed }) => {
+    const existingRow = existingByCode.get(code);
+    return {
+      player_id: playerId,
+      achievement_code: code,
+      current_value: currentValue,
+      completed_at: existingRow?.completed_at ?? (completed ? now : null),
+      updated_at: now,
+    };
+  });
+
+  const newlyCompletedCodes = progress
+    .filter(({ code, completed }) => completed && !existingByCode.get(code)?.completed_at)
+    .map(({ code }) => code);
+  const changedRows = payload.filter((row) => {
+    const previous = existingByCode.get(row.achievement_code);
+    return !previous
+      || previous.current_value !== row.current_value
+      || previous.completed_at !== row.completed_at;
+  });
+  const projectedCodes = new Set(payload.map((row) => row.achievement_code));
+  const untouchedExistingRows = existing.filter(
+    (row) => !projectedCodes.has(row.achievement_code),
+  ).length;
+
+  return {
+    existing,
+    payload,
+    changedPayload: changedRows,
+    newlyCompletedCodes,
+    projectedCompletedCodes: [...new Set([
+      ...existing
+        .filter((row) => row.completed_at != null)
+        .map((row) => row.achievement_code),
+      ...payload
+        .filter((row) => row.completed_at != null)
+        .map((row) => row.achievement_code),
+    ])],
+    currentRows: existing.length,
+    projectedRows: new Set([
+      ...existing.map((row) => row.achievement_code),
+      ...payload.map((row) => row.achievement_code),
+    ]).size,
+    progressChanges: changedRows.length,
+    unchanged: payload.length - changedRows.length + untouchedExistingRows,
+    staleCodes: [...new Set(
+      existing
+        .map((row) => row.achievement_code)
+        .filter((code) => !CATALOG_CODES.has(code)),
+    )],
+  };
+}
+
+export async function previewPlayerAchievementSync(playerId: string) {
+  return buildAchievementSyncPlan(playerId);
+}
+
 export async function syncPlayerAchievements(
   playerId: string,
   options: AchievementSyncOptions = {},
 ) {
-  const progress = await getPlayerAchievementProgress(playerId);
-  const now = new Date().toISOString();
-
-  // upsertMany replaces every non-key column on conflict (both repository
-  // implementations — see PostgresAchievementRepository/
-  // SupabaseAchievementRepository), so without this, re-syncing an
-  // already-completed achievement (e.g. every time the player finishes
-  // another tournament, or during a one-time resync) would silently
-  // overwrite its real completion date with "now". Read the already-stored
-  // completed_at first and keep it whenever the achievement is still
-  // completed -- `now` is only used the first time an achievement
-  // transitions into "completed".
-  const existing = await achievementRepository.findSummariesByPlayerId(playerId);
-  const existingCompletedAt = new Map(
-    existing.map((row) => [row.achievement_code, row.completed_at])
-  );
-
-  const payload = progress.map(({ code, currentValue, completed }) => ({
-    player_id: playerId,
-    achievement_code: code,
-    current_value: currentValue,
-    completed_at: completed ? existingCompletedAt.get(code) ?? now : null,
-    updated_at: now,
-  }));
-
-  await achievementRepository.upsertMany(payload);
+  const plan = await buildAchievementSyncPlan(playerId);
+  await achievementRepository.upsertMany(plan.changedPayload);
 
   if (options.publishActivityEvents) {
-    const newlyCompletedCodes = progress
-      .filter(({ code, completed }) => completed && !existingCompletedAt.get(code))
-      .map(({ code }) => code);
-
-    for (const code of newlyCompletedCodes) {
+    for (const code of plan.newlyCompletedCodes) {
       try {
         await publishLegendaryAchievementEvent(playerId, code);
       } catch (error) {
@@ -220,6 +259,8 @@ export async function syncPlayerAchievements(
       }
     }
   }
+
+  return plan;
 }
 
 export async function syncPlayersAchievements(
