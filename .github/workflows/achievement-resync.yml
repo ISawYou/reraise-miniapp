@@ -1,0 +1,147 @@
+name: Achievement Resync
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Dry run only, or guarded dry-run + apply + verification
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - release
+      confirmation:
+        description: Type DRY-RUN or RESYNC to match the selected operation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  MAINTENANCE_IMAGE: ghcr.io/isawyou/re-raise-migrator
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate request
+        env:
+          OPERATION: ${{ inputs.operation }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -Eeuo pipefail
+          [ "$GITHUB_REF" = "refs/heads/main" ] || exit 1
+          if [ "$OPERATION" = "dry-run" ]; then
+            [ "$CONFIRMATION" = "DRY-RUN" ] || exit 1
+          else
+            [ "$OPERATION" = "release" ] && [ "$CONFIRMATION" = "RESYNC" ] || exit 1
+          fi
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrator
+          push: true
+          tags: ${{ env.MAINTENANCE_IMAGE }}:${{ github.sha }}-achievements
+          cache-from: type=gha,scope=achievement-resync
+          cache-to: type=gha,mode=max,scope=achievement-resync
+
+  resync:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Configure SSH
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Run guarded achievement maintenance
+        env:
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=6 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "OPERATION='$OPERATION' IMAGE='${{ env.MAINTENANCE_IMAGE }}:${{ github.sha }}-achievements' bash -s" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+          APP_CONTAINER=re-raise
+          DB_CONTAINER=poker-clock-db
+          DOCKER_NETWORK=poker-clock_default
+
+          require_healthy() {
+            local container="$1"
+            [ "$(docker inspect "$container" --format '{{.State.Status}}')" = "running" ]
+            [ "$(docker inspect "$container" --format '{{.State.Health.Status}}')" = "healthy" ]
+          }
+
+          require_healthy "$APP_CONTAINER"
+          require_healthy "$DB_CONTAINER"
+          provider="$(docker exec "$APP_CONTAINER" printenv DATABASE_PROVIDER 2>/dev/null | tr -d '\r')"
+          [ "$provider" = "postgres" ] || { echo "STOP: production provider is not postgres" >&2; exit 1; }
+          database_url="$(docker exec "$APP_CONTAINER" printenv DATABASE_URL 2>/dev/null | tr -d '\r')"
+          [ -n "$database_url" ] || { echo "STOP: production DATABASE_URL is missing" >&2; exit 1; }
+          export DATABASE_PROVIDER="$provider" DATABASE_URL="$database_url"
+          export DATABASE_URL_FOR_VALIDATION="$database_url"
+          target="$(python3 - <<'PY'
+          import os
+          from urllib.parse import unquote, urlparse
+          parsed = urlparse(os.environ["DATABASE_URL_FOR_VALIDATION"])
+          print("|".join([
+              unquote(parsed.username or ""), parsed.hostname or "",
+              str(parsed.port or 5432), unquote(parsed.path.lstrip("/")),
+          ]))
+          PY
+          )"
+          unset DATABASE_URL_FOR_VALIDATION database_url provider
+          [ "$target" = "reraise|poker-clock-db|5432|reraise" ] \
+            || { echo "STOP: unexpected production database target" >&2; exit 1; }
+
+          for name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY; do
+            value="$(docker exec "$APP_CONTAINER" printenv "$name" 2>/dev/null | tr -d '\r')"
+            [ -n "$value" ] || { echo "STOP: required runtime variable $name is missing" >&2; exit 1; }
+            export "$name=$value"
+          done
+          unset value name
+
+          docker pull "$IMAGE"
+          docker run --rm \
+            --network "$DOCKER_NETWORK" \
+            --env DATABASE_PROVIDER \
+            --env DATABASE_URL \
+            --env NEXT_PUBLIC_SUPABASE_URL \
+            --env NEXT_PUBLIC_SUPABASE_ANON_KEY \
+            --env SUPABASE_SERVICE_ROLE_KEY \
+            --env ACHIEVEMENT_RESYNC_OPERATION="$OPERATION" \
+            --env NODE_PATH=/app/node_modules/next/dist/compiled \
+            "$IMAGE" node --conditions=react-server --import tsx scripts/resync-achievements.ts
+
+          require_healthy "$APP_CONTAINER"
+          require_healthy "$DB_CONTAINER"
+          curl --fail --silent --show-error https://re-raise.ru/api/health >/dev/null
+          REMOTE_SCRIPT
