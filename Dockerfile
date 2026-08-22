@@ -22,12 +22,11 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_TELEGRAM_BOT_ID=$NEXT_PUBLIC_TELEGRAM_BOT_ID
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 
-# /api/leaderboard uses `revalidate`, so it is statically generated at build
-# time and needs the service-role key available during `next build`, not
-# just at runtime.
-ARG SUPABASE_SERVICE_ROLE_KEY
-ENV SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
-
+# No database credentials needed here: app/api/leaderboard/route.ts is
+# `force-dynamic` (see that file), so nothing in the app queries a database
+# during `next build` -- SUPABASE_SERVICE_ROLE_KEY and DATABASE_URL are
+# runtime-only env vars (see docker-compose.yml's `environment:`), never
+# build args.
 RUN npm run build
 
 # ── Stage 3: migrator ────────────────────────────────────────────────────────
