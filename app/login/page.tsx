@@ -2,9 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { normalizeInternalReturnTo } from "@/lib/auth-redirect";
 
 type Step = "email" | "code";
 type OtpPurpose = "login";
+
+function getLoginReturnTo() {
+  if (typeof window === "undefined") return "/";
+  return normalizeInternalReturnTo(
+    new URLSearchParams(window.location.search).get("returnTo"),
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -27,7 +35,7 @@ export default function LoginPage() {
       })
       .then((payload) => {
         if (payload?.player?.id) {
-          router.replace("/");
+          router.replace(getLoginReturnTo());
         }
       })
       .catch(() => null);
@@ -58,6 +66,7 @@ export default function LoginPage() {
 
     const response = await fetch("/api/auth/email/request-code", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email: trimmedEmail,
@@ -115,6 +124,7 @@ export default function LoginPage() {
     try {
       const response = await fetch("/api/auth/email/verify-code", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
@@ -131,7 +141,7 @@ export default function LoginPage() {
         throw new Error(payload?.error ?? "Не удалось проверить код.");
       }
 
-      router.replace("/");
+      router.replace(getLoginReturnTo());
       router.refresh();
     } catch (verifyError) {
       setError(

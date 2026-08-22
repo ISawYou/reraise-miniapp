@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PreflopRangeGrid } from "@/components/academy/preflop-range-grid";
 import { AcademyLessonProgressStatus } from "@/components/academy/academy-lesson-progress-status";
+import { PokerPositionTable } from "@/components/academy/poker-position-table";
 import { getAcademyPreflopLesson } from "@/config/academy/lessons";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
 import {
@@ -54,7 +55,11 @@ export default async function AcademyLessonPage({ params }: AcademyLessonPagePro
           <AcademyLessonProgressStatus lessonCode={lesson.code} />
         </header>
 
-        <section className="mt-6 rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4">
+        <section className="mt-6">
+          <PokerPositionTable activePosition={canonicalPosition} />
+        </section>
+
+        <section className="mt-4 rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4">
           {lesson.theory.map((paragraph, index) => (
             <p key={paragraph} className={`${index > 0 ? "mt-3 " : ""}text-[15px] leading-6 text-white/75`}>
               {paragraph}

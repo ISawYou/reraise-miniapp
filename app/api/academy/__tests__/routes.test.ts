@@ -18,11 +18,15 @@ vi.mock("@/features/academy", () => ({
 const { GET } = await import("@/app/api/academy/progress/route");
 const { POST } = await import("@/app/api/academy/attempts/route");
 
-function request(path: string, body?: unknown) {
+function request(path: string, body?: unknown, sessionCookie?: string) {
+  const headers = new Headers();
+  if (body !== undefined) headers.set("content-type", "application/json");
+  if (sessionCookie) headers.set("cookie", `reraise_session=${sessionCookie}`);
+
   return new NextRequest(`http://localhost${path}`, {
     method: body === undefined ? "GET" : "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers,
   });
 }
 
@@ -48,6 +52,30 @@ describe("Academy API authentication", () => {
 });
 
 describe("Academy API transport", () => {
+  it("resolves an authenticated web cookie through the canonical session helper", async () => {
+    const response = await GET(
+      request("/api/academy/progress", undefined, "signed-web-session"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockGetPlayerFromSessionServer).toHaveBeenCalledWith(
+      "signed-web-session",
+    );
+    expect(mockGetAcademyCourseProgress).toHaveBeenCalledWith("player-1");
+  });
+
+  it("uses the same canonical player after a progress reload", async () => {
+    await GET(
+      request("/api/academy/progress", undefined, "signed-web-session"),
+    );
+    await GET(
+      request("/api/academy/progress", undefined, "signed-web-session"),
+    );
+
+    expect(mockGetAcademyCourseProgress).toHaveBeenNthCalledWith(1, "player-1");
+    expect(mockGetAcademyCourseProgress).toHaveBeenNthCalledWith(2, "player-1");
+  });
+
   it("loads progress for the authenticated player", async () => {
     const response = await GET(request("/api/academy/progress"));
     expect(response.status).toBe(200);
