@@ -14,7 +14,7 @@ services:
     # The deploy script always passes `-f docker-compose.yml` explicitly,
     # so the override -- even though it's checked out on the VPS too, same
     # as everywhere else in this repo -- never applies there.
-    image: ${RERAISE_IMAGE:-ghcr.io/ISawYou/re-raise:latest}
+    image: ${RERAISE_IMAGE:-ghcr.io/isawyou/re-raise:latest}
     container_name: re-raise
     restart: unless-stopped
     ports:

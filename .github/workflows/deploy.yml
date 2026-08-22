@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 env:
-  IMAGE: ghcr.io/ISawYou/re-raise
+  IMAGE: ghcr.io/isawyou/re-raise
 
 permissions:
   contents: read
