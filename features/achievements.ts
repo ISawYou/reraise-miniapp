@@ -14,6 +14,7 @@ import type { PlayerAchievementMetrics } from "@/lib/achievement-engine";
 import { computeMaxTournamentStreak } from "@/lib/tournament-streak";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import { getAppSetting } from "@/lib/app-settings";
+import { publishLegendaryAchievementEvent } from "@/features/club-activity";
 
 // Same key/value app_settings store and the same "missing/anything-but-true
 // means false" convention already used by show_email_link_prompt /
@@ -171,38 +172,103 @@ export async function getPlayerAchievementProgress(playerId: string) {
   return runAchievementEngine(automaticDefinitions, metrics);
 }
 
-export async function syncPlayerAchievements(playerId: string) {
-  const progress = await getPlayerAchievementProgress(playerId);
+type AchievementSyncOptions = {
+  publishActivityEvents?: boolean;
+};
+
+const CATALOG_CODES = new Set<string>(ACHIEVEMENTS_CATALOG.map((definition) => definition.code));
+
+async function buildAchievementSyncPlan(playerId: string) {
+  const [progress, existing] = await Promise.all([
+    getPlayerAchievementProgress(playerId),
+    achievementRepository.findSummariesByPlayerId(playerId),
+  ]);
   const now = new Date().toISOString();
+  const existingByCode = new Map(existing.map((row) => [row.achievement_code, row]));
 
-  // upsertMany replaces every non-key column on conflict (both repository
-  // implementations — see PostgresAchievementRepository/
-  // SupabaseAchievementRepository), so without this, re-syncing an
-  // already-completed achievement (e.g. every time the player finishes
-  // another tournament, or during a one-time resync) would silently
-  // overwrite its real completion date with "now". Read the already-stored
-  // completed_at first and keep it whenever the achievement is still
-  // completed -- `now` is only used the first time an achievement
-  // transitions into "completed".
-  const existing = await achievementRepository.findSummariesByPlayerId(playerId);
-  const existingCompletedAt = new Map(
-    existing.map((row) => [row.achievement_code, row.completed_at])
-  );
+  const payload = progress.map(({ code, currentValue, completed }) => {
+    const existingRow = existingByCode.get(code);
+    return {
+      player_id: playerId,
+      achievement_code: code,
+      current_value: currentValue,
+      completed_at: existingRow?.completed_at ?? (completed ? now : null),
+      updated_at: now,
+    };
+  });
 
-  const payload = progress.map(({ code, currentValue, completed }) => ({
-    player_id: playerId,
-    achievement_code: code,
-    current_value: currentValue,
-    completed_at: completed ? existingCompletedAt.get(code) ?? now : null,
-    updated_at: now,
-  }));
+  const newlyCompletedCodes = progress
+    .filter(({ code, completed }) => completed && !existingByCode.get(code)?.completed_at)
+    .map(({ code }) => code);
+  const changedRows = payload.filter((row) => {
+    const previous = existingByCode.get(row.achievement_code);
+    return !previous
+      || previous.current_value !== row.current_value
+      || previous.completed_at !== row.completed_at;
+  });
+  const projectedCodes = new Set(payload.map((row) => row.achievement_code));
+  const untouchedExistingRows = existing.filter(
+    (row) => !projectedCodes.has(row.achievement_code),
+  ).length;
 
-  await achievementRepository.upsertMany(payload);
+  return {
+    existing,
+    payload,
+    changedPayload: changedRows,
+    newlyCompletedCodes,
+    projectedCompletedCodes: [...new Set([
+      ...existing
+        .filter((row) => row.completed_at != null)
+        .map((row) => row.achievement_code),
+      ...payload
+        .filter((row) => row.completed_at != null)
+        .map((row) => row.achievement_code),
+    ])],
+    currentRows: existing.length,
+    projectedRows: new Set([
+      ...existing.map((row) => row.achievement_code),
+      ...payload.map((row) => row.achievement_code),
+    ]).size,
+    progressChanges: changedRows.length,
+    unchanged: payload.length - changedRows.length + untouchedExistingRows,
+    staleCodes: [...new Set(
+      existing
+        .map((row) => row.achievement_code)
+        .filter((code) => !CATALOG_CODES.has(code)),
+    )],
+  };
 }
 
-export async function syncPlayersAchievements(playerIds: string[]) {
+export async function previewPlayerAchievementSync(playerId: string) {
+  return buildAchievementSyncPlan(playerId);
+}
+
+export async function syncPlayerAchievements(
+  playerId: string,
+  options: AchievementSyncOptions = {},
+) {
+  const plan = await buildAchievementSyncPlan(playerId);
+  await achievementRepository.upsertMany(plan.changedPayload);
+
+  if (options.publishActivityEvents) {
+    for (const code of plan.newlyCompletedCodes) {
+      try {
+        await publishLegendaryAchievementEvent(playerId, code);
+      } catch (error) {
+        console.error("[syncPlayerAchievements] Activity event failed:", error);
+      }
+    }
+  }
+
+  return plan;
+}
+
+export async function syncPlayersAchievements(
+  playerIds: string[],
+  options: AchievementSyncOptions = {},
+) {
   const uniqueIds = Array.from(new Set(playerIds));
-  await Promise.all(uniqueIds.map((playerId) => syncPlayerAchievements(playerId)));
+  await Promise.all(uniqueIds.map((playerId) => syncPlayerAchievements(playerId, options)));
 }
 
 // The ONLY entry point tournament completion (features/tournaments.ts) is
@@ -218,14 +284,17 @@ export async function syncPlayersAchievements(playerIds: string[]) {
 // human-triggered bulk recompute, not the automatic runtime path this flag
 // governs, and must keep working exactly as before regardless of this
 // setting (see the module comment above about not conflating the two).
-export async function syncPlayersAchievementsIfEnabled(playerIds: string[]) {
+export async function syncPlayersAchievementsIfEnabled(
+  playerIds: string[],
+  options: AchievementSyncOptions = {},
+) {
   const enabled = await isAutomaticAchievementsEnabled();
 
   if (!enabled) {
     return;
   }
 
-  await syncPlayersAchievements(playerIds);
+  await syncPlayersAchievements(playerIds, options);
 }
 
 // --- Grant helpers (manual admin moderation + event-based automatic) ---
@@ -259,7 +328,7 @@ export async function syncPlayersAchievementsIfEnabled(playerIds: string[]) {
 // resync's payload, and upsertMany never touches their row. This is the
 // actual protection mechanism, not a special exception coded into sync.
 
-async function upsertGrantedAchievement(playerId: string, code: string) {
+async function upsertGrantedAchievement(playerId: string, code: string): Promise<boolean> {
   const existing = await achievementRepository.findSummariesByPlayerId(playerId);
   const existingRow = existing.find((row) => row.achievement_code === code);
   const now = new Date().toISOString();
@@ -278,6 +347,8 @@ async function upsertGrantedAchievement(playerId: string, code: string) {
       updated_at: now,
     },
   ]);
+
+  return existingRow?.completed_at == null;
 }
 
 function assertManualAchievement(code: string) {
@@ -325,7 +396,14 @@ function assertEventAutomaticAchievement(code: string) {
 // only (currently just features/seasons.ts::closeSeason for "number_one").
 export async function grantEventAutomaticAchievement(playerId: string, code: string) {
   assertEventAutomaticAchievement(code);
-  await upsertGrantedAchievement(playerId, code);
+  const firstCompletion = await upsertGrantedAchievement(playerId, code);
+  if (firstCompletion) {
+    try {
+      await publishLegendaryAchievementEvent(playerId, code);
+    } catch (error) {
+      console.error("[grantEventAutomaticAchievement] Activity event failed:", error);
+    }
+  }
 }
 
 export async function getManualAchievementsForPlayer(playerId: string) {
@@ -348,7 +426,14 @@ export async function getManualAchievementsForPlayer(playerId: string) {
 
 export async function grantManualAchievement(playerId: string, code: string) {
   assertManualAchievement(code);
-  await upsertGrantedAchievement(playerId, code);
+  const firstCompletion = await upsertGrantedAchievement(playerId, code);
+  if (firstCompletion) {
+    try {
+      await publishLegendaryAchievementEvent(playerId, code);
+    } catch (error) {
+      console.error("[grantManualAchievement] Activity event failed:", error);
+    }
+  }
 }
 
 export async function revokeManualAchievement(playerId: string, code: string) {

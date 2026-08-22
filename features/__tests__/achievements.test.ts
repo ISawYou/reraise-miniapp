@@ -27,6 +27,7 @@ const mockTournamentRepository = {
 };
 
 const mockGetAppSetting = vi.fn();
+const mockPublishLegendaryAchievementEvent = vi.fn().mockResolvedValue(null);
 
 vi.mock("@/lib/repositories", () => ({
   achievementRepository: mockAchievementRepository,
@@ -37,6 +38,10 @@ vi.mock("@/lib/repositories", () => ({
 
 vi.mock("@/lib/app-settings", () => ({
   getAppSetting: mockGetAppSetting,
+}));
+
+vi.mock("@/features/club-activity", () => ({
+  publishLegendaryAchievementEvent: mockPublishLegendaryAchievementEvent,
 }));
 
 // Imported after the mock so features/achievements.ts picks up the fakes,
@@ -88,6 +93,7 @@ beforeEach(() => {
   mockResultRepository.findArrivedTournamentIdsByPlayerId.mockReset().mockResolvedValue([]);
   mockResultRepository.findArrivedPlacementsByPlayerId.mockReset().mockResolvedValue([]);
   mockTournamentRepository.listCompleted.mockReset().mockResolvedValue([]);
+  mockPublishLegendaryAchievementEvent.mockClear();
   // Default: no row in app_settings at all -- the real "first deploy,
   // nobody has touched the toggle yet" state. Individual tests override
   // this to simulate an explicit true/false/malformed value.
@@ -118,9 +124,8 @@ describe("syncPlayerAchievements — completed_at preservation", () => {
 
     await syncPlayerAchievements(PLAYER_ID);
 
-    const row = findByCode("first_tournament");
-    expect(row?.completed_at).toBe(ORIGINAL_COMPLETED_AT);
-    expect(row?.completed_at).not.toBe(NOW_ISO);
+    // No write at all is stronger than rewriting the same completion date.
+    expect(findByCode("first_tournament")).toBeUndefined();
   });
 
   it("keeps the original completed_at when progress grows past the target but the achievement stays completed", async () => {
@@ -134,11 +139,58 @@ describe("syncPlayerAchievements — completed_at preservation", () => {
 
     await syncPlayerAchievements(PLAYER_ID);
 
-    const row = findByCode("ten_itm");
-    expect(row).toMatchObject({
-      current_value: 10, // capped at target, per evaluateCappedMetric
+    expect(findByCode("ten_itm")).toBeUndefined();
+  });
+
+  it("keeps an earned achievement and its original date after recalculation below threshold", async () => {
+    const ORIGINAL_COMPLETED_AT = "2021-06-06T00:00:00.000Z";
+    mockResultRepository.countByPlayerId.mockResolvedValue(2);
+    mockAchievementRepository.findSummariesByPlayerId.mockResolvedValue([
+      { achievement_code: "ten_tournaments", current_value: 10, completed_at: ORIGINAL_COMPLETED_AT },
+    ]);
+
+    await syncPlayerAchievements(PLAYER_ID);
+
+    expect(findByCode("ten_tournaments")).toMatchObject({
+      current_value: 2,
       completed_at: ORIGINAL_COMPLETED_AT,
     });
+  });
+
+  it("retroactively awards the new Gold player-path threshold from lifetime rating", async () => {
+    mockResultRepository.findRatingPointsByPlayerId.mockResolvedValue([
+      { player_id: PLAYER_ID, rating_points: 3200 },
+    ]);
+
+    await syncPlayerAchievements(PLAYER_ID);
+
+    expect(findByCode("pro_2500_rating")).toMatchObject({
+      current_value: 2500,
+      completed_at: NOW_ISO,
+    });
+    expect(findByCode("club_legend_10000_rating")).toMatchObject({
+      current_value: 3200,
+      completed_at: null,
+    });
+  });
+
+  it("repeat resync is idempotent and does not rewrite unchanged rows", async () => {
+    mockResultRepository.countByPlayerId.mockResolvedValue(12);
+    await syncPlayerAchievements(PLAYER_ID);
+    const firstPayload = upsertedPayload();
+
+    mockAchievementRepository.findSummariesByPlayerId.mockResolvedValue(
+      firstPayload.map((row) => ({
+        achievement_code: row.achievement_code,
+        current_value: row.current_value,
+        completed_at: row.completed_at,
+      })),
+    );
+    mockAchievementRepository.upsertMany.mockClear();
+
+    await syncPlayerAchievements(PLAYER_ID);
+
+    expect(mockAchievementRepository.upsertMany).toHaveBeenCalledWith([]);
   });
 
   it("an already-granted Number One (event-based automatic) is never touched by an ordinary resync", async () => {
@@ -383,10 +435,7 @@ describe("syncPlayerAchievements — Tournament Streak (max_tournament_streak)",
 
     await syncPlayerAchievements(PLAYER_ID);
 
-    expect(findByCode("tournament_streak_gold")).toMatchObject({
-      current_value: 10,
-      completed_at: ORIGINAL_COMPLETED_AT, // NOT reset, NOT bumped to now
-    });
+    expect(findByCode("tournament_streak_gold")).toBeUndefined();
   });
 
   it("a cancelled/non-completed tournament (absent from listCompleted) does not break sequence semantics", async () => {
@@ -497,7 +546,7 @@ describe("syncPlayerAchievements — Marco Reus (bubble)", () => {
 
     await syncPlayerAchievements(PLAYER_ID);
 
-    expect(findByCode("marco_reus")).toMatchObject({ current_value: 1, completed_at: ORIGINAL_COMPLETED_AT });
+    expect(findByCode("marco_reus")).toBeUndefined();
   });
 });
 
@@ -577,6 +626,26 @@ describe("syncPlayersAchievementsIfEnabled — the tournament-completion guard",
     await syncPlayersAchievementsIfEnabled(["player-a", "player-b"]);
 
     expect(mockAchievementRepository.upsertMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("historical/default resync never publishes feed events", async () => {
+    mockResultRepository.findKnockoutsByPlayerId.mockResolvedValue([
+      { player_id: PLAYER_ID, knockouts: 10 },
+    ]);
+
+    await syncPlayerAchievements(PLAYER_ID);
+
+    expect(mockPublishLegendaryAchievementEvent).not.toHaveBeenCalled();
+  });
+
+  it("runtime sync publishes only a newly completed Legendary achievement", async () => {
+    mockResultRepository.findKnockoutsByPlayerId.mockResolvedValue([
+      { player_id: PLAYER_ID, knockouts: 10 },
+    ]);
+
+    await syncPlayerAchievements(PLAYER_ID, { publishActivityEvents: true });
+
+    expect(mockPublishLegendaryAchievementEvent).toHaveBeenCalledWith(PLAYER_ID, "headhunter");
   });
 });
 

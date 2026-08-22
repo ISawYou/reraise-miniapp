@@ -10,6 +10,7 @@ import {
 } from "@/lib/repositories";
 import type { LiveEntryPatch } from "@/lib/repositories";
 import { syncPlayersAchievementsIfEnabled } from "@/features/achievements";
+import { publishTournamentWinnerEvent } from "@/features/club-activity";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import type {
@@ -884,7 +885,14 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
   await tournamentRepository.patch(tournamentId, { status: "completed" });
 
   try {
-    await syncPlayersAchievementsIfEnabled(playerIds);
+    const winner = liveEntries.find((entry) => entry.place === 1);
+    await publishTournamentWinnerEvent(tournamentId, winner?.player_id ?? null);
+  } catch (activityError) {
+    console.error("[completeTournamentFromLiveEntries] Activity event failed:", activityError);
+  }
+
+  try {
+    await syncPlayersAchievementsIfEnabled(playerIds, { publishActivityEvents: true });
   } catch (achievementError) {
     console.error("[completeTournamentFromLiveEntries] Achievement sync failed:", achievementError);
   }
@@ -944,9 +952,16 @@ export async function saveTournamentResults(
 
   await tournamentRepository.patch(tournamentId, { status: "completed" });
 
+  try {
+    const winner = results.find((item) => item.place === 1);
+    await publishTournamentWinnerEvent(tournamentId, winner?.player_id ?? null);
+  } catch (activityError) {
+    console.error("[saveTournamentResults] Activity event failed:", activityError);
+  }
+
   if (playerIds.length > 0) {
     try {
-      await syncPlayersAchievementsIfEnabled(playerIds);
+      await syncPlayersAchievementsIfEnabled(playerIds, { publishActivityEvents: true });
     } catch (achievementError) {
       console.error("[saveTournamentResults] Achievement sync failed:", achievementError);
     }

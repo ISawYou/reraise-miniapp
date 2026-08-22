@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   findLiveEligible: vi.fn().mockResolvedValue([]),
   findPlayerIdsWithLiveEntry: vi.fn().mockResolvedValue([]),
   findLiveEntriesWithDetails: vi.fn(),
+  publishTournamentWinnerEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/repositories", () => ({
@@ -43,6 +44,10 @@ vi.mock("@/lib/repositories", () => ({
 
 vi.mock("@/features/achievements", () => ({
   syncPlayersAchievementsIfEnabled: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/features/club-activity", () => ({
+  publishTournamentWinnerEvent: mocks.publishTournamentWinnerEvent,
 }));
 
 import { completeTournamentFromLiveEntries, saveTournamentResults } from "@/features/tournaments";
@@ -95,6 +100,7 @@ beforeEach(() => {
   mocks.deleteByTournamentId.mockResolvedValue(undefined);
   mocks.insertMany.mockResolvedValue(undefined);
   mocks.markAttendedBulk.mockResolvedValue(undefined);
+  mocks.publishTournamentWinnerEvent.mockResolvedValue(undefined);
 });
 
 describe("saveTournamentResults (free completion flow)", () => {
@@ -117,6 +123,7 @@ describe("saveTournamentResults (free completion flow)", () => {
     expect(inserted).toHaveLength(3);
     expect(inserted.map((row: { place: number }) => row.place).sort()).toEqual([1, 2, 3]);
     expect(mocks.patch).toHaveBeenCalledWith(FREE_TOURNAMENT_ID, { status: "completed" });
+    expect(mocks.publishTournamentWinnerEvent).toHaveBeenCalledWith(FREE_TOURNAMENT_ID, "p1");
   });
 
   it("rejects two players sharing place=12 before touching the database (the production incident)", async () => {
@@ -198,6 +205,7 @@ describe("completeTournamentFromLiveEntries (live completion flow)", () => {
     expect(inserted.map((row: { place: number }) => row.place).sort()).toEqual([1, 2]);
     expect(mocks.patch).toHaveBeenCalledWith(LIVE_TOURNAMENT_ID, { status: "completed" });
     expect(mocks.markAttendedBulk).toHaveBeenCalledTimes(1);
+    expect(mocks.publishTournamentWinnerEvent).toHaveBeenCalledWith(LIVE_TOURNAMENT_ID, "p1");
   });
 
   it("rejects two players sharing place=12 before touching the database", async () => {

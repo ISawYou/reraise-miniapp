@@ -10,3 +10,5 @@ export * from "./emailOtpCodes";
 export * from "./activityEvents";
 export * from "./appSettings";
 export * from "./academyProgress";
+export * from "./clubActivityEvents";
+export * from "./achievementVisualConfigs";
