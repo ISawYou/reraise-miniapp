@@ -15,6 +15,9 @@ import {
 } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { ClubActivityCard } from "@/components/club-activity-card";
+import { AchievementVisual } from "@/components/achievements/achievement-visual";
+import type { AchievementVisualConfig } from "@/config/achievement-visuals";
+import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import {
@@ -200,6 +203,8 @@ export default function HomePage() {
   const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
   const [activeTournamentIndex, setActiveTournamentIndex] = useState(0);
   const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
+  const [featuredAchievements, setFeaturedAchievements] = useState<ReturnType<typeof resolveFeaturedAchievements>>([]);
+  const [achievementVisuals, setAchievementVisuals] = useState<Record<string, AchievementVisualConfig>>({});
   const [seasonTitle, setSeasonTitle] = useState("Активный сезон");
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
   const [homeDataLoading, setHomeDataLoading] = useState(true);
@@ -345,7 +350,7 @@ export default function HomePage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts, achievementRows, ratingData, activityData] = await Promise.all([
+    const [registrations, tournaments, counts, achievementRows, ratingData, activityData, featuredData, visualsData] = await Promise.all([
       getPlayerRegistrations(currentPlayer.id),
       getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
@@ -378,6 +383,12 @@ export default function HomePage() {
       fetch("/api/club-activity?limit=3")
         .then(async (response) => response.ok ? response.json() : { events: [] })
         .catch(() => ({ events: [] })),
+      fetch(`/api/players/${currentPlayer.id}/featured-achievements`).then((response) =>
+        response.ok ? response.json() : { keys: [] }
+      ),
+      fetch("/api/achievement-visuals").then((response) =>
+        response.ok ? response.json() : { visuals: [] }
+      ),
     ]);
 
     const nextMap: Record<string, string> = {};
@@ -421,6 +432,8 @@ export default function HomePage() {
         (row) => row.completed_at
       ).length
     );
+    setFeaturedAchievements(resolveFeaturedAchievements(achievementRows as AchievementProgressRow[], featuredData.keys ?? []));
+    setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
     setHomeDataLoading(false);
   }
 
@@ -1270,9 +1283,15 @@ export default function HomePage() {
               <p className="truncate text-lg font-bold text-white">
               {greetingName}
               </p>
-              <div className="shrink-0 text-right text-[11px] leading-5 text-white/55">
-                <p>Достижения: {homeDataLoading ? "—" : completedAchievementsCount}</p>
-                <p>Re-Entry: {player.free_reentries_balance ?? 0}</p>
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                {featuredAchievements.length > 0 ? (
+                  <div className="flex items-center gap-1">
+                    {featuredAchievements.map((item) => (
+                      <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-9 w-9" />
+                    ))}
+                  </div>
+                ) : null}
+                <p className="text-[11px] text-white/55">{homeDataLoading ? "—" : completedAchievementsCount} достижений</p>
               </div>
             </div>
           </div>

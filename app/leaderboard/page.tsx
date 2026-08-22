@@ -110,7 +110,7 @@ export default function LeaderboardPage() {
         </div>
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
           <div className="grid grid-cols-[36px_minmax(0,1fr)_64px] gap-2 border-b border-white/10 px-3 py-3 text-xs uppercase tracking-wide text-white/50 sm:grid-cols-[48px_minmax(0,1fr)_90px] sm:gap-3 sm:px-4">
-            <div>#</div>
+            <div className="text-center">#</div>
             <div>Игрок</div>
             <div className="text-right">Очки</div>
           </div>
@@ -119,24 +119,26 @@ export default function LeaderboardPage() {
             <div className="px-4 py-6 text-sm text-white/60">Пока нет рейтинга</div>
           ) : (
             rows.map((row, index) => {
-              const tone = getLeaderboardPlaceTone(index + 1, row.player_id === currentPlayerId);
-              const toneClass = tone === "current" ? "border-[#d7b55a]/30 bg-[#d7b55a]/[0.10] ring-1 ring-inset ring-[#d7b55a]/20"
-                : tone === "gold" ? "border-[#d7b55a]/20 bg-[#d7b55a]/[0.07]"
-                : tone === "silver" ? "border-slate-300/15 bg-slate-300/[0.05]"
-                : tone === "bronze" ? "border-orange-300/15 bg-orange-400/[0.045]"
-                : tone === "finalist" ? "border-[#8fa8ff]/10 bg-[#667eea]/[0.045]"
+              const isCurrentPlayer = row.player_id === currentPlayerId;
+              const tone = getLeaderboardPlaceTone(index + 1, false);
+              const toneClass = isCurrentPlayer ? "border-[#d7b55a]/35 bg-[#d7b55a]/[0.12] ring-1 ring-inset ring-[#d7b55a]/25"
+                : tone === "gold" ? "border-[#d7b55a]/30 bg-[#b88a2e]/[0.13]"
+                : tone === "silver" ? "border-slate-200/25 bg-slate-300/[0.10]"
+                : tone === "bronze" ? "border-orange-300/25 bg-[#a65f32]/[0.11]"
+                : tone === "finalist" ? "border-[#8fa8ff]/20 bg-[#5968bd]/[0.11]"
                 : "border-white/10";
+              const badgeClass = tone === "gold" ? "border-[#d7b55a]/45 bg-[#d7b55a]/15 text-[#f1d486]"
+                : tone === "silver" ? "border-slate-200/35 bg-slate-200/10 text-slate-100"
+                : tone === "bronze" ? "border-orange-300/35 bg-orange-400/10 text-orange-200"
+                : tone === "finalist" ? "border-[#91a6ff]/30 bg-[#7182dc]/15 text-[#cbd3ff]"
+                : "border-white/10 bg-white/[0.04] text-white/70";
               return (
               <Link
                 key={row.player_id}
                 href={`/players/${row.player_id}`}
-                className={`grid grid-cols-[36px_minmax(0,1fr)_64px] gap-2 border-b px-3 py-4 last:border-b-0 sm:grid-cols-[48px_minmax(0,1fr)_90px] sm:gap-3 sm:px-4 ${toneClass}`}
+                className={`grid grid-cols-[36px_minmax(0,1fr)_64px] items-center gap-2 border-b px-3 py-4 last:border-b-0 sm:grid-cols-[48px_minmax(0,1fr)_90px] sm:gap-3 sm:px-4 ${toneClass}`}
               >
-                <div
-                  className={`text-sm font-semibold ${
-                    row.player_id === currentPlayerId ? "text-[#f0d38a]" : "text-white/80"
-                  }`}
-                >
+                <div className={`flex h-7 w-7 items-center justify-center justify-self-center rounded-lg border text-xs font-bold tabular-nums ${badgeClass}`}>
                   {index + 1}
                 </div>
 
