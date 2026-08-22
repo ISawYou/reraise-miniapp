@@ -96,7 +96,6 @@ jobs:
           DB_NAME=reraise
           DB_USER=reraise
           DOCKER_NETWORK=poker-clock_default
-          ENV_FILE=.env.postgres
           MIGRATOR_IMAGE="${{ env.MIGRATOR_IMAGE }}:${{ github.sha }}"
           BACKUP_ROOT="${HOME}/reraise-backups/postgresql"
 
@@ -136,7 +135,6 @@ jobs:
 
           section "PREFLIGHT"
           cd "$APP_DIR"
-          test -f "$ENV_FILE" || fail "$APP_DIR/$ENV_FILE does not exist."
           require_healthy_container "$DB_CONTAINER"
           require_healthy_container "$APP_CONTAINER"
           docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 \
@@ -151,11 +149,11 @@ jobs:
           db_id_before="$(docker inspect "$DB_CONTAINER" --format '{{.Id}}')"
           db_started_before="$(docker inspect "$DB_CONTAINER" --format '{{.State.StartedAt}}')"
 
-          provider="$(sed -n 's/^DATABASE_PROVIDER=//p' "$ENV_FILE" | tail -n 1 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')"
-          [ "$provider" = "postgres" ] || fail "$ENV_FILE does not select DATABASE_PROVIDER=postgres."
+          provider="$(docker exec "$APP_CONTAINER" printenv DATABASE_PROVIDER 2>/dev/null | tr -d '\r')"
+          [ "$provider" = "postgres" ] || fail "The running application does not select DATABASE_PROVIDER=postgres."
 
-          database_url="$(sed -n 's/^DATABASE_URL=//p' "$ENV_FILE" | tail -n 1 | tr -d '\r')"
-          [ -n "$database_url" ] || fail "$ENV_FILE does not define DATABASE_URL."
+          database_url="$(docker exec "$APP_CONTAINER" printenv DATABASE_URL 2>/dev/null | tr -d '\r')"
+          [ -n "$database_url" ] || fail "The running application does not define DATABASE_URL."
           export RERAISE_DATABASE_URL="$database_url"
           database_target="$(python3 - <<'PY'
           import os
@@ -175,9 +173,11 @@ jobs:
           ]))
           PY
           )"
-          unset RERAISE_DATABASE_URL database_url
+          unset RERAISE_DATABASE_URL
           [ "$database_target" = "${DB_USER}|${DB_CONTAINER}|5432|${DB_NAME}" ] \
             || fail "DATABASE_URL does not target the expected production database."
+          export DATABASE_PROVIDER="$provider" DATABASE_URL="$database_url"
+          unset provider database_url
 
           connected_target="$(psql_read_only -At <<'SQL'
           BEGIN TRANSACTION READ ONLY;
@@ -276,8 +276,10 @@ jobs:
           section "MIGRATIONS"
           docker run --rm \
             --network "$DOCKER_NETWORK" \
-            --env-file "$ENV_FILE" \
+            --env DATABASE_PROVIDER \
+            --env DATABASE_URL \
             "$MIGRATOR_IMAGE" npm run db:migrate
+          unset DATABASE_PROVIDER DATABASE_URL
 
           section "POST-MIGRATION VERIFICATION"
           final_chain="$(read_tracking_chain)"
