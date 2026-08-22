@@ -1,0 +1,311 @@
+name: Production Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type MIGRATE to create a backup and apply pending migrations
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  MIGRATOR_IMAGE: ghcr.io/isawyou/re-raise-migrator
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate manual request
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -Eeuo pipefail
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "Production migrations may only run from main." >&2
+            exit 1
+          }
+          [ "$CONFIRMATION" = "MIGRATE" ] || {
+            echo "Confirmation did not match. Production was not contacted." >&2
+            exit 1
+          }
+
+  build-migrator:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push migrator
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrator
+          push: true
+          tags: ${{ env.MIGRATOR_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=production-migrator
+          cache-to: type=gha,mode=max,scope=production-migrator
+
+  migrate:
+    needs: build-migrator
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Configure SSH
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Backup, migrate and verify production PostgreSQL
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=6 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+          umask 077
+
+          APP_DIR=/opt/reraise
+          APP_CONTAINER=re-raise
+          DB_CONTAINER=poker-clock-db
+          DB_NAME=reraise
+          DB_USER=reraise
+          DOCKER_NETWORK=poker-clock_default
+          ENV_FILE=.env.postgres
+          MIGRATOR_IMAGE="${{ env.MIGRATOR_IMAGE }}:${{ github.sha }}"
+          BACKUP_ROOT="${HOME}/reraise-backups/postgresql"
+
+          section() {
+            printf '\n================ %s ================\n' "$1"
+          }
+
+          fail() {
+            echo "STOP: $*" >&2
+            exit 1
+          }
+
+          require_healthy_container() {
+            local container="$1"
+            local status health
+            docker inspect "$container" >/dev/null 2>&1 || fail "Required container '$container' was not found."
+            status="$(docker inspect "$container" --format '{{.State.Status}}')"
+            health="$(docker inspect "$container" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}')"
+            [ "$status" = "running" ] && [ "$health" = "healthy" ] \
+              || fail "Container '$container' is not healthy (status=$status, health=$health)."
+          }
+
+          psql_read_only() {
+            docker exec -i "$DB_CONTAINER" \
+              psql -X -q -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" "$@"
+          }
+
+          read_tracking_chain() {
+            psql_read_only -At <<'SQL'
+          BEGIN TRANSACTION READ ONLY;
+          SELECT created_at::bigint::text || '|' || hash
+          FROM drizzle.__drizzle_migrations
+          ORDER BY created_at, id;
+          ROLLBACK;
+          SQL
+          }
+
+          section "PREFLIGHT"
+          cd "$APP_DIR"
+          test -f "$ENV_FILE" || fail "$APP_DIR/$ENV_FILE does not exist."
+          require_healthy_container "$DB_CONTAINER"
+          require_healthy_container "$APP_CONTAINER"
+          docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 \
+            || fail "Docker network '$DOCKER_NETWORK' was not found."
+          for container in "$DB_CONTAINER" "$APP_CONTAINER"; do
+            docker inspect "$container" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$DOCKER_NETWORK\"" \
+              || fail "Container '$container' is not connected to '$DOCKER_NETWORK'."
+          done
+
+          app_id_before="$(docker inspect "$APP_CONTAINER" --format '{{.Id}}')"
+          app_started_before="$(docker inspect "$APP_CONTAINER" --format '{{.State.StartedAt}}')"
+          db_id_before="$(docker inspect "$DB_CONTAINER" --format '{{.Id}}')"
+          db_started_before="$(docker inspect "$DB_CONTAINER" --format '{{.State.StartedAt}}')"
+
+          provider="$(sed -n 's/^DATABASE_PROVIDER=//p' "$ENV_FILE" | tail -n 1 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//')"
+          [ "$provider" = "postgres" ] || fail "$ENV_FILE does not select DATABASE_PROVIDER=postgres."
+
+          database_url="$(sed -n 's/^DATABASE_URL=//p' "$ENV_FILE" | tail -n 1 | tr -d '\r')"
+          [ -n "$database_url" ] || fail "$ENV_FILE does not define DATABASE_URL."
+          export RERAISE_DATABASE_URL="$database_url"
+          database_target="$(python3 - <<'PY'
+          import os
+          from urllib.parse import unquote, urlparse
+
+          raw = os.environ["RERAISE_DATABASE_URL"].strip()
+          if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+              raw = raw[1:-1]
+          parsed = urlparse(raw)
+          if parsed.scheme not in {"postgres", "postgresql"}:
+              raise SystemExit("DATABASE_URL is not a PostgreSQL URL")
+          print("|".join([
+              unquote(parsed.username or ""),
+              parsed.hostname or "",
+              str(parsed.port or 5432),
+              unquote(parsed.path.lstrip("/")),
+          ]))
+          PY
+          )"
+          unset RERAISE_DATABASE_URL database_url
+          [ "$database_target" = "${DB_USER}|${DB_CONTAINER}|5432|${DB_NAME}" ] \
+            || fail "DATABASE_URL does not target the expected production database."
+
+          connected_target="$(psql_read_only -At <<'SQL'
+          BEGIN TRANSACTION READ ONLY;
+          SELECT current_user || '|' || current_database();
+          ROLLBACK;
+          SQL
+          )"
+          [ "$connected_target" = "${DB_USER}|${DB_NAME}" ] \
+            || fail "psql connected to an unexpected database or user."
+
+          tracking_table="$(psql_read_only -At <<'SQL'
+          BEGIN TRANSACTION READ ONLY;
+          SELECT COALESCE(to_regclass('drizzle.__drizzle_migrations')::text, '');
+          ROLLBACK;
+          SQL
+          )"
+          [ "$tracking_table" = "drizzle.__drizzle_migrations" ] \
+            || fail "Drizzle migration tracking table is missing."
+
+          database_size="$(psql_read_only -At <<'SQL'
+          BEGIN TRANSACTION READ ONLY;
+          SELECT pg_database_size(current_database());
+          ROLLBACK;
+          SQL
+          )"
+          case "$database_size" in
+            ''|*[!0-9]*) fail "Could not determine production database size." ;;
+          esac
+
+          echo "Pulling immutable migrator image $MIGRATOR_IMAGE (no build on VPS)."
+          docker pull "$MIGRATOR_IMAGE"
+
+          expected_chain="$(docker run --rm -i --entrypoint node "$MIGRATOR_IMAGE" - <<'NODE'
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const root = "/app/lib/db/migrations";
+          const journal = JSON.parse(fs.readFileSync(path.join(root, "meta/_journal.json"), "utf8"));
+          for (const entry of journal.entries) {
+            const sql = fs.readFileSync(path.join(root, `${entry.tag}.sql`));
+            console.log(`${entry.when}|${crypto.createHash("sha256").update(sql).digest("hex")}`);
+          }
+          NODE
+          )"
+          [ -n "$expected_chain" ] || fail "Migrator image contains no migration journal entries."
+
+          actual_chain="$(read_tracking_chain)"
+          expected_count="$(printf '%s\n' "$expected_chain" | wc -l | tr -d ' ')"
+          if [ -n "$actual_chain" ]; then
+            actual_count="$(printf '%s\n' "$actual_chain" | wc -l | tr -d ' ')"
+          else
+            actual_count=0
+          fi
+          [ "$actual_count" -le "$expected_count" ] \
+            || fail "Production has more tracked migrations than the selected migrator image."
+          expected_applied_prefix="$(printf '%s\n' "$expected_chain" | head -n "$actual_count")"
+          [ "$actual_chain" = "$expected_applied_prefix" ] \
+            || fail "Production migration history is not a valid prefix of the repository migration chain."
+          pending_count=$((expected_count - actual_count))
+          echo "Migration state before: applied=$actual_count total=$expected_count pending=$pending_count"
+
+          section "BACKUP"
+          free_bytes="$(df -PB1 "$HOME" | awk 'NR == 2 {print $4}')"
+          case "$free_bytes" in
+            ''|*[!0-9]*) fail "Could not determine free backup disk space." ;;
+          esac
+          minimum_free_bytes=$((database_size * 2 + 1073741824))
+          [ "$free_bytes" -ge "$minimum_free_bytes" ] \
+            || fail "Insufficient disk space for backup verification (requires 2x DB size plus 1 GiB)."
+
+          mkdir -p "$BACKUP_ROOT"
+          chmod 700 "$BACKUP_ROOT"
+          timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup_file="${BACKUP_ROOT}/reraise-${timestamp}.dump"
+          partial_file="${backup_file}.partial"
+          list_file="${backup_file}.list"
+          [ ! -e "$backup_file" ] && [ ! -e "$partial_file" ] && [ ! -e "$list_file" ] \
+            || fail "Timestamped backup target already exists."
+
+          docker exec "$DB_CONTAINER" pg_dump \
+            --username="$DB_USER" \
+            --dbname="$DB_NAME" \
+            --format=custom \
+            --compress=6 \
+            --no-owner \
+            --no-acl \
+            --serializable-deferrable > "$partial_file"
+          [ -s "$partial_file" ] || fail "pg_dump output is missing or empty."
+          mv "$partial_file" "$backup_file"
+          docker exec -i "$DB_CONTAINER" pg_restore --list < "$backup_file" > "$list_file"
+          [ -s "$list_file" ] || fail "pg_restore --list produced an empty result."
+          grep -Eq 'TABLE DATA +public +players' "$list_file" \
+            || fail "Verified archive does not contain public.players table data metadata."
+          echo "Backup verified: $backup_file ($(stat -c '%s' "$backup_file") bytes)"
+
+          section "MIGRATIONS"
+          docker run --rm \
+            --network "$DOCKER_NETWORK" \
+            --env-file "$ENV_FILE" \
+            "$MIGRATOR_IMAGE" npm run db:migrate
+
+          section "POST-MIGRATION VERIFICATION"
+          final_chain="$(read_tracking_chain)"
+          [ "$final_chain" = "$expected_chain" ] \
+            || fail "Migration tracking does not match the complete repository chain after migration."
+
+          activity_table="$(psql_read_only -At <<'SQL'
+          BEGIN TRANSACTION READ ONLY;
+          SELECT COALESCE(to_regclass('public.club_activity_events')::text, '');
+          ROLLBACK;
+          SQL
+          )"
+          [ "$activity_table" = "club_activity_events" ] \
+            || fail "public.club_activity_events is missing after migration."
+
+          require_healthy_container "$DB_CONTAINER"
+          require_healthy_container "$APP_CONTAINER"
+          [ "$(docker inspect "$APP_CONTAINER" --format '{{.Id}}')" = "$app_id_before" ] \
+            && [ "$(docker inspect "$APP_CONTAINER" --format '{{.State.StartedAt}}')" = "$app_started_before" ] \
+            || fail "Application container was replaced or restarted."
+          [ "$(docker inspect "$DB_CONTAINER" --format '{{.Id}}')" = "$db_id_before" ] \
+            && [ "$(docker inspect "$DB_CONTAINER" --format '{{.State.StartedAt}}')" = "$db_started_before" ] \
+            || fail "Database container was replaced or restarted."
+
+          health_body="$(curl --fail --silent --show-error https://re-raise.ru/api/health)"
+          [ "$health_body" = '{"ok":true}' ] || fail "Application health endpoint returned an unexpected body."
+
+          echo "Migration state after: applied=$expected_count total=$expected_count pending=0"
+          echo "Verified table: public.club_activity_events"
+          echo "Application and database containers remained healthy and were not restarted."
+          REMOTE_SCRIPT
