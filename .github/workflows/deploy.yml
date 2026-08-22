@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+env:
+  IMAGE: ghcr.io/ISawYou/re-raise
+
 permissions:
   contents: read
 
@@ -34,9 +37,59 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-  # Everything below runs on the VPS: production `next build` (needs
-  # /opt/reraise/.env, not available on the GitHub runner), container
-  # recreation, and proof that the new code is actually live and healthy.
+  # Builds the production image ONCE, on the runner's own isolated
+  # resources — never on the shared production VPS (see the 2026-08-22
+  # incident: `docker compose build app` running on the VPS pinned both
+  # CPUs and exhausted RAM on a 2-core/3.8GB box with zero swap, taking
+  # every other app on it offline for the duration of the build). Tagged
+  # immutably by commit SHA -- `latest` is also pushed for
+  # convenience/manual pulls, but the deploy job below always pulls the SHA
+  # tag specifically, never `latest`. No SUPABASE_SERVICE_ROLE_KEY build
+  # arg: app/api/leaderboard/route.ts is force-dynamic, so nothing in the
+  # app touches a database during `next build`.
+  build:
+    needs: checks
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The runner's default buildx builder uses the "docker" driver,
+      # which can't export to the GitHub Actions cache backend
+      # (cache-to/cache-from: type=gha below) -- only the "docker-container"
+      # driver this creates supports it.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+            NEXT_PUBLIC_TELEGRAM_BOT_ID=${{ secrets.NEXT_PUBLIC_TELEGRAM_BOT_ID }}
+            NEXT_PUBLIC_APP_URL=${{ secrets.NEXT_PUBLIC_APP_URL }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Everything below runs on the VPS, but only ever pull/recreate/verify —
+  # never `docker build`/`docker compose build`/buildx/`npm run build`.
   # cancel-in-progress is deliberately false: a `docker compose up -d`
   # recreation caught mid-flight by a cancellation is exactly the kind of
   # "server left in an in-between state" the app owner does not want. A
@@ -44,9 +97,11 @@ jobs:
   # while one is already queued, GitHub keeps only the newest queued run —
   # older superseded commits are dropped, not deployed one by one), so
   # deploys always run to full completion and the server always converges
-  # on the latest pushed commit.
+  # on the latest pushed commit. This job's own VPS-side work is now just
+  # a pull + container recreate + health/smoke checks -- short, and no
+  # longer CPU/RAM-heavy even if a manual cancel does hit it mid-flight.
   deploy:
-    needs: checks
+    needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     timeout-minutes: 15
@@ -62,16 +117,19 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
 
-      # Single SSH session, single strict-mode remote script: build the new
-      # image, recreate only the app container, prove the running container
-      # is that exact image (not a no-op deploy), wait for a genuine
-      # running+healthy state (not a one-shot check), smoke-test the public
-      # site, and only then prune dangling images. Any failing command
-      # aborts the whole script (set -Eeuo pipefail) and the step — and the
-      # job — end red. poker-clock-db, the external network, volumes and the
-      # storage bind mount are never touched: only `docker compose build
-      # app` / `up -d --no-deps app` run, never `down`.
-      - name: Build, deploy and verify on VPS
+      # Single SSH session, single strict-mode remote script: pull the
+      # already-built image by its immutable SHA tag, recreate only the
+      # app container against it, wait for a genuine running+healthy
+      # state, smoke-test the public site, and roll back to whatever
+      # image was running before on any failure. Any failing command that
+      # isn't explicitly handled aborts the whole script (set -Eeuo
+      # pipefail); the rollback path itself still exits 1 so the workflow
+      # is red even when the rollback succeeds -- a failed deploy is a
+      # failed deploy, it just must not take re-raise down with it.
+      # poker-clock-db, the external network, volumes and the storage bind
+      # mount are never touched: only `docker pull` / `up -d --no-deps`
+      # run, never `down`, and no other app on the VPS is touched.
+      - name: Deploy (pull + recreate + health + rollback) on VPS
         run: |
           set -Eeuo pipefail
           ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
@@ -82,9 +140,10 @@ jobs:
           set -Eeuo pipefail
 
           EXPECTED_SHA="${{ github.sha }}"
+          IMAGE="${{ env.IMAGE }}"
           cd /opt/reraise
 
-          echo "== Syncing repo to the commit this workflow ran for =="
+          echo "== Syncing repo to the commit this workflow ran for (compose/config files only -- the image was already built and pushed by the build job, nothing here compiles anything) =="
           git fetch origin main
           git checkout main
           git pull --ff-only origin main
@@ -97,108 +156,144 @@ jobs:
             exit 1
           fi
 
-          # Read the real image name from docker-compose.yml instead of
-          # assuming it — this is what `docker compose build/up` actually
-          # resolve to, so it can never drift from the compose file.
-          IMAGE_NAME="$(docker compose config --images app)"
-          echo "Image name from docker-compose.yml: $IMAGE_NAME"
+          NEW_IMAGE_REF="$IMAGE:$EXPECTED_SHA"
 
-          echo "== Building production image (npm run build happens in here, using /opt/reraise/.env) =="
-          docker compose build app
+          echo "== Capturing the currently running image as the rollback target =="
+          PREVIOUS_CONTAINER_ID="$(docker compose -f docker-compose.yml ps -q app || true)"
+          PREVIOUS_IMAGE_ID=""
+          if [ -n "$PREVIOUS_CONTAINER_ID" ]; then
+            PREVIOUS_IMAGE_ID="$(docker inspect "$PREVIOUS_CONTAINER_ID" --format '{{.Image}}')"
+            echo "Previous running image: $PREVIOUS_IMAGE_ID"
+          else
+            echo "No previous app container found -- no rollback target available for this run."
+          fi
 
-          NEW_IMAGE_ID="$(docker image inspect "$IMAGE_NAME" --format '{{.Id}}')"
+          echo "== Pulling the built image (no build ever happens here) =="
+          docker pull "$NEW_IMAGE_REF"
+          NEW_IMAGE_ID="$(docker image inspect "$NEW_IMAGE_REF" --format '{{.Id}}')"
           echo "New image ID: $NEW_IMAGE_ID"
 
-          echo "== Recreating the app container only =="
-          docker compose up -d --no-deps app
+          # Recreates the app container against $1 (an image reference or
+          # image ID -- both work as a compose `image:` value), waits for
+          # running+healthy, then runs the same public smoke tests the old
+          # pipeline had. Used for both the forward deploy and, on failure,
+          # the rollback -- identical verification either way.
+          verify_and_smoke() {
+            local image_ref="$1"
+            export RERAISE_IMAGE="$image_ref"
 
-          CONTAINER_ID="$(docker compose ps -q app)"
-          if [ -z "$CONTAINER_ID" ]; then
-            echo "No 'app' container found after 'docker compose up -d'." >&2
+            docker compose -f docker-compose.yml up -d --no-deps app
+
+            local container_id
+            container_id="$(docker compose -f docker-compose.yml ps -q app)"
+            if [ -z "$container_id" ]; then
+              echo "No 'app' container found after 'docker compose up -d'." >&2
+              return 1
+            fi
+
+            local running_image_id
+            running_image_id="$(docker inspect "$container_id" --format '{{.Image}}')"
+            echo "Running container's image ID: $running_image_id"
+            echo "Running container created at: $(docker inspect "$container_id" --format '{{.Created}}')"
+
+            local deploy_timeout=120
+            local interval=5
+            local elapsed=0
+            while true; do
+              local status health
+              status="$(docker inspect "$container_id" --format '{{.State.Status}}')"
+              health="$(docker inspect "$container_id" --format '{{.State.Health.Status}}')"
+
+              if [ "$status" = "exited" ] || [ "$status" = "dead" ]; then
+                echo "Container entered terminal state '$status'." >&2
+                docker compose -f docker-compose.yml ps
+                docker compose -f docker-compose.yml logs --tail 200 app
+                return 1
+              fi
+
+              if [ "$health" = "unhealthy" ]; then
+                echo "Container reported unhealthy." >&2
+                docker compose -f docker-compose.yml ps
+                docker compose -f docker-compose.yml logs --tail 200 app
+                return 1
+              fi
+
+              if [ "$status" = "running" ] && [ "$health" = "healthy" ]; then
+                echo "Container is running and healthy after ${elapsed}s."
+                break
+              fi
+
+              if [ "$elapsed" -ge "$deploy_timeout" ]; then
+                echo "Timed out after ${deploy_timeout}s waiting for running+healthy (status=$status health=$health)." >&2
+                docker compose -f docker-compose.yml ps
+                docker compose -f docker-compose.yml logs --tail 200 app
+                return 1
+              fi
+
+              sleep "$interval"
+              elapsed=$((elapsed + interval))
+            done
+
+            echo "== Smoke-testing the public site =="
+
+            echo "GET https://re-raise.ru/api/health"
+            local health_body
+            health_body="$(curl --fail --silent --show-error https://re-raise.ru/api/health)" || return 1
+            echo "Body: $health_body"
+            if [ "$health_body" != '{"ok":true}' ]; then
+              echo "Unexpected /api/health body: $health_body" >&2
+              return 1
+            fi
+
+            echo "GET https://re-raise.ru/api/settings"
+            curl --fail --silent --show-error https://re-raise.ru/api/settings > /dev/null || return 1
+
+            echo "GET https://re-raise.ru/"
+            curl --fail --silent --show-error https://re-raise.ru/ > /dev/null || return 1
+
+            # /api/leaderboard legitimately returns 404 when there is no
+            # active season (see app/api/leaderboard/route.ts) — that is a
+            # real, documented business state, not a broken deploy. Only
+            # something other than 200/404 (5xx, unreachable, ...) fails here.
+            echo "GET https://re-raise.ru/api/leaderboard"
+            local leaderboard_status
+            leaderboard_status="$(curl --silent --output /dev/null --write-out '%{http_code}' https://re-raise.ru/api/leaderboard)"
+            echo "Status: $leaderboard_status"
+            case "$leaderboard_status" in
+              200|404) ;;
+              *)
+                echo "Unexpected /api/leaderboard status: $leaderboard_status" >&2
+                return 1
+                ;;
+            esac
+          }
+
+          set +e
+          verify_and_smoke "$NEW_IMAGE_REF"
+          DEPLOY_RESULT=$?
+          set -e
+
+          if [ "$DEPLOY_RESULT" -ne 0 ]; then
+            echo "== New image ($NEW_IMAGE_REF) failed verification -- rolling back ==" >&2
+
+            if [ -z "$PREVIOUS_IMAGE_ID" ]; then
+              echo "No previous image available to roll back to -- re-raise may be down. Manual intervention required." >&2
+              exit 1
+            fi
+
+            set +e
+            verify_and_smoke "$PREVIOUS_IMAGE_ID"
+            ROLLBACK_RESULT=$?
+            set -e
+
+            if [ "$ROLLBACK_RESULT" -ne 0 ]; then
+              echo "Rollback to the previous image ALSO failed verification -- manual intervention required immediately." >&2
+              exit 1
+            fi
+
+            echo "Rollback succeeded: previous image ($PREVIOUS_IMAGE_ID) restored and healthy."
             exit 1
           fi
 
-          RUNNING_IMAGE_ID="$(docker inspect "$CONTAINER_ID" --format '{{.Image}}')"
-          echo "Running container's image ID: $RUNNING_IMAGE_ID"
-          echo "Running container created at: $(docker inspect "$CONTAINER_ID" --format '{{.Created}}')"
-
-          if [ "$RUNNING_IMAGE_ID" != "$NEW_IMAGE_ID" ]; then
-            echo "The running container is not on the image that was just built — the deploy did not take effect." >&2
-            docker compose ps
-            exit 1
-          fi
-
-          echo "== Waiting for the container to report running+healthy =="
-          DEPLOY_TIMEOUT=120
-          INTERVAL=5
-          ELAPSED=0
-          while true; do
-            STATUS="$(docker inspect "$CONTAINER_ID" --format '{{.State.Status}}')"
-            HEALTH="$(docker inspect "$CONTAINER_ID" --format '{{.State.Health.Status}}')"
-
-            if [ "$STATUS" = "exited" ] || [ "$STATUS" = "dead" ]; then
-              echo "Container entered terminal state '$STATUS'." >&2
-              docker compose ps
-              docker compose logs --tail 200 app
-              exit 1
-            fi
-
-            if [ "$HEALTH" = "unhealthy" ]; then
-              echo "Container reported unhealthy." >&2
-              docker compose ps
-              docker compose logs --tail 200 app
-              exit 1
-            fi
-
-            if [ "$STATUS" = "running" ] && [ "$HEALTH" = "healthy" ]; then
-              echo "Container is running and healthy after ${ELAPSED}s."
-              break
-            fi
-
-            if [ "$ELAPSED" -ge "$DEPLOY_TIMEOUT" ]; then
-              echo "Timed out after ${DEPLOY_TIMEOUT}s waiting for running+healthy (status=$STATUS health=$HEALTH)." >&2
-              docker compose ps
-              docker compose logs --tail 200 app
-              exit 1
-            fi
-
-            sleep "$INTERVAL"
-            ELAPSED=$((ELAPSED + INTERVAL))
-          done
-
-          echo "== Smoke-testing the public site =="
-
-          echo "GET https://re-raise.ru/api/health"
-          HEALTH_BODY="$(curl --fail --silent --show-error https://re-raise.ru/api/health)"
-          echo "Body: $HEALTH_BODY"
-          if [ "$HEALTH_BODY" != '{"ok":true}' ]; then
-            echo "Unexpected /api/health body: $HEALTH_BODY" >&2
-            exit 1
-          fi
-
-          echo "GET https://re-raise.ru/api/settings"
-          curl --fail --silent --show-error https://re-raise.ru/api/settings > /dev/null
-
-          echo "GET https://re-raise.ru/"
-          curl --fail --silent --show-error https://re-raise.ru/ > /dev/null
-
-          # /api/leaderboard legitimately returns 404 when there is no
-          # active season (see app/api/leaderboard/route.ts) — that is a
-          # real, documented business state, not a broken deploy. Only
-          # something other than 200/404 (5xx, unreachable, ...) fails here.
-          echo "GET https://re-raise.ru/api/leaderboard"
-          LEADERBOARD_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' https://re-raise.ru/api/leaderboard)"
-          echo "Status: $LEADERBOARD_STATUS"
-          case "$LEADERBOARD_STATUS" in
-            200|404) ;;
-            *)
-              echo "Unexpected /api/leaderboard status: $LEADERBOARD_STATUS" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "== All checks passed — pruning dangling images =="
-          docker image prune -f
-
-          echo "Deploy complete: $ACTUAL_SHA is live and healthy."
+          echo "Deploy complete: $ACTUAL_SHA is live and healthy (image $NEW_IMAGE_ID)."
           REMOTE_SCRIPT
