@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { players, results, tournaments } from "@/lib/db/schema";
 import type { TournamentResult } from "@/types/domain";
@@ -95,24 +95,25 @@ export class PostgresResultRepository implements ResultRepository {
   async findArrivedPlacementsByPlayerId(playerId: string): Promise<ArrivedPlacementRow[]> {
     // Historical rows predate results.arrived. Their frozen positive rating
     // points are the established fallback proof that the player participated.
-    return db
-      .select({
-        tournament_id: results.tournamentId,
-        place: results.place,
-        field_size: sql<number>`(
-          select count(*)::int from "results" as r2
-          where r2.tournament_id = ${results.tournamentId}
+    // Keep the outer result alias explicit: the previous Drizzle correlated
+    // select lost the correlation at runtime and returned no Bubble Boy
+    // progress even though the same production rows matched directly.
+    const rows = await db.execute<ArrivedPlacementRow>(sql`
+      select
+        r.tournament_id,
+        r.place,
+        (
+          select count(*)::int
+          from "results" as r2
+          where r2.tournament_id = r.tournament_id
             and (r2.arrived = true or (r2.arrived is null and r2.rating_points > 0))
-        )`,
-      })
-      .from(results)
-      .where(and(
-        eq(results.playerId, playerId),
-        or(
-          eq(results.arrived, true),
-          and(isNull(results.arrived), gt(results.ratingPoints, 0)),
-        ),
-      ));
+        ) as field_size
+      from "results" as r
+      where r.player_id = ${playerId}
+        and (r.arrived = true or (r.arrived is null and r.rating_points > 0))
+    `);
+
+    return Array.from(rows);
   }
 
   async findRatingPointsByTournamentId(tournamentId: string): Promise<RatingPointsRow[]> {
