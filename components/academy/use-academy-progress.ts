@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AcademyProgressPayload } from "@/features/academy";
+import { getTelegramInitData, isTelegramMiniAppContext } from "@/lib/telegram";
 
 export function useAcademyProgress() {
   const [data, setData] = useState<AcademyProgressPayload | null>(null);
@@ -14,6 +15,24 @@ export function useAcademyProgress() {
     async function loadProgress() {
       setError(null);
       try {
+        if (isTelegramMiniAppContext()) {
+          const initData = await getTelegramInitData();
+          if (!initData) {
+            throw new Error("Не удалось подтвердить Telegram-сессию");
+          }
+
+          const sessionResponse = await fetch("/api/auth/telegram/mini-app-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData }),
+            credentials: "include",
+          });
+
+          if (!sessionResponse.ok) {
+            throw new Error("Не удалось подтвердить Telegram-сессию");
+          }
+        }
+
         const response = await fetch("/api/academy/progress", {
           credentials: "include",
           cache: "no-store",
