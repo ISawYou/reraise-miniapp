@@ -28,7 +28,7 @@ const TOURNAMENT_TEMPLATES: Record<TournamentType, { title: string; description:
   },
   boss_bounty: {
     title: "BOSS BOUNTY",
-    description: "Bounty-турнир с дополнительной охотой на Боссов. Обычный нокаут приносит +5 очков, нокаут Босса - +15 очков. Итоговое место также влияет на рейтинг",
+    description: "Bounty-турнир с дополнительной охотой на Боссов. Обычный нокаут приносит +5 очков, нокаут Босса - +10 очков. Итоговое место также влияет на рейтинг",
   },
   win_the_button: {
     title: "WIN THE BUTTON",
