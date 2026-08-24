@@ -8,24 +8,58 @@ import { CLUB_ADDRESS } from "@/config/club";
 import type { Player, TournamentType } from "@/types/domain";
 
 const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
-  { value: "classic", label: "Texas Classic" },
+  { value: "classic", label: "Classic" },
   { value: "phoenix", label: "Phoenix" },
   { value: "deep_stack", label: "Deep Stack" },
-  { value: "bounty", label: "Bounty" },
+  { value: "bounty", label: "Bounty Hunters" },
   { value: "boss_bounty", label: "Boss Bounty" },
   { value: "win_the_button", label: "Win The Button" },
   { value: "mystery_bounty", label: "Mystery Bounty" },
 ];
 
+const TOURNAMENT_TEMPLATES: Record<TournamentType, { title: string; description: string }> = {
+  classic: {
+    title: "CLASSIC",
+    description: "Классический турнир без дополнительных механик. Главная задача - пройти как можно дальше и занять высокое место. Re-entry и Add-on увеличивают общий рейтинговый пул турнира",
+  },
+  bounty: {
+    title: "BOUNTY HUNTERS",
+    description: "Турнир, где важны не только итоговое место, но и выбитые соперники. Каждый нокаут приносит +5 рейтинговых очков, поэтому заработать рейтинг можно ещё до финального стола",
+  },
+  boss_bounty: {
+    title: "BOSS BOUNTY",
+    description: "Bounty-турнир с дополнительной охотой на Боссов. Обычный нокаут приносит +5 очков, нокаут Босса - +15 очков. Итоговое место также влияет на рейтинг",
+  },
+  win_the_button: {
+    title: "WIN THE BUTTON",
+    description: "Турнир с дополнительной борьбой за позицию. Победитель раздачи получает баттон на следующую - выигрывай банки, забирай позицию и используй преимущество за столом. Re-entry и Add-on увеличивают рейтинговый пул",
+  },
+  deep_stack: {
+    title: "DEEP STACK",
+    description: "Турнир с увеличенным стартовым стеком и большим пространством для игры. Больше фишек позволяет играть глубже и принимать больше решений без давления короткого стека. Re-entry и Add-on увеличивают рейтинговый пул",
+  },
+  mystery_bounty: {
+    title: "MYSTERY BOUNTY",
+    description: "Bounty-формат с неизвестной наградой за нокаут. После окончания поздней регистрации формируется отдельный пул рейтинговых очков и конверты с разными наградами. Выбиваешь соперника - узнаёшь, сколько очков было спрятано в твоём конверте",
+  },
+  phoenix: {
+    title: "PHOENIX",
+    description: "Особый рейтинговый формат РЕРЕЙЗ с заранее установленным гарантированным пулом очков. Независимо от количества участников в турнире разыгрывается заявленный рейтинговый пул",
+  },
+};
+
+const DEFAULT_TOURNAMENT_TYPE: TournamentType = "classic";
+const DEFAULT_TOURNAMENT_TEMPLATE = TOURNAMENT_TEMPLATES[DEFAULT_TOURNAMENT_TYPE];
+
 export default function AdminTournamentCreatePage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
 
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(DEFAULT_TOURNAMENT_TEMPLATE.title);
+  const [description, setDescription] = useState(DEFAULT_TOURNAMENT_TEMPLATE.description);
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
-  const [tournamentType, setTournamentType] = useState<TournamentType>("classic");
+  const [tournamentType, setTournamentType] = useState<TournamentType>(DEFAULT_TOURNAMENT_TYPE);
   const [ratingGuarantee, setRatingGuarantee] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -92,11 +126,11 @@ export default function AdminTournamentCreatePage() {
       });
 
       setMessage("Турнир создан");
-      setTitle("");
-      setDescription("");
+      setTitle(DEFAULT_TOURNAMENT_TEMPLATE.title);
+      setDescription(DEFAULT_TOURNAMENT_TEMPLATE.description);
       setStartAt("");
       setMaxPlayers("20");
-      setTournamentType("classic");
+      setTournamentType(DEFAULT_TOURNAMENT_TYPE);
       setRatingGuarantee("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка создания турнира");
@@ -197,7 +231,13 @@ export default function AdminTournamentCreatePage() {
           <label className="mt-4 block text-sm text-white/80">Тип турнира</label>
           <select
             value={tournamentType}
-            onChange={(e) => setTournamentType(e.target.value as TournamentType)}
+            onChange={(e) => {
+              const nextType = e.target.value as TournamentType;
+              const template = TOURNAMENT_TEMPLATES[nextType];
+              setTournamentType(nextType);
+              setTitle(template.title);
+              setDescription(template.description);
+            }}
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           >
             {TOURNAMENT_TYPE_OPTIONS.map((option) => (
