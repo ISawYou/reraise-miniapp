@@ -36,7 +36,9 @@ export default function ActivityPage() {
           </p>
         ) : null}
         <div className="mt-5 space-y-3">
-          {events.map((event) => <ClubActivityCard key={event.id} event={event} />)}
+          {events.map((event) => (
+            <ClubActivityCard key={event.id} event={event} showDetailLink />
+          ))}
         </div>
       </div>
     </main>

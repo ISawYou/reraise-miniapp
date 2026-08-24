@@ -62,10 +62,30 @@ export type CreateAutomaticClubActivityEvent = {
   published_at: string;
 };
 
+export type ClubActivityCommentRecord = {
+  id: string;
+  event_id: string;
+  player_id: string;
+  body: string;
+  created_at: string;
+  player: {
+    id: string;
+    display_name: string;
+    telegram_avatar_url: string | null;
+    custom_avatar_url: string | null;
+  };
+};
+
 export interface ClubActivityRepository {
   listPublished(limit: number, offset: number): Promise<ClubActivityEventRecord[]>;
   listAdmin(limit: number): Promise<ClubActivityEventRecord[]>;
   findById(eventId: string): Promise<ClubActivityEventRecord | null>;
+  findPublishedById(eventId: string): Promise<ClubActivityEventRecord | null>;
+  countLikes(eventId: string): Promise<number>;
+  hasLike(eventId: string, playerId: string): Promise<boolean>;
+  toggleLike(eventId: string, playerId: string): Promise<boolean>;
+  listComments(eventId: string): Promise<ClubActivityCommentRecord[]>;
+  createComment(eventId: string, playerId: string, body: string): Promise<ClubActivityCommentRecord>;
   createManual(input: CreateManualClubActivityEvent): Promise<ClubActivityEventRecord>;
   updateManual(
     eventId: string,

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ClubActivityEventRecord,
+  ClubActivityCommentRecord,
   ClubActivityRepository,
   CreateAutomaticClubActivityEvent,
   CreateManualClubActivityEvent,
@@ -20,8 +21,11 @@ vi.mock("@/lib/repositories", () => ({
 
 import {
   ClubActivityValidationError,
+  createClubActivityComment,
   createManualClubActivity,
   getPublishedClubActivity,
+  getPublishedClubActivityDetail,
+  toggleClubActivityLike,
   publishLegendaryAchievementEvent,
   publishTournamentWinnerEvent,
   updateManualClubActivity,
@@ -53,6 +57,8 @@ function record(overrides: Partial<ClubActivityEventRecord> = {}): ClubActivityE
 
 class MemoryActivityRepository implements ClubActivityRepository {
   rows: ClubActivityEventRecord[] = [];
+  likes = new Set<string>();
+  comments: ClubActivityCommentRecord[] = [];
   lastPublishedQuery: { limit: number; offset: number } | null = null;
 
   async listPublished(limit: number, offset: number) {
@@ -64,6 +70,41 @@ class MemoryActivityRepository implements ClubActivityRepository {
   }
   async listAdmin(limit: number) { return this.rows.slice(0, limit); }
   async findById(eventId: string) { return this.rows.find((row) => row.id === eventId) ?? null; }
+  async findPublishedById(eventId: string) {
+    return this.rows.find((row) => row.id === eventId && row.status === "published") ?? null;
+  }
+  async countLikes(eventId: string) {
+    return [...this.likes].filter((key) => key.startsWith(`${eventId}:`)).length;
+  }
+  async hasLike(eventId: string, playerId: string) {
+    return this.likes.has(`${eventId}:${playerId}`);
+  }
+  async toggleLike(eventId: string, playerId: string) {
+    const key = `${eventId}:${playerId}`;
+    if (this.likes.delete(key)) return false;
+    this.likes.add(key);
+    return true;
+  }
+  async listComments(eventId: string) {
+    return this.comments.filter((comment) => comment.event_id === eventId);
+  }
+  async createComment(eventId: string, playerId: string, body: string) {
+    const comment: ClubActivityCommentRecord = {
+      id: crypto.randomUUID(),
+      event_id: eventId,
+      player_id: playerId,
+      body,
+      created_at: new Date().toISOString(),
+      player: {
+        id: playerId,
+        display_name: "Player",
+        telegram_avatar_url: null,
+        custom_avatar_url: null,
+      },
+    };
+    this.comments.push(comment);
+    return comment;
+  }
   async createManual(input: CreateManualClubActivityEvent) {
     const row = record({ ...input, source: "manual" });
     this.rows.push(row);
@@ -187,5 +228,25 @@ describe("Club Activity automatic events", () => {
       achievement_code: "headhunter",
       idempotency_key: "achievement:player-1:headhunter",
     });
+  });
+});
+
+describe("Club Activity social", () => {
+  it("toggles one like per player and validates comments", async () => {
+    const repository = new MemoryActivityRepository();
+    const event = record({ status: "published", published_at: new Date().toISOString() });
+    repository.rows.push(event);
+
+    await expect(toggleClubActivityLike(event.id, "player-1", repository))
+      .resolves.toEqual({ liked: true, likeCount: 1 });
+    await expect(toggleClubActivityLike(event.id, "player-1", repository))
+      .resolves.toEqual({ liked: false, likeCount: 0 });
+    await createClubActivityComment(event.id, "player-1", "Комментарий", repository);
+    await expect(createClubActivityComment(event.id, "player-1", "x".repeat(1001), repository))
+      .rejects.toBeInstanceOf(ClubActivityValidationError);
+
+    const detail = await getPublishedClubActivityDetail(event.id, "player-1", repository);
+    expect(detail.comments).toHaveLength(1);
+    expect(detail.likedByMe).toBe(false);
   });
 });

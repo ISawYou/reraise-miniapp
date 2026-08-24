@@ -15,6 +15,8 @@ import {
 import {
   CLUB_ACTIVITY_EVENT_TYPES,
   type ClubActivityEvent,
+  type ClubActivityComment,
+  type ClubActivityDetail,
 } from "@/types/club-activity";
 
 const MANUAL_EVENT_TYPES = new Set([
@@ -24,6 +26,7 @@ const MANUAL_EVENT_TYPES = new Set([
 ]);
 
 export class ClubActivityValidationError extends Error {}
+export class ClubActivityNotFoundError extends Error {}
 
 export type ManualClubActivityInput = {
   eventType: string;
@@ -122,6 +125,23 @@ function enrichEvent(row: ClubActivityEventRecord): ClubActivityEvent {
   };
 }
 
+function enrichComment(
+  row: Awaited<ReturnType<ClubActivityRepository["listComments"]>>[number],
+): ClubActivityComment {
+  return {
+    id: row.id,
+    event_id: row.event_id,
+    player_id: row.player_id,
+    body: row.body,
+    created_at: row.created_at,
+    player: {
+      id: row.player.id,
+      display_name: row.player.display_name,
+      avatar_url: row.player.custom_avatar_url ?? row.player.telegram_avatar_url,
+    },
+  };
+}
+
 export async function getPublishedClubActivity(
   limit = 20,
   offset = 0,
@@ -130,6 +150,52 @@ export async function getPublishedClubActivity(
   const safeLimit = Math.max(1, Math.min(limit, 100));
   const safeOffset = Math.max(0, offset);
   return (await repository.listPublished(safeLimit, safeOffset)).map(enrichEvent);
+}
+
+export async function getPublishedClubActivityDetail(
+  eventId: string,
+  playerId?: string,
+  repository: ClubActivityRepository = clubActivityRepository,
+): Promise<ClubActivityDetail> {
+  const event = await repository.findPublishedById(eventId);
+  if (!event) throw new ClubActivityNotFoundError("Публикация не найдена");
+
+  const [likeCount, likedByMe, comments] = await Promise.all([
+    repository.countLikes(eventId),
+    playerId ? repository.hasLike(eventId, playerId) : false,
+    repository.listComments(eventId),
+  ]);
+
+  return {
+    event: enrichEvent(event),
+    likeCount,
+    likedByMe,
+    comments: comments.map(enrichComment),
+  };
+}
+
+export async function toggleClubActivityLike(
+  eventId: string,
+  playerId: string,
+  repository: ClubActivityRepository = clubActivityRepository,
+) {
+  const event = await repository.findPublishedById(eventId);
+  if (!event) throw new ClubActivityNotFoundError("Публикация не найдена");
+
+  const liked = await repository.toggleLike(eventId, playerId);
+  return { liked, likeCount: await repository.countLikes(eventId) };
+}
+
+export async function createClubActivityComment(
+  eventId: string,
+  playerId: string,
+  bodyValue: unknown,
+  repository: ClubActivityRepository = clubActivityRepository,
+): Promise<ClubActivityComment> {
+  const body = requiredText(bodyValue, "Комментарий", 1000);
+  const event = await repository.findPublishedById(eventId);
+  if (!event) throw new ClubActivityNotFoundError("Публикация не найдена");
+  return enrichComment(await repository.createComment(eventId, playerId, body));
 }
 
 export async function getClubActivityAdminList(

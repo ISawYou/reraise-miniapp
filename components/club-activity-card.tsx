@@ -31,16 +31,18 @@ function formatCompactDate(value: string | null): string {
 export function ClubActivityCard({
   event,
   compact = false,
+  showDetailLink = false,
 }: {
   event: ClubActivityEvent;
   compact?: boolean;
+  showDetailLink?: boolean;
 }) {
   const presentation = EVENT_PRESENTATION[event.event_type];
 
   if (compact) {
     return (
       <Link
-        href="/activity"
+        href={`/activity/${event.id}`}
         className="flex min-h-12 items-center gap-3 px-3 py-2 transition-colors hover:bg-white/[0.035]"
       >
         {event.player?.avatar_url ? (
@@ -114,6 +116,14 @@ export function ClubActivityCard({
   return (
     <article className={`rounded-2xl border ${presentation.accent} bg-white/[0.035] p-3.5`}>
       {content}
+      {showDetailLink ? (
+        <Link
+          href={`/activity/${event.id}`}
+          className="mt-3 inline-flex text-sm font-semibold text-white/65"
+        >
+          Открыть публикацию →
+        </Link>
+      ) : null}
       {event.cta_label && event.cta_url ? (
         event.cta_url.startsWith("/") ? (
           <Link href={event.cta_url} className="mt-3 inline-flex text-sm font-semibold text-[#d7b55a]">

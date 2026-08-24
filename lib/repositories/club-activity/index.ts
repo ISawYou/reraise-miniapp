@@ -2,6 +2,7 @@ import { PostgresClubActivityRepository } from "./PostgresClubActivityRepository
 
 export type {
   ClubActivityEventRecord,
+  ClubActivityCommentRecord,
   ClubActivityRepository,
   CreateAutomaticClubActivityEvent,
   CreateManualClubActivityEvent,

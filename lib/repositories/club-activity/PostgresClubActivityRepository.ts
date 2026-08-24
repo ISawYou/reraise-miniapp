@@ -1,9 +1,16 @@
 import "server-only";
 
-import { and, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { clubActivityEvents, players, tournaments } from "@/lib/db/schema";
+import {
+  clubActivityComments,
+  clubActivityEvents,
+  clubActivityLikes,
+  players,
+  tournaments,
+} from "@/lib/db/schema";
 import type {
+  ClubActivityCommentRecord,
   ClubActivityEventRecord,
   ClubActivityRepository,
   CreateAutomaticClubActivityEvent,
@@ -124,6 +131,91 @@ export class PostgresClubActivityRepository implements ClubActivityRepository {
   async findById(eventId: string): Promise<ClubActivityEventRecord | null> {
     const [row] = await selectEvents().where(eq(clubActivityEvents.id, eventId)).limit(1);
     return row ? mapEvent(row as SelectedEvent) : null;
+  }
+
+  async findPublishedById(eventId: string): Promise<ClubActivityEventRecord | null> {
+    const [row] = await selectEvents().where(and(
+      eq(clubActivityEvents.id, eventId),
+      eq(clubActivityEvents.status, "published"),
+      lte(clubActivityEvents.publishedAt, new Date()),
+    )).limit(1);
+    return row ? mapEvent(row as SelectedEvent) : null;
+  }
+
+  async countLikes(eventId: string): Promise<number> {
+    const [row] = await db.select({ value: count() })
+      .from(clubActivityLikes)
+      .where(eq(clubActivityLikes.eventId, eventId));
+    return row?.value ?? 0;
+  }
+
+  async hasLike(eventId: string, playerId: string): Promise<boolean> {
+    const [row] = await db.select({ eventId: clubActivityLikes.eventId })
+      .from(clubActivityLikes)
+      .where(and(
+        eq(clubActivityLikes.eventId, eventId),
+        eq(clubActivityLikes.playerId, playerId),
+      ))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async toggleLike(eventId: string, playerId: string): Promise<boolean> {
+    const [deleted] = await db.delete(clubActivityLikes)
+      .where(and(
+        eq(clubActivityLikes.eventId, eventId),
+        eq(clubActivityLikes.playerId, playerId),
+      ))
+      .returning({ eventId: clubActivityLikes.eventId });
+    if (deleted) return false;
+
+    await db.insert(clubActivityLikes)
+      .values({ eventId, playerId })
+      .onConflictDoNothing();
+    return true;
+  }
+
+  async listComments(eventId: string): Promise<ClubActivityCommentRecord[]> {
+    const rows = await db.select({
+      id: clubActivityComments.id,
+      eventId: clubActivityComments.eventId,
+      playerId: clubActivityComments.playerId,
+      body: clubActivityComments.body,
+      createdAt: clubActivityComments.createdAt,
+      displayName: players.displayName,
+      telegramAvatarUrl: players.telegramAvatarUrl,
+      customAvatarUrl: players.customAvatarUrl,
+    })
+      .from(clubActivityComments)
+      .innerJoin(players, eq(clubActivityComments.playerId, players.id))
+      .where(eq(clubActivityComments.eventId, eventId))
+      .orderBy(asc(clubActivityComments.createdAt));
+
+    return rows.map((row) => ({
+      id: row.id,
+      event_id: row.eventId,
+      player_id: row.playerId,
+      body: row.body,
+      created_at: row.createdAt.toISOString(),
+      player: {
+        id: row.playerId,
+        display_name: row.displayName,
+        telegram_avatar_url: row.telegramAvatarUrl,
+        custom_avatar_url: row.customAvatarUrl,
+      },
+    }));
+  }
+
+  async createComment(
+    eventId: string,
+    playerId: string,
+    body: string,
+  ): Promise<ClubActivityCommentRecord> {
+    const [created] = await db.insert(clubActivityComments)
+      .values({ eventId, playerId, body })
+      .returning({ id: clubActivityComments.id });
+    const comments = await this.listComments(eventId);
+    return comments.find((comment) => comment.id === created.id)!;
   }
 
   async createManual(input: CreateManualClubActivityEvent): Promise<ClubActivityEventRecord> {

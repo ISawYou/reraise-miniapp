@@ -15,6 +15,7 @@ import {
 } from "@/features/tournaments";
 import { PromotionToast } from "@/components/promotion-toast";
 import { ClubActivityCard } from "@/components/club-activity-card";
+import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
 import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
@@ -1464,7 +1465,7 @@ export default function HomePage() {
               type="button"
               onClick={() =>
                 openExternalLink(
-                  "https://yandex.ru/maps/?text=%D0%A2%D0%B2%D0%B5%D1%80%D1%8C%2C%20%D1%83%D0%BB.%20%D0%9D%D0%BE%D0%B2%D0%BE%D1%82%D0%BE%D1%80%D0%B6%D1%81%D0%BA%D0%B0%D1%8F%2C%2018%D0%BA1"
+                  CLUB_MAP_URL
                 )
               }
               className="mt-5 flex w-full items-center justify-between gap-3 rounded-[20px] border border-white/10 bg-white/[0.04] px-4 py-3.5 text-left transition active:scale-[0.99]"
@@ -1473,7 +1474,7 @@ export default function HomePage() {
                 <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/45">
                   Адрес
                 </p>
-                <p className="mt-1 text-base font-bold text-white">Новоторжская, 18 к.1</p>
+                <p className="mt-1 text-base font-bold text-white">{CLUB_ADDRESS}</p>
               </div>
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/65">
                 <MapIcon />

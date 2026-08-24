@@ -14,6 +14,7 @@ import {
 } from "@/features/tournaments";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { logEvent } from "@/lib/activity-client";
+import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
 import {
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
@@ -523,9 +524,20 @@ const waitlistParticipants = participants.filter(
                   <PinIcon />
                   <span>Место</span>
                 </div>
-                <p className="mt-3 text-sm font-semibold text-white">
-                  {tournament.location || "Не указано"}
-                </p>
+                {tournament.location === CLUB_ADDRESS ? (
+                  <a
+                    href={CLUB_MAP_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 block text-sm font-semibold text-white underline decoration-white/25 underline-offset-4"
+                  >
+                    {tournament.location}
+                  </a>
+                ) : (
+                  <p className="mt-3 text-sm font-semibold text-white">
+                    {tournament.location || "Не указано"}
+                  </p>
+                )}
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">

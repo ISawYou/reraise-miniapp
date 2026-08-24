@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
+import { CLUB_ADDRESS } from "@/config/club";
 import type { Player, TournamentType } from "@/types/domain";
 
 const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
@@ -22,7 +23,6 @@ export default function AdminTournamentCreatePage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
   const [tournamentType, setTournamentType] = useState<TournamentType>("classic");
@@ -57,11 +57,6 @@ export default function AdminTournamentCreatePage() {
       return;
     }
 
-    if (!location.trim()) {
-      setError("Укажите место проведения");
-      return;
-    }
-
     if (!startAt) {
       setError("Выберите дату и время");
       return;
@@ -85,7 +80,7 @@ export default function AdminTournamentCreatePage() {
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim(),
-          location: location.trim(),
+          location: CLUB_ADDRESS,
           start_at: new Date(startAt).toISOString(),
           max_players: Number(maxPlayers),
           tournament_type: tournamentType,
@@ -99,7 +94,6 @@ export default function AdminTournamentCreatePage() {
       setMessage("Турнир создан");
       setTitle("");
       setDescription("");
-      setLocation("");
       setStartAt("");
       setMaxPlayers("20");
       setTournamentType("classic");
@@ -189,17 +183,6 @@ export default function AdminTournamentCreatePage() {
             placeholder="Например, bounty, re-entry, поздняя регистрация 60 минут"
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
             rows={4}
-          />
-
-          <label className="mt-4 block text-sm text-white/80">
-            Место проведения
-          </label>
-          <input
-            type="text"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="Например, Poker Loft"
-            className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
 
           <label className="mt-4 block text-sm text-white/80">Дата и время</label>

@@ -44,3 +44,23 @@ export type ClubActivityEvent = {
     tier: string | null;
   } | null;
 };
+
+export type ClubActivityComment = {
+  id: string;
+  event_id: string;
+  player_id: string;
+  body: string;
+  created_at: string;
+  player: {
+    id: string;
+    display_name: string;
+    avatar_url: string | null;
+  };
+};
+
+export type ClubActivityDetail = {
+  event: ClubActivityEvent;
+  likeCount: number;
+  likedByMe: boolean;
+  comments: ClubActivityComment[];
+};
