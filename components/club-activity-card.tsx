@@ -20,6 +20,14 @@ function formatDate(value: string | null): string {
   }).format(new Date(value));
 }
 
+function formatCompactDate(value: string | null): string {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "short",
+  }).format(new Date(value));
+}
+
 export function ClubActivityCard({
   event,
   compact = false,
@@ -28,6 +36,35 @@ export function ClubActivityCard({
   compact?: boolean;
 }) {
   const presentation = EVENT_PRESENTATION[event.event_type];
+
+  if (compact) {
+    return (
+      <Link
+        href="/activity"
+        className="flex min-h-12 items-center gap-3 px-3 py-2 transition-colors hover:bg-white/[0.035]"
+      >
+        {event.player?.avatar_url ? (
+          <span
+            role="img"
+            aria-label={event.player.display_name}
+            className="h-8 w-8 shrink-0 rounded-lg border border-white/10 bg-cover bg-center"
+            style={{ backgroundImage: `url("${event.player.avatar_url}")` }}
+          />
+        ) : (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[10px] font-bold text-white/70">
+            {presentation.icon}
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold leading-tight text-white">{event.title}</p>
+          <p className="mt-0.5 truncate text-[11px] text-white/38">
+            {presentation.label}{event.published_at ? ` · ${formatCompactDate(event.published_at)}` : ""}
+          </p>
+        </div>
+      </Link>
+    );
+  }
+
   const content = (
     <>
       <div className="flex items-start gap-3">
@@ -54,16 +91,16 @@ export function ClubActivityCard({
             </time>
           </div>
           <h3 className="mt-1 text-sm font-bold leading-snug text-white">{event.title}</h3>
-          <p className={`mt-1 text-sm leading-relaxed text-white/58 ${compact ? "line-clamp-2" : "whitespace-pre-line"}`}>
+          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-white/58">
             {event.achievement?.name ?? event.body}
           </p>
-          {!compact && event.achievement ? (
+          {event.achievement ? (
             <p className="mt-1 text-xs text-[#d7b55a]/75">{event.achievement.description}</p>
           ) : null}
         </div>
       </div>
 
-      {event.image_url && !compact ? (
+      {event.image_url ? (
         <div
           role="img"
           aria-label={event.title}

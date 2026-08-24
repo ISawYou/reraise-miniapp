@@ -1452,7 +1452,7 @@ export default function HomePage() {
                     Все события →
                   </Link>
                 </div>
-                <div className="space-y-2">
+                <div className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.025]">
                   {homeActivity.map((event) => (
                     <ClubActivityCard key={event.id} event={event} compact />
                   ))}
