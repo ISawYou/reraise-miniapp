@@ -67,10 +67,11 @@ export async function POST(request: NextRequest) {
     void syncTelegramAvatar(player, telegramUser.photo_url);
 
     const response = NextResponse.json({ ok: true, player });
+    const isProduction = process.env.NODE_ENV === "production";
     response.cookies.set(COOKIE_NAME, signSession(player.id), {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 30 * 24 * 60 * 60,
       path: "/",
     });
