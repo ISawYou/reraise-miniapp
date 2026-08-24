@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 import type {
   ClubActivityCommentRecord,
+  ClubActivityFeedRecord,
   ClubActivityEventRecord,
   ClubActivityRepository,
   CreateAutomaticClubActivityEvent,
@@ -133,6 +134,52 @@ export class PostgresClubActivityRepository implements ClubActivityRepository {
     return row ? mapEvent(row as SelectedEvent) : null;
   }
 
+  async listPublishedWithSocial(
+    limit: number,
+    offset: number,
+    playerId?: string,
+  ): Promise<ClubActivityFeedRecord[]> {
+    const likeCount = sql<number>`(
+      SELECT count(*)::int FROM ${clubActivityLikes}
+      WHERE ${clubActivityLikes.eventId} = ${clubActivityEvents.id}
+    )`.mapWith(Number);
+    const commentCount = sql<number>`(
+      SELECT count(*)::int FROM ${clubActivityComments}
+      WHERE ${clubActivityComments.eventId} = ${clubActivityEvents.id}
+    )`.mapWith(Number);
+    const likedByMe = playerId
+      ? sql<boolean>`EXISTS (
+          SELECT 1 FROM ${clubActivityLikes}
+          WHERE ${clubActivityLikes.eventId} = ${clubActivityEvents.id}
+            AND ${clubActivityLikes.playerId} = ${playerId}
+        )`
+      : sql<boolean>`false`;
+
+    const rows = await db.select({
+      ...eventSelection,
+      like_count: likeCount,
+      liked_by_me: likedByMe,
+      comment_count: commentCount,
+    })
+      .from(clubActivityEvents)
+      .leftJoin(players, eq(clubActivityEvents.playerId, players.id))
+      .leftJoin(tournaments, eq(clubActivityEvents.tournamentId, tournaments.id))
+      .where(and(
+        eq(clubActivityEvents.status, "published"),
+        lte(clubActivityEvents.publishedAt, new Date()),
+      ))
+      .orderBy(desc(clubActivityEvents.publishedAt), desc(clubActivityEvents.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    return rows.map((row) => ({
+      ...mapEvent(row as SelectedEvent),
+      like_count: row.like_count,
+      liked_by_me: row.liked_by_me,
+      comment_count: row.comment_count,
+    }));
+  }
+
   async findPublishedById(eventId: string): Promise<ClubActivityEventRecord | null> {
     const [row] = await selectEvents().where(and(
       eq(clubActivityEvents.id, eventId),
@@ -233,7 +280,7 @@ export class PostgresClubActivityRepository implements ClubActivityRepository {
     return (await this.findById(created.id))!;
   }
 
-  async updateManual(
+  async updateAdmin(
     eventId: string,
     input: UpdateManualClubActivityEvent,
   ): Promise<ClubActivityEventRecord | null> {
@@ -253,23 +300,31 @@ export class PostgresClubActivityRepository implements ClubActivityRepository {
 
     const [updated] = await db.update(clubActivityEvents)
       .set(values)
-      .where(and(eq(clubActivityEvents.id, eventId), eq(clubActivityEvents.source, "manual")))
+      .where(eq(clubActivityEvents.id, eventId))
       .returning({ id: clubActivityEvents.id });
     return updated ? this.findById(updated.id) : null;
   }
 
-  async archiveManual(eventId: string, updatedAt: string): Promise<boolean> {
+  async updateManual(eventId: string, input: UpdateManualClubActivityEvent) {
+    return this.updateAdmin(eventId, input);
+  }
+
+  async archive(eventId: string, updatedAt: string): Promise<boolean> {
     const [updated] = await db.update(clubActivityEvents)
       .set({ status: "archived", updatedAt: new Date(updatedAt) })
-      .where(and(eq(clubActivityEvents.id, eventId), eq(clubActivityEvents.source, "manual")))
+      .where(eq(clubActivityEvents.id, eventId))
       .returning({ id: clubActivityEvents.id });
     return Boolean(updated);
+  }
+
+  async archiveManual(eventId: string, updatedAt: string) {
+    return this.archive(eventId, updatedAt);
   }
 
   async createAutomaticIdempotently(
     input: CreateAutomaticClubActivityEvent,
   ): Promise<ClubActivityEventRecord> {
-    const [row] = await db.insert(clubActivityEvents).values({
+    const [created] = await db.insert(clubActivityEvents).values({
       eventType: input.event_type,
       source: "automatic",
       status: "published",
@@ -283,21 +338,14 @@ export class PostgresClubActivityRepository implements ClubActivityRepository {
       achievementCode: input.achievement_code,
       idempotencyKey: input.idempotency_key,
       publishedAt: new Date(input.published_at),
-    }).onConflictDoUpdate({
-      target: clubActivityEvents.idempotencyKey,
-      targetWhere: sql`${clubActivityEvents.idempotencyKey} IS NOT NULL`,
-      set: {
-        title: input.title,
-        body: input.body,
-        imageUrl: input.image_url,
-        ctaLabel: input.cta_label,
-        ctaUrl: input.cta_url,
-        playerId: input.player_id,
-        tournamentId: input.tournament_id,
-        achievementCode: input.achievement_code,
-        updatedAt: new Date(),
-      },
-    }).returning({ id: clubActivityEvents.id });
-    return (await this.findById(row.id))!;
+    }).onConflictDoNothing().returning({ id: clubActivityEvents.id });
+
+    if (created) return (await this.findById(created.id))!;
+
+    const [existing] = await db.select({ id: clubActivityEvents.id })
+      .from(clubActivityEvents)
+      .where(eq(clubActivityEvents.idempotencyKey, input.idempotency_key))
+      .limit(1);
+    return (await this.findById(existing.id))!;
   }
 }

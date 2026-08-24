@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getTelegramInitData } from "@/lib/telegram";
-import type { ClubActivityEvent } from "@/types/club-activity";
+import type { ClubActivityEvent, ClubActivityEventType } from "@/types/club-activity";
 import type { Player } from "@/types/domain";
 
 type FormState = {
-  eventType: "news" | "update" | "tournament_announcement";
+  eventType: ClubActivityEventType;
   title: string;
   body: string;
   imageUrl: string;
@@ -33,6 +33,7 @@ export default function AdminNewsPage() {
   const [events, setEvents] = useState<ClubActivityEvent[]>([]);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingAutomatic, setEditingAutomatic] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,8 +73,8 @@ export default function AdminNewsPage() {
   }, []);
 
   function editEvent(event: ClubActivityEvent) {
-    if (event.source !== "manual") return;
     setEditingId(event.id);
+    setEditingAutomatic(event.source === "automatic");
     setForm({
       eventType: event.event_type as FormState["eventType"],
       title: event.title,
@@ -103,6 +104,7 @@ export default function AdminNewsPage() {
       if (!response.ok) throw new Error(payload.error ?? "Не удалось сохранить публикацию");
       setForm(EMPTY_FORM);
       setEditingId(null);
+      setEditingAutomatic(false);
       await loadEvents();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Ошибка сохранения");
@@ -145,15 +147,21 @@ export default function AdminNewsPage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-semibold">{editingId ? "Редактирование" : "Новая публикация"}</h2>
             {editingId ? (
-              <button type="button" onClick={() => { setEditingId(null); setForm(EMPTY_FORM); }} className="text-xs text-white/45">Отмена</button>
+              <button type="button" onClick={() => { setEditingId(null); setEditingAutomatic(false); setForm(EMPTY_FORM); }} className="text-xs text-white/45">Отмена</button>
             ) : null}
           </div>
 
           <label className="mt-4 block text-xs text-white/50">Тип
-            <select value={form.eventType} onChange={(e) => setForm({ ...form, eventType: e.target.value as FormState["eventType"] })} className={inputClass}>
+            <select disabled={editingAutomatic} value={form.eventType} onChange={(e) => setForm({ ...form, eventType: e.target.value as FormState["eventType"] })} className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-55`}>
               <option value="news">Новость</option>
               <option value="update">Обновление</option>
               <option value="tournament_announcement">Турнир</option>
+              {editingAutomatic ? (
+                <>
+                  <option value="tournament_winner">Победитель турнира</option>
+                  <option value="achievement">Достижение</option>
+                </>
+              ) : null}
             </select>
           </label>
           <label className="mt-3 block text-xs text-white/50">Заголовок
@@ -195,12 +203,10 @@ export default function AdminNewsPage() {
                     <p className="text-[10px] uppercase tracking-wider text-white/35">{event.source === "automatic" ? "Системное" : event.status === "published" ? "Опубликовано" : "Черновик"}</p>
                     <p className="mt-1 truncate font-semibold">{event.title}</p>
                   </div>
-                  {event.source === "manual" ? (
-                    <div className="flex shrink-0 gap-3 text-xs">
-                      <button type="button" onClick={() => editEvent(event)} className="text-[#d7b55a]">Изменить</button>
-                      <button type="button" onClick={() => archive(event.id)} className="text-red-300/75">Архив</button>
-                    </div>
-                  ) : null}
+                  <div className="flex shrink-0 gap-3 text-xs">
+                    <button type="button" onClick={() => editEvent(event)} className="text-[#d7b55a]">Изменить</button>
+                    <button type="button" onClick={() => archive(event.id)} className="text-red-300/75">Удалить</button>
+                  </div>
                 </div>
               </div>
             ))}

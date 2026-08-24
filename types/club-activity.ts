@@ -64,3 +64,9 @@ export type ClubActivityDetail = {
   likedByMe: boolean;
   comments: ClubActivityComment[];
 };
+
+export type ClubActivityFeedEvent = ClubActivityEvent & {
+  likeCount: number;
+  likedByMe: boolean;
+  commentCount: number;
+};

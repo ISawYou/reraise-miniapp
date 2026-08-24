@@ -100,22 +100,20 @@ export default function ActivityDetailPage() {
         {detail ? (
           <>
             <div className="mt-5">
-              <ClubActivityCard event={detail.event} />
+              <ClubActivityCard
+                event={detail.event}
+                social={{
+                  likeCount: detail.likeCount,
+                  likedByMe: detail.likedByMe,
+                  commentCount: detail.comments.length,
+                  onToggleLike: toggleLike,
+                  likeDisabled: submitting,
+                  commentHref: "#comments",
+                }}
+              />
             </div>
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={toggleLike}
-              className={`mt-3 rounded-xl border px-4 py-2 text-sm font-semibold transition ${
-                detail.likedByMe
-                  ? "border-rose-400/35 bg-rose-500/15 text-rose-200"
-                  : "border-white/10 bg-white/[0.04] text-white/70"
-              }`}
-            >
-              {detail.likedByMe ? "❤️" : "♡"} {detail.likeCount}
-            </button>
 
-            <section className="mt-6">
+            <section id="comments" className="mt-6 scroll-mt-4">
               <h2 className="text-lg font-bold">Комментарии · {detail.comments.length}</h2>
               <form onSubmit={submitComment} className="mt-3">
                 <textarea

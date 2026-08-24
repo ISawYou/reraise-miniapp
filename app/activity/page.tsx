@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ClubActivityCard } from "@/components/club-activity-card";
-import type { ClubActivityEvent } from "@/types/club-activity";
+import type { ClubActivityFeedEvent } from "@/types/club-activity";
 
 export default function ActivityPage() {
-  const [events, setEvents] = useState<ClubActivityEvent[]>([]);
+  const [events, setEvents] = useState<ClubActivityFeedEvent[]>([]);
+  const [likingId, setLikingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,6 +21,29 @@ export default function ActivityPage() {
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Ошибка загрузки"))
       .finally(() => setLoading(false));
   }, []);
+
+  async function toggleLike(eventId: string) {
+    if (likingId) return;
+    setLikingId(eventId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/club-activity/${eventId}/like`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Не удалось изменить отметку");
+      setEvents((current) => current.map((event) => event.id === eventId ? {
+        ...event,
+        likedByMe: payload.liked,
+        likeCount: payload.likeCount,
+      } : event));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Ошибка отправки");
+    } finally {
+      setLikingId(null);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#080808] px-4 py-6 pb-32 text-white">
@@ -37,7 +61,19 @@ export default function ActivityPage() {
         ) : null}
         <div className="mt-5 space-y-3">
           {events.map((event) => (
-            <ClubActivityCard key={event.id} event={event} showDetailLink />
+            <ClubActivityCard
+              key={event.id}
+              event={event}
+              contentHref={`/activity/${event.id}`}
+              social={{
+                likeCount: event.likeCount,
+                likedByMe: event.likedByMe,
+                commentCount: event.commentCount,
+                onToggleLike: () => toggleLike(event.id),
+                likeDisabled: likingId === event.id,
+                commentHref: `/activity/${event.id}`,
+              }}
+            />
           ))}
         </div>
       </div>

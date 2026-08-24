@@ -17,6 +17,7 @@ import {
   type ClubActivityEvent,
   type ClubActivityComment,
   type ClubActivityDetail,
+  type ClubActivityFeedEvent,
 } from "@/types/club-activity";
 
 const MANUAL_EVENT_TYPES = new Set([
@@ -145,11 +146,17 @@ function enrichComment(
 export async function getPublishedClubActivity(
   limit = 20,
   offset = 0,
+  playerId?: string,
   repository: ClubActivityRepository = clubActivityRepository,
-): Promise<ClubActivityEvent[]> {
+): Promise<ClubActivityFeedEvent[]> {
   const safeLimit = Math.max(1, Math.min(limit, 100));
   const safeOffset = Math.max(0, offset);
-  return (await repository.listPublished(safeLimit, safeOffset)).map(enrichEvent);
+  return (await repository.listPublishedWithSocial(safeLimit, safeOffset, playerId)).map((row) => ({
+    ...enrichEvent(row),
+    likeCount: row.like_count,
+    likedByMe: row.liked_by_me,
+    commentCount: row.comment_count,
+  }));
 }
 
 export async function getPublishedClubActivityDetail(
@@ -216,20 +223,35 @@ export async function createManualClubActivity(
   }));
 }
 
-export async function updateManualClubActivity(
+export async function updateClubActivityAdmin(
   eventId: string,
   input: ManualClubActivityInput,
   repository: ClubActivityRepository = clubActivityRepository,
 ): Promise<ClubActivityEvent> {
   const existing = await repository.findById(eventId);
-  if (!existing || existing.source !== "manual" || existing.status === "archived") {
+  if (!existing || existing.status === "archived") {
     throw new ClubActivityValidationError("Публикация не найдена или недоступна для редактирования");
   }
-  const normalized = normalizeManualInput(input);
+  const normalized = existing.source === "manual"
+    ? normalizeManualInput(input)
+    : (() => {
+        if (input.status !== "draft" && input.status !== "published") {
+          throw new ClubActivityValidationError("Недопустимый статус публикации");
+        }
+        const cta = validateClubActivityCta(input.ctaLabel, input.ctaUrl);
+        return {
+          status: input.status,
+          title: requiredText(input.title, "Заголовок", 200),
+          body: requiredText(input.body, "Текст", 5000),
+          image_url: optionalHttpUrl(input.imageUrl, "Изображение"),
+          cta_label: cta.label,
+          cta_url: cta.url,
+        };
+      })();
   const publishedAt = normalized.status === "published"
     ? existing.published_at ?? new Date().toISOString()
     : null;
-  const updated = await repository.updateManual(eventId, {
+  const updated = await repository.updateAdmin(eventId, {
     ...normalized,
     published_at: publishedAt,
     updated_at: new Date().toISOString(),
@@ -238,11 +260,11 @@ export async function updateManualClubActivity(
   return enrichEvent(updated);
 }
 
-export async function archiveManualClubActivity(
+export async function archiveClubActivity(
   eventId: string,
   repository: ClubActivityRepository = clubActivityRepository,
 ): Promise<void> {
-  const archived = await repository.archiveManual(eventId, new Date().toISOString());
+  const archived = await repository.archive(eventId, new Date().toISOString());
   if (!archived) {
     throw new ClubActivityValidationError("Ручная публикация не найдена");
   }

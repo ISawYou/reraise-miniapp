@@ -76,8 +76,19 @@ export type ClubActivityCommentRecord = {
   };
 };
 
+export type ClubActivityFeedRecord = ClubActivityEventRecord & {
+  like_count: number;
+  liked_by_me: boolean;
+  comment_count: number;
+};
+
 export interface ClubActivityRepository {
   listPublished(limit: number, offset: number): Promise<ClubActivityEventRecord[]>;
+  listPublishedWithSocial(
+    limit: number,
+    offset: number,
+    playerId?: string,
+  ): Promise<ClubActivityFeedRecord[]>;
   listAdmin(limit: number): Promise<ClubActivityEventRecord[]>;
   findById(eventId: string): Promise<ClubActivityEventRecord | null>;
   findPublishedById(eventId: string): Promise<ClubActivityEventRecord | null>;
@@ -87,11 +98,11 @@ export interface ClubActivityRepository {
   listComments(eventId: string): Promise<ClubActivityCommentRecord[]>;
   createComment(eventId: string, playerId: string, body: string): Promise<ClubActivityCommentRecord>;
   createManual(input: CreateManualClubActivityEvent): Promise<ClubActivityEventRecord>;
-  updateManual(
+  updateAdmin(
     eventId: string,
     input: UpdateManualClubActivityEvent,
   ): Promise<ClubActivityEventRecord | null>;
-  archiveManual(eventId: string, updatedAt: string): Promise<boolean>;
+  archive(eventId: string, updatedAt: string): Promise<boolean>;
   createAutomaticIdempotently(
     input: CreateAutomaticClubActivityEvent,
   ): Promise<ClubActivityEventRecord>;

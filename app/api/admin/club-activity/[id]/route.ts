@@ -1,8 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
-  archiveManualClubActivity,
+  archiveClubActivity,
   ClubActivityValidationError,
-  updateManualClubActivity,
+  updateClubActivityAdmin,
 } from "@/features/club-activity";
 
 export async function PATCH(
@@ -12,7 +12,7 @@ export async function PATCH(
   const { id } = await context.params;
   try {
     const body = await request.json();
-    return NextResponse.json({ event: await updateManualClubActivity(id, {
+    return NextResponse.json({ event: await updateClubActivityAdmin(id, {
       eventType: body.eventType,
       title: body.title,
       body: body.body,
@@ -36,7 +36,7 @@ export async function DELETE(
 ) {
   const { id } = await context.params;
   try {
-    await archiveManualClubActivity(id);
+    await archiveClubActivity(id);
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof ClubActivityValidationError) {

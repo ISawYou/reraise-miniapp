@@ -21,6 +21,7 @@ vi.mock("@/lib/repositories", () => ({
 
 import {
   ClubActivityValidationError,
+  archiveClubActivity,
   createClubActivityComment,
   createManualClubActivity,
   getPublishedClubActivity,
@@ -28,7 +29,7 @@ import {
   toggleClubActivityLike,
   publishLegendaryAchievementEvent,
   publishTournamentWinnerEvent,
-  updateManualClubActivity,
+  updateClubActivityAdmin,
   validateClubActivityCta,
 } from "@/features/club-activity";
 
@@ -73,6 +74,15 @@ class MemoryActivityRepository implements ClubActivityRepository {
   async findPublishedById(eventId: string) {
     return this.rows.find((row) => row.id === eventId && row.status === "published") ?? null;
   }
+  async listPublishedWithSocial(limit: number, offset: number, playerId?: string) {
+    const rows = await this.listPublished(limit, offset);
+    return Promise.all(rows.map(async (row) => ({
+      ...row,
+      like_count: await this.countLikes(row.id),
+      liked_by_me: playerId ? await this.hasLike(row.id, playerId) : false,
+      comment_count: (await this.listComments(row.id)).length,
+    })));
+  }
   async countLikes(eventId: string) {
     return [...this.likes].filter((key) => key.startsWith(`${eventId}:`)).length;
   }
@@ -110,24 +120,21 @@ class MemoryActivityRepository implements ClubActivityRepository {
     this.rows.push(row);
     return row;
   }
-  async updateManual(eventId: string, input: UpdateManualClubActivityEvent) {
-    const index = this.rows.findIndex((row) => row.id === eventId && row.source === "manual");
+  async updateAdmin(eventId: string, input: UpdateManualClubActivityEvent) {
+    const index = this.rows.findIndex((row) => row.id === eventId);
     if (index < 0) return null;
     this.rows[index] = record({ ...this.rows[index], ...input });
     return this.rows[index];
   }
-  async archiveManual(eventId: string) {
-    const row = this.rows.find((item) => item.id === eventId && item.source === "manual");
+  async archive(eventId: string) {
+    const row = this.rows.find((item) => item.id === eventId);
     if (!row) return false;
     row.status = "archived";
     return true;
   }
   async createAutomaticIdempotently(input: CreateAutomaticClubActivityEvent) {
     const existing = this.rows.find((row) => row.idempotency_key === input.idempotency_key);
-    if (existing) {
-      Object.assign(existing, input);
-      return existing;
-    }
+    if (existing) return existing;
     const row = record({ ...input, source: "automatic", status: "published" });
     this.rows.push(row);
     return row;
@@ -163,10 +170,11 @@ describe("Club Activity manual publications", () => {
       eventType: "news", title: "Второе", body: "Показывать", status: "published",
     }, repository);
 
-    const feed = await getPublishedClubActivity(3, 0, repository);
+    const feed = await getPublishedClubActivity(3, 0, undefined, repository);
     expect(repository.lastPublishedQuery).toEqual({ limit: 3, offset: 0 });
     expect(feed).toHaveLength(2);
     expect(feed.every((event) => event.status === "published")).toBe(true);
+    expect(feed[0]).toMatchObject({ likeCount: 0, likedByMe: false, commentCount: 0 });
   });
 
   it("publishes and hides the same manual event without creating another row", async () => {
@@ -174,10 +182,10 @@ describe("Club Activity manual publications", () => {
     const created = await createManualClubActivity({
       eventType: "news", title: "Новость", body: "Текст", status: "draft",
     }, repository);
-    const published = await updateManualClubActivity(created.id, {
+    const published = await updateClubActivityAdmin(created.id, {
       eventType: "news", title: "Новость", body: "Текст", status: "published",
     }, repository);
-    const hidden = await updateManualClubActivity(created.id, {
+    const hidden = await updateClubActivityAdmin(created.id, {
       eventType: "news", title: "Новость", body: "Текст", status: "draft",
     }, repository);
 
@@ -248,5 +256,22 @@ describe("Club Activity social", () => {
     const detail = await getPublishedClubActivityDetail(event.id, "player-1", repository);
     expect(detail.comments).toHaveLength(1);
     expect(detail.likedByMe).toBe(false);
+  });
+
+  it("keeps automatic admin edits and archive after repeated generation", async () => {
+    const repository = new MemoryActivityRepository();
+    const created = await publishTournamentWinnerEvent("tournament-1", "player-1", repository);
+    await updateClubActivityAdmin(created!.id, {
+      eventType: "tournament_winner",
+      title: "Редакторский заголовок",
+      body: "Редакторский текст",
+      status: "published",
+    }, repository);
+    await publishTournamentWinnerEvent("tournament-1", "player-1", repository);
+    expect(repository.rows[0].title).toBe("Редакторский заголовок");
+
+    await archiveClubActivity(created!.id, repository);
+    await publishTournamentWinnerEvent("tournament-1", "player-1", repository);
+    expect(repository.rows[0].status).toBe("archived");
   });
 });

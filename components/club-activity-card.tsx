@@ -28,14 +28,32 @@ function formatCompactDate(value: string | null): string {
   }).format(new Date(value));
 }
 
+function getCompactCtaLabel(event: ClubActivityEvent) {
+  const url = event.cta_url ?? "";
+  if (url.startsWith("/tournaments/")) return "Турнир";
+  if (url.startsWith("/academy")) return "Академия";
+  if (url.includes("achievements")) return "Достижения";
+  if (url.startsWith("/leaderboard")) return "Рейтинг";
+  return (event.cta_label ?? "Перейти").replace(/^Открыть\s+/i, "").replace(/→/g, "").trim();
+}
+
 export function ClubActivityCard({
   event,
   compact = false,
-  showDetailLink = false,
+  contentHref,
+  social,
 }: {
   event: ClubActivityEvent;
   compact?: boolean;
-  showDetailLink?: boolean;
+  contentHref?: string;
+  social?: {
+    likeCount: number;
+    likedByMe: boolean;
+    commentCount: number;
+    onToggleLike: () => void;
+    likeDisabled?: boolean;
+    commentHref: string;
+  };
 }) {
   const presentation = EVENT_PRESENTATION[event.event_type];
 
@@ -115,30 +133,47 @@ export function ClubActivityCard({
 
   return (
     <article className={`rounded-2xl border ${presentation.accent} bg-white/[0.035] p-3.5`}>
-      {content}
-      {showDetailLink ? (
-        <Link
-          href={`/activity/${event.id}`}
-          className="mt-3 inline-flex text-sm font-semibold text-white/65"
-        >
-          Открыть публикацию →
-        </Link>
-      ) : null}
-      {event.cta_label && event.cta_url ? (
-        event.cta_url.startsWith("/") ? (
-          <Link href={event.cta_url} className="mt-3 inline-flex text-sm font-semibold text-[#d7b55a]">
-            {event.cta_label} →
-          </Link>
-        ) : (
-          <a
-            href={event.cta_url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-flex text-sm font-semibold text-[#d7b55a]"
+      {contentHref ? <Link href={contentHref} className="block">{content}</Link> : content}
+      {social ? (
+        <div className="mt-3 flex items-center gap-2 border-t border-white/[0.06] pt-3">
+          <button
+            type="button"
+            disabled={social.likeDisabled}
+            onClick={social.onToggleLike}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold backdrop-blur transition disabled:opacity-50 ${
+              social.likedByMe
+                ? "border-rose-400/25 bg-rose-500/12 text-rose-200"
+                : "border-white/10 bg-white/[0.04] text-white/60"
+            }`}
           >
-            {event.cta_label} →
-          </a>
-        )
+            {social.likedByMe ? "❤️" : "♡"} {social.likeCount}
+          </button>
+          <Link
+            href={social.commentHref}
+            className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-white/60 backdrop-blur"
+          >
+            💬 {social.commentCount}
+          </Link>
+          {event.cta_label && event.cta_url ? (
+            event.cta_url.startsWith("/") ? (
+              <Link
+                href={event.cta_url}
+                className="ml-auto rounded-full border border-[#d7b55a]/20 bg-[#d7b55a]/10 px-3 py-1.5 text-xs font-semibold text-[#e2c979] backdrop-blur"
+              >
+                {getCompactCtaLabel(event)}
+              </Link>
+            ) : (
+              <a
+                href={event.cta_url}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-auto rounded-full border border-[#d7b55a]/20 bg-[#d7b55a]/10 px-3 py-1.5 text-xs font-semibold text-[#e2c979] backdrop-blur"
+              >
+                {getCompactCtaLabel(event)}
+              </a>
+            )
+          ) : null}
+        </div>
       ) : null}
     </article>
   );
