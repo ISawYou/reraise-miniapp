@@ -11,5 +11,6 @@ export * from "./activityEvents";
 export * from "./appSettings";
 export * from "./academyProgress";
 export * from "./clubActivityEvents";
+export * from "./clubActivitySocial";
 export * from "./achievementVisualConfigs";
 export * from "./playerFeaturedAchievements";
