@@ -15,6 +15,7 @@ export type TelegramWebAppInset = {
 
 const TELEGRAM_USER_CACHE_KEY = "reraise.telegram.user";
 const TELEGRAM_INIT_DATA_CACHE_KEY = "reraise.telegram.initData";
+const TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60;
 
 export type TelegramWebApp = {
   initData?: string;
@@ -164,13 +165,33 @@ function cacheTelegramUser(user: TelegramWebAppUser | null) {
   }
 }
 
+function isTelegramInitDataValid(initData: string): boolean {
+  if (!initData) return false;
+
+  const authDate = Number(new URLSearchParams(initData).get("auth_date"));
+  const ageSeconds = Math.floor(Date.now() / 1000) - authDate;
+
+  return (
+    Number.isFinite(authDate) &&
+    authDate > 0 &&
+    ageSeconds >= 0 &&
+    ageSeconds <= TELEGRAM_INIT_DATA_MAX_AGE_SECONDS
+  );
+}
+
 function readCachedTelegramInitData(): string {
   if (typeof window === "undefined") {
     return "";
   }
 
   try {
-    return window.sessionStorage.getItem(TELEGRAM_INIT_DATA_CACHE_KEY) ?? "";
+    const initData = window.sessionStorage.getItem(TELEGRAM_INIT_DATA_CACHE_KEY) ?? "";
+    if (!isTelegramInitDataValid(initData)) {
+      window.sessionStorage.removeItem(TELEGRAM_INIT_DATA_CACHE_KEY);
+      return "";
+    }
+
+    return initData;
   } catch (error) {
     console.error("Failed to read cached Telegram initData:", error);
     return "";
@@ -308,33 +329,33 @@ export async function loadTelegramWebAppScript(
 }
 
 export async function getTelegramInitData(): Promise<string> {
-  const existingInitData = getTelegramWebApp()?.initData ?? "";
+  if (typeof window === "undefined") return "";
 
-  if (existingInitData) {
-    return existingInitData;
+  const readFreshInitData = () => {
+    const webAppInitData = window.Telegram?.WebApp?.initData ?? "";
+    const launchParamsInitData = getTelegramInitDataFromLaunchParams();
+    if (isTelegramInitDataValid(webAppInitData)) return webAppInitData;
+    if (isTelegramInitDataValid(launchParamsInitData)) return launchParamsInitData;
+    return "";
+  };
+
+  let freshInitData = readFreshInitData();
+  if (!freshInitData) {
+    await loadTelegramWebAppScript(1200);
+
+    const deadline = Date.now() + 1200;
+    while (!freshInitData && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+      freshInitData = readFreshInitData();
+    }
   }
 
-  const launchParamsInitData = getTelegramInitDataFromLaunchParams();
-
-  if (launchParamsInitData) {
-    cacheTelegramInitData(launchParamsInitData);
-    return launchParamsInitData;
+  if (freshInitData) {
+    cacheTelegramInitData(freshInitData);
+    return freshInitData;
   }
 
-  const cachedInitData = readCachedTelegramInitData();
-
-  if (cachedInitData) {
-    return cachedInitData;
-  }
-
-  const webApp = await loadTelegramWebAppScript(2500);
-  const nextInitData = webApp?.initData ?? "";
-
-  if (nextInitData) {
-    cacheTelegramInitData(nextInitData);
-  }
-
-  return nextInitData;
+  return readCachedTelegramInitData();
 }
 
 // Once true, stays true for the lifetime of this JS module (i.e. the session).
