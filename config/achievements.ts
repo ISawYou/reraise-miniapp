@@ -863,7 +863,7 @@ export const ACHIEVEMENTS_CATALOG = [
     id: "marco_reus",
     code: "marco_reus",
     name: "Bubble Boy",
-    description: "Вылететь на бабле — занять первое место сразу после рейтинговой зоны турнира.",
+    description: "Вылететь на бабле — завершить турнир всего в одной позиции от рейтинговой зоны. Достижение получает игрок, который остановился первым за её пределами.",
     category: ACHIEVEMENT_CATEGORY.LEGENDARY,
     icon: ACHIEVEMENT_ICON.AWARD,
     // Automated as of this pass -- results.arrived (Rating Breakdown) makes

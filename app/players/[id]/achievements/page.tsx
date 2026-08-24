@@ -126,7 +126,6 @@ export default function PlayerAchievementsPage() {
                       className="mx-auto h-28 w-28"
                     />
                     <h3 className="mt-2 text-base font-semibold">{card.name}</h3>
-                    <p className="mt-1 text-xs leading-relaxed text-white/45">{card.description}</p>
                     <p className={`mt-2 text-[11px] font-semibold ${card.earned ? "text-[#d5b867]" : "text-white/30"}`}>
                       {card.earned ? "Получено" : "Заблокировано"}
                     </p>
@@ -175,7 +174,6 @@ export default function PlayerAchievementsPage() {
               ) : (
                 <div className="mt-5 rounded-3xl border border-white/10 bg-black/30 p-5 text-center">
                   <AchievementVisual visualKey={detail.card.visualKey} configs={configs} locked={detail.card.hidden && !detail.card.earned} dimmed={detail.card.code === "royal_flush" && !detail.card.earned} className="mx-auto h-44 w-44" />
-                  <p className="mt-4 text-sm leading-relaxed text-white/60">{detail.card.description}</p>
                   <p className={`mt-3 text-xs font-semibold ${detail.card.earned ? "text-[#d5b867]" : "text-white/35"}`}>{detail.card.earned ? "Получено" : detail.card.code === "royal_flush" ? "Заблокировано" : "Закрыто"}</p>
                   {detail.card.completedAt ? <p className="mt-1 text-xs text-white/40">Получено {new Date(detail.card.completedAt).toLocaleDateString("ru-RU")}</p> : null}
                 </div>

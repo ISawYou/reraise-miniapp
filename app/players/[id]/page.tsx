@@ -295,6 +295,15 @@ export default function PlayerProfilePage() {
   const featuredAchievements = resolveFeaturedAchievements(achievementRows, featuredKeys);
   const earnedFamiliesCount = achievementModel.families.filter((card) => card.currentTier).length;
   const earnedLegendaryCount = achievementModel.legendary.filter((card) => card.earned).length;
+  const profileAchievementCards = [
+    ...achievementModel.families.filter((card) => card.currentTier),
+    ...achievementModel.legendary.filter((card) => card.earned),
+  ].sort((left, right) => {
+    const tierPriority = { bronze: 1, silver: 2, gold: 3, platinum: 4 } as const;
+    const leftPriority = "currentTier" in left ? tierPriority[left.currentTier!] : 5;
+    const rightPriority = "currentTier" in right ? tierPriority[right.currentTier!] : 5;
+    return rightPriority - leftPriority;
+  }).slice(0, 4);
   const showTournamentKindTags = false;
 
   async function saveFeaturedAchievements() {
@@ -628,7 +637,7 @@ export default function PlayerProfilePage() {
 
             <div className="mt-4 flex items-center justify-between gap-4">
               <div className="flex -space-x-2">
-                {[...achievementModel.families.filter((card) => card.currentTier), ...achievementModel.legendary.filter((card) => card.earned)].slice(0, 4).map((card) => (
+                {profileAchievementCards.map((card) => (
                   <AchievementVisual key={"family" in card ? card.family : card.code} visualKey={card.visualKey} tier={"currentTier" in card ? card.currentTier : null} configs={achievementVisuals} className="h-12 w-12 rounded-full bg-[#0b100d]" />
                 ))}
                 {earnedFamiliesCount + earnedLegendaryCount === 0 ? <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.07] text-white/60"><TrophyIcon /></div> : null}
