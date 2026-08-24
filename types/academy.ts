@@ -115,6 +115,33 @@ export type AcademyCourseProgress = {
   readonly progressPercent: number;
 };
 
+export type AcademyAdminLessonProgress = {
+  readonly lessonCode: AcademyLessonCode;
+  readonly title: string;
+  readonly progress: AcademyLessonProgress | null;
+};
+
+export type AcademyAdminPlayerProgress = {
+  readonly player: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly username: string | null;
+    readonly avatarUrl: string | null;
+  };
+  readonly passedLessons: number;
+  readonly totalLessons: number;
+  readonly lastActivityAt: string;
+  readonly lessons: readonly AcademyAdminLessonProgress[];
+};
+
+export type AcademyAdminProgressPayload = {
+  readonly summary: {
+    readonly startedPlayers: number;
+    readonly passedPlayers: number;
+  };
+  readonly players: readonly AcademyAdminPlayerProgress[];
+};
+
 export type AcademyTrainingAnswer = {
   readonly hand: StartingHandClass;
   readonly selectedAction: PreflopAction;

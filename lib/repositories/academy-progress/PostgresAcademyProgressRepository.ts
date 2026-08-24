@@ -1,9 +1,10 @@
 import "server-only";
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { academyLessonProgress } from "@/lib/db/schema";
+import { academyLessonProgress, players } from "@/lib/db/schema";
 import type {
+  AcademyAdminProgressRow,
   AcademyProgressRepository,
   AcademyProgressRow,
   RecordAcademyAttemptInput,
@@ -36,6 +37,40 @@ type RecordAttemptDbRow = {
 };
 
 export class PostgresAcademyProgressRepository implements AcademyProgressRepository {
+  async listAdminProgress(): Promise<AcademyAdminProgressRow[]> {
+    const rows = await db.select({
+      playerId: academyLessonProgress.playerId,
+      lessonCode: academyLessonProgress.lessonCode,
+      attemptsCount: academyLessonProgress.attemptsCount,
+      lastScorePercent: academyLessonProgress.lastScorePercent,
+      bestScorePercent: academyLessonProgress.bestScorePercent,
+      passed: academyLessonProgress.passed,
+      firstCompletedAt: academyLessonProgress.firstCompletedAt,
+      lastAttemptAt: academyLessonProgress.lastAttemptAt,
+      displayName: players.displayName,
+      username: players.username,
+      customAvatarUrl: players.customAvatarUrl,
+      telegramAvatarUrl: players.telegramAvatarUrl,
+    })
+      .from(academyLessonProgress)
+      .innerJoin(players, eq(academyLessonProgress.playerId, players.id))
+      .orderBy(desc(academyLessonProgress.lastAttemptAt));
+
+    return rows.map((row) => ({
+      lesson_code: row.lessonCode,
+      attempts_count: row.attemptsCount,
+      last_score_percent: row.lastScorePercent,
+      best_score_percent: row.bestScorePercent,
+      passed: row.passed,
+      first_completed_at: row.firstCompletedAt?.toISOString() ?? null,
+      last_attempt_at: row.lastAttemptAt.toISOString(),
+      player_id: row.playerId,
+      player_display_name: row.displayName,
+      player_username: row.username,
+      player_avatar_url: row.customAvatarUrl ?? row.telegramAvatarUrl,
+    }));
+  }
+
   async getLessonProgress(
     playerId: string,
     lessonCode: string,

@@ -2,6 +2,7 @@ import "server-only";
 
 import { getSupabaseServer } from "@/lib/database/supabase/server";
 import type {
+  AcademyAdminProgressRow,
   AcademyProgressRepository,
   AcademyProgressRow,
   RecordAcademyAttemptInput,
@@ -9,6 +10,39 @@ import type {
 } from "./AcademyProgressRepository";
 
 export class SupabaseAcademyProgressRepository implements AcademyProgressRepository {
+  async listAdminProgress(): Promise<AcademyAdminProgressRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("academy_lesson_progress")
+      .select("lesson_code, attempts_count, last_score_percent, best_score_percent, passed, first_completed_at, last_attempt_at, player_id, players!inner(display_name, username, custom_avatar_url, telegram_avatar_url)")
+      .order("last_attempt_at", { ascending: false });
+
+    if (error) throw new Error(`Failed to load Academy admin progress: ${error.message}`);
+    return (data ?? []).map((row) => {
+      const player = (row as unknown as {
+        players: {
+          display_name: string;
+          username: string | null;
+          custom_avatar_url: string | null;
+          telegram_avatar_url: string | null;
+        };
+      }).players;
+      return {
+        lesson_code: row.lesson_code,
+        attempts_count: row.attempts_count,
+        last_score_percent: row.last_score_percent,
+        best_score_percent: row.best_score_percent,
+        passed: row.passed,
+        first_completed_at: row.first_completed_at,
+        last_attempt_at: row.last_attempt_at,
+        player_id: row.player_id,
+        player_display_name: player.display_name,
+        player_username: player.username,
+        player_avatar_url: player.custom_avatar_url ?? player.telegram_avatar_url,
+      } satisfies AcademyAdminProgressRow;
+    });
+  }
+
   async getLessonProgress(
     playerId: string,
     lessonCode: string,

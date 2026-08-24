@@ -43,6 +43,10 @@ class MemoryAcademyProgressRepository implements AcademyProgressRepository {
   private readonly attemptFlags = new Map<string, { first_pass: boolean; new_best: boolean }>();
   private sequence = 0;
 
+  async listAdminProgress() {
+    return [];
+  }
+
   async getLessonProgress(playerId: string, lessonCode: string) {
     return this.progress.get(`${playerId}:${lessonCode}`) ?? null;
   }

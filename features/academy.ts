@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  ACADEMY_PREFLOP_LESSONS,
   ACADEMY_PREFLOP_LESSON_CODES,
   getAcademyPreflopLessonByCode,
 } from "@/config/academy/lessons";
@@ -15,6 +16,7 @@ import {
 } from "@/lib/repositories/academy-progress";
 import type {
   AcademyCourseProgress,
+  AcademyAdminProgressPayload,
   AcademyLessonCode,
   AcademyLessonProgress,
   AcademyTrainingResult,
@@ -80,6 +82,57 @@ export async function getAcademyCourseProgress(
   return {
     lessons,
     course: calculateAcademyCourseProgress(lessons),
+  };
+}
+
+export async function getAcademyAdminProgress(
+  repository: AcademyProgressRepository = academyProgressRepository,
+): Promise<AcademyAdminProgressPayload> {
+  const rows = await repository.listAdminProgress();
+  const grouped = new Map<string, typeof rows>();
+
+  for (const row of rows) {
+    const playerRows = grouped.get(row.player_id) ?? [];
+    playerRows.push(row);
+    grouped.set(row.player_id, playerRows);
+  }
+
+  const catalog = Object.values(ACADEMY_PREFLOP_LESSONS);
+  const players = Array.from(grouped.values()).map((playerRows) => {
+    const first = playerRows[0];
+    const byLesson = new Map(playerRows.map((row) => [row.lesson_code, row]));
+    const lessons = catalog.map((lesson) => {
+      const row = byLesson.get(lesson.code);
+      return {
+        lessonCode: lesson.code,
+        title: `${lesson.displayLabel} · ${lesson.fullName}`,
+        progress: row ? mapProgress(row) : null,
+      };
+    });
+
+    return {
+      player: {
+        id: first.player_id,
+        displayName: first.player_display_name,
+        username: first.player_username,
+        avatarUrl: first.player_avatar_url,
+      },
+      passedLessons: lessons.filter((lesson) => lesson.progress?.passed).length,
+      totalLessons: catalog.length,
+      lastActivityAt: playerRows.reduce(
+        (latest, row) => row.last_attempt_at > latest ? row.last_attempt_at : latest,
+        first.last_attempt_at,
+      ),
+      lessons,
+    };
+  }).sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+
+  return {
+    summary: {
+      startedPlayers: players.length,
+      passedPlayers: players.filter((player) => player.passedLessons > 0).length,
+    },
+    players,
   };
 }
 

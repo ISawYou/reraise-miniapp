@@ -5,6 +5,7 @@ import type { AcademyProgressRepository } from "./AcademyProgressRepository";
 export type {
   AcademyProgressRepository,
   AcademyProgressRow,
+  AcademyAdminProgressRow,
   RecordAcademyAttemptInput,
   RecordAcademyAttemptResult,
 } from "./AcademyProgressRepository";
