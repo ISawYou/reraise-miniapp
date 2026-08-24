@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import type { Player } from "@/types/domain";
@@ -162,12 +163,7 @@ export default function AdminPage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
-          <Link
-            href="/"
-            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </Link>
+          <BackButton href="/" className="mb-4" />
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h1 className="text-xl font-semibold">Доступ запрещён</h1>
@@ -183,12 +179,7 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-3xl">
-        <Link
-          href="/"
-          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-        >
-          ← Назад
-        </Link>
+        <BackButton href="/" className="mb-4" />
 
         <h1 className="text-2xl font-bold">Админ-панель</h1>
 

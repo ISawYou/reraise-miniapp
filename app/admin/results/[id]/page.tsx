@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { BackButton } from "@/components/ui/back-button";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   getTournamentById,
@@ -1173,13 +1174,7 @@ export default function AdminTournamentResultsPage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
         <div className="mx-auto max-w-4xl">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </button>
+          <BackButton onClick={handleBack} className="mb-4" />
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h1 className="text-xl font-semibold">Доступ запрещен</h1>
@@ -1196,13 +1191,7 @@ export default function AdminTournamentResultsPage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
         <div className="mx-auto max-w-4xl">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </button>
+          <BackButton onClick={handleBack} className="mb-4" />
 
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
             {error}
@@ -1215,13 +1204,7 @@ export default function AdminTournamentResultsPage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-4xl">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-        >
-          ← Назад
-        </button>
+        <BackButton onClick={handleBack} className="mb-4" />
 
         <h1 className="text-2xl font-bold">{getTournamentModeTitle(tournament)}</h1>
         <p className="mt-2 text-sm text-white/70">{tournament?.title}</p>

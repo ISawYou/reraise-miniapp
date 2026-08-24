@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
@@ -428,13 +429,7 @@ const waitlistParticipants = participants.filter(
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </button>
+          <BackButton onClick={handleBack} className="mb-4" />
 
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
             {error ?? "Турнир не найден"}
@@ -447,13 +442,7 @@ const waitlistParticipants = participants.filter(
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-44 text-white">
       <div className="mx-auto max-w-md">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-        >
-          ← Назад
-        </button>
+        <BackButton onClick={handleBack} className="mb-4" />
 
         <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-emerald-700/40 to-black p-4">
           <p className="text-xs uppercase tracking-wider text-white/45">Турнир</p>

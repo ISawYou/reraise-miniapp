@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { notFound } from "next/navigation";
 import { PreflopRangeGrid } from "@/components/academy/preflop-range-grid";
 import { AcademyLessonProgressStatus } from "@/components/academy/academy-lesson-progress-status";
@@ -36,12 +37,7 @@ export default async function AcademyLessonPage({ params }: AcademyLessonPagePro
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_85%_28%_at_50%_-4%,rgba(76,116,95,0.18),transparent_65%),linear-gradient(180deg,#09100d_0%,#080a09_36%,#070707_100%)] px-3 py-6 pb-28 text-white min-[375px]:px-4">
       <div className="mx-auto max-w-md">
-        <Link
-          href="/academy/preflop"
-          className="inline-flex items-center rounded-full border border-white/[0.08] px-3.5 py-2 text-sm text-white/65"
-        >
-          ← Назад
-        </Link>
+        <BackButton href="/academy/preflop" />
 
         <header className="mt-7">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d7b55a]">

@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ClubActivityCard } from "@/components/club-activity-card";
+import { BackButton } from "@/components/ui/back-button";
 import type { ClubActivityFeedEvent } from "@/types/club-activity";
 
 export default function ActivityPage() {
@@ -49,7 +49,7 @@ export default function ActivityPage() {
     <main className="min-h-screen bg-[#080808] px-4 py-6 pb-32 text-white">
       <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 h-64 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,#c9a84c12,transparent)]" />
       <div className="relative mx-auto max-w-md">
-        <Link href="/" className="telegram-top-action inline-flex text-sm text-white/55">← Назад</Link>
+        <BackButton href="/" />
         <h1 className="mt-5 text-2xl font-bold">В клубе</h1>
 
         {loading ? <p className="mt-6 text-sm text-white/40">Загружаем события...</p> : null}

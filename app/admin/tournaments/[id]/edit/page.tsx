@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
@@ -322,12 +322,7 @@ export default function AdminTournamentEditPage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
-          <Link
-            href="/admin"
-            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
-          >
-            ← Назад
-          </Link>
+          <BackButton href="/admin" className="mb-4" />
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h1 className="text-xl font-semibold">Доступ запрещен</h1>
@@ -343,12 +338,7 @@ export default function AdminTournamentEditPage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-3xl">
-        <Link
-          href="/admin"
-          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
-        >
-          ← Назад
-        </Link>
+        <BackButton href="/admin" className="mb-4" />
 
         <h1 className="text-2xl font-bold">Редактирование турнира</h1>
         <p className="mt-2 text-sm text-white/70">

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useAcademyProgress } from "@/components/academy/use-academy-progress";
+import { BackButton } from "@/components/ui/back-button";
 import { ACADEMY_PREFLOP_LESSONS } from "@/config/academy/lessons";
 import { ACADEMY_PREFLOP_POSITIONS } from "@/lib/academy/preflop";
 
@@ -14,12 +15,7 @@ export default function AcademyPreflopPage() {
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#09100d_0%,#080a09_45%,#070707_100%)] px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-md">
-        <Link
-          href="/academy"
-          className="inline-flex items-center rounded-full border border-white/[0.08] px-3.5 py-2 text-sm text-white/65"
-        >
-          ← Назад
-        </Link>
+        <BackButton href="/academy" />
 
         <p className="mt-7 text-xs font-semibold uppercase tracking-[0.18em] text-[#d7b55a]">
           Префлоп

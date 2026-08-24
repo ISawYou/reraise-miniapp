@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { ClubActivityCard } from "@/components/club-activity-card";
+import { BackButton } from "@/components/ui/back-button";
 import type { ClubActivityComment, ClubActivityDetail } from "@/types/club-activity";
 
 function formatCommentDate(value: string) {
@@ -87,9 +87,7 @@ export default function ActivityDetailPage() {
   return (
     <main className="min-h-screen bg-[#080808] px-4 py-6 pb-32 text-white">
       <div className="relative mx-auto max-w-md">
-        <Link href="/activity" className="telegram-top-action inline-flex text-sm text-white/55">
-          ← Все события
-        </Link>
+        <BackButton href="/activity" label="Все события" />
         {loading ? <p className="mt-6 text-sm text-white/40">Загружаем публикацию...</p> : null}
         {error ? (
           <p className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">

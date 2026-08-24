@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
@@ -102,12 +103,7 @@ export default function MyTournamentsPage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
-          <Link
-            href="/"
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </Link>
+          <BackButton href="/" className="mb-4" />
 
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
             {error}
@@ -120,12 +116,7 @@ export default function MyTournamentsPage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-md">
-        <Link
-          href="/"
-          className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-        >
-          ← Назад
-        </Link>
+        <BackButton href="/" className="mb-4" />
 
         <h1 className="text-2xl font-bold">Мои турниры</h1>
 

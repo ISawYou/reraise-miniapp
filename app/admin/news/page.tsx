@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getTelegramInitData } from "@/lib/telegram";
@@ -139,7 +139,7 @@ export default function AdminNewsPage() {
   return (
     <main className="min-h-screen bg-[#080808] px-4 py-6 text-white">
       <div className="mx-auto max-w-3xl">
-        <Link href="/admin" className="telegram-top-action inline-flex text-sm text-white/55">← Назад</Link>
+        <BackButton href="/admin" />
         <h1 className="mt-5 text-2xl font-bold">Лента / Новости</h1>
         <p className="mt-1 text-sm text-white/50">Публикации для главной страницы и ленты клуба.</p>
 

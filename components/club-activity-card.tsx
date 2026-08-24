@@ -85,55 +85,73 @@ export function ClubActivityCard({
     );
   }
 
-  const content = (
+  const playerHref = event.player_id && event.player ? `/players/${event.player_id}` : null;
+  const avatar = event.player?.avatar_url ? (
+    <span
+      role="img"
+      aria-label={event.player.display_name}
+      className="block h-10 w-10 shrink-0 rounded-xl border border-white/10 bg-cover bg-center"
+      style={{ backgroundImage: `url("${event.player.avatar_url}")` }}
+    />
+  ) : (
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-xs font-bold text-white/70">
+      {presentation.icon}
+    </span>
+  );
+  const details = (
     <>
-      <div className="flex items-start gap-3">
-        {event.player?.avatar_url ? (
-          <span
-            role="img"
-            aria-label={event.player.display_name}
-            className="h-10 w-10 shrink-0 rounded-xl border border-white/10 bg-cover bg-center"
-            style={{ backgroundImage: `url("${event.player.avatar_url}")` }}
-          />
-        ) : (
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-xs font-bold text-white/70">
-            {presentation.icon}
-          </span>
-        )}
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/38">
-              {presentation.label}
-            </span>
-            <time className="shrink-0 text-[11px] text-white/30">
-              {formatDate(event.published_at)}
-            </time>
-          </div>
-          <h3 className="mt-1 text-sm font-bold leading-snug text-white">{event.title}</h3>
-          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-white/58">
-            {event.achievement?.name ?? event.body}
-          </p>
-          {event.achievement ? (
-            <p className="mt-1 text-xs text-[#d7b55a]/75">{event.achievement.description}</p>
-          ) : null}
-        </div>
-      </div>
-
-      {event.image_url ? (
-        <div
-          role="img"
-          aria-label={event.title}
-          className="mt-3 aspect-[16/9] w-full rounded-2xl border border-white/10 bg-cover bg-center"
-          style={{ backgroundImage: `url("${event.image_url}")` }}
-        />
+      <h3 className="mt-1 text-sm font-bold leading-snug text-white">{event.title}</h3>
+      <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-white/58">
+        {event.achievement?.name ?? event.body}
+      </p>
+      {event.achievement ? (
+        <p className="mt-1 text-xs text-[#d7b55a]/75">{event.achievement.description}</p>
       ) : null}
     </>
   );
 
   return (
     <article className={`rounded-2xl border ${presentation.accent} bg-white/[0.035] p-3.5`}>
-      {contentHref ? <Link href={contentHref} className="block">{content}</Link> : content}
+      <div className="flex items-start gap-3">
+        {playerHref ? <Link href={playerHref}>{avatar}</Link> : avatar}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-white/38">
+              {presentation.label}
+              {playerHref ? (
+                <Link href={playerHref} className="ml-2 normal-case tracking-normal text-white/60 hover:text-white/80">
+                  {event.player?.display_name}
+                </Link>
+              ) : null}
+            </span>
+            <time className="shrink-0 text-[11px] text-white/30">
+              {formatDate(event.published_at)}
+            </time>
+          </div>
+          {contentHref ? <Link href={contentHref} className="block">{details}</Link> : details}
+        </div>
+      </div>
+
+      {event.image_url ? (
+        contentHref ? (
+          <Link href={contentHref} className="mt-3 block">
+            <span
+              role="img"
+              aria-label={event.title}
+              className="block aspect-[16/9] w-full rounded-2xl border border-white/10 bg-cover bg-center"
+              style={{ backgroundImage: `url("${event.image_url}")` }}
+            />
+          </Link>
+        ) : (
+          <span
+            role="img"
+            aria-label={event.title}
+            className="mt-3 block aspect-[16/9] w-full rounded-2xl border border-white/10 bg-cover bg-center"
+            style={{ backgroundImage: `url("${event.image_url}")` }}
+          />
+        )
+      ) : null}
       {social ? (
         <div className="mt-3 flex items-center gap-2 border-t border-white/[0.06] pt-3">
           <button

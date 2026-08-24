@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { fetchAdminJson } from "@/lib/client-request";
 import { resolveCurrentPlayer } from "@/lib/current-player";
@@ -39,7 +39,7 @@ export default function AdminAcademyPage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-3xl">
-        <Link href="/admin" className="telegram-top-action text-sm text-white/70">← Назад</Link>
+        <BackButton href="/admin" />
         <h1 className="mt-4 text-2xl font-bold">Академия</h1>
 
         {error ? <p className="mt-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</p> : null}

@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -440,12 +441,7 @@ export default function PlayerProfilePage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
-          <Link
-            href="/"
-            className="mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </Link>
+          <BackButton href="/" className="mb-4" />
 
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
             {error ?? "Профиль игрока не найден"}
@@ -459,21 +455,12 @@ export default function PlayerProfilePage() {
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-3xl">
         <div className="mb-8">
-          <Link
-            href="/"
-            className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
-          >
-            ← Назад
-          </Link>
+          <BackButton href="/" />
 
           <h1 className="mt-6 text-3xl font-bold tracking-tight text-white">
             Профиль
           </h1>
         </div>
-
-        <Link href="/" className="hidden">
-          ← Назад
-        </Link>
 
         <div className="flex items-center gap-4">
           <div className="relative">

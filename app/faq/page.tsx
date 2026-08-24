@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 
 type FaqArticleSection = {
@@ -711,12 +711,7 @@ export default function FaqPage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-3xl">
-        <Link
-          href="/"
-          className="inline-flex items-center rounded-full border border-white/[0.08] bg-transparent px-3.5 py-2 text-sm text-white/65"
-        >
-          ← Назад
-        </Link>
+        <BackButton href="/" />
 
         <header className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6">
           <p className="text-xs uppercase tracking-[0.24em] text-white/45">

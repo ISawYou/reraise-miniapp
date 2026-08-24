@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
@@ -54,9 +54,7 @@ export default function PlayerAchievementsPage() {
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#10271e_0,#050706_42%,#000_75%)] px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-md">
-        <Link href={playerId ? `/players/${playerId}` : "/"} className="text-sm text-white/55">
-          ← Назад
-        </Link>
+        <BackButton href={playerId ? `/players/${playerId}` : "/"} />
         <h1 className="mt-5 text-3xl font-bold tracking-tight">Достижения</h1>
 
         {loading ? (

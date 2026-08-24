@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useMemo, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
@@ -107,12 +107,7 @@ export default function AdminReferralPage() {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-4xl">
-          <Link
-            href="/admin"
-            className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-          >
-            ← Назад
-          </Link>
+          <BackButton href="/admin" className="mb-4" />
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h1 className="text-xl font-semibold">Доступ запрещён</h1>
             <p className="mt-2 text-sm text-white/70">
@@ -127,12 +122,7 @@ export default function AdminReferralPage() {
   return (
     <main className="min-h-screen bg-black px-4 py-6 text-white">
       <div className="mx-auto max-w-4xl">
-        <Link
-          href="/admin"
-          className="telegram-top-action mb-4 inline-block rounded-lg border border-white/10 px-3 py-2 text-sm text-white/80"
-        >
-          ← Назад
-        </Link>
+        <BackButton href="/admin" className="mb-4" />
 
         <h1 className="text-2xl font-bold">Реферальная программа</h1>
         <p className="mt-2 text-sm text-white/70">
