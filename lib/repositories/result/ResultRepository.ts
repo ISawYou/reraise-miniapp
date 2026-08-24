@@ -74,6 +74,13 @@ export type ArrivedPlacementRow = {
   field_size: number;
 };
 
+export function isEffectiveArrivedResult(row: {
+  arrived: boolean | null;
+  rating_points: number;
+}): boolean {
+  return row.arrived === true || (row.arrived === null && row.rating_points > 0);
+}
+
 // Mirrors getMyTournamentHistory's exact embedded select — the raw
 // TournamentRow embed, not yet mapped to the Tournament domain type (that
 // mapping is Tournament's, done by the caller).

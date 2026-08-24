@@ -196,7 +196,7 @@ export const ACHIEVEMENT_FAMILIES = {
     name: "Своя тусовка",
     visualKey: ACHIEVEMENT_VISUAL_KEY.COMMUNITY,
     unit: "друзей",
-    description: "Приглашай друзей в RERAISE и развивай клубное комьюнити.",
+    description: "Приглашай друзей в РЕРЕЙЗ и развивай клубное комьюнити. Если нужно восстановить или уточнить количество приглашённых друзей — обратись к администратору.",
   },
   [ACHIEVEMENT_FAMILY.TERMINATOR]: {
     name: "Terminator",
@@ -811,13 +811,13 @@ export const ACHIEVEMENTS_CATALOG = [
     id: "royal_flush",
     code: "royal_flush",
     name: "Royal Flush",
-    description: "Собрать комбинацию Роял-флэш за столом",
+    description: "Собрали Роял Флеш за столом РЕРЕЙЗ? Обратитесь к администратору, чтобы получить достижение.",
     category: ACHIEVEMENT_CATEGORY.LEGENDARY,
     icon: ACHIEVEMENT_ICON.AWARD,
     type: ACHIEVEMENT_TYPE.MANUAL,
     source: ACHIEVEMENT_SOURCE.MANUAL,
     visualKey: ACHIEVEMENT_VISUAL_KEY.ROYAL_FLUSH,
-    hidden: true,
+    hidden: false,
     sortOrder: 30,
   },
   {
@@ -862,8 +862,8 @@ export const ACHIEVEMENTS_CATALOG = [
   {
     id: "marco_reus",
     code: "marco_reus",
-    name: "Marco Reus",
-    description: "Занять место сразу за рейтинговой зоной турнира (bubble)",
+    name: "Bubble Boy",
+    description: "Вылететь на бабле — занять первое место сразу после рейтинговой зоны турнира.",
     category: ACHIEVEMENT_CATEGORY.LEGENDARY,
     icon: ACHIEVEMENT_ICON.AWARD,
     // Automated as of this pass -- results.arrived (Rating Breakdown) makes

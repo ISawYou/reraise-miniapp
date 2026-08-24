@@ -6,6 +6,7 @@ type AchievementVisualProps = {
   tier?: AchievementTierLevel | null;
   configs: Record<string, AchievementVisualConfig>;
   locked?: boolean;
+  dimmed?: boolean;
   className?: string;
 };
 
@@ -14,6 +15,7 @@ export function AchievementVisual({
   tier,
   configs,
   locked = false,
+  dimmed = false,
   className = "h-32 w-32",
 }: AchievementVisualProps) {
   const central = configs[visualKey];
@@ -35,7 +37,7 @@ export function AchievementVisual({
         <img
           src={central.assetUrl}
           alt=""
-          className="absolute inset-0 h-full w-full object-contain"
+          className={`absolute inset-0 h-full w-full object-contain ${dimmed ? "grayscale opacity-40" : ""}`}
           style={{
             transform: `translate(${central.offsetX}%, ${central.offsetY}%) scale(${central.scale / 100})`,
           }}

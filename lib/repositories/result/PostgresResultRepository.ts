@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { players, results, tournaments } from "@/lib/db/schema";
 import type { TournamentResult } from "@/types/domain";
@@ -93,21 +93,26 @@ export class PostgresResultRepository implements ResultRepository {
   }
 
   async findArrivedPlacementsByPlayerId(playerId: string): Promise<ArrivedPlacementRow[]> {
-    // field_size: correlated subquery, count of arrived=true rows for the
-    // SAME tournament as the outer row -- deliberately a plain count, not
-    // the rating-zone size itself (that's business logic, computed by the
-    // caller via getExpectedPrizePlaces -- see ArrivedPlacementRow).
+    // Historical rows predate results.arrived. Their frozen positive rating
+    // points are the established fallback proof that the player participated.
     return db
       .select({
         tournament_id: results.tournamentId,
         place: results.place,
         field_size: sql<number>`(
           select count(*)::int from "results" as r2
-          where r2.tournament_id = ${results.tournamentId} and r2.arrived = true
+          where r2.tournament_id = ${results.tournamentId}
+            and (r2.arrived = true or (r2.arrived is null and r2.rating_points > 0))
         )`,
       })
       .from(results)
-      .where(and(eq(results.playerId, playerId), eq(results.arrived, true)));
+      .where(and(
+        eq(results.playerId, playerId),
+        or(
+          eq(results.arrived, true),
+          and(isNull(results.arrived), gt(results.ratingPoints, 0)),
+        ),
+      ));
   }
 
   async findRatingPointsByTournamentId(tournamentId: string): Promise<RatingPointsRow[]> {
