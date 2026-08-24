@@ -27,7 +27,7 @@ export default function AcademyPage() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-[radial-gradient(ellipse_80%_34%_at_50%_-5%,rgba(76,116,95,0.2),transparent_60%),linear-gradient(180deg,#09100d_0%,#090b0a_42%,#070707_100%)] px-4 py-6 pb-28 text-white">
       <div className="relative mx-auto max-w-md">
-        <BackButton historyAware fallbackHref="/" />
+        <BackButton historyAware fallbackHref="/" className="mb-4" />
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#d7b55a]">
           RERAISE
         </p>
