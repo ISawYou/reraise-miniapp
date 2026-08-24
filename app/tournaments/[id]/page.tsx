@@ -591,9 +591,12 @@ const waitlistParticipants = participants.filter(
             ) : null}
           </div>
         ) : tournament.status === "completed" ? (
-          <div className="mt-6 rounded-2xl border border-white/10 bg-white/5">
-            <div className="grid grid-cols-[48px_1fr_80px_80px] gap-3 border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/50">
-              <div>Место</div>
+          <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+            <div className="border-b border-white/10 px-3 py-2.5 text-xs font-medium text-emerald-200/75 sm:px-4">
+              Призовая зона: ТОП-{expectedPrizePlaces}
+            </div>
+            <div className="grid grid-cols-[40px_minmax(0,1fr)_44px_58px] gap-2 border-b border-white/10 px-3 py-3 text-xs uppercase tracking-wide text-white/50 sm:grid-cols-[48px_minmax(0,1fr)_80px_80px] sm:gap-3 sm:px-4">
+              <div className="text-center">Место</div>
               <div>Игрок</div>
               <div className="text-right">KO</div>
               <div className="text-right">Очки</div>
@@ -602,31 +605,46 @@ const waitlistParticipants = participants.filter(
             {results.length === 0 ? (
               <div className="px-4 py-6 text-sm text-white/60">Результаты пока не заполнены</div>
             ) : (
-              results.map((result) => (
-                <div
+              results.map((result) => {
+                const isPodium = result.place <= 3;
+                const isItm = result.place <= expectedPrizePlaces;
+                const rowTone = result.place === 1 ? "border-[#d7b55a]/30 bg-[#b88a2e]/[0.13]"
+                  : result.place === 2 ? "border-slate-200/25 bg-slate-300/[0.10]"
+                  : result.place === 3 ? "border-orange-300/25 bg-[#a65f32]/[0.11]"
+                  : isItm ? "border-emerald-300/20 bg-emerald-400/[0.08]"
+                  : "border-white/10";
+                const badgeTone = result.place === 1 ? "border-[#d7b55a]/45 bg-[#d7b55a]/15 text-[#f1d486]"
+                  : result.place === 2 ? "border-slate-200/35 bg-slate-200/10 text-slate-100"
+                  : result.place === 3 ? "border-orange-300/35 bg-orange-400/10 text-orange-200"
+                  : isItm ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-100"
+                  : "border-white/10 bg-white/[0.04] text-white/70";
+                return <div
                   key={`${result.player_id}-${result.place}`}
-                  className="grid grid-cols-[48px_1fr_80px_80px] gap-3 border-b border-white/10 px-4 py-4 last:border-b-0"
+                  className={`grid grid-cols-[40px_minmax(0,1fr)_44px_58px] items-center gap-2 border-b px-3 py-4 last:border-b-0 sm:grid-cols-[48px_minmax(0,1fr)_80px_80px] sm:gap-3 sm:px-4 ${rowTone} ${result.place === expectedPrizePlaces ? "border-b-2 border-b-emerald-300/30" : ""}`}
                 >
-                  <div className="text-sm font-semibold text-white/80">{result.place}</div>
+                  <div className={`flex h-7 min-w-7 items-center justify-center justify-self-center rounded-lg border px-1 text-xs font-bold tabular-nums ${badgeTone}`}>
+                    {result.place}
+                  </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <Link
                       href={`/players/${result.player_id}`}
-                      className="text-sm font-medium text-white"
+                      className="block truncate text-sm font-medium text-white"
                     >
                       {result.display_name}
                     </Link>
+                    {isItm && !isPodium ? <span className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wider text-emerald-200/70">ITM</span> : null}
                   </div>
 
-                  <div className="text-right text-sm font-semibold text-white/80">
+                  <div className="shrink-0 text-right text-sm font-semibold tabular-nums text-white/80">
                     {result.knockouts}
                   </div>
 
-                  <div className="text-right text-sm font-semibold text-white/80">
+                  <div className="shrink-0 text-right text-sm font-semibold tabular-nums text-white/80">
                     {result.rating_points}
                   </div>
                 </div>
-              ))
+              })
             )}
           </div>
         ) : (
