@@ -705,15 +705,16 @@ export default function HomePage() {
           setPlayerError(null);
 
           let ensuredPlayer: Player;
+          const initData = await getTelegramInitData();
 
-          if (webApp?.initData) {
+          if (initData) {
             // Single server round-trip: verifies initData, sets cookie, returns player.
             // Eliminates the duplicate players?telegram_id=eq.{id} query that used to run
             // on the client right before this fetch.
             const sessionResponse = await fetch("/api/auth/telegram/mini-app-session", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ initData: webApp.initData }),
+              body: JSON.stringify({ initData }),
               credentials: "include",
             });
             if (!sessionResponse.ok) {
