@@ -1,16 +1,18 @@
 ﻿"use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BackButton } from "@/components/ui/back-button";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
+  getTournamentAttendance,
   getTournamentById,
   getTournamentEliminations,
   getTournamentLiveEntries,
   getTournamentResultsDraft,
 } from "@/features/tournaments";
 import { fetchAdminJson } from "@/lib/client-request";
+import { AttendanceWriteQueue } from "@/lib/attendance-write-queue";
 import {
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
@@ -204,6 +206,57 @@ export default function AdminTournamentResultsPage() {
   const [recalculatingMysteryBounty, setRecalculatingMysteryBounty] = useState(false);
   const [bountyPrice, setBountyPrice] = useState("0");
 
+  // Kept fresh every render so the queue's `send` closure (created once,
+  // below) always calls the right tournament -- params.id is effectively
+  // stable for this page's lifetime, but a ref removes any doubt.
+  const tournamentIdRef = useRef(tournamentId);
+  tournamentIdRef.current = tournamentId;
+
+  // Row state to roll back to if a "Пришёл" write burst ultimately fails --
+  // captured once when a burst starts (see handleToggleFreeArrived), not on
+  // every click within it, so a failure rolls back to before the FIRST
+  // click in the burst, not just the most recent one.
+  const attendanceBaselineRef = useRef<Map<string, FreeFormRow>>(new Map());
+
+  // Serializes "Пришёл" writes per player -- see lib/attendance-write-queue.ts
+  // for why (a real out-of-order-completion DB race was found and fixed by
+  // never letting two writes for the same player be in flight at once,
+  // rather than by trusting any client-supplied ordering token). setFreeRows
+  // / setError are React state setters, guaranteed stable across renders,
+  // so it's safe to close over them here in a queue created exactly once.
+  const attendanceQueueRef = useRef<AttendanceWriteQueue<{
+    arrived: boolean;
+    arrived_at: string | null;
+  }> | null>(null);
+  if (!attendanceQueueRef.current) {
+    attendanceQueueRef.current = new AttendanceWriteQueue<{
+      arrived: boolean;
+      arrived_at: string | null;
+    }>(
+      (playerId, arrived) =>
+        fetchAdminJson(`/api/admin/tournaments/${tournamentIdRef.current}/attendance`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ player_id: playerId, arrived }),
+        }),
+      (playerId, result) => {
+        attendanceBaselineRef.current.delete(playerId);
+        setFreeRows((prev) =>
+          prev.map((row) => (row.player_id === playerId ? { ...row, arrived: result.arrived } : row))
+        );
+      },
+      (playerId, err) => {
+        const baseline = attendanceBaselineRef.current.get(playerId);
+        attendanceBaselineRef.current.delete(playerId);
+
+        if (baseline) {
+          setFreeRows((prev) => prev.map((row) => (row.player_id === playerId ? baseline : row)));
+        }
+        setError(err instanceof Error ? err.message : "Не удалось сохранить отметку о приходе");
+      }
+    );
+  }
+
   useEffect(() => {
     async function loadPage() {
       try {
@@ -293,12 +346,24 @@ export default function AdminTournamentResultsPage() {
             }));
           }
 
-          const eliminations = await getTournamentEliminations(tournamentId);
+          const [eliminations, attendance] = await Promise.all([
+            getTournamentEliminations(tournamentId),
+            getTournamentAttendance(tournamentId),
+          ]);
           nextRows = nextRows.map((row) => {
             const elimination = eliminations.get(row.player_id);
-            return elimination
-              ? { ...row, eliminated: elimination.eliminated, eliminated_at: elimination.eliminated_at }
-              : row;
+            const attendanceRecord = attendance.get(row.player_id);
+            return {
+              ...row,
+              ...(elimination
+                ? { eliminated: elimination.eliminated, eliminated_at: elimination.eliminated_at }
+                : null),
+              // Postgres attendance always wins over whatever arrived value
+              // came from Google Sheets/draft above -- same precedence
+              // eliminations already use. This is what keeps the checkbox
+              // and the integration API from ever disagreeing (see Step 9).
+              ...(attendanceRecord ? { arrived: attendanceRecord.arrived } : null),
+            };
           });
 
           setFreeRows(nextRows);
@@ -587,6 +652,47 @@ export default function AdminTournamentResultsPage() {
     }
   }
 
+  // Persists "Пришёл" to Postgres immediately on click -- this is the whole
+  // point of the feature: Poker Clock reads attendance via a read-only API
+  // that only ever sees what's in the DB, so the checkbox can no longer be
+  // pure client-side state (see features/tournaments.ts::
+  // setTournamentPlayerAttendance and the tournamentAttendance table).
+  // Optimistic update + rollback on failure (same shape as
+  // handleToggleFreeEliminated above); additionally guarded against
+  // out-of-order responses via arrivedRequestSeqRef so a fast
+  // true -> false -> true click sequence always settles on the outcome of
+  // the LAST click, never a slower earlier response landing after it.
+  // Optimistic UI, always immediate on click -- persistence is handed off
+  // to attendanceQueueRef, which serializes writes per player (see
+  // lib/attendance-write-queue.ts) so the browser never has two "Пришёл"
+  // requests for the same player in flight at once. That's what guarantees
+  // Postgres always applies writes in click order, without needing to
+  // trust any client-supplied timestamp/version as a DB-level guard.
+  function handleToggleFreeArrived(playerId: string, checked: boolean) {
+    if (!tournamentId) {
+      return;
+    }
+
+    const queue = attendanceQueueRef.current!;
+
+    // Only capture a rollback baseline when this click STARTS a new burst
+    // (nothing already in flight/pending for this player) -- a click that
+    // continues an existing burst must not overwrite the baseline with an
+    // already-optimistic intermediate state.
+    if (!queue.isActive(playerId)) {
+      const previousRow = freeRows.find((row) => row.player_id === playerId);
+      if (previousRow) {
+        attendanceBaselineRef.current.set(playerId, previousRow);
+      }
+    }
+
+    setFreeRows((prev) =>
+      prev.map((row) => (row.player_id === playerId ? { ...row, arrived: checked } : row))
+    );
+
+    queue.push(playerId, checked);
+  }
+
   function updateLiveRow(
     playerId: string,
     field:
@@ -737,12 +843,23 @@ export default function AdminTournamentResultsPage() {
         placeAutoAssigned: false,
       }));
 
-      const eliminations = await getTournamentEliminations(tournamentId);
+      const [eliminations, attendance] = await Promise.all([
+        getTournamentEliminations(tournamentId),
+        getTournamentAttendance(tournamentId),
+      ]);
       nextRows = nextRows.map((row) => {
         const elimination = eliminations.get(row.player_id);
-        return elimination
-          ? { ...row, eliminated: elimination.eliminated, eliminated_at: elimination.eliminated_at }
-          : row;
+        const attendanceRecord = attendance.get(row.player_id);
+        return {
+          ...row,
+          ...(elimination
+            ? { eliminated: elimination.eliminated, eliminated_at: elimination.eliminated_at }
+            : null),
+          // Same Postgres-wins-over-sheet precedence as the initial load --
+          // "Обновить из GS" must not resurrect a stale arrived value from
+          // the spreadsheet over what's already live-persisted.
+          ...(attendanceRecord ? { arrived: attendanceRecord.arrived } : null),
+        };
       });
 
       setFreeRows(nextRows);
@@ -1548,7 +1665,7 @@ export default function AdminTournamentResultsPage() {
                         type="checkbox"
                         checked={row.arrived}
                         onChange={(e) =>
-                          updateFreeRow(row.player_id, "arrived", e.target.checked)
+                          handleToggleFreeArrived(row.player_id, e.target.checked)
                         }
                         className="h-4 w-4 accent-yellow-500"
                       />

@@ -2,7 +2,13 @@ import "server-only";
 
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { players, registrations, tournamentLiveEntries, tournamentPlayerEliminations } from "@/lib/db/schema";
+import {
+  players,
+  registrations,
+  tournamentAttendance,
+  tournamentLiveEntries,
+  tournamentPlayerEliminations,
+} from "@/lib/db/schema";
 import type {
   TournamentLiveStateRepository,
   LiveEntryInsert,
@@ -10,6 +16,10 @@ import type {
   LiveEntryWithDetailsRow,
   EliminationStatus,
   EliminationUpsert,
+  AttendanceStatus,
+  AttendanceUpsert,
+  AttendanceWriteResult,
+  AttendedPlayerRow,
 } from "./TournamentLiveStateRepository";
 
 function errorMessage(err: unknown): string {
@@ -202,5 +212,107 @@ export class PostgresTournamentLiveStateRepository implements TournamentLiveStat
           updatedAt: sql`excluded.updated_at`,
         },
       });
+  }
+
+  async findAttendanceByTournamentId(tournamentId: string): Promise<Map<string, AttendanceStatus>> {
+    const rows = await db
+      .select({
+        player_id: tournamentAttendance.playerId,
+        arrived: tournamentAttendance.arrived,
+        arrived_at: tournamentAttendance.arrivedAt,
+      })
+      .from(tournamentAttendance)
+      .where(eq(tournamentAttendance.tournamentId, tournamentId));
+
+    return new Map(
+      rows.map((row) => [
+        row.player_id,
+        {
+          arrived: row.arrived,
+          arrived_at: row.arrived_at ? row.arrived_at.toISOString() : null,
+        },
+      ])
+    );
+  }
+
+  // Single atomic statement -- deliberately NOT a separate
+  // read-existing-row-then-decide-then-write (that was the original
+  // implementation, and the two-round-trip gap between its own read and
+  // write is exactly where two concurrent calls could interleave and
+  // produce a wrong arrived_at). No client-supplied ordering token is
+  // trusted here -- see AttendanceUpsert's doc comment
+  // (TournamentLiveStateRepository.ts) for why a client wall-clock value
+  // was tried and reverted. `arrived` is unconditionally overwritten
+  // (plain last-processed-wins); `arrived_at` is computed in the SAME
+  // statement via COALESCE against the row's own current value (stamped
+  // once on the first arrived=true write, preserved across every later
+  // true/false toggle), so it stays race-free regardless of write
+  // ordering. Same-tab click ordering is guaranteed upstream, entirely
+  // client-side, by lib/attendance-write-queue.ts -- this method never
+  // sees two competing writes from the same browser tab concurrently.
+  async upsertAttendance(row: AttendanceUpsert): Promise<AttendanceWriteResult> {
+    type UpsertAttendanceRow = {
+      arrived: boolean;
+      arrived_at: string | Date | null;
+    };
+
+    const rows = await db.execute<UpsertAttendanceRow>(sql`
+      insert into "tournament_attendance" ("tournament_id", "player_id", "arrived", "arrived_at", "updated_at")
+      values (
+        ${row.tournament_id},
+        ${row.player_id},
+        ${row.arrived},
+        case when ${row.arrived} then now() else null end,
+        now()
+      )
+      on conflict ("tournament_id", "player_id") do update set
+        "arrived" = excluded.arrived,
+        "arrived_at" = case
+          when excluded.arrived then coalesce("tournament_attendance"."arrived_at", excluded.arrived_at)
+          else "tournament_attendance"."arrived_at"
+        end,
+        "updated_at" = excluded.updated_at
+      returning "arrived", "arrived_at"
+    `);
+
+    const [result] = rows;
+
+    if (!result) {
+      throw new Error("upsertAttendance: no row returned");
+    }
+
+    return {
+      arrived: result.arrived,
+      arrived_at: result.arrived_at ? new Date(result.arrived_at).toISOString() : null,
+    };
+  }
+
+  async findAttendedPlayersWithDetails(tournamentId: string): Promise<AttendedPlayerRow[]> {
+    return db
+      .select({
+        player_id: tournamentAttendance.playerId,
+        arrived_at: tournamentAttendance.arrivedAt,
+        players: {
+          display_name: players.displayName,
+          admin_display_name: players.adminDisplayName,
+          custom_avatar_url: players.customAvatarUrl,
+          telegram_avatar_url: players.telegramAvatarUrl,
+        },
+      })
+      .from(tournamentAttendance)
+      .leftJoin(players, eq(tournamentAttendance.playerId, players.id))
+      .where(
+        and(
+          eq(tournamentAttendance.tournamentId, tournamentId),
+          eq(tournamentAttendance.arrived, true)
+        )
+      )
+      .then((rows) =>
+        rows.map((row) => ({
+          player_id: row.player_id,
+          arrived_at: row.arrived_at ? row.arrived_at.toISOString() : null,
+          players: row.players,
+        }))
+      );
   }
 }

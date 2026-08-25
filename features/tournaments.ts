@@ -13,6 +13,7 @@ import { syncPlayersAchievementsIfEnabled } from "@/features/achievements";
 import { publishTournamentWinnerEvent } from "@/features/club-activity";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
+import { TournamentNotFoundError } from "@/lib/tournament-errors";
 import type {
   Registration,
   RegistrationStatus,
@@ -1124,6 +1125,132 @@ export async function setTournamentPlayerElimination(
   });
 
   return { eliminated: true, eliminated_at: eliminatedAt };
+}
+
+// Live "Пришёл" state -- see lib/db/schema/tournamentLiveState.ts's doc
+// comment on tournamentAttendance for why this exists separately from
+// registrations.status ('attended' there is a post-completion bulk marker,
+// not a live check-in signal) and results.arrived (frozen at completion).
+export async function getTournamentAttendance(
+  tournamentId: string
+): Promise<Map<string, { arrived: boolean; arrived_at: string | null }>> {
+  return tournamentLiveStateRepository.findAttendanceByTournamentId(tournamentId);
+}
+
+// This function deliberately does NOT read the existing row first and
+// decide arrived_at here in application code the way an earlier version
+// did: that two-round-trip read-then-write was exactly the gap where two
+// concurrent calls could interleave. upsertAttendance now does the whole
+// thing in one atomic statement (arrived_at computed via COALESCE against
+// the row's own current value; arrived just unconditionally overwritten --
+// see AttendanceUpsert's doc comment for why no client-supplied ordering
+// token is trusted here). Same-tab click ordering is guaranteed upstream,
+// entirely client-side, by lib/attendance-write-queue.ts -- this function
+// never sees two competing writes from the same browser tab concurrently.
+export async function setTournamentPlayerAttendance(
+  tournamentId: string,
+  playerId: string,
+  arrived: boolean
+): Promise<{ arrived: boolean; arrived_at: string | null }> {
+  return tournamentLiveStateRepository.upsertAttendance({
+    tournament_id: tournamentId,
+    player_id: playerId,
+    arrived,
+  });
+}
+
+// Public contract for the read-only Poker Clock integration surface
+// (app/api/integrations/v1/**) -- deliberately excludes everything else on
+// Player (email, telegram_id, username, role, access flags, moderation
+// fields). nickname/avatar resolution reuses the exact same canonical
+// helpers/precedence already used everywhere else in this file
+// (getPreferredPlayerDisplayName, custom_avatar_url -> telegram_avatar_url).
+export type IntegrationPlayer = {
+  id: string;
+  nickname: string;
+  avatarUrl: string | null;
+  ratingPoints: number | null;
+};
+
+// Players currently considered "arrived" for one tournament -- the read side
+// of the live attendance flow above. ratingPoints mirrors
+// getTournamentParticipants' existing season-rating semantics (live
+// SUM(results.rating_points) for the SEASON THIS TOURNAMENT BELONGS TO, not
+// the globally-active season) with one deliberate difference: when the
+// tournament has no season_id at all, this returns `null`, not `0` --
+// getTournamentParticipants' `?? 0` fallback would otherwise claim a real
+// zero rating for a tournament that has no rating basis whatsoever. `0` is
+// still returned (not null) for a season-linked tournament whose player
+// genuinely has no results yet this season -- that IS a real, meaningful
+// zero, same as getTournamentParticipants already treats it.
+export async function getArrivedPlayersForIntegration(
+  tournamentId: string
+): Promise<IntegrationPlayer[]> {
+  let tournament: Tournament;
+  try {
+    tournament = await getTournamentById(tournamentId);
+  } catch {
+    throw new TournamentNotFoundError(tournamentId);
+  }
+
+  const attendedRows = await tournamentLiveStateRepository.findAttendedPlayersWithDetails(
+    tournamentId
+  );
+
+  let ratingsMap = new Map<string, number>();
+
+  if (tournament.season_id) {
+    const resultsData = await resultRepository.findRatingPointsBySeasonId(tournament.season_id);
+
+    ratingsMap = resultsData.reduce((map, row) => {
+      const currentValue = map.get(row.player_id) ?? 0;
+      map.set(row.player_id, currentValue + (row.rating_points ?? 0));
+      return map;
+    }, new Map<string, number>());
+  }
+
+  return attendedRows.map((row) => {
+    const player = row.players;
+
+    return {
+      id: row.player_id,
+      nickname: getPreferredPlayerDisplayName(player ?? {}),
+      avatarUrl: player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null,
+      ratingPoints: tournament.season_id ? ratingsMap.get(row.player_id) ?? 0 : null,
+    };
+  });
+}
+
+// Bounded tournament list for the future Poker Clock "link a tournament"
+// dropdown -- listOpen() is naturally small (a club runs at most a handful
+// of concurrently-open tournaments) so it is returned in full; listCompleted()
+// is club lifetime history and gets truncated to the most recent N (already
+// ORDER BY start_at DESC) rather than ever returned unbounded.
+export type IntegrationTournamentSummary = {
+  id: string;
+  title: string;
+  startAt: string;
+  status: TournamentStatus;
+  tournamentType: TournamentType;
+};
+
+const INTEGRATION_RECENTLY_COMPLETED_LIMIT = 10;
+
+export async function getIntegrationTournamentList(): Promise<IntegrationTournamentSummary[]> {
+  const [open, completed] = await Promise.all([
+    tournamentRepository.listOpen(),
+    tournamentRepository.listCompleted(),
+  ]);
+
+  const recentlyCompleted = completed.slice(0, INTEGRATION_RECENTLY_COMPLETED_LIMIT);
+
+  return [...open, ...recentlyCompleted].map((tournament) => ({
+    id: tournament.id,
+    title: tournament.title,
+    startAt: tournament.start_at,
+    status: tournament.status,
+    tournamentType: tournament.tournament_type,
+  }));
 }
 
 export async function getActiveSeason() {

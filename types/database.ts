@@ -94,6 +94,15 @@ export type TournamentPlayerEliminationRow = {
   updated_at: string;
 };
 
+export type TournamentAttendanceRow = {
+  tournament_id: string;
+  player_id: string;
+  arrived: boolean;
+  arrived_at: string | null;
+  write_seq: number;
+  updated_at: string;
+};
+
 export type PlayerAchievementRow = {
   id: string;
   player_id: string;

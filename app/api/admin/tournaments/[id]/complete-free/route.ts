@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getTournamentById, saveTournamentResults } from "@/features/tournaments";
+import { getTournamentAttendance, getTournamentById, saveTournamentResults } from "@/features/tournaments";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
@@ -36,8 +36,24 @@ export async function POST(
       bountyPrice?: number;
     };
 
-    const rows = body.rows ?? [];
+    const rawRows = body.rows ?? [];
     const tournament = await getTournamentById(id);
+
+    // Reconcile against tournament_attendance (the live "Пришёл" state --
+    // see features/tournaments.ts::setTournamentPlayerAttendance) before
+    // this feeds BOTH the rating calculation below and results.arrived.
+    // In the normal single-tab flow the submitted `arrived` already matches
+    // it (the results page hydrates from and immediately persists to this
+    // same table), but this closes the gap for a stale second tab/session so
+    // results.arrived -- and the rating computed from it -- can never
+    // diverge from what the live checkbox actually says at completion time.
+    // A player with no row in tournament_attendance at all (never toggled)
+    // falls back to whatever the client submitted, then to false.
+    const attendance = await getTournamentAttendance(id);
+    const rows = rawRows.map((row) => ({
+      ...row,
+      arrived: attendance.get(row.player_id)?.arrived ?? row.arrived ?? false,
+    }));
 
     // Mystery Bounty: completion is only allowed once every drawn envelope
     // point has actually been recorded against a player — otherwise the

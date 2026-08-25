@@ -9,6 +9,10 @@ import type {
   LiveEntryWithDetailsRow,
   EliminationStatus,
   EliminationUpsert,
+  AttendanceStatus,
+  AttendanceUpsert,
+  AttendanceWriteResult,
+  AttendedPlayerRow,
 } from "./TournamentLiveStateRepository";
 
 function flattenEmbedded<T>(value: T | T[] | null | undefined): T | null {
@@ -168,5 +172,98 @@ export class SupabaseTournamentLiveStateRepository
     if (error) {
       throw new Error(error.message);
     }
+  }
+
+  async findAttendanceByTournamentId(
+    tournamentId: string
+  ): Promise<Map<string, AttendanceStatus>> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("tournament_attendance")
+      .select("player_id, arrived, arrived_at")
+      .eq("tournament_id", tournamentId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    type AttendanceRow = { player_id: string; arrived: boolean; arrived_at: string | null };
+
+    return new Map(
+      (data ?? []).map((row: AttendanceRow) => [
+        row.player_id,
+        {
+          arrived: row.arrived,
+          arrived_at: row.arrived_at,
+        },
+      ])
+    );
+  }
+
+  // Supabase's PostgREST/JS-client .upsert() can only do an unconditional
+  // column overwrite on conflict -- it has no way to express "arrived_at =
+  // COALESCE(the row's own current value, now())" in one round-trip, which
+  // is what keeps arrived_at's "first arrival time" computation race-free
+  // even under two genuinely concurrent cross-tab writes (no separate
+  // SELECT before the write). `arrived` itself is just unconditionally
+  // overwritten either way -- last-processed-wins is an accepted, explicit
+  // product decision for this admin checkbox, not something being guarded
+  // against (see AttendanceUpsert's doc comment). Calls the atomic upsert
+  // as a Postgres function -- see
+  // sql/tournament_attendance.sql::upsert_tournament_attendance, kept in
+  // sync by hand with PostgresTournamentLiveStateRepository.ts's Drizzle
+  // version. Must be applied to the Supabase project before this call site
+  // works (same manual-apply caveat as that table's own CREATE TABLE).
+  async upsertAttendance(row: AttendanceUpsert): Promise<AttendanceWriteResult> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .rpc("upsert_tournament_attendance", {
+        p_tournament_id: row.tournament_id,
+        p_player_id: row.player_id,
+        p_arrived: row.arrived,
+      })
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const result = data as { arrived: boolean; arrived_at: string | null };
+
+    return {
+      arrived: result.arrived,
+      arrived_at: result.arrived_at,
+    };
+  }
+
+  async findAttendedPlayersWithDetails(tournamentId: string): Promise<AttendedPlayerRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("tournament_attendance")
+      .select(
+        `
+        player_id,
+        arrived_at,
+        players (
+          display_name,
+          admin_display_name,
+          custom_avatar_url,
+          telegram_avatar_url
+        )
+      `
+      )
+      .eq("tournament_id", tournamentId)
+      .eq("arrived", true);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    type RawAttendedPlayerRow = Omit<AttendedPlayerRow, "players"> & { players: unknown };
+
+    return (data ?? []).map((row: RawAttendedPlayerRow) => ({
+      ...row,
+      players: flattenEmbedded(row.players) as AttendedPlayerRow["players"],
+    }));
   }
 }

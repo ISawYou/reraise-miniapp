@@ -60,6 +60,13 @@ services:
       # docker-compose.postgres.yml already uses).
       - DATABASE_PROVIDER=${DATABASE_PROVIDER}
       - DATABASE_URL=${DATABASE_URL}
+      # Poker Clock integration (app/api/integrations/v1/**, lib/integration-auth.ts)
+      # -- a single static bearer token for that one machine caller, verified
+      # constant-time. Not set here: this only declares the pass-through: the
+      # actual value lives in the VPS host's own .env, set by hand the same
+      # way every other secret in this file already is. Empty/unset means the
+      # integration routes fail closed (401 on every request), not open.
+      - POKER_CLOCK_INTEGRATION_TOKEN=${POKER_CLOCK_INTEGRATION_TOKEN}
     healthcheck:
       test:
         ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]
