@@ -31,6 +31,12 @@ export async function GET(
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     }
 
+    console.error("[integrations/v1/tournaments/:id/players] unexpected error", {
+      tournamentId: id,
+      name: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : String(error),
+    });
+
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

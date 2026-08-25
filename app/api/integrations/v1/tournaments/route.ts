@@ -3,11 +3,12 @@ import { verifyIntegrationRequest } from "@/lib/integration-auth";
 import { getIntegrationTournamentList } from "@/features/tournaments";
 
 // GET /api/integrations/v1/tournaments
-// Read-only, Bearer-auth. Feeds a future Poker Clock "link a tournament"
-// dropdown -- open tournaments in full (naturally small/bounded) plus the
-// most recently completed ones (bounded, see
-// getIntegrationTournamentList's doc comment), never the club's full
-// history.
+// Read-only, Bearer-auth. Feeds the Poker Clock "link a tournament"
+// dropdown -- open tournaments only (see getIntegrationTournamentList's doc
+// comment for why completed tournaments were deliberately dropped from
+// this list). An already-linked tournament that later completes keeps
+// working via GET .../tournaments/:id/players, which is unaffected by this
+// endpoint's status filtering.
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {

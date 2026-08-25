@@ -1165,11 +1165,23 @@ export async function setTournamentPlayerAttendance(
 // fields). nickname/avatar resolution reuses the exact same canonical
 // helpers/precedence already used everywhere else in this file
 // (getPreferredPlayerDisplayName, custom_avatar_url -> telegram_avatar_url).
+//
+// `eliminated` -- added alongside the existing fields, not a new concept:
+// mirrors the "Выбыл" checkbox's own domain field name exactly
+// (TournamentPlayerElimination.eliminated / tournament_player_eliminations
+// .eliminated), read live from the SAME table that checkbox writes to, via
+// the already-existing getTournamentEliminations() below. Eliminated
+// players are NOT filtered out of this list -- the endpoint still only
+// returns arrived=true players (see AttendedPlayerRow), but a player who
+// has arrived and later busts out stays present here with eliminated=true,
+// so Poker Clock can show them (e.g. greyed out at the bottom of a
+// Display list) instead of having them silently vanish.
 export type IntegrationPlayer = {
   id: string;
   nickname: string;
   avatarUrl: string | null;
   ratingPoints: number | null;
+  eliminated: boolean;
 };
 
 // Players currently considered "arrived" for one tournament -- the read side
@@ -1183,6 +1195,13 @@ export type IntegrationPlayer = {
 // still returned (not null) for a season-linked tournament whose player
 // genuinely has no results yet this season -- that IS a real, meaningful
 // zero, same as getTournamentParticipants already treats it.
+//
+// Nothing here is cached/snapshotted -- both findAttendedPlayersWithDetails
+// and findEliminationsByTournamentId hit tournament_attendance /
+// tournament_player_eliminations directly on every call, so a GET issued
+// right after an admin toggles either checkbox already reflects it. Re-Raise
+// stays the only source of truth; there is no copy of this state anywhere
+// for Poker Clock to read instead.
 export async function getArrivedPlayersForIntegration(
   tournamentId: string
 ): Promise<IntegrationPlayer[]> {
@@ -1193,9 +1212,10 @@ export async function getArrivedPlayersForIntegration(
     throw new TournamentNotFoundError(tournamentId);
   }
 
-  const attendedRows = await tournamentLiveStateRepository.findAttendedPlayersWithDetails(
-    tournamentId
-  );
+  const [attendedRows, eliminations] = await Promise.all([
+    tournamentLiveStateRepository.findAttendedPlayersWithDetails(tournamentId),
+    tournamentLiveStateRepository.findEliminationsByTournamentId(tournamentId),
+  ]);
 
   let ratingsMap = new Map<string, number>();
 
@@ -1217,15 +1237,35 @@ export async function getArrivedPlayersForIntegration(
       nickname: getPreferredPlayerDisplayName(player ?? {}),
       avatarUrl: player?.custom_avatar_url ?? player?.telegram_avatar_url ?? null,
       ratingPoints: tournament.season_id ? ratingsMap.get(row.player_id) ?? 0 : null,
+      // No elimination row at all (never toggled) means not eliminated --
+      // matches tournament_player_eliminations' own `eliminated boolean not
+      // null default false` semantics.
+      eliminated: eliminations.get(row.player_id)?.eliminated ?? false,
     };
   });
 }
 
-// Bounded tournament list for the future Poker Clock "link a tournament"
-// dropdown -- listOpen() is naturally small (a club runs at most a handful
-// of concurrently-open tournaments) so it is returned in full; listCompleted()
-// is club lifetime history and gets truncated to the most recent N (already
-// ORDER BY start_at DESC) rather than ever returned unbounded.
+// Tournament list for the Poker Clock "link a tournament" dropdown -- this
+// endpoint's one and only stated purpose (see the route's own doc comment).
+// Open only, deliberately: a completed tournament cannot sensibly be picked
+// for a NEW binding (confirmed by real usage, not a guess), and this
+// function has no other consumer to weigh against that. listOpen() is
+// naturally small (a club runs at most a handful of concurrently-open
+// tournaments), so no pagination/limit is needed here.
+//
+// This does NOT affect an already-linked tournament that later completes --
+// that binding is read through GET .../tournaments/:id/players instead,
+// which looks a tournament up directly by id regardless of status (see
+// getArrivedPlayersForIntegration above). Dropping completed tournaments
+// from THIS list only narrows what's offered for a brand new binding.
+//
+// An earlier version of this function also returned the 10 most recently
+// completed tournaments, reasoning that organizers might want to
+// retroactively link one after the fact. Reverted: real usage showed a
+// completed tournament being offered as a candidate for a new binding is
+// simply wrong, and no other part of this integration reads this
+// function's completed-tournament output, so there is nothing else to
+// preserve by keeping it.
 export type IntegrationTournamentSummary = {
   id: string;
   title: string;
@@ -1234,17 +1274,10 @@ export type IntegrationTournamentSummary = {
   tournamentType: TournamentType;
 };
 
-const INTEGRATION_RECENTLY_COMPLETED_LIMIT = 10;
-
 export async function getIntegrationTournamentList(): Promise<IntegrationTournamentSummary[]> {
-  const [open, completed] = await Promise.all([
-    tournamentRepository.listOpen(),
-    tournamentRepository.listCompleted(),
-  ]);
+  const open = await tournamentRepository.listOpen();
 
-  const recentlyCompleted = completed.slice(0, INTEGRATION_RECENTLY_COMPLETED_LIMIT);
-
-  return [...open, ...recentlyCompleted].map((tournament) => ({
+  return open.map((tournament) => ({
     id: tournament.id,
     title: tournament.title,
     startAt: tournament.start_at,
