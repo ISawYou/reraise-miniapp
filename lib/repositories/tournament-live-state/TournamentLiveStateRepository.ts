@@ -115,6 +115,30 @@ export type AttendedPlayerRow = {
   players: AttendedPlayerIdentity;
 };
 
+// --- tournament_rebuy_state ---
+// Live Re-buy/Add-on state for kind='free' (rating/points) tournaments --
+// see lib/db/schema/tournamentLiveState.ts's doc comment on
+// tournamentRebuyState for why this is its own table, separate from
+// tournament_live_entries (paid/cash-specific) and from the frozen
+// results.reentries/results.addons written only at completion. Stores the
+// RAW admin-facing "Re-buy" value (Total Entries convention); normalization
+// happens at the feature layer, not here.
+export type RebuyState = {
+  rebuys: number;
+  addons: number;
+};
+
+// Plain last-processed-wins upsert, same accepted semantics as
+// AttendanceUpsert above -- no client-supplied ordering token, no
+// COALESCE-style "preserve a prior value" logic needed (unlike
+// arrived_at), since both rebuys and addons are always simple overwrites.
+export type RebuyStateUpsert = {
+  tournament_id: string;
+  player_id: string;
+  rebuys: number;
+  addons: number;
+};
+
 export interface TournamentLiveStateRepository {
   // --- tournament_live_entries ---
   findPlayerIdsWithLiveEntry(tournamentId: string): Promise<string[]>;
@@ -159,4 +183,8 @@ export interface TournamentLiveStateRepository {
   // still does the rating lookup + nickname/avatar resolution, per
   // ARCHITECTURE_RULES.md principle 1: no business logic in Repository).
   findAttendedPlayersWithDetails(tournamentId: string): Promise<AttendedPlayerRow[]>;
+
+  // --- tournament_rebuy_state ---
+  findRebuyStateByTournamentId(tournamentId: string): Promise<Map<string, RebuyState>>;
+  upsertRebuyState(row: RebuyStateUpsert): Promise<RebuyState>;
 }

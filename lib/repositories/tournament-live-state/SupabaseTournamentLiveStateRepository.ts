@@ -13,6 +13,8 @@ import type {
   AttendanceUpsert,
   AttendanceWriteResult,
   AttendedPlayerRow,
+  RebuyState,
+  RebuyStateUpsert,
 } from "./TournamentLiveStateRepository";
 
 function flattenEmbedded<T>(value: T | T[] | null | undefined): T | null {
@@ -265,5 +267,54 @@ export class SupabaseTournamentLiveStateRepository
       ...row,
       players: flattenEmbedded(row.players) as AttendedPlayerRow["players"],
     }));
+  }
+
+  async findRebuyStateByTournamentId(tournamentId: string): Promise<Map<string, RebuyState>> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("tournament_rebuy_state")
+      .select("player_id, rebuys, addons")
+      .eq("tournament_id", tournamentId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    type RebuyStateRow = { player_id: string; rebuys: number; addons: number };
+
+    return new Map(
+      (data ?? []).map((row: RebuyStateRow) => [
+        row.player_id,
+        { rebuys: row.rebuys, addons: row.addons },
+      ])
+    );
+  }
+
+  // Plain overwrite on conflict -- unlike upsertAttendance's arrived_at,
+  // neither rebuys nor addons needs a COALESCE-against-current-value, so
+  // Supabase's ordinary .upsert() (no RPC function required, unlike
+  // tournament_attendance) is enough.
+  async upsertRebuyState(row: RebuyStateUpsert): Promise<RebuyState> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("tournament_rebuy_state")
+      .upsert(
+        {
+          tournament_id: row.tournament_id,
+          player_id: row.player_id,
+          rebuys: row.rebuys,
+          addons: row.addons,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "tournament_id,player_id" }
+      )
+      .select("rebuys, addons")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data as RebuyState;
   }
 }

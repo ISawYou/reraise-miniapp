@@ -8,6 +8,7 @@ import {
   tournamentAttendance,
   tournamentLiveEntries,
   tournamentPlayerEliminations,
+  tournamentRebuyState,
 } from "@/lib/db/schema";
 import type {
   TournamentLiveStateRepository,
@@ -20,6 +21,8 @@ import type {
   AttendanceUpsert,
   AttendanceWriteResult,
   AttendedPlayerRow,
+  RebuyState,
+  RebuyStateUpsert,
 } from "./TournamentLiveStateRepository";
 
 function errorMessage(err: unknown): string {
@@ -314,5 +317,50 @@ export class PostgresTournamentLiveStateRepository implements TournamentLiveStat
           players: row.players,
         }))
       );
+  }
+
+  async findRebuyStateByTournamentId(tournamentId: string): Promise<Map<string, RebuyState>> {
+    const rows = await db
+      .select({
+        player_id: tournamentRebuyState.playerId,
+        rebuys: tournamentRebuyState.rebuys,
+        addons: tournamentRebuyState.addons,
+      })
+      .from(tournamentRebuyState)
+      .where(eq(tournamentRebuyState.tournamentId, tournamentId));
+
+    return new Map(rows.map((row) => [row.player_id, { rebuys: row.rebuys, addons: row.addons }]));
+  }
+
+  // Plain upsert -- unlike upsertAttendance's arrived_at, neither rebuys nor
+  // addons needs a COALESCE-against-current-value; both are always a
+  // straightforward overwrite (last-processed-wins, same accepted
+  // cross-tab semantics as attendance).
+  async upsertRebuyState(row: RebuyStateUpsert): Promise<RebuyState> {
+    const rows = await db
+      .insert(tournamentRebuyState)
+      .values({
+        tournamentId: row.tournament_id,
+        playerId: row.player_id,
+        rebuys: row.rebuys,
+        addons: row.addons,
+      })
+      .onConflictDoUpdate({
+        target: [tournamentRebuyState.tournamentId, tournamentRebuyState.playerId],
+        set: {
+          rebuys: sql`excluded.rebuys`,
+          addons: sql`excluded.addons`,
+          updatedAt: sql`now()`,
+        },
+      })
+      .returning({ rebuys: tournamentRebuyState.rebuys, addons: tournamentRebuyState.addons });
+
+    const [result] = rows;
+
+    if (!result) {
+      throw new Error("upsertRebuyState: no row returned");
+    }
+
+    return result;
   }
 }

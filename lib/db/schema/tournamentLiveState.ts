@@ -1,9 +1,10 @@
-import { pgTable, uuid, integer, boolean, timestamp, primaryKey, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, integer, boolean, timestamp, primaryKey, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { players } from "./players";
 import { tournaments } from "./tournaments";
 import { registrations } from "./registrations";
 
-// All three tables here model the *operational* state of a currently-running
+// All four tables here model the *operational* state of a currently-running
 // tournament, read/written together during live play and feeding the
 // Google Sheets live-sync — matching the single, already-agreed
 // TournamentLiveStateRepository that covers all of them (see
@@ -104,4 +105,41 @@ export const tournamentAttendance = pgTable("tournament_attendance", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   primaryKey({ columns: [table.tournamentId, table.playerId] }),
+]);
+
+// Live Re-buy / Add-on state for `kind='free'` (rating/points) tournaments --
+// deliberately NOT tournament_live_entries above, whose semantics are
+// specific to paid/cash tournaments (registration_id FK, knockouts, place,
+// sheet_row_number -- none of which exist for a free-tournament's result
+// row until completion). Before this table existed, both fields lived only
+// in React state and Google Sheets for free tournaments -- there was no
+// Postgres row at all until "Завершить турнир" wrote the final, frozen
+// results.reentries/results.addons (see
+// docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md §3-6 for the read-only
+// investigation that found this gap). This table is the tournament-specific
+// PLAYER-state counterpart to that frozen RESULT-state column -- modelled
+// 1:1 on tournamentAttendance/tournamentPlayerEliminations directly above
+// (composite PK, no surrogate id, plain last-processed-wins upsert, no
+// client-supplied ordering token) for the same reasons those two adopted
+// that shape.
+//
+// Stores the RAW admin-facing "Re-buy" value (Total Entries convention --
+// see results.ts's doc comment on `reentries`), not a pre-normalized
+// rebuy-only count. Normalization into
+// `initialStackTaken = rebuys >= 1` / `actualRebuys = max(rebuys - 1, 0)`
+// happens in features/tournaments.ts::getArrivedPlayersForIntegration, at
+// the boundary where the value leaves Re-Raise for the Poker Clock
+// integration contract -- never baked into storage, so the raw admin-facing
+// number (the one Google Sheets round-trips) stays the one source of truth
+// on this side.
+export const tournamentRebuyState = pgTable("tournament_rebuy_state", {
+  tournamentId: uuid("tournament_id").notNull().references(() => tournaments.id, { onDelete: "cascade" }),
+  playerId: uuid("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  rebuys: integer().notNull().default(0),
+  addons: integer().notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  primaryKey({ columns: [table.tournamentId, table.playerId] }),
+  check("tournament_rebuy_state_rebuys_check", sql`${table.rebuys} >= 0`),
+  check("tournament_rebuy_state_addons_check", sql`${table.addons} >= 0`),
 ]);

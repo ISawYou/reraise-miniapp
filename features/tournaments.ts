@@ -1159,6 +1159,35 @@ export async function setTournamentPlayerAttendance(
   });
 }
 
+// Live Re-buy/Add-on state for kind='free' tournaments -- see
+// lib/db/schema/tournamentLiveState.ts's doc comment on tournamentRebuyState
+// for why this exists separately from tournament_live_entries (paid/cash
+// only) and results.reentries/addons (frozen at completion). Stores and
+// returns the RAW admin-facing "Re-buy" value (Total Entries convention);
+// callers that need the normalized initialStackTaken/rebuys shape derive it
+// themselves (see getArrivedPlayersForIntegration below) -- this function
+// stays a thin, unopinionated read/write of the raw number, same as
+// getTournamentAttendance/setTournamentPlayerAttendance above.
+export async function getTournamentRebuyState(
+  tournamentId: string
+): Promise<Map<string, { rebuys: number; addons: number }>> {
+  return tournamentLiveStateRepository.findRebuyStateByTournamentId(tournamentId);
+}
+
+export async function setTournamentPlayerRebuyState(
+  tournamentId: string,
+  playerId: string,
+  rebuys: number,
+  addons: number
+): Promise<{ rebuys: number; addons: number }> {
+  return tournamentLiveStateRepository.upsertRebuyState({
+    tournament_id: tournamentId,
+    player_id: playerId,
+    rebuys,
+    addons,
+  });
+}
+
 // Public contract for the read-only Poker Clock integration surface
 // (app/api/integrations/v1/**) -- deliberately excludes everything else on
 // Player (email, telegram_id, username, role, access flags, moderation
