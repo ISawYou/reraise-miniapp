@@ -6,6 +6,7 @@ export * from "./results";
 export * from "./achievements";
 export * from "./tournamentLiveState";
 export * from "./tournamentMysteryBounty";
+export * from "./tournamentLateRegistration";
 export * from "./emailOtpCodes";
 export * from "./activityEvents";
 export * from "./appSettings";

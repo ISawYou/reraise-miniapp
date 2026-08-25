@@ -48,6 +48,11 @@ export type Player = {
 
 export type RatingFormulaVersion = "legacy" | "v2";
 
+export type RatingPlace = {
+  place: number;
+  points: number;
+};
+
 export type Tournament = {
   id: string;
   title: string;
