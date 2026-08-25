@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getTournamentAttendance, getTournamentById, saveTournamentResults } from "@/features/tournaments";
+import {
+  getTournamentAttendance,
+  getTournamentById,
+  getTournamentRebuyState,
+  saveTournamentResults,
+} from "@/features/tournaments";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
@@ -49,11 +54,31 @@ export async function POST(
     // diverge from what the live checkbox actually says at completion time.
     // A player with no row in tournament_attendance at all (never toggled)
     // falls back to whatever the client submitted, then to false.
-    const attendance = await getTournamentAttendance(id);
-    const rows = rawRows.map((row) => ({
-      ...row,
-      arrived: attendance.get(row.player_id)?.arrived ?? row.arrived ?? false,
-    }));
+    //
+    // Same reconciliation, same reason, for Re-buy/Add-on against
+    // tournament_rebuy_state -- the live state a direct UI edit (onBlur) or
+    // an explicit "Обновить из GS" commit already wrote. Authoritative
+    // semantics at completion: live Postgres state wins whenever a row
+    // exists for that player, exactly like arrived above, so a stale
+    // second tab/session's submitted numbers can never silently overwrite
+    // what's actually live in the DB. A player with no live rebuy-state row
+    // at all (never touched) falls back to whatever the client submitted,
+    // then to 0 -- there is no other case where "no row yet" should mean
+    // anything other than the untouched default.
+    const [attendance, rebuyState] = await Promise.all([
+      getTournamentAttendance(id),
+      getTournamentRebuyState(id),
+    ]);
+    const rows = rawRows.map((row) => {
+      const liveRebuyState = rebuyState.get(row.player_id);
+
+      return {
+        ...row,
+        arrived: attendance.get(row.player_id)?.arrived ?? row.arrived ?? false,
+        rebuys: liveRebuyState?.rebuys ?? row.rebuys ?? 0,
+        addons: liveRebuyState?.addons ?? row.addons ?? 0,
+      };
+    });
 
     // Mystery Bounty: completion is only allowed once every drawn envelope
     // point has actually been recorded against a player — otherwise the

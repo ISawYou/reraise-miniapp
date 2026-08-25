@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   upsertAttendance: vi.fn(),
   findAttendedPlayersWithDetails: vi.fn(),
   findEliminationsByTournamentId: vi.fn().mockResolvedValue(new Map()),
+  findRebuyStateByTournamentId: vi.fn().mockResolvedValue(new Map()),
+  upsertRebuyState: vi.fn(),
   findRatingPointsBySeasonId: vi.fn().mockResolvedValue([]),
   listOpen: vi.fn().mockResolvedValue([]),
 }));
@@ -25,6 +27,8 @@ vi.mock("@/lib/repositories", () => ({
     upsertAttendance: mocks.upsertAttendance,
     findAttendedPlayersWithDetails: mocks.findAttendedPlayersWithDetails,
     findEliminationsByTournamentId: mocks.findEliminationsByTournamentId,
+    findRebuyStateByTournamentId: mocks.findRebuyStateByTournamentId,
+    upsertRebuyState: mocks.upsertRebuyState,
   },
   resultRepository: {
     findRatingPointsBySeasonId: mocks.findRatingPointsBySeasonId,
@@ -42,7 +46,9 @@ vi.mock("@/features/club-activity", () => ({
 import {
   getArrivedPlayersForIntegration,
   getIntegrationTournamentList,
+  getTournamentRebuyState,
   setTournamentPlayerAttendance,
+  setTournamentPlayerRebuyState,
 } from "@/features/tournaments";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
 
@@ -155,6 +161,10 @@ describe("getArrivedPlayersForIntegration", () => {
         ratingPoints: null,
         // Default mock: no elimination row at all for this player.
         eliminated: false,
+        // Default mock: no rebuy-state row at all -- raw Re-buy = 0.
+        initialStackTaken: false,
+        rebuys: 0,
+        addons: 0,
       },
     ]);
     expect(mocks.findRatingPointsBySeasonId).not.toHaveBeenCalled();
@@ -193,6 +203,14 @@ describe("getArrivedPlayersForIntegration", () => {
     mocks.findEliminationsByTournamentId.mockResolvedValue(
       new Map([["player-no-results", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
     );
+    // PLAYER_ID: raw Re-buy 3 -- The Black Pearl example from the read-only
+    // investigation (initial stack + 2 real rebuys) -- normalizes to
+    // initialStackTaken:true, rebuys:2. player-no-results: no rebuy-state
+    // row at all -- raw Re-buy 0 (arrived, stack not yet taken) ->
+    // initialStackTaken:false, rebuys:0. Addons only set for PLAYER_ID.
+    mocks.findRebuyStateByTournamentId.mockResolvedValue(
+      new Map([[PLAYER_ID, { rebuys: 3, addons: 1 }]])
+    );
 
     const players = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
 
@@ -203,6 +221,9 @@ describe("getArrivedPlayersForIntegration", () => {
         avatarUrl: "https://example.com/telegram.png",
         ratingPoints: 20,
         eliminated: false,
+        initialStackTaken: true,
+        rebuys: 2,
+        addons: 1,
       },
       {
         id: "player-no-results",
@@ -214,6 +235,9 @@ describe("getArrivedPlayersForIntegration", () => {
         // eliminated=true (see the type's own doc comment for why: Poker
         // Clock needs to show them, not silently drop them).
         eliminated: true,
+        initialStackTaken: false,
+        rebuys: 0,
+        addons: 0,
       },
     ]);
   });
@@ -277,8 +301,122 @@ describe("getArrivedPlayersForIntegration", () => {
     const [player] = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
 
     expect(Object.keys(player).sort()).toEqual(
-      ["avatarUrl", "eliminated", "id", "nickname", "ratingPoints"].sort()
+      ["addons", "avatarUrl", "eliminated", "id", "initialStackTaken", "nickname", "ratingPoints", "rebuys"].sort()
     );
+  });
+});
+
+describe("getTournamentRebuyState / setTournamentPlayerRebuyState", () => {
+  it("getTournamentRebuyState is a thin pass-through of the repository's map", async () => {
+    const map = new Map([[PLAYER_ID, { rebuys: 2, addons: 1 }]]);
+    mocks.findRebuyStateByTournamentId.mockResolvedValue(map);
+
+    const result = await getTournamentRebuyState(TOURNAMENT_ID);
+
+    expect(mocks.findRebuyStateByTournamentId).toHaveBeenCalledWith(TOURNAMENT_ID);
+    expect(result).toBe(map);
+  });
+
+  it("setTournamentPlayerRebuyState threads rebuys/addons through to the repository and returns its result unchanged", async () => {
+    mocks.upsertRebuyState.mockResolvedValue({ rebuys: 3, addons: 1 });
+
+    const result = await setTournamentPlayerRebuyState(TOURNAMENT_ID, PLAYER_ID, 3, 1);
+
+    expect(mocks.upsertRebuyState).toHaveBeenCalledWith({
+      tournament_id: TOURNAMENT_ID,
+      player_id: PLAYER_ID,
+      rebuys: 3,
+      addons: 1,
+    });
+    expect(result).toEqual({ rebuys: 3, addons: 1 });
+  });
+});
+
+describe("getArrivedPlayersForIntegration -- Re-buy normalization", () => {
+  beforeEach(() => {
+    mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+    mocks.findAttendedPlayersWithDetails.mockResolvedValue([
+      {
+        player_id: PLAYER_ID,
+        arrived_at: "2026-08-25T18:26:00.000Z",
+        players: {
+          display_name: "Player",
+          admin_display_name: null,
+          custom_avatar_url: null,
+          telegram_avatar_url: null,
+        },
+      },
+    ]);
+  });
+
+  it("raw Re-buy 1 (initial stack taken, no real rebuy yet) -> initialStackTaken:true, rebuys:0", async () => {
+    mocks.findRebuyStateByTournamentId.mockResolvedValue(new Map([[PLAYER_ID, { rebuys: 1, addons: 0 }]]));
+
+    const [player] = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+
+    expect(player.initialStackTaken).toBe(true);
+    expect(player.rebuys).toBe(0);
+  });
+
+  it("raw Re-buy 0 (arrived, stack not yet taken) -> initialStackTaken:false, rebuys:0 -- not negative", async () => {
+    mocks.findRebuyStateByTournamentId.mockResolvedValue(new Map([[PLAYER_ID, { rebuys: 0, addons: 0 }]]));
+
+    const [player] = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+
+    expect(player.initialStackTaken).toBe(false);
+    expect(player.rebuys).toBe(0);
+  });
+
+  it("raw Re-buy 3 -> initialStackTaken:true, rebuys:2 (the exact The Black Pearl example from the investigation)", async () => {
+    mocks.findRebuyStateByTournamentId.mockResolvedValue(new Map([[PLAYER_ID, { rebuys: 3, addons: 0 }]]));
+
+    const [player] = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+
+    expect(player.initialStackTaken).toBe(true);
+    expect(player.rebuys).toBe(2);
+  });
+
+  it("addons pass through as-is, no normalization", async () => {
+    mocks.findRebuyStateByTournamentId.mockResolvedValue(new Map([[PLAYER_ID, { rebuys: 1, addons: 1 }]]));
+
+    const [player] = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+
+    expect(player.addons).toBe(1);
+  });
+
+  it("does NOT use the aggregate max(0, totalEntries - fieldSize) shortcut -- normalization is per-player", async () => {
+    // Two arrived players: A raw Re-buy 2 (1 real rebuy), B raw Re-buy 0
+    // (not yet staked). The aggregate shortcut used by features/rating-v2.ts
+    // would compute totalEntries=2, fieldSize=2 -> max(0, 2-2) = 0 total
+    // rebuys, silently losing A's real rebuy. Per-player normalization must
+    // get A right regardless of what B's value is.
+    mocks.findAttendedPlayersWithDetails.mockResolvedValue([
+      {
+        player_id: "player-a",
+        arrived_at: "2026-08-25T18:00:00.000Z",
+        players: { display_name: "A", admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null },
+      },
+      {
+        player_id: "player-b",
+        arrived_at: "2026-08-25T18:01:00.000Z",
+        players: { display_name: "B", admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null },
+      },
+    ]);
+    mocks.findRebuyStateByTournamentId.mockResolvedValue(
+      new Map([
+        ["player-a", { rebuys: 2, addons: 0 }],
+        ["player-b", { rebuys: 0, addons: 0 }],
+      ])
+    );
+
+    const players = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+    const a = players.find((p) => p.id === "player-a")!;
+    const b = players.find((p) => p.id === "player-b")!;
+
+    expect(a.initialStackTaken).toBe(true);
+    expect(a.rebuys).toBe(1);
+    expect(b.initialStackTaken).toBe(false);
+    expect(b.rebuys).toBe(0);
   });
 });
 

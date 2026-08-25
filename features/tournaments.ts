@@ -1205,12 +1205,32 @@ export async function setTournamentPlayerRebuyState(
 // has arrived and later busts out stays present here with eliminated=true,
 // so Poker Clock can show them (e.g. greyed out at the bottom of a
 // Display list) instead of having them silently vanish.
+// `initialStackTaken`/`rebuys`/`addons` -- normalized at THIS boundary,
+// never in storage. Re-Raise's own admin-facing "Re-buy" field is a Total
+// Entries count (initial stack + every rebuy, see results.reentries's doc
+// comment); leaking that raw convention into Poker Clock would just move
+// the same confusion to a second codebase (see
+// docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md §8 for the read-only
+// investigation that recommended this). Derived per-player from the raw
+// value read via getTournamentRebuyState -- deliberately NOT the aggregate
+// `max(0, totalEntries - fieldSize)` shortcut used by
+// features/rating-v2.ts's rating calculation, which silently undercounts
+// whenever an arrived player's raw Re-buy is 0 (arrived but not yet staked)
+// while other players have rebuys >= 2 -- see that same doc, §9, for the
+// worked counterexample. A player with no live rebuy-state row at all
+// (never touched, whether via direct UI edit or a Google Sheets pull) is
+// treated as raw Re-buy = 0 -- initialStackTaken: false, rebuys: 0 -- same
+// "absence means the not-yet-happened default" convention already used for
+// `eliminated` above.
 export type IntegrationPlayer = {
   id: string;
   nickname: string;
   avatarUrl: string | null;
   ratingPoints: number | null;
   eliminated: boolean;
+  initialStackTaken: boolean;
+  rebuys: number;
+  addons: number;
 };
 
 // Players currently considered "arrived" for one tournament -- the read side
@@ -1241,9 +1261,10 @@ export async function getArrivedPlayersForIntegration(
     throw new TournamentNotFoundError(tournamentId);
   }
 
-  const [attendedRows, eliminations] = await Promise.all([
+  const [attendedRows, eliminations, rebuyState] = await Promise.all([
     tournamentLiveStateRepository.findAttendedPlayersWithDetails(tournamentId),
     tournamentLiveStateRepository.findEliminationsByTournamentId(tournamentId),
+    tournamentLiveStateRepository.findRebuyStateByTournamentId(tournamentId),
   ]);
 
   let ratingsMap = new Map<string, number>();
@@ -1260,6 +1281,8 @@ export async function getArrivedPlayersForIntegration(
 
   return attendedRows.map((row) => {
     const player = row.players;
+    const rawRebuy = rebuyState.get(row.player_id)?.rebuys ?? 0;
+    const rawAddon = rebuyState.get(row.player_id)?.addons ?? 0;
 
     return {
       id: row.player_id,
@@ -1270,6 +1293,11 @@ export async function getArrivedPlayersForIntegration(
       // matches tournament_player_eliminations' own `eliminated boolean not
       // null default false` semantics.
       eliminated: eliminations.get(row.player_id)?.eliminated ?? false,
+      // Per-player normalization, not the aggregate rating-v2.ts shortcut --
+      // see IntegrationPlayer's doc comment above for why.
+      initialStackTaken: rawRebuy >= 1,
+      rebuys: Math.max(rawRebuy - 1, 0),
+      addons: rawAddon,
     };
   });
 }

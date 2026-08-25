@@ -9,10 +9,12 @@ import {
   getTournamentById,
   getTournamentEliminations,
   getTournamentLiveEntries,
+  getTournamentRebuyState,
   getTournamentResultsDraft,
 } from "@/features/tournaments";
 import { fetchAdminJson } from "@/lib/client-request";
 import { AttendanceWriteQueue } from "@/lib/attendance-write-queue";
+import { RebuyWriteQueue } from "@/lib/rebuy-write-queue";
 import {
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
@@ -257,6 +259,62 @@ export default function AdminTournamentResultsPage() {
     );
   }
 
+  // Serializes Re-buy/Add-on writes per player -- same reasoning as
+  // attendanceQueueRef above, generalized to a two-number value (see
+  // lib/rebuy-write-queue.ts). Committed on blur, not on every keystroke
+  // (see handleCommitFreeRebuyState) -- a free-typed number input fires
+  // onChange per keystroke, and writing to Postgres that often would be
+  // both wasteful and a needless source of races this queue would then
+  // have to coalesce away; blur already marks "the admin is done editing
+  // this field" the same way it already triggers the existing
+  // restoreZeroValue cleanup. No rollback-on-failure baseline (unlike
+  // attendance): a failed background sync leaves the admin's just-typed
+  // value exactly as they left it (never yanked back), reported via
+  // setError -- appropriate for a background sync of a free-typed field, as
+  // opposed to attendance's instant-visual checkbox where a stale-looking
+  // toggle would be actively misleading.
+  const rebuyQueueRef = useRef<RebuyWriteQueue<{ rebuys: number; addons: number }> | null>(null);
+  if (!rebuyQueueRef.current) {
+    rebuyQueueRef.current = new RebuyWriteQueue<{ rebuys: number; addons: number }>(
+      (playerId, value) =>
+        fetchAdminJson(`/api/admin/tournaments/${tournamentIdRef.current}/rebuy-state`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ player_id: playerId, rebuys: value.rebuys, addons: value.addons }),
+        }),
+      () => {
+        // Server-confirmed value already matches what's on screen (it's an
+        // echo of what was just sent) -- nothing to reconcile into state.
+      },
+      (_playerId, err) => {
+        setError(err instanceof Error ? err.message : "Не удалось сохранить Re-buy/Add-on");
+      }
+    );
+  }
+
+  // Commits the current Re-buy/Add-on pair for one player to the live
+  // Postgres state (tournament_rebuy_state) -- called from both inputs'
+  // onBlur so either field changing keeps both persisted together (they're
+  // always written as a pair, matching how the server stores them). Invalid
+  // input (non-finite/negative) is silently skipped here rather than
+  // surfaced as an error -- the existing "Сохранить в GS"/"Завершить
+  // турнир" validation already catches and reports bad values explicitly;
+  // this background sync should not double-report the same problem.
+  function handleCommitFreeRebuyState(playerId: string, rebuysValue: string, addonsValue: string) {
+    if (!tournamentId) {
+      return;
+    }
+
+    const rebuys = Number(rebuysValue || 0);
+    const addons = Number(addonsValue || 0);
+
+    if (!Number.isFinite(rebuys) || !Number.isFinite(addons) || rebuys < 0 || addons < 0) {
+      return;
+    }
+
+    rebuyQueueRef.current!.push(playerId, { rebuys, addons });
+  }
+
   useEffect(() => {
     async function loadPage() {
       try {
@@ -346,13 +404,15 @@ export default function AdminTournamentResultsPage() {
             }));
           }
 
-          const [eliminations, attendance] = await Promise.all([
+          const [eliminations, attendance, rebuyState] = await Promise.all([
             getTournamentEliminations(tournamentId),
             getTournamentAttendance(tournamentId),
+            getTournamentRebuyState(tournamentId),
           ]);
           nextRows = nextRows.map((row) => {
             const elimination = eliminations.get(row.player_id);
             const attendanceRecord = attendance.get(row.player_id);
+            const rebuyRecord = rebuyState.get(row.player_id);
             return {
               ...row,
               ...(elimination
@@ -363,6 +423,14 @@ export default function AdminTournamentResultsPage() {
               // eliminations already use. This is what keeps the checkbox
               // and the integration API from ever disagreeing (see Step 9).
               ...(attendanceRecord ? { arrived: attendanceRecord.arrived } : null),
+              // Same precedence for Re-buy/Add-on against
+              // tournament_rebuy_state -- live Postgres state (from a direct
+              // UI edit or a prior "Обновить из GS" commit) wins over
+              // whatever the sheet/draft preview above shows, so reloading
+              // this page can never make a durably-saved edit look reverted.
+              ...(rebuyRecord
+                ? { rebuys: String(rebuyRecord.rebuys), addons: String(rebuyRecord.addons) }
+                : null),
             };
           });
 
@@ -821,6 +889,13 @@ export default function AdminTournamentResultsPage() {
         `/api/admin/tournaments/${tournamentId}/pull-sheet`,
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // Explicit admin click, not the read-only preview fetch in
+          // loadPage above -- this is the one action that means "trust the
+          // sheet now": the server additionally commits arrived/rebuys/addons
+          // into live Postgres state (see pull-sheet/route.ts's `commit`
+          // handling and docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md §6).
+          body: JSON.stringify({ commit: true }),
         }
       );
 
@@ -843,13 +918,15 @@ export default function AdminTournamentResultsPage() {
         placeAutoAssigned: false,
       }));
 
-      const [eliminations, attendance] = await Promise.all([
+      const [eliminations, attendance, rebuyState] = await Promise.all([
         getTournamentEliminations(tournamentId),
         getTournamentAttendance(tournamentId),
+        getTournamentRebuyState(tournamentId),
       ]);
       nextRows = nextRows.map((row) => {
         const elimination = eliminations.get(row.player_id);
         const attendanceRecord = attendance.get(row.player_id);
+        const rebuyRecord = rebuyState.get(row.player_id);
         return {
           ...row,
           ...(elimination
@@ -859,6 +936,13 @@ export default function AdminTournamentResultsPage() {
           // "Обновить из GS" must not resurrect a stale arrived value from
           // the spreadsheet over what's already live-persisted.
           ...(attendanceRecord ? { arrived: attendanceRecord.arrived } : null),
+          // The server just committed rebuys/addons from the sheet into
+          // tournament_rebuy_state (commit:true above), so this overlay is
+          // normally a no-op echo -- kept for the same defense-in-depth
+          // reason eliminations/attendance already re-fetch here.
+          ...(rebuyRecord
+            ? { rebuys: String(rebuyRecord.rebuys), addons: String(rebuyRecord.addons) }
+            : null),
         };
       });
 
@@ -1737,13 +1821,13 @@ export default function AdminTournamentResultsPage() {
                         onFocus={() =>
                           updateFreeRow(row.player_id, "rebuys", clearZeroValue(row.rebuys))
                         }
-                        onBlur={() =>
-                          updateFreeRow(
-                            row.player_id,
-                            "rebuys",
-                            restoreZeroValue(row.rebuys)
-                          )
-                        }
+                        onBlur={() => {
+                          const restored = restoreZeroValue(row.rebuys);
+                          updateFreeRow(row.player_id, "rebuys", restored);
+                          // Commits live, in the background -- see
+                          // handleCommitFreeRebuyState's doc comment.
+                          handleCommitFreeRebuyState(row.player_id, restored, row.addons);
+                        }}
                         onChange={(e) =>
                           updateFreeRow(row.player_id, "rebuys", e.target.value)
                         }
@@ -1762,13 +1846,11 @@ export default function AdminTournamentResultsPage() {
                         onFocus={() =>
                           updateFreeRow(row.player_id, "addons", clearZeroValue(row.addons))
                         }
-                        onBlur={() =>
-                          updateFreeRow(
-                            row.player_id,
-                            "addons",
-                            restoreZeroValue(row.addons)
-                          )
-                        }
+                        onBlur={() => {
+                          const restored = restoreZeroValue(row.addons);
+                          updateFreeRow(row.player_id, "addons", restored);
+                          handleCommitFreeRebuyState(row.player_id, row.rebuys, restored);
+                        }}
                         onChange={(e) =>
                           updateFreeRow(row.player_id, "addons", e.target.value)
                         }

@@ -89,8 +89,26 @@ describe("GET /api/integrations/v1/tournaments/:id/players", () => {
   it("returns arrived players including eliminated=true ones, not filtered out", async () => {
     mockVerifyIntegrationRequest.mockReturnValue(true);
     mockGetArrivedPlayersForIntegration.mockResolvedValue([
-      { id: "p1", nickname: "Active Player", avatarUrl: null, ratingPoints: 10, eliminated: false },
-      { id: "p2", nickname: "Busted Player", avatarUrl: null, ratingPoints: 0, eliminated: true },
+      {
+        id: "p1",
+        nickname: "Active Player",
+        avatarUrl: null,
+        ratingPoints: 10,
+        eliminated: false,
+        initialStackTaken: true,
+        rebuys: 0,
+        addons: 0,
+      },
+      {
+        id: "p2",
+        nickname: "Busted Player",
+        avatarUrl: null,
+        ratingPoints: 0,
+        eliminated: true,
+        initialStackTaken: true,
+        rebuys: 1,
+        addons: 0,
+      },
     ]);
 
     const response = await GET(request("Bearer real-token"), context());
@@ -104,13 +122,25 @@ describe("GET /api/integrations/v1/tournaments/:id/players", () => {
       avatarUrl: null,
       ratingPoints: 0,
       eliminated: true,
+      initialStackTaken: true,
+      rebuys: 1,
+      addons: 0,
     });
   });
 
   it("avatarUrl and ratingPoints nullable semantics pass through unchanged", async () => {
     mockVerifyIntegrationRequest.mockReturnValue(true);
     mockGetArrivedPlayersForIntegration.mockResolvedValue([
-      { id: "p1", nickname: "No Season No Avatar", avatarUrl: null, ratingPoints: null, eliminated: false },
+      {
+        id: "p1",
+        nickname: "No Season No Avatar",
+        avatarUrl: null,
+        ratingPoints: null,
+        eliminated: false,
+        initialStackTaken: false,
+        rebuys: 0,
+        addons: 0,
+      },
     ]);
 
     const response = await GET(request("Bearer real-token"), context());
@@ -120,17 +150,51 @@ describe("GET /api/integrations/v1/tournaments/:id/players", () => {
     expect(json.players[0].ratingPoints).toBeNull();
   });
 
+  it("initialStackTaken/rebuys/addons pass through the route unchanged -- normalization is the feature layer's job, not the route's", async () => {
+    mockVerifyIntegrationRequest.mockReturnValue(true);
+    mockGetArrivedPlayersForIntegration.mockResolvedValue([
+      {
+        id: "p1",
+        nickname: "The Black Pearl",
+        avatarUrl: null,
+        ratingPoints: 5,
+        eliminated: false,
+        initialStackTaken: true,
+        rebuys: 2,
+        addons: 1,
+      },
+    ]);
+
+    const response = await GET(request("Bearer real-token"), context());
+    const json = await response.json();
+
+    expect(json.players[0]).toMatchObject({
+      initialStackTaken: true,
+      rebuys: 2,
+      addons: 1,
+    });
+  });
+
   it("response contains no PII beyond the documented player contract fields", async () => {
     mockVerifyIntegrationRequest.mockReturnValue(true);
     mockGetArrivedPlayersForIntegration.mockResolvedValue([
-      { id: "p1", nickname: "Player", avatarUrl: null, ratingPoints: 5, eliminated: false },
+      {
+        id: "p1",
+        nickname: "Player",
+        avatarUrl: null,
+        ratingPoints: 5,
+        eliminated: false,
+        initialStackTaken: false,
+        rebuys: 0,
+        addons: 0,
+      },
     ]);
 
     const response = await GET(request("Bearer real-token"), context());
     const json = await response.json();
 
     expect(Object.keys(json.players[0]).sort()).toEqual(
-      ["avatarUrl", "eliminated", "id", "nickname", "ratingPoints"].sort()
+      ["addons", "avatarUrl", "eliminated", "id", "initialStackTaken", "nickname", "ratingPoints", "rebuys"].sort()
     );
     const raw = JSON.stringify(json);
     for (const forbidden of ["email", "telegram", "username", "role", "moderation", "access"]) {

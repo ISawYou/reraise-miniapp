@@ -4,6 +4,8 @@ import {
   getTournamentById,
   getTournamentLiveEntries,
   getTournamentResultsDraft,
+  setTournamentPlayerAttendance,
+  setTournamentPlayerRebuyState,
 } from "@/features/tournaments";
 import { readSpreadsheetTabValues } from "@/lib/google-sheets";
 
@@ -26,12 +28,30 @@ function parseNullableNumberCell(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// `commit` (opt-in, default false): when true, additionally persists the
+// pulled values into live Postgres state for kind='free' tournaments --
+// arrived into tournament_attendance (via the same setTournamentPlayerAttendance
+// the "Пришёл" checkbox uses) and rebuys/addons into tournament_rebuy_state.
+// Only app/admin/results/[id]/page.tsx's explicit "Обновить из GS" button
+// sends commit:true; the automatic read-only preview fetch on page load
+// omits it entirely, so opening the results page can never silently
+// overwrite live state with a stale sheet snapshot -- only an admin's
+// deliberate click can (see docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md
+// §6 for why this distinction matters: pressing the button is the one
+// point where "trust the sheet now" is an actual, explicit product
+// decision, not an implicit side effect of loading a page). eliminated is
+// deliberately left untouched here -- the Google Sheet's "Выбыл" column is
+// still write-only (never parsed on pull, see the investigation doc's §6
+// finding), and this task's instructions were explicit not to change that
+// without separately confirming it's needed.
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await context.params;
+    const body = (await request.json().catch(() => null)) as { commit?: boolean } | null;
+    const commit = body?.commit === true;
     const tournament = await getTournamentById(id);
 
     if (!tournament.google_sheet_tab_name?.trim()) {
@@ -119,6 +139,17 @@ export async function POST(
           place: sheetRow?.place ?? null,
         };
       });
+
+      if (commit) {
+        await Promise.all(
+          rows.map((row) =>
+            Promise.all([
+              setTournamentPlayerAttendance(id, row.player_id, row.arrived),
+              setTournamentPlayerRebuyState(id, row.player_id, row.rebuys, row.addons),
+            ])
+          )
+        );
+      }
 
       return NextResponse.json({
         ok: true,
