@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getTournamentRebuyState: vi.fn(),
   saveTournamentResults: vi.fn(),
   getMysteryBountySnapshot: vi.fn(),
+  getTournamentLateRegistrationSnapshot: vi.fn(),
   syncTournamentSheet: vi.fn(),
 }));
 
@@ -18,6 +19,10 @@ vi.mock("@/features/tournaments", () => ({
 
 vi.mock("@/features/mystery-bounty", () => ({
   getMysteryBountySnapshot: mocks.getMysteryBountySnapshot,
+}));
+
+vi.mock("@/features/late-registration", () => ({
+  getTournamentLateRegistrationSnapshot: mocks.getTournamentLateRegistrationSnapshot,
 }));
 
 vi.mock("@/app/api/admin/tournaments/[id]/export-sheet/route", () => ({
@@ -70,6 +75,7 @@ beforeEach(() => {
   mocks.getTournamentRebuyState.mockResolvedValue(new Map());
   mocks.saveTournamentResults.mockResolvedValue(undefined);
   mocks.syncTournamentSheet.mockResolvedValue({ tabName: "Sheet1" });
+  mocks.getTournamentLateRegistrationSnapshot.mockResolvedValue(null);
 });
 
 describe("POST /api/admin/tournaments/[id]/complete-free -- live rebuy-state reconciliation", () => {
@@ -182,5 +188,65 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- live rebuy-state rec
     const [, results] = mocks.saveTournamentResults.mock.calls[0];
     expect(results[0].reentries).toBe(0);
     expect(results[0].addons).toBe(0);
+  });
+
+  it("uses frozen points-per-place after close even when live Re-buy/Add-on values later change", async () => {
+    mocks.getTournamentLateRegistrationSnapshot.mockResolvedValue({
+      rating_places: [
+        { place: 1, points: 70 },
+        { place: 2, points: 53 },
+        { place: 3, points: 39 },
+      ],
+    });
+    mocks.getTournamentRebuyState.mockResolvedValue(
+      new Map([
+        ["p1", { rebuys: 9, addons: 5 }],
+        ["p2", { rebuys: 9, addons: 5 }],
+        ["p3", { rebuys: 9, addons: 5 }],
+      ])
+    );
+
+    await POST(
+      request({
+        rows: [
+          row({ player_id: "p1", place: 1 }),
+          row({ player_id: "p2", place: 2 }),
+          row({ player_id: "p3", place: 3 }),
+        ],
+      }),
+      context()
+    );
+
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(results.map((result: { rating_points: number; itm_points: number }) => ({
+      rating_points: result.rating_points,
+      itm_points: result.itm_points,
+    }))).toEqual([
+      { rating_points: 72, itm_points: 70 },
+      { rating_points: 55, itm_points: 53 },
+      { rating_points: 41, itm_points: 39 },
+    ]);
+  });
+
+  it("keeps the existing fresh-calculation behavior when Late Registration was never closed", async () => {
+    mocks.getTournamentLateRegistrationSnapshot.mockResolvedValue(null);
+
+    await POST(
+      request({
+        rows: [
+          row({ player_id: "p1", place: 1 }),
+          row({ player_id: "p2", place: 2 }),
+          row({ player_id: "p3", place: 3 }),
+        ],
+      }),
+      context()
+    );
+
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(results.map((result: { rating_points: number }) => result.rating_points)).toEqual([
+      72,
+      55,
+      41,
+    ]);
   });
 });

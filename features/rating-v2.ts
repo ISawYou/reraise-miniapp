@@ -1,4 +1,4 @@
-import type { RatingFormulaVersion, TournamentType } from "@/types/domain";
+import type { RatingFormulaVersion, RatingPlace, TournamentType } from "@/types/domain";
 import {
   calculateRatingPoints,
   getBasePlacePoints,
@@ -44,6 +44,10 @@ export type CalculateRatingPointsV2Options = {
   // Phoenix only. null/undefined = no guarantee, the natural pool applies
   // unchanged.
   ratingGuarantee?: number | null;
+  // When Late Registration has already closed, this frozen placement
+  // distribution replaces freshly-computed itm_points. Participation and
+  // format-specific bounty components still come from this same engine.
+  ratingPlaces?: readonly RatingPlace[];
 };
 
 export type RatingPointsV2Meta =
@@ -373,6 +377,8 @@ export function calculateRatingPointsForTournament(
   ratingFormulaVersion: RatingFormulaVersion,
   options: CalculateRatingPointsV2Options = {}
 ): { results: RatingPointsV2Result[]; meta: RatingPointsV2Meta | null } {
+  let calculated: { results: RatingPointsV2Result[]; meta: RatingPointsV2Meta | null };
+
   if (ratingFormulaVersion === "legacy") {
     // features/rating.ts::calculateRatingPoints -- its `rating_points`
     // arithmetic is untouched (same operations, same operands, same order);
@@ -392,8 +398,66 @@ export function calculateRatingPointsForTournament(
       })),
       tournamentType
     );
-    return { results, meta: null };
+    calculated = { results, meta: null };
+  } else {
+    calculated = calculateRatingPointsV2(players, tournamentType, options);
   }
 
-  return calculateRatingPointsV2(players, tournamentType, options);
+  if (!options.ratingPlaces) {
+    return calculated;
+  }
+
+  const pointsByPlace = new Map(options.ratingPlaces.map((item) => [item.place, item.points]));
+  return {
+    ...calculated,
+    results: calculated.results.map((result, index) => {
+      const player = players[index];
+      const frozenItmPoints = player?.arrived ? pointsByPlace.get(player.place) ?? 0 : 0;
+
+      return {
+        ...result,
+        itm_points: frozenItmPoints,
+        rating_points:
+          result.participation_points +
+          result.knockout_points +
+          result.boss_bounty_points +
+          result.mystery_bounty_points +
+          frozenItmPoints,
+      };
+    }),
+  };
+}
+
+// Builds the points-per-place structure by feeding synthetic finishers into
+// the exact same dispatcher completion uses. Player identity and final
+// places are irrelevant at Late Registration close; only authoritative
+// field/entry/add-on aggregates and tournament formula settings matter.
+export function calculateRatingPlaceStructureForTournament(
+  entries: Array<{ entries: number; addons: number }>,
+  tournamentType: TournamentType,
+  ratingFormulaVersion: RatingFormulaVersion,
+  options: CalculateRatingPointsV2Options = {}
+): RatingPlace[] {
+  const players: PlayerRatingInputV2[] = entries.map((entry, index) => ({
+    player_id: `rating-place-${index + 1}`,
+    place: index + 1,
+    knockouts: 0,
+    boss_knockouts: 0,
+    mystery_bounty_points: 0,
+    arrived: true,
+    entries: entry.entries,
+    addons: entry.addons,
+  }));
+  const { results } = calculateRatingPointsForTournament(
+    players,
+    tournamentType,
+    ratingFormulaVersion,
+    { ratingGuarantee: options.ratingGuarantee }
+  );
+  const ratingPlacesCount = getExpectedPrizePlaces(players.length);
+
+  return results.slice(0, ratingPlacesCount).map((result, index) => ({
+    place: index + 1,
+    points: result.itm_points,
+  }));
 }

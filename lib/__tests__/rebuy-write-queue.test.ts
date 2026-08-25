@@ -136,6 +136,17 @@ describe("RebuyWriteQueue", () => {
     expect(onSettled).toHaveBeenCalledWith("p2", { rebuys: 3, addons: 1 });
   });
 
+  it("waitForIdle blocks close on a failed live-state write", async () => {
+    const failure = new Error("db write failed");
+    const call = deferred<Result>();
+    const queue = new RebuyWriteQueue(vi.fn(() => call.promise), vi.fn(), vi.fn());
+    queue.push("p1", { rebuys: 2, addons: 1 });
+
+    const idle = queue.waitForIdle();
+    call.reject(failure);
+    await expect(idle).rejects.toBe(failure);
+  });
+
   it("isActive() reflects in-flight and pending state correctly", async () => {
     const firstCall = deferred<Result>();
     const send = vi.fn().mockReturnValueOnce(firstCall.promise);

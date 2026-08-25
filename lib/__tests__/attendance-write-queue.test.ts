@@ -218,6 +218,21 @@ describe("AttendanceWriteQueue", () => {
     expect(onSettled).toHaveBeenCalledWith("p2", { arrived: false });
   });
 
+  it("waitForIdle resolves only after every in-flight attendance write is committed", async () => {
+    const call = deferred<Result>();
+    const queue = new AttendanceWriteQueue(vi.fn(() => call.promise), vi.fn(), vi.fn());
+    queue.push("p1", true);
+
+    let settled = false;
+    const idle = queue.waitForIdle().then(() => { settled = true; });
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    call.resolve({ arrived: true });
+    await idle;
+    expect(settled).toBe(true);
+  });
+
   it("two independent queue instances (simulating two browser tabs) never share state", async () => {
     const sendA = vi.fn(async (_key: string, arrived: boolean): Promise<Result> => ({ arrived }));
     const sendB = vi.fn(async (_key: string, arrived: boolean): Promise<Result> => ({ arrived }));

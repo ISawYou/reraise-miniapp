@@ -22,7 +22,13 @@ import {
 } from "@/lib/tournament-helpers";
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
-import type { Player, Tournament, TournamentLiveEntry, MysteryBountySnapshot } from "@/types/domain";
+import type {
+  MysteryBountySnapshot,
+  Player,
+  Tournament,
+  TournamentLateRegistrationSnapshot,
+  TournamentLiveEntry,
+} from "@/types/domain";
 
 type DraftRow = {
   player_id: string;
@@ -203,6 +209,8 @@ export default function AdminTournamentResultsPage() {
   const [entryPrice, setEntryPrice] = useState("0");
   const [addonPrice, setAddonPrice] = useState("0");
   const [mysteryBountySnapshot, setMysteryBountySnapshot] = useState<MysteryBountySnapshot | null>(null);
+  const [lateRegistrationSnapshot, setLateRegistrationSnapshot] =
+    useState<TournamentLateRegistrationSnapshot | null>(null);
   const [closingLateRegistration, setClosingLateRegistration] = useState(false);
   const [activatingMysteryBounty, setActivatingMysteryBounty] = useState(false);
   const [recalculatingMysteryBounty, setRecalculatingMysteryBounty] = useState(false);
@@ -340,6 +348,15 @@ export default function AdminTournamentResultsPage() {
         }
 
         if (nextTournament.kind === "free") {
+          try {
+            const lateRegistrationPayload = await fetchAdminJson<{
+              snapshot: TournamentLateRegistrationSnapshot | null;
+            }>(`/api/admin/tournaments/${tournamentId}/late-registration`);
+            setLateRegistrationSnapshot(lateRegistrationPayload.snapshot);
+          } catch {
+            setLateRegistrationSnapshot(null);
+          }
+
           let nextRows: FreeFormRow[] = [];
 
           if (nextTournament.google_sheet_tab_name?.trim()) {
@@ -1075,17 +1092,31 @@ export default function AdminTournamentResultsPage() {
     try {
       setClosingLateRegistration(true);
 
-      const payload = await fetchAdminJson<{ snapshot: MysteryBountySnapshot }>(
-        `/api/admin/tournaments/${tournamentId}/mystery-bounty/close-late-registration`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rows: buildMysteryBountyRosterRows() }),
-        }
+      // A click can itself blur a Re-buy/Add-on input. Wait until those
+      // already-started live DB writes (and any attendance burst) settle;
+      // the close endpoint then reads Postgres only, never these React rows.
+      await Promise.all([
+        attendanceQueueRef.current!.waitForIdle(),
+        rebuyQueueRef.current!.waitForIdle(),
+      ]);
+
+      const payload = await fetchAdminJson<{
+        snapshot: TournamentLateRegistrationSnapshot;
+        mysteryBountySnapshot: MysteryBountySnapshot | null;
+      }>(
+        `/api/admin/tournaments/${tournamentId}/late-registration`,
+        { method: "POST" }
       );
 
-      setMysteryBountySnapshot(payload.snapshot);
-      setMessage("Late Registration закрыта, Mystery Bounty pool рассчитан");
+      setLateRegistrationSnapshot(payload.snapshot);
+      if (payload.mysteryBountySnapshot) {
+        setMysteryBountySnapshot(payload.mysteryBountySnapshot);
+      }
+      setMessage(
+        payload.mysteryBountySnapshot
+          ? "Поздняя регистрация закрыта, Mystery Bounty pool рассчитан"
+          : "Поздняя регистрация закрыта, рейтинговая сетка зафиксирована"
+      );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Не удалось закрыть Late Registration"
@@ -1465,24 +1496,40 @@ export default function AdminTournamentResultsPage() {
           </div>
         ) : null}
 
+        {isFreeTournament && tournament?.status !== "completed" ? (
+          <div className="mt-4 rounded-xl border border-blue-400/25 bg-blue-500/10 p-4">
+            <p className="text-sm font-semibold text-white">Поздняя регистрация</p>
+            {!lateRegistrationSnapshot ? (
+              <>
+                <p className="mt-1 text-xs text-white/60">
+                  Статус: <span className="font-semibold text-yellow-300">открыта</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCloseLateRegistration}
+                  disabled={closingLateRegistration}
+                  className="mt-3 w-full rounded-lg bg-blue-400 px-3 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                >
+                  {closingLateRegistration ? "Завершаем..." : "Завершить позднюю регистрацию"}
+                </button>
+              </>
+            ) : (
+              <p className="mt-1 text-xs text-white/70">
+                <span className="font-semibold text-green-300">Поздняя регистрация закрыта</span>
+                {" · "}Рейтинговых мест: {lateRegistrationSnapshot.rating_places.length}
+              </p>
+            )}
+          </div>
+        ) : null}
+
         {isMysteryBountyTournament ? (
           <div className="mt-4 rounded-xl border border-purple-400/25 bg-purple-500/10 p-4">
             <p className="text-sm font-semibold text-white">Mystery Bounty</p>
 
             {!mysteryBountySnapshot ? (
-              <>
-                <p className="mt-1 text-xs text-white/60">
-                  Late Registration: <span className="font-semibold text-yellow-300">OPEN</span>
-                </p>
-                <button
-                  type="button"
-                  onClick={handleCloseLateRegistration}
-                  disabled={closingLateRegistration || freeRows.length === 0}
-                  className="mt-3 w-full rounded-lg bg-purple-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-60"
-                >
-                  {closingLateRegistration ? "Закрываем..." : "Закрыть позднюю регистрацию"}
-                </button>
-              </>
+              <p className="mt-1 text-xs text-white/60">
+                Mystery pool будет рассчитан единой операцией завершения поздней регистрации.
+              </p>
             ) : (
               <>
                 <p className="mt-1 text-xs text-white/60">

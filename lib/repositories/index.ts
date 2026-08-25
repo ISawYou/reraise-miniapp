@@ -20,6 +20,7 @@ export * from "./tournament";
 export * from "./registration";
 export * from "./tournament-live-state";
 export * from "./tournament-mystery-bounty";
+export * from "./tournament-late-registration";
 export * from "./result";
 export * from "./academy-progress";
 export * from "./club-activity";

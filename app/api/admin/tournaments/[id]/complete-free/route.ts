@@ -7,6 +7,7 @@ import {
 } from "@/features/tournaments";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
+import { getTournamentLateRegistrationSnapshot } from "@/features/late-registration";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
 import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
 
@@ -65,9 +66,10 @@ export async function POST(
     // at all (never touched) falls back to whatever the client submitted,
     // then to 0 -- there is no other case where "no row yet" should mean
     // anything other than the untouched default.
-    const [attendance, rebuyState] = await Promise.all([
+    const [attendance, rebuyState, lateRegistrationSnapshot] = await Promise.all([
       getTournamentAttendance(id),
       getTournamentRebuyState(id),
+      getTournamentLateRegistrationSnapshot(id),
     ]);
     const rows = rawRows.map((row) => {
       const liveRebuyState = rebuyState.get(row.player_id);
@@ -125,7 +127,14 @@ export async function POST(
       })),
       tournament.tournament_type,
       tournament.rating_formula_version,
-      { ratingGuarantee: tournament.rating_guarantee }
+      {
+        ratingGuarantee: tournament.rating_guarantee,
+        // Backward compatibility: tournaments completed without ever using
+        // the new close operation keep today's fresh calculation. Once a
+        // generic snapshot exists, only its placement distribution is used;
+        // live KO/Mystery components still come from the engine above.
+        ratingPlaces: lateRegistrationSnapshot?.rating_places,
+      }
     );
     const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r]));
 

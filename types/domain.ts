@@ -53,6 +53,21 @@ export type RatingPlace = {
   points: number;
 };
 
+export type TournamentLateRegistrationSnapshot = {
+  tournament_id: string;
+  closed_at: string;
+  arrived_players_count: number;
+  initial_stacks_count: number;
+  total_entries_count: number;
+  rebuys_count: number;
+  addons_count: number;
+  tournament_type: TournamentType;
+  rating_formula_version: RatingFormulaVersion;
+  rating_guarantee: number | null;
+  rating_places: RatingPlace[];
+};
+
+
 export type Tournament = {
   id: string;
   title: string;

@@ -20,6 +20,8 @@ export type RebuyStateValue = { rebuys: number; addons: number };
 export class RebuyWriteQueue<TResult> {
   private readonly pending = new Map<string, RebuyStateValue>();
   private readonly inFlight = new Set<string>();
+  private idleWaiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
+  private lastError: unknown = null;
 
   constructor(
     private readonly send: (key: string, value: RebuyStateValue) => Promise<TResult>,
@@ -32,10 +34,35 @@ export class RebuyWriteQueue<TResult> {
   }
 
   push(key: string, value: RebuyStateValue): void {
+    this.lastError = null;
     this.pending.set(key, value);
     if (!this.inFlight.has(key)) {
       void this.pump(key);
     }
+  }
+
+  waitForIdle(): Promise<void> {
+    if (this.inFlight.size === 0 && this.pending.size === 0) {
+      if (this.lastError) {
+        const error = this.lastError;
+        this.lastError = null;
+        return Promise.reject(error);
+      }
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      this.idleWaiters.push({ resolve, reject });
+    });
+  }
+
+  private settleIdleWaiters(): void {
+    if (this.inFlight.size > 0 || this.pending.size > 0 || this.idleWaiters.length === 0) return;
+    const waiters = this.idleWaiters;
+    this.idleWaiters = [];
+    const error = this.lastError;
+    this.lastError = null;
+    waiters.forEach((waiter) => (error ? waiter.reject(error) : waiter.resolve()));
   }
 
   private async pump(key: string): Promise<void> {
@@ -57,6 +84,7 @@ export class RebuyWriteQueue<TResult> {
           // starts a fresh burst), rather than silently retrying a write the
           // admin didn't just explicitly commit.
           this.pending.delete(key);
+          this.lastError = error;
           this.onError(key, error);
           return;
         }
@@ -74,6 +102,7 @@ export class RebuyWriteQueue<TResult> {
       }
     } finally {
       this.inFlight.delete(key);
+      this.settleIdleWaiters();
     }
   }
 }
