@@ -377,6 +377,7 @@ export default function TournamentsPage() {
           tournamentType={tournament.tournament_type}
           configs={tournamentVisuals}
           className="z-0"
+          artworkSizeClassName="absolute inset-y-0 right-0 w-[58%] sm:w-[50%]"
         />
 
         <div className="relative z-10">
@@ -404,20 +405,11 @@ export default function TournamentsPage() {
           </div>
 
           <div className="mt-4 flex items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white/78">
-                <UserIcon />
-                <span>
-                  {registeredCount} / {tournament.max_players}
-                </span>
-              </div>
-
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-white/28"
-                  style={{ width: `${fillPercent}%` }}
-                />
-              </div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-white/78">
+              <UserIcon />
+              <span>
+                {registeredCount} / {tournament.max_players}
+              </span>
             </div>
 
             <p className="shrink-0 text-sm font-semibold text-[#e1bf6b]">
@@ -431,6 +423,13 @@ export default function TournamentsPage() {
 
           <div className="mt-4" onClick={(event) => event.preventDefault()}>
             {renderActionButton(tournament)}
+          </div>
+
+          <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-black/35 ring-1 ring-inset ring-white/10">
+            <div
+              className="h-full rounded-full bg-[#d7b55a]"
+              style={{ width: `${fillPercent}%` }}
+            />
           </div>
         </div>
       </Link>

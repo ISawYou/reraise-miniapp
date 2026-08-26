@@ -87,7 +87,7 @@ function PencilIcon() {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="h-[18px] w-[18px]"
+      className="h-3.5 w-3.5"
       fill="currentColor"
     >
       <path d="M16.86 3.49a2 2 0 0 1 2.83 0l.82.82a2 2 0 0 1 0 2.83l-10 10A2 2 0 0 1 9.1 17.7l-3.34.84a1 1 0 0 1-1.22-1.22l.84-3.34a2 2 0 0 1 .54-.95Z" />
@@ -126,7 +126,7 @@ function EditBadge({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="inline-flex h-8 w-8 appearance-none items-center justify-center rounded-full border-0 bg-black/60 text-white outline-none ring-0"
+      className="inline-flex h-7 w-7 appearance-none items-center justify-center rounded-full border-0 bg-black/60 text-white outline-none ring-0"
     >
       <PencilIcon />
     </button>
@@ -612,29 +612,6 @@ export default function PlayerProfilePage() {
         ) : null}
 
         <div className="mt-7 space-y-3">
-          <div className="rounded-3xl border border-[#8a8262]/15 bg-[linear-gradient(160deg,#171a13_0%,#101210_100%)] px-5 pb-5 pt-4">
-            <p className="text-2xl font-semibold text-[#d9c68f]">
-              Статистика
-            </p>
-
-            <div className="mt-5 grid grid-cols-3 gap-4">
-              <div className="text-center">
-                <p className="text-2xl font-semibold text-white">{rating}</p>
-                <p className="mt-2 text-sm text-white/55">Рейтинг</p>
-              </div>
-
-              <div className="border-l border-[#8a8262]/20 pl-4 text-center">
-                <p className="text-2xl font-semibold text-white">{playedCount}</p>
-                <p className="mt-2 text-sm text-white/55">Турниры</p>
-              </div>
-
-              <div className="border-l border-[#8a8262]/20 pl-4 text-center">
-                <p className="text-2xl font-semibold text-white">{totalKnockouts}</p>
-                <p className="mt-2 text-sm text-white/55">Нокауты</p>
-              </div>
-            </div>
-          </div>
-
           <Link
             href={`/players/${player.id}/achievements`}
             className="block rounded-3xl border border-[#8a6a4a]/20 bg-[linear-gradient(160deg,#1c140f_0%,#120d0a_100%)] p-5 text-white"
@@ -657,6 +634,29 @@ export default function PlayerProfilePage() {
               </div>
             </div>
           </Link>
+
+          <div className="rounded-3xl border border-[#8a8262]/15 bg-[linear-gradient(160deg,#171a13_0%,#101210_100%)] px-5 pb-4 pt-3.5">
+            <p className="text-xl font-semibold text-white">
+              Статистика
+            </p>
+
+            <div className="mt-3 grid grid-cols-3 gap-4">
+              <div className="text-center">
+                <p className="text-xl font-semibold text-white">{rating}</p>
+                <p className="mt-1.5 text-sm text-white/55">Рейтинг</p>
+              </div>
+
+              <div className="border-l border-[#8a8262]/20 pl-4 text-center">
+                <p className="text-xl font-semibold text-white">{playedCount}</p>
+                <p className="mt-1.5 text-sm text-white/55">Турниры</p>
+              </div>
+
+              <div className="border-l border-[#8a8262]/20 pl-4 text-center">
+                <p className="text-xl font-semibold text-white">{totalKnockouts}</p>
+                <p className="mt-1.5 text-sm text-white/55">Нокауты</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <section className="mt-8">

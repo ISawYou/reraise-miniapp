@@ -1077,23 +1077,29 @@ export default function HomePage() {
       dragging: false,
     };
 
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture is a best-effort UX nicety here (keeps drag
-      // tracking working if the cursor leaves the carousel bounds) -- the
-      // drag still works via the drag ref if the browser refuses it.
-    }
+    // No setPointerCapture here -- capturing on every plain mousedown (even
+    // one that never turns into a drag) interfered with the browser's
+    // normal click generation for the underlying card Link. Capture is
+    // acquired below, in handleTournamentPointerMove, only once the
+    // gesture has actually crossed the drag threshold.
   }
 
   function handleTournamentPointerMove(event: React.PointerEvent<HTMLDivElement>) {
     const drag = pointerDragRef.current;
-    if (!drag || event.pointerId !== drag.pointerId) {
+    if (!drag || event.pointerId !== drag.pointerId || drag.dragging) {
       return;
     }
 
     if (Math.abs(event.clientX - drag.startX) >= CARD_DRAG_THRESHOLD_PX) {
       drag.dragging = true;
+
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture is a best-effort UX nicety here (keeps drag
+        // tracking working if the cursor leaves the carousel bounds) -- the
+        // drag still works via the drag ref if the browser refuses it.
+      }
     }
   }
 
