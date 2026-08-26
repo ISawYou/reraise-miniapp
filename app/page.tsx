@@ -23,6 +23,8 @@ import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
+import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
+import type { TournamentLiveSummary } from "@/types/poker-clock-live-state";
 import {
   getTelegramUser,
   getTelegramInitData,
@@ -153,6 +155,43 @@ function formatTournamentShortTime(date: string) {
   });
 }
 
+// No seconds, per the card's compact LIVE second line ("38 мин" / "1 ч 12
+// мин"). Clamped to a 1-minute floor so a near-zero-but-still-positive
+// remaining value never reads as "0 мин".
+function formatLateRegistrationMinutes(remainingSeconds: number) {
+  const totalMinutes = Math.max(1, Math.round(remainingSeconds / 60));
+
+  if (totalMinutes < 60) {
+    return `${totalMinutes} мин`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return minutes > 0 ? `${hours} ч ${minutes} мин` : `${hours} ч`;
+}
+
+// Re-Raise's own late-registration status is authoritative; Poker Clock's
+// countdown is only a reference used to phrase the "open" case. `null`
+// means "not applicable" (non-free tournament) or "unknown this poll" --
+// the line is omitted entirely rather than guessed.
+function resolveLateRegistrationLine(
+  lateRegistration: TournamentLiveSummary["lateRegistration"],
+  clockRemainingSeconds: number | null | undefined
+): string | null {
+  if (!lateRegistration) return null;
+
+  if (lateRegistration.status === "closed") {
+    return "Поздняя рег. закрыта";
+  }
+
+  if (typeof clockRemainingSeconds === "number" && clockRemainingSeconds > 0) {
+    return `Поздняя рег. ${formatLateRegistrationMinutes(clockRemainingSeconds)}`;
+  }
+
+  return "Поздняя рег. открыта";
+}
+
 function formatTournamentCountdown(date: string) {
   const diffMs = new Date(date).getTime() - Date.now();
 
@@ -227,6 +266,12 @@ export default function HomePage() {
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
   const [homeDataLoading, setHomeDataLoading] = useState(true);
   const [homeActivity, setHomeActivity] = useState<ClubActivityEvent[]>([]);
+
+  const homeTournamentIds = useMemo(
+    () => homeTournaments.map((tournament) => tournament.id),
+    [homeTournaments]
+  );
+  const tournamentLiveState = useTournamentLiveState(homeTournamentIds);
 
   const registrationsRef = useRef<Record<string, string>>({});
   const activeTournamentIndexRef = useRef(0);
@@ -1121,7 +1166,8 @@ export default function HomePage() {
 
   function renderTournamentCard(
     tournament: Tournament,
-    registeredCount: number
+    registeredCount: number,
+    liveSummary: TournamentLiveSummary | undefined
   ) {
     const prizePlaces = getExpectedPrizePlaces(registeredCount);
     const countdownText = formatTournamentCountdown(tournament.start_at);
@@ -1132,6 +1178,24 @@ export default function HomePage() {
         : registrationStatus === "waitlist"
           ? "Вы в листе ожидания"
         : "Записаться";
+
+    // Fact of LIVE comes only from Poker Clock's actual clock status --
+    // never from tournament.start_at/current date/Re-Raise's own "open"
+    // status. Paused still counts as LIVE (the tournament hasn't stopped,
+    // only the clock has).
+    const clock = liveSummary?.clock ?? null;
+    const isLive = clock?.status === "running" || clock?.status === "paused";
+    const attendance = liveSummary?.attendance ?? null;
+    const playerChipLabel =
+      isLive && attendance
+        ? `${attendance.active} / ${attendance.arrived}`
+        : `${registeredCount} / ${tournament.max_players}`;
+    const lateRegistrationLine = isLive
+      ? resolveLateRegistrationLine(
+          liveSummary?.lateRegistration ?? null,
+          clock?.lateRegistrationRemainingSeconds
+        )
+      : null;
 
     return (
       <Link
@@ -1159,21 +1223,38 @@ export default function HomePage() {
             </div>
             <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
               <UserIcon />
-              <span>{registeredCount} / {tournament.max_players}</span>
+              <span>{playerChipLabel}</span>
             </div>
           </div>
 
-          <p className="mt-3 text-sm font-semibold text-white/70">
-            {countdownText === "Уже начался"
-              ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
-              : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
-          </p>
+          {isLive ? (
+            <>
+              <p className="mt-3 text-sm font-semibold text-white/70">
+                {clock?.currentLevel !== null &&
+                clock?.smallBlind !== null &&
+                clock?.bigBlind !== null
+                  ? `🔴 LIVE · Ур. ${clock?.currentLevel} · ${clock?.smallBlind} / ${clock?.bigBlind}`
+                  : "🔴 LIVE"}
+              </p>
+              {lateRegistrationLine ? (
+                <p className="mt-1 text-sm text-white/55">{lateRegistrationLine}</p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <p className="mt-3 text-sm font-semibold text-white/70">
+                {countdownText === "Уже начался"
+                  ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
+                  : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
+              </p>
 
-          <div className="mt-4">
-            <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
-              {actionLabel}
-            </div>
-          </div>
+              <div className="mt-4">
+                <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
+                  {actionLabel}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </Link>
     );
@@ -1496,7 +1577,8 @@ export default function HomePage() {
                       {homeTournaments.map((tournament) =>
                         renderTournamentCard(
                           tournament,
-                          registrationCounts[tournament.id] ?? 0
+                          registrationCounts[tournament.id] ?? 0,
+                          tournamentLiveState[tournament.id]
                         )
                       )}
                     </div>
