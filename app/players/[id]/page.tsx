@@ -709,21 +709,15 @@ export default function PlayerProfilePage() {
                       />
 
                       <div className="relative z-10">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <h3 className="text-lg font-semibold text-white">
-                              {item.tournament.title}
-                            </h3>
-                            {showTournamentKindTags ? (
-                              <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
-                                {getTournamentKindLabel(item.tournament.kind)}
-                              </span>
-                            ) : null}
-                          </div>
-
-                          <div className="inline-flex items-center text-white/45">
-                            <ArrowRightIcon />
-                          </div>
+                        <div className="min-w-0">
+                          <h3 className="text-lg font-semibold text-white">
+                            {item.tournament.title}
+                          </h3>
+                          {showTournamentKindTags ? (
+                            <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
+                              {getTournamentKindLabel(item.tournament.kind)}
+                            </span>
+                          ) : null}
                         </div>
 
                         <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">

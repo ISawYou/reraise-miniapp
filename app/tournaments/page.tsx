@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { BackButton } from "@/components/ui/back-button";
 import { PromotionToast } from "@/components/promotion-toast";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { logEvent } from "@/lib/activity-client";
@@ -377,7 +378,11 @@ export default function TournamentsPage() {
           tournamentType={tournament.tournament_type}
           configs={tournamentVisuals}
           className="z-0"
-          artworkSizeClassName="absolute inset-y-0 right-0 w-[58%] sm:w-[50%]"
+          // Smaller than the shared default, and stops above the bottom
+          // occupancy bar (bottom-12) instead of spanning the full card
+          // height -- a tall/portrait artwork (e.g. Boss Bounty) must never
+          // render into that strip.
+          artworkSizeClassName="absolute right-0 top-0 bottom-12 w-[50%] sm:w-[44%]"
         />
 
         <div className="relative z-10">
@@ -404,17 +409,17 @@ export default function TournamentsPage() {
             </div>
           </div>
 
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-white/78">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-sm font-semibold text-white/78">
               <UserIcon />
               <span>
                 {registeredCount} / {tournament.max_players}
               </span>
             </div>
 
-            <p className="shrink-0 text-sm font-semibold text-[#e1bf6b]">
+            <div className="inline-flex items-center rounded-full border border-[#e1bf6b]/25 bg-[#e1bf6b]/10 px-3 py-1.5 text-sm font-semibold text-[#e1bf6b]">
               🏆 ТОП-{prizePlaces}
-            </p>
+            </div>
           </div>
 
           <p className="mt-3 text-sm text-white/54">
@@ -485,6 +490,8 @@ export default function TournamentsPage() {
       />
 
       <div className="relative mx-auto max-w-md">
+        <BackButton href="/" className="mb-4" />
+
         <h1 className="text-3xl font-bold tracking-tight text-white">Турниры</h1>
 
         <section className="mt-5">
