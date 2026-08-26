@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getTournamentLiveEntries: vi.fn(),
   applyTournamentLiveSheetRows: vi.fn(),
   setTournamentPlayerAttendance: vi.fn(),
+  setTournamentPlayerElimination: vi.fn(),
   setTournamentPlayerRebuyState: vi.fn(),
   readSpreadsheetTabValues: vi.fn(),
 }));
@@ -16,6 +17,7 @@ vi.mock("@/features/tournaments", () => ({
   getTournamentLiveEntries: mocks.getTournamentLiveEntries,
   applyTournamentLiveSheetRows: mocks.applyTournamentLiveSheetRows,
   setTournamentPlayerAttendance: mocks.setTournamentPlayerAttendance,
+  setTournamentPlayerElimination: mocks.setTournamentPlayerElimination,
   setTournamentPlayerRebuyState: mocks.setTournamentPlayerRebuyState,
 }));
 
@@ -39,12 +41,14 @@ function request(body?: unknown) {
 
 // One free-tournament data row: player_id, username, display_name,
 // telegram, reg_status, arrived, paid, payment_type, free_reentries,
-// rebuys, addons, knockouts, place -- matches pull-sheet/route.ts's
+// rebuys, addons, knockouts, place -- matches the shared parser's
 // non-boss/non-mystery column layout (knockoutsIndex=11, placeIndex=12).
 // The real Google Sheets API always returns string cells, and
 // parseNumberCell/parseBooleanCell call .trim() on every value -- every
 // cell here must be a string, exactly like production data, or those calls
-// throw.
+// throw. Row index 6 is the header row the shared parser now validates
+// (lib/tournament-sheet-parsing.ts's getFreeSheetColumnLayout) -- must
+// match exactly, or the whole pull is rejected as an unexpected layout.
 function freeSheetValues(dataRow: string[]) {
   return [
     ["Tournament ID", "t1"],
@@ -53,7 +57,24 @@ function freeSheetValues(dataRow: string[]) {
     [],
     [],
     [],
-    [],
+    [
+      "Player ID",
+      "System",
+      "Ник",
+      "Telegram",
+      "Статус регистрации",
+      "Пришел",
+      "Оплатил",
+      "Нал/карта",
+      "Беспл. re-entry",
+      "Re-buy",
+      "Addon",
+      "Nok",
+      "Место",
+      "Рейтинг",
+      "Выбыл",
+      "Время выбытия",
+    ],
     dataRow,
   ];
 }
@@ -61,6 +82,7 @@ function freeSheetValues(dataRow: string[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.setTournamentPlayerAttendance.mockResolvedValue({ arrived: true, arrived_at: null });
+  mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: false, eliminated_at: null });
   mocks.setTournamentPlayerRebuyState.mockResolvedValue({ rebuys: 0, addons: 0 });
 });
 

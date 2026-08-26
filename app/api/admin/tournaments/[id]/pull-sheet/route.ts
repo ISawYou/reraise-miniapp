@@ -5,45 +5,30 @@ import {
   getTournamentLiveEntries,
   getTournamentResultsDraft,
   setTournamentPlayerAttendance,
+  setTournamentPlayerElimination,
   setTournamentPlayerRebuyState,
 } from "@/features/tournaments";
 import { readSpreadsheetTabValues } from "@/lib/google-sheets";
-
-function parseBooleanCell(value: string | undefined) {
-  if (!value) return false;
-
-  const normalized = value.trim().toLowerCase();
-  return ["true", "1", "yes", "да", "y"].includes(normalized);
-}
-
-function parseNumberCell(value: string | undefined) {
-  if (!value?.trim()) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function parseNullableNumberCell(value: string | undefined) {
-  if (!value?.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
+import {
+  parseBooleanCell,
+  parseNullableNumberCell,
+  parseNumberCell,
+  parseFreeSheetValues,
+} from "@/lib/tournament-sheet-parsing";
 
 // `commit` (opt-in, default false): when true, additionally persists the
 // pulled values into live Postgres state for kind='free' tournaments --
-// arrived into tournament_attendance (via the same setTournamentPlayerAttendance
-// the "Пришёл" checkbox uses) and rebuys/addons into tournament_rebuy_state.
-// Only app/admin/results/[id]/page.tsx's explicit "Обновить из GS" button
-// sends commit:true; the automatic read-only preview fetch on page load
-// omits it entirely, so opening the results page can never silently
-// overwrite live state with a stale sheet snapshot -- only an admin's
-// deliberate click can (see docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md
-// §6 for why this distinction matters: pressing the button is the one
-// point where "trust the sheet now" is an actual, explicit product
-// decision, not an implicit side effect of loading a page). eliminated is
-// deliberately left untouched here -- the Google Sheet's "Выбыл" column is
-// still write-only (never parsed on pull, see the investigation doc's §6
-// finding), and this task's instructions were explicit not to change that
-// without separately confirming it's needed.
+// arrived into tournament_attendance, eliminated into
+// tournament_player_eliminations, and rebuys/addons into
+// tournament_rebuy_state -- all via the exact same authoritative setters
+// the background live synchronizer uses (features/tournament-sheet-sync.ts),
+// so this manual fallback and the automatic sync can never drift in
+// behavior. Only app/admin/results/[id]/page.tsx's explicit "Обновить из
+// GS" button sends commit:true; the automatic read-only preview fetch on
+// page load omits it entirely, so opening the results page can never
+// silently overwrite live state with a stale sheet snapshot -- only an
+// admin's deliberate click can (see
+// docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md §6).
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -59,69 +44,23 @@ export async function POST(
     }
 
     const values = await readSpreadsheetTabValues(tournament.google_sheet_tab_name);
-    const dataRows = values.slice(7);
-
-    const entryPrice = parseNumberCell(values[1]?.[4]);
-    const addonPrice = parseNumberCell(values[1]?.[5]);
-    const bountyPrice = parseNumberCell(values[1]?.[6]);
-    const isBossBounty = tournament.tournament_type === "boss_bounty";
-    // Mystery Bounty's aggregate pool/envelope metrics are write-only in the
-    // sheet (see export-sheet's buildFreeSheetValues) — only the per-player
-    // Bounty Points column round-trips back, exactly like knockouts/rebuys.
-    const isMysteryBounty = tournament.tournament_type === "mystery_bounty";
-    const hasExtraFreeColumn = isBossBounty || isMysteryBounty;
 
     if (tournament.kind === "free") {
-      type FreeSheetRow = {
-        player_id: string;
-        display_name: string;
-        username: string | null;
-        arrived: boolean;
-        paid: boolean;
-        payment_type: string;
-        free_reentries: number;
-        rebuys: number;
-        addons: number;
-        knockouts: number;
-        boss_knockouts: number;
-        mystery_bounty_points: number;
-        place: number | null;
-      };
+      const parsed = parseFreeSheetValues(values, tournament.tournament_type);
 
-      const knockoutsIndex = 11;
-      const bossKnockoutsIndex = isBossBounty ? 12 : null;
-      const mysteryBountyPointsIndex = isMysteryBounty ? 12 : null;
-      const placeIndex = hasExtraFreeColumn ? 13 : 12;
-
-      const sheetRows: FreeSheetRow[] = dataRows
-        .map((row: string[]) => ({
-          player_id: row[0] as string,
-          display_name: (row[2] ?? "Игрок") as string,
-          username: (row[3]?.trim().replace(/^@/, "") || null) as string | null,
-          arrived: parseBooleanCell(row[5]),
-          paid: parseBooleanCell(row[6]),
-          payment_type: (row[7] ?? "").trim(),
-          free_reentries: parseNumberCell(row[8]),
-          rebuys: parseNumberCell(row[9]),
-          addons: parseNumberCell(row[10]),
-          knockouts: parseNumberCell(row[knockoutsIndex]),
-          boss_knockouts:
-            bossKnockoutsIndex == null ? 0 : parseNumberCell(row[bossKnockoutsIndex]),
-          mystery_bounty_points:
-            mysteryBountyPointsIndex == null ? 0 : parseNumberCell(row[mysteryBountyPointsIndex]),
-          place: parseNullableNumberCell(row[placeIndex]),
-        }))
-        .filter(
-          (row: FreeSheetRow) =>
-            typeof row.player_id === "string" && row.player_id.trim().length > 0
+      if (!parsed.ok) {
+        throw new Error(
+          `Структура Google-таблицы не соответствует ожидаемой: ${parsed.reason}`
         );
+      }
 
-      const sheetRowsMap = new Map<string, FreeSheetRow>(
-        sheetRows.map((row) => [row.player_id, row])
-      );
+      const entryPrice = parseNumberCell(values[1]?.[4]);
+      const addonPrice = parseNumberCell(values[1]?.[5]);
+      const bountyPrice = parseNumberCell(values[1]?.[6]);
+
       const draftRows = await getTournamentResultsDraft(id);
       const rows = draftRows.map((row) => {
-        const sheetRow = sheetRowsMap.get(row.player_id);
+        const sheetRow = parsed.rows.get(row.player_id);
 
         return {
           player_id: row.player_id,
@@ -137,6 +76,7 @@ export async function POST(
           boss_knockouts: sheetRow?.boss_knockouts ?? 0,
           mystery_bounty_points: sheetRow?.mystery_bounty_points ?? 0,
           place: sheetRow?.place ?? null,
+          eliminated: sheetRow?.eliminated ?? false,
         };
       });
 
@@ -145,6 +85,7 @@ export async function POST(
           rows.map((row) =>
             Promise.all([
               setTournamentPlayerAttendance(id, row.player_id, row.arrived),
+              setTournamentPlayerElimination(id, row.player_id, row.eliminated),
               setTournamentPlayerRebuyState(id, row.player_id, row.rebuys, row.addons),
             ])
           )
@@ -159,6 +100,12 @@ export async function POST(
         bountyPrice,
       });
     }
+
+    const entryPrice = parseNumberCell(values[1]?.[4]);
+    const addonPrice = parseNumberCell(values[1]?.[5]);
+    const bountyPrice = parseNumberCell(values[1]?.[6]);
+    const isBossBounty = tournament.tournament_type === "boss_bounty";
+    const dataRows = values.slice(7);
 
     type LiveSheetUpdate = {
       player_id: string;

@@ -518,6 +518,148 @@ export async function applyTournamentSheetFormatting(
   });
 }
 
+// Writes several disjoint ranges in one API call -- used by the roster
+// synchronizer to update an existing row's identity cells and append new
+// roster rows together, without ever touching operational columns (see
+// features/tournament-sheet-sync.ts).
+export async function batchUpdateSpreadsheetValues(
+  updates: { range: string; values: SheetCellValue[][] }[]
+) {
+  if (updates.length === 0) {
+    return;
+  }
+
+  const sheets = getGoogleSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: updates.map((update) => ({ range: update.range, values: update.values })),
+    },
+  });
+}
+
+// Narrow formatting/data-validation for exactly the newly appended roster
+// row(s) -- deliberately NOT a call into applyTournamentSheetFormatting
+// above, which also re-applies frozen-row/hidden-row/header/conditional
+// -format setup meant to run once at tab creation. Duplicates just the
+// per-row visual shape (white background, borders, checkbox validation for
+// Пришел/Оплатил/Выбыл) so a newly appended row looks and behaves like
+// every other player row.
+export async function applyNewRosterRowsFormatting(
+  tabName: string,
+  startRowNumber: number,
+  rowCount: number,
+  columnCount: number,
+  extraBooleanColumnIndices: number[]
+) {
+  if (rowCount <= 0) {
+    return;
+  }
+
+  const sheets = getGoogleSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const targetSheet = spreadsheet.data.sheets?.find(
+    (sheet) => sheet.properties?.title === tabName
+  );
+  const sheetId = targetSheet?.properties?.sheetId;
+
+  if (sheetId == null) {
+    throw new Error(`Spreadsheet tab "${tabName}" not found`);
+  }
+
+  const startRowIndex = startRowNumber - 1;
+  const endRowIndex = startRowIndex + rowCount;
+
+  const extraBooleanColumnRequests = extraBooleanColumnIndices.map((columnIndex) => ({
+    setDataValidation: {
+      range: {
+        sheetId,
+        startRowIndex,
+        endRowIndex,
+        startColumnIndex: columnIndex,
+        endColumnIndex: columnIndex + 1,
+      },
+      rule: {
+        condition: {
+          type: "BOOLEAN",
+        },
+        strict: true,
+        showCustomUi: true,
+      },
+    },
+  }));
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex,
+              endRowIndex,
+              startColumnIndex: 0,
+              endColumnIndex: columnCount,
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: {
+                  red: 1,
+                  green: 1,
+                  blue: 1,
+                },
+                verticalAlignment: "MIDDLE",
+              },
+            },
+            fields: "userEnteredFormat(backgroundColor,verticalAlignment)",
+          },
+        },
+        {
+          updateBorders: {
+            range: {
+              sheetId,
+              startRowIndex,
+              endRowIndex,
+              startColumnIndex: 0,
+              endColumnIndex: columnCount,
+            },
+            top: { style: "SOLID", color: { red: 0.9, green: 0.9, blue: 0.9 } },
+            bottom: { style: "SOLID", color: { red: 0.9, green: 0.9, blue: 0.9 } },
+            left: { style: "SOLID", color: { red: 0.9, green: 0.9, blue: 0.9 } },
+            right: { style: "SOLID", color: { red: 0.9, green: 0.9, blue: 0.9 } },
+            innerHorizontal: { style: "SOLID", color: { red: 0.9, green: 0.9, blue: 0.9 } },
+            innerVertical: { style: "SOLID", color: { red: 0.9, green: 0.9, blue: 0.9 } },
+          },
+        },
+        {
+          setDataValidation: {
+            range: {
+              sheetId,
+              startRowIndex,
+              endRowIndex,
+              startColumnIndex: 5,
+              endColumnIndex: 7,
+            },
+            rule: {
+              condition: {
+                type: "BOOLEAN",
+              },
+              strict: true,
+              showCustomUi: true,
+            },
+          },
+        },
+        ...extraBooleanColumnRequests,
+      ],
+    },
+  });
+}
+
 export async function readSpreadsheetTabValues(tabName: string) {
   const sheets = getGoogleSheetsClient();
   const spreadsheetId = getSpreadsheetId();

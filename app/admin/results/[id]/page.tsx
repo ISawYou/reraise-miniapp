@@ -1688,18 +1688,31 @@ export default function AdminTournamentResultsPage() {
             </div>
           </div>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <button
-              type="button"
-              onClick={isFreeTournament ? handleSyncFreeRows : handleSyncLiveRows}
-              disabled={saving}
-              className="rounded-lg bg-yellow-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-60"
-            >
-              {saving
-                ? "Сохраняем..."
-                : tournament?.google_sheet_tab_name
-                  ? "Сохранить в GS"
-                  : "Создать таблицу"}
-            </button>
+            {isFreeTournament && tournament?.google_sheet_tab_name && tournament.status !== "completed" ? (
+              // Once a GS-linked free tournament is active, a full-tab
+              // rebuild from potentially stale browser state is unsafe --
+              // the sheet is now the live operational source (Пришел,
+              // Выбыл, Re-buy, Addon, KO, Boss KO, Mystery points, Место
+              // are all edited there directly and synced back
+              // automatically, see features/tournament-sheet-sync.ts).
+              // The normal workflow no longer needs this button at all.
+              <div className="flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3 py-3 text-center text-xs text-white/55">
+                Таблица активна — правьте данные в Google Sheets
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={isFreeTournament ? handleSyncFreeRows : handleSyncLiveRows}
+                disabled={saving}
+                className="rounded-lg bg-yellow-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-60"
+              >
+                {saving
+                  ? "Сохраняем..."
+                  : tournament?.google_sheet_tab_name
+                    ? "Сохранить в GS"
+                    : "Создать таблицу"}
+              </button>
+            )}
 
             <button
               type="button"

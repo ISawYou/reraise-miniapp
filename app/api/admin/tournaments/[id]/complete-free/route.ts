@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   getTournamentAttendance,
   getTournamentById,
+  getTournamentEliminations,
   getTournamentRebuyState,
   saveTournamentResults,
 } from "@/features/tournaments";
@@ -9,6 +10,11 @@ import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
 import { getTournamentLateRegistrationSnapshot } from "@/features/late-registration";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
+import {
+  applyLiveFieldsFromSheetSnapshot,
+  readAndParseFreeTournamentSheet,
+} from "@/features/tournament-sheet-sync";
+import type { NormalizedFreeSheetRow } from "@/lib/tournament-sheet-parsing";
 import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
 
 const OPERATION = "complete-free";
@@ -45,6 +51,37 @@ export async function POST(
     const rawRows = body.rows ?? [];
     const tournament = await getTournamentById(id);
 
+    // For a GS-linked free tournament, completion must guarantee freshness
+    // itself -- the admin must never need to remember "Обновить из GS,
+    // then Завершить турнир". Read the sheet fresh, right here,
+    // server-side, then push it into live Postgres via the SAME
+    // reconciliation the background synchronizer uses
+    // (features/tournament-sheet-sync.ts), so arrived/eliminated/rebuys/
+    // addons are current regardless of whether the ~15s poller happened to
+    // run immediately before this request. Fail CLOSED here (unlike the
+    // poller's fail-open philosophy): completion freezes `results`
+    // irreversibly, so proceeding on a stale/unreadable sheet is worse than
+    // making the admin retry.
+    let freshSheetSnapshot: Map<string, NormalizedFreeSheetRow> | null = null;
+
+    if (tournament.google_sheet_tab_name?.trim()) {
+      const sheetResult = await readAndParseFreeTournamentSheet(tournament);
+
+      if (!sheetResult.ok) {
+        return NextResponse.json(
+          { error: "Не удалось получить актуальные данные из Google Sheets. Повторите попытку." },
+          { status: 409 }
+        );
+      }
+
+      freshSheetSnapshot = sheetResult.rows;
+      await applyLiveFieldsFromSheetSnapshot(
+        id,
+        sheetResult.rows,
+        new Set(rawRows.map((row) => row.player_id))
+      );
+    }
+
     // Reconcile against tournament_attendance (the live "Пришёл" state --
     // see features/tournaments.ts::setTournamentPlayerAttendance) before
     // this feeds BOTH the rating calculation below and results.arrived.
@@ -54,7 +91,9 @@ export async function POST(
     // results.arrived -- and the rating computed from it -- can never
     // diverge from what the live checkbox actually says at completion time.
     // A player with no row in tournament_attendance at all (never toggled)
-    // falls back to whatever the client submitted, then to false.
+    // falls back to whatever the client submitted, then to false. When a
+    // sheet was just read fresh above, this read already reflects it (the
+    // reconciliation call above wrote it first).
     //
     // Same reconciliation, same reason, for Re-buy/Add-on against
     // tournament_rebuy_state -- the live state a direct UI edit (onBlur) or
@@ -66,19 +105,40 @@ export async function POST(
     // at all (never touched) falls back to whatever the client submitted,
     // then to 0 -- there is no other case where "no row yet" should mean
     // anything other than the untouched default.
-    const [attendance, rebuyState, lateRegistrationSnapshot] = await Promise.all([
+    const [attendance, rebuyState, eliminations, lateRegistrationSnapshot] = await Promise.all([
       getTournamentAttendance(id),
       getTournamentRebuyState(id),
+      freshSheetSnapshot ? getTournamentEliminations(id) : Promise.resolve(new Map()),
       getTournamentLateRegistrationSnapshot(id),
     ]);
     const rows = rawRows.map((row) => {
       const liveRebuyState = rebuyState.get(row.player_id);
+      const sheetRow = freshSheetSnapshot?.get(row.player_id);
+      const eliminationState = eliminations.get(row.player_id);
 
       return {
         ...row,
         arrived: attendance.get(row.player_id)?.arrived ?? row.arrived ?? false,
         rebuys: liveRebuyState?.rebuys ?? row.rebuys ?? 0,
         addons: liveRebuyState?.addons ?? row.addons ?? 0,
+        // eliminated_at is never read from the sheet (never trusted) --
+        // only eliminated itself; the timestamp stays whatever
+        // setTournamentPlayerElimination derived/preserved server-side.
+        eliminated: freshSheetSnapshot
+          ? eliminationState?.eliminated ?? row.eliminated ?? false
+          : row.eliminated ?? false,
+        eliminated_at: freshSheetSnapshot
+          ? eliminationState?.eliminated_at ?? row.eliminated_at ?? null
+          : row.eliminated_at ?? null,
+        // KO/Boss KO/Mystery points/Место have no live Postgres mirror --
+        // the fresh sheet snapshot itself is the freshness fix for these,
+        // falling back to the submitted value only for a player absent
+        // from the sheet (e.g. registered in ReRaise but not yet
+        // reflected there).
+        knockouts: sheetRow?.knockouts ?? row.knockouts,
+        boss_knockouts: sheetRow?.boss_knockouts ?? row.boss_knockouts ?? 0,
+        mystery_bounty_points: sheetRow?.mystery_bounty_points ?? row.mystery_bounty_points ?? 0,
+        place: sheetRow?.place ?? row.place,
       };
     });
 

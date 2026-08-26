@@ -1,0 +1,360 @@
+"use server";
+
+// Google Sheets -> ReRaise live Postgres synchronization for kind='free'
+// (rating) tournaments. See docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md
+// for the read-only investigation that preceded this.
+//
+// SOURCE-OF-TRUTH CONTRACT
+// ------------------------
+// ReRaise owns: tournament entity/config, registration roster,
+// waitlist/registration status, late-registration state, final frozen
+// results, rating, achievements.
+//
+// Google Sheets owns, during active GS-operated play (kind='free',
+// status !== 'completed', google_sheet_tab_name set): Пришел, Выбыл,
+// Re-buy, Addon, KO, Boss KO, Mystery Bounty per-player values, Место,
+// payment/admin bookkeeping.
+//
+// Postgres live-mirrors only what existing consumers (Poker Clock,
+// player-facing LIVE UI) actually read live: arrived
+// (tournament_attendance), eliminated (tournament_player_eliminations),
+// rebuys/addons (tournament_rebuy_state). KO/Boss KO/Mystery
+// points/Место/payment fields are NOT mirrored live -- no live consumer
+// reads them; they are read fresh from the sheet only at completion (see
+// app/api/admin/tournaments/[id]/complete-free/route.ts).
+//
+// At completion: fresh GS snapshot -> validation/rating calculation ->
+// frozen Postgres results. No uncontrolled bidirectional sync: this module
+// only ever reads sheet *values* and writes Postgres, or writes
+// *roster/identity* cells back to the sheet (system columns only, see
+// syncTournamentRosterToSheet) -- it never writes operational columns back
+// into an active sheet.
+//
+// HARD SAFETY BOUNDARIES -- this module must never: close late
+// registration, complete a tournament, mutate `results`/rating_points,
+// trigger achievement resync, alter tournament_type, create/delete
+// registrations, or write KO/Boss KO/Mystery/Место into a live table. A
+// sheet-read failure is fail-open (keep last-known Postgres state, log and
+// skip this tournament this tick) -- the one exception is the
+// completion-time fresh read (see complete-free/route.ts), which is
+// fail-closed by design there, not here.
+import {
+  getTournamentAttendance,
+  getTournamentById,
+  getTournamentEliminations,
+  getTournamentRebuyState,
+  getTournamentResultsDraft,
+  getTournamentSheetExportData,
+  setTournamentPlayerAttendance,
+  setTournamentPlayerElimination,
+  setTournamentPlayerRebuyState,
+} from "@/features/tournaments";
+import { tournamentRepository } from "@/lib/repositories";
+import {
+  applyNewRosterRowsFormatting,
+  batchUpdateSpreadsheetValues,
+  readSpreadsheetTabValues,
+} from "@/lib/google-sheets";
+import {
+  getFreeSheetColumnLayout,
+  parseFreeSheetValues,
+  type NormalizedFreeSheetRow,
+} from "@/lib/tournament-sheet-parsing";
+import type { Tournament } from "@/types/domain";
+
+type SheetCellValue = string | number | boolean | null;
+
+function logSyncError(message: string, details: Record<string, unknown>) {
+  console.error(`[tournament-sheet-sync] ${message}`, details);
+}
+
+// Poller worklist -- exactly the tournaments eligible for automatic
+// GS live-sync. Reuses the existing listExcludingStatus("completed") repo
+// method (already ordered by start_at ASC); kind/sheet filtering is
+// business logic, so it stays here, not in the repository.
+export async function getActiveFreeTournamentsWithSheet(): Promise<Tournament[]> {
+  const tournaments = await tournamentRepository.listExcludingStatus("completed");
+  return tournaments.filter(
+    (tournament) => tournament.kind === "free" && !!tournament.google_sheet_tab_name?.trim()
+  );
+}
+
+export type ReadFreeTournamentSheetResult =
+  | { ok: true; rows: Map<string, NormalizedFreeSheetRow>; dataRowCount: number }
+  | { ok: false; reason: string };
+
+// Reads the tournament's tab ONCE and parses it -- callers (both the
+// poller and the completion route) reuse the same returned snapshot for
+// every downstream reconciliation step instead of re-fetching.
+export async function readAndParseFreeTournamentSheet(
+  tournament: Tournament
+): Promise<ReadFreeTournamentSheetResult> {
+  const tabName = tournament.google_sheet_tab_name?.trim();
+  if (!tabName) {
+    return { ok: false, reason: "no linked Google Sheet" };
+  }
+
+  let values: string[][];
+  try {
+    values = await readSpreadsheetTabValues(tabName);
+  } catch (error) {
+    logSyncError("failed to read sheet", {
+      tournamentId: tournament.id,
+      tabName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { ok: false, reason: "Google Sheets read failed" };
+  }
+
+  const parsed = parseFreeSheetValues(values, tournament.tournament_type);
+  if (!parsed.ok) {
+    logSyncError("unexpected sheet layout -- skipping synchronization", {
+      tournamentId: tournament.id,
+      tabName,
+      reason: parsed.reason,
+    });
+    return { ok: false, reason: parsed.reason };
+  }
+
+  return { ok: true, rows: parsed.rows, dataRowCount: parsed.dataRowCount };
+}
+
+export type LiveFieldSyncResult = {
+  attendanceChanges: number;
+  eliminationChanges: number;
+  rebuyChanges: number;
+};
+
+// Mirrors GS -> Postgres for exactly the fields live consumers need:
+// arrived, eliminated, rebuys/addons. Only ever applied to
+// `eligiblePlayerIds` (registered/attended -- never waitlist, never an
+// unknown player_id), and only ever writes a field whose current Postgres
+// value actually differs from the sheet's normalized value -- an unchanged
+// value is never rewritten. A player_id present in eligiblePlayerIds but
+// absent from `parsedRows` this tick (temporarily missing row) is left
+// completely untouched, never reset.
+export async function applyLiveFieldsFromSheetSnapshot(
+  tournamentId: string,
+  parsedRows: Map<string, NormalizedFreeSheetRow>,
+  eligiblePlayerIds: Set<string>
+): Promise<LiveFieldSyncResult> {
+  const [attendance, eliminations, rebuyState] = await Promise.all([
+    getTournamentAttendance(tournamentId),
+    getTournamentEliminations(tournamentId),
+    getTournamentRebuyState(tournamentId),
+  ]);
+
+  let attendanceChanges = 0;
+  let eliminationChanges = 0;
+  let rebuyChanges = 0;
+
+  for (const playerId of eligiblePlayerIds) {
+    const sheetRow = parsedRows.get(playerId);
+    if (!sheetRow) {
+      continue;
+    }
+
+    const currentAttendance = attendance.get(playerId);
+    if ((currentAttendance?.arrived ?? false) !== sheetRow.arrived) {
+      await setTournamentPlayerAttendance(tournamentId, playerId, sheetRow.arrived);
+      attendanceChanges++;
+    }
+
+    const currentElimination = eliminations.get(playerId);
+    if ((currentElimination?.eliminated ?? false) !== sheetRow.eliminated) {
+      // Never trust a GS elimination timestamp -- setTournamentPlayerElimination
+      // derives/preserves eliminated_at itself.
+      await setTournamentPlayerElimination(tournamentId, playerId, sheetRow.eliminated);
+      eliminationChanges++;
+    }
+
+    const currentRebuy = rebuyState.get(playerId);
+    if (
+      (currentRebuy?.rebuys ?? 0) !== sheetRow.rebuys ||
+      (currentRebuy?.addons ?? 0) !== sheetRow.addons
+    ) {
+      await setTournamentPlayerRebuyState(tournamentId, playerId, sheetRow.rebuys, sheetRow.addons);
+      rebuyChanges++;
+    }
+  }
+
+  return { attendanceChanges, eliminationChanges, rebuyChanges };
+}
+
+function columnIndexToLetter(index: number): string {
+  let n = index + 1;
+  let letters = "";
+  while (n > 0) {
+    const remainder = (n - 1) % 26;
+    letters = String.fromCharCode(65 + remainder) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters;
+}
+
+export type RosterSyncResult = {
+  appended: number;
+  identityUpdated: number;
+};
+
+// ReRaise -> GS roster sync. ONLY ever touches: (a) the identity/status
+// columns (System, Ник, Telegram, Статус регистрации) of an EXISTING row,
+// and only when they actually changed (e.g. waitlist -> registered
+// promotion), never the operational columns to its right; (b) appends
+// exactly one new row per player missing from the sheet, with identity
+// columns from ReRaise and operational columns at the same natural
+// defaults a brand-new row gets at initial table creation. Never deletes a
+// row, never rebuilds the tab. `dataRowCount` comes from the SAME read
+// already performed this tick (see readAndParseFreeTournamentSheet) -- no
+// second Sheets read.
+export async function syncTournamentRosterToSheet(
+  tournament: Tournament,
+  parsedRows: Map<string, NormalizedFreeSheetRow>,
+  dataRowCount: number
+): Promise<RosterSyncResult> {
+  const tabName = tournament.google_sheet_tab_name?.trim();
+  if (!tabName) {
+    return { appended: 0, identityUpdated: 0 };
+  }
+
+  const layout = getFreeSheetColumnLayout(tournament.tournament_type);
+  const exportData = await getTournamentSheetExportData(tournament.id);
+  const lastColumnLetter = columnIndexToLetter(layout.headers.length - 1);
+
+  const valueUpdates: { range: string; values: SheetCellValue[][] }[] = [];
+  const newRows: SheetCellValue[][] = [];
+  const nextRowNumber = 8 + dataRowCount;
+  let identityUpdated = 0;
+
+  for (const rosterRow of exportData.rows) {
+    const sheetRow = parsedRows.get(rosterRow.player_id);
+    const expectedUsername = rosterRow.username ?? "";
+    const expectedTelegram = rosterRow.username ? `@${rosterRow.username}` : "";
+
+    if (!sheetRow) {
+      newRows.push([
+        rosterRow.player_id,
+        expectedUsername,
+        rosterRow.display_name,
+        expectedTelegram,
+        rosterRow.registration_status,
+        false,
+        false,
+        "",
+        0,
+        0,
+        0,
+        0,
+        ...(layout.bossKnockoutsIndex != null ? [0] : []),
+        ...(layout.mysteryBountyPointsIndex != null ? [0] : []),
+        "",
+        rosterRow.rating_points ?? "",
+        false,
+        "",
+      ]);
+      continue;
+    }
+
+    if (
+      sheetRow.raw_system !== expectedUsername ||
+      sheetRow.raw_display_name !== rosterRow.display_name ||
+      sheetRow.raw_telegram !== expectedTelegram ||
+      sheetRow.raw_status !== rosterRow.registration_status
+    ) {
+      valueUpdates.push({
+        range: `${tabName}!B${sheetRow.rowNumber}:E${sheetRow.rowNumber}`,
+        values: [[expectedUsername, rosterRow.display_name, expectedTelegram, rosterRow.registration_status]],
+      });
+      identityUpdated++;
+    }
+  }
+
+  if (newRows.length > 0) {
+    valueUpdates.push({
+      range: `${tabName}!A${nextRowNumber}:${lastColumnLetter}${nextRowNumber + newRows.length - 1}`,
+      values: newRows,
+    });
+  }
+
+  if (valueUpdates.length > 0) {
+    await batchUpdateSpreadsheetValues(valueUpdates);
+  }
+
+  if (newRows.length > 0) {
+    await applyNewRosterRowsFormatting(
+      tabName,
+      nextRowNumber,
+      newRows.length,
+      layout.headers.length,
+      [layout.eliminatedIndex]
+    );
+  }
+
+  return { appended: newRows.length, identityUpdated };
+}
+
+export type ReconcileTournamentResult =
+  | { skipped: true; reason: string }
+  | ({ skipped: false } & LiveFieldSyncResult & RosterSyncResult);
+
+// The single reconciliation pass for ONE tournament -- reads the sheet
+// once, then reuses that snapshot for both roster sync and live-field
+// sync. This is the function the background poller calls per tournament
+// (see runTournamentSheetSyncPass), and the function tests call directly.
+export async function reconcileTournamentFromSheet(
+  tournamentId: string
+): Promise<ReconcileTournamentResult> {
+  const tournament = await getTournamentById(tournamentId);
+
+  if (
+    tournament.kind !== "free" ||
+    tournament.status === "completed" ||
+    !tournament.google_sheet_tab_name?.trim()
+  ) {
+    return { skipped: true, reason: "not eligible for GS live-sync" };
+  }
+
+  const readResult = await readAndParseFreeTournamentSheet(tournament);
+  if (!readResult.ok) {
+    return { skipped: true, reason: readResult.reason };
+  }
+
+  // "Eligible" = registered/attended (excludes waitlist, matches
+  // getTournamentResultsDraft's existing semantics) -- a waitlisted
+  // player may be visible in the sheet but must never become a live
+  // player merely because someone edited their row.
+  const draftRoster = await getTournamentResultsDraft(tournamentId);
+  const eligiblePlayerIds = new Set(draftRoster.map((row) => row.player_id));
+
+  const liveResult = await applyLiveFieldsFromSheetSnapshot(
+    tournamentId,
+    readResult.rows,
+    eligiblePlayerIds
+  );
+
+  const rosterResult = await syncTournamentRosterToSheet(
+    tournament,
+    readResult.rows,
+    readResult.dataRowCount
+  );
+
+  return { skipped: false, ...liveResult, ...rosterResult };
+}
+
+// Called on every poller tick. One broken tournament's sheet must never
+// stop reconciliation of the others -- each tournament is wrapped in its
+// own try/catch.
+export async function runTournamentSheetSyncPass(): Promise<void> {
+  const tournaments = await getActiveFreeTournamentsWithSheet();
+
+  for (const tournament of tournaments) {
+    try {
+      await reconcileTournamentFromSheet(tournament.id);
+    } catch (error) {
+      logSyncError("tournament reconciliation failed", {
+        tournamentId: tournament.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
