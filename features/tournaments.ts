@@ -32,6 +32,7 @@ import type {
   TournamentLiveEntryRow,
   TournamentRow,
 } from "@/types/database";
+import type { PublicActiveTournamentPlayer } from "@/types/poker-clock-live-state";
 
 const TOURNAMENT_NOTIFICATION_STATUSES: RegistrationStatus[] = [
   "registered",
@@ -1311,6 +1312,29 @@ export async function getArrivedPlayersForIntegration(
       addons: rawAddon,
     };
   });
+}
+
+// Player-facing "В игре" read model -- reuses the same authoritative
+// attendance + elimination state as the Poker Clock integration
+// (getArrivedPlayersForIntegration above), but sanitized down to only the
+// fields the browser is allowed to see. No rebuys/addons/initial stack/KO
+// counts, no admin/payment fields, no sheet row numbers -- see
+// PublicActiveTournamentPlayer's doc comment. "In game" means arrived AND
+// not eliminated; getArrivedPlayersForIntegration already only returns
+// arrived players, so this just filters out the eliminated ones on top.
+export async function getActiveTournamentPlayersForPublicView(
+  tournamentId: string
+): Promise<PublicActiveTournamentPlayer[]> {
+  const players = await getArrivedPlayersForIntegration(tournamentId);
+
+  return players
+    .filter((player) => !player.eliminated)
+    .map((player) => ({
+      playerId: player.id,
+      displayName: player.nickname,
+      avatarUrl: player.avatarUrl,
+      rating: player.ratingPoints,
+    }));
 }
 
 // Tournament list for the Poker Clock "link a tournament" dropdown -- this

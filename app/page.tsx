@@ -26,6 +26,10 @@ import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
 import type { TournamentLiveSummary } from "@/types/poker-clock-live-state";
 import {
+  isTournamentLive,
+  TournamentLiveStatusLines,
+} from "@/components/tournaments/tournament-live-status";
+import {
   getTelegramUser,
   getTelegramInitData,
   getTelegramWebApp,
@@ -154,43 +158,6 @@ function formatTournamentShortTime(date: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-// No seconds, per the card's compact LIVE second line ("38 мин" / "1 ч 12
-// мин"). Clamped to a 1-minute floor so a near-zero-but-still-positive
-// remaining value never reads as "0 мин".
-function formatLateRegistrationMinutes(remainingSeconds: number) {
-  const totalMinutes = Math.max(1, Math.round(remainingSeconds / 60));
-
-  if (totalMinutes < 60) {
-    return `${totalMinutes} мин`;
-  }
-
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  return minutes > 0 ? `${hours} ч ${minutes} мин` : `${hours} ч`;
-}
-
-// Re-Raise's own late-registration status is authoritative; Poker Clock's
-// countdown is only a reference used to phrase the "open" case. `null`
-// means "not applicable" (non-free tournament) or "unknown this poll" --
-// the line is omitted entirely rather than guessed.
-function resolveLateRegistrationLine(
-  lateRegistration: TournamentLiveSummary["lateRegistration"],
-  clockRemainingSeconds: number | null | undefined
-): string | null {
-  if (!lateRegistration) return null;
-
-  if (lateRegistration.status === "closed") {
-    return "Поздняя рег. закрыта";
-  }
-
-  if (typeof clockRemainingSeconds === "number" && clockRemainingSeconds > 0) {
-    return `Поздняя рег. ${formatLateRegistrationMinutes(clockRemainingSeconds)}`;
-  }
-
-  return "Поздняя рег. открыта";
 }
 
 function formatTournamentCountdown(date: string) {
@@ -1175,23 +1142,14 @@ export default function HomePage() {
           ? "Вы в листе ожидания"
         : "Записаться";
 
-    // Fact of LIVE comes only from Poker Clock's actual clock status --
-    // never from tournament.start_at/current date/Re-Raise's own "open"
-    // status. Paused still counts as LIVE (the tournament hasn't stopped,
-    // only the clock has).
     const clock = liveSummary?.clock ?? null;
-    const isLive = clock?.status === "running" || clock?.status === "paused";
+    const isLive = isTournamentLive(clock);
     const attendance = liveSummary?.attendance ?? null;
-    const playerChipLabel =
-      isLive && attendance
-        ? `${attendance.active} / ${attendance.arrived}`
-        : `${registeredCount} / ${tournament.max_players}`;
-    const lateRegistrationLine = isLive
-      ? resolveLateRegistrationLine(
-          liveSummary?.lateRegistration ?? null,
-          clock?.lateRegistrationRemainingSeconds
-        )
-      : null;
+    // The player-count chip always shows registered / max, LIVE or not --
+    // a tournament with 12 registrations must never suddenly look like it
+    // only has 4-7 players just because the clock started. The in-game
+    // count gets its own separate "В игре" line below instead.
+    const playerChipLabel = `${registeredCount} / ${tournament.max_players}`;
 
     return (
       <Link
@@ -1224,21 +1182,11 @@ export default function HomePage() {
           </div>
 
           {isLive ? (
-            <>
-              <p className="mt-3 text-sm font-semibold text-white/70">
-                {clock?.isBreak === true
-                  ? "🔴 LIVE · Перерыв"
-                  : clock?.isBreak === false &&
-                    clock?.currentLevel !== null &&
-                    clock?.smallBlind !== null &&
-                    clock?.bigBlind !== null
-                    ? `🔴 LIVE · Ур. ${clock?.currentLevel} · ${clock?.smallBlind} / ${clock?.bigBlind}`
-                    : "🔴 LIVE"}
-              </p>
-              {lateRegistrationLine ? (
-                <p className="mt-1 text-sm text-white/55">{lateRegistrationLine}</p>
-              ) : null}
-            </>
+            <TournamentLiveStatusLines
+              clock={clock}
+              attendance={attendance}
+              lateRegistration={liveSummary?.lateRegistration ?? null}
+            />
           ) : (
             <>
               <p className="mt-3 text-sm font-semibold text-white/70">

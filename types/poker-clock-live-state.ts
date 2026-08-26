@@ -41,3 +41,17 @@ export type TournamentLiveSummary = {
   attendance: TournamentAttendanceSummary | null;
   lateRegistration: TournamentLateRegistrationStatus | null;
 };
+
+// Public, sanitized read model for "who is currently in the tournament"
+// (arrived AND not eliminated) -- the player-facing counterpart of
+// features/tournaments.ts's IntegrationPlayer, stripped of every
+// admin/integration-only field (rebuys, addons, initial stack, KO counts).
+// Lives here rather than in features/tournaments.ts (a "use server" file)
+// so the client-side polling hook can import the type without pulling in
+// server-action machinery.
+export type PublicActiveTournamentPlayer = {
+  playerId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  rating: number | null;
+};
