@@ -73,7 +73,14 @@ export default function AdminTournamentsPage() {
   }, [editingTournament]);
 
   const activeTournaments = useMemo(
-    () => tournaments.filter((tournament) => tournament.status !== "completed"),
+    () =>
+      tournaments
+        .filter((tournament) => tournament.status !== "completed")
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
+        ),
     [tournaments]
   );
 

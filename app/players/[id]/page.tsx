@@ -36,6 +36,7 @@ import type {
   RegistrationStatus,
   Tournament,
   TournamentResult,
+  TournamentType,
 } from "@/types/domain";
 
 type TabKey = "upcoming" | "past";
@@ -64,6 +65,41 @@ function formatDateTimeWithoutSeconds(date: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getPastResultMetrics(
+  tournamentType: TournamentType,
+  result: TournamentResult
+): { label: string; value: number }[] {
+  const place = { label: "Место", value: result.place };
+  const ratingPoints = { label: "Очки", value: result.rating_points };
+
+  if (tournamentType === "bounty") {
+    return [
+      place,
+      { label: "KO", value: result.knockouts ?? 0 },
+      ratingPoints,
+    ];
+  }
+
+  if (tournamentType === "boss_bounty") {
+    return [
+      place,
+      { label: "KO", value: result.knockouts ?? 0 },
+      { label: "Boss KO", value: result.boss_knockouts ?? 0 },
+      ratingPoints,
+    ];
+  }
+
+  if (tournamentType === "mystery_bounty") {
+    return [
+      place,
+      { label: "Очки за конверты", value: result.mystery_bounty_points ?? 0 },
+      ratingPoints,
+    ];
+  }
+
+  return [place, ratingPoints];
 }
 
 function getTournamentKindLabel(kind: Tournament["kind"]) {
@@ -767,26 +803,33 @@ export default function PlayerProfilePage() {
                         {formatDateTimeWithoutSeconds(item.tournament.start_at)}
                       </div>
 
-                      <div className="mt-4 grid grid-cols-3 gap-3">
-                        <div className="rounded-2xl bg-white/[0.04] px-3 py-3 text-center">
-                          <p className="text-xs text-white/45">Место</p>
-                          <p className="mt-2 text-lg font-semibold text-white">
-                            {item.result.place}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-white/[0.04] px-3 py-3 text-center">
-                          <p className="text-xs text-white/45">Нокауты</p>
-                          <p className="mt-2 text-lg font-semibold text-white">
-                            {item.result.knockouts}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-white/[0.04] px-3 py-3 text-center">
-                          <p className="text-xs text-white/45">Очки</p>
-                          <p className="mt-2 text-lg font-semibold text-white">
-                            {item.result.rating_points}
-                          </p>
-                        </div>
-                      </div>
+                      {(() => {
+                        const metrics = getPastResultMetrics(
+                          item.tournament.tournament_type,
+                          item.result
+                        );
+                        const gridClass =
+                          metrics.length === 4
+                            ? "grid-cols-2"
+                            : "grid-cols-3";
+                        return (
+                          <div className={`mt-4 grid ${gridClass} gap-3`}>
+                            {metrics.map((metric) => (
+                              <div
+                                key={metric.label}
+                                className="rounded-2xl bg-white/[0.04] px-3 py-3 text-center"
+                              >
+                                <p className="text-xs text-white/45">
+                                  {metric.label}
+                                </p>
+                                <p className="mt-2 text-lg font-semibold text-white">
+                                  {metric.value}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </Link>
                   ))}
                 </div>
