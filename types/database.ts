@@ -9,6 +9,7 @@ export type PlayerRow = {
   custom_avatar_url: string | null;
   avatar_updated_at: string | null;
   role: string;
+  is_blocked: boolean;
   accepted_terms_at: string | null;
   accepted_terms_version: string | null;
   profile_completed_at: string | null;

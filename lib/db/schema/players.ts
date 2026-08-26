@@ -31,6 +31,7 @@ export const players = pgTable("players", {
   avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
 
   role: text().notNull().default("player"),
+  isBlocked: boolean("is_blocked").notNull().default(false),
 
   acceptedTermsAt: timestamp("accepted_terms_at", { withTimezone: true }),
   acceptedTermsVersion: text("accepted_terms_version"),

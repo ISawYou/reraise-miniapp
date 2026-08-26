@@ -93,6 +93,13 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    if (player.is_blocked) {
+      return NextResponse.json(
+        { error: "Аккаунт заблокирован администратором" },
+        { status: 403 }
+      );
+    }
+
     const filePath = `${player.id}/avatar.${contentTypeToExtension(file.type)}`;
     const { error: uploadError } = await avatarStorageRepository.upload(
       filePath,

@@ -29,6 +29,35 @@ function makeChain(result: ChainResult) {
   return chain;
 }
 
+function activePlayerRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "player-1",
+    telegram_id: null,
+    email: null,
+    username: null,
+    display_name: "Player One",
+    admin_display_name: null,
+    telegram_avatar_url: null,
+    custom_avatar_url: null,
+    avatar_updated_at: null,
+    role: "player",
+    is_blocked: false,
+    accepted_terms_at: null,
+    accepted_terms_version: null,
+    profile_completed_at: null,
+    nickname_status: "approved",
+    pending_display_name: null,
+    can_access_free: true,
+    can_access_paid: false,
+    can_access_cash: false,
+    referral_count: 0,
+    free_reentries_balance: 0,
+    yandex_review_bonus_claimed: false,
+    created_at: "2024-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
 function reg(overrides: Record<string, unknown> = {}) {
   return {
     id: "reg-1",
@@ -60,6 +89,7 @@ beforeEach(() => mockFrom.mockReset());
 describe("registerPlayerForTournament", () => {
   it('assigns "waitlist" when all spots are taken', async () => {
     mockFrom
+      .mockImplementationOnce(() => makeChain({ data: activePlayerRow(), error: null }))
       .mockImplementationOnce(() => makeChain({ data: [], error: null }))
       .mockImplementationOnce(() =>
         makeChain({ data: FULL_TOURNAMENT, error: null })
@@ -84,8 +114,20 @@ describe("registerPlayerForTournament", () => {
     expect(result.status).toBe("waitlist");
   });
 
+  it("rejects registration for a blocked player, even with an otherwise-valid call", async () => {
+    mockFrom.mockImplementationOnce(() =>
+      makeChain({ data: activePlayerRow({ is_blocked: true }), error: null })
+    );
+
+    await expect(
+      registerPlayerForTournament("player-1", "tournament-1")
+    ).rejects.toThrow("Аккаунт заблокирован администратором");
+    expect(mockFrom).toHaveBeenCalledTimes(1);
+  });
+
   it('assigns "registered" when spots are available', async () => {
     mockFrom
+      .mockImplementationOnce(() => makeChain({ data: activePlayerRow(), error: null }))
       .mockImplementationOnce(() => makeChain({ data: [], error: null }))
       .mockImplementationOnce(() =>
         makeChain({ data: FULL_TOURNAMENT, error: null })
@@ -113,6 +155,7 @@ describe("cancelPlayerRegistration", () => {
     const promoteChain = makeChain({ error: null });
 
     mockFrom
+      .mockImplementationOnce(() => makeChain({ data: activePlayerRow(), error: null }))
       .mockImplementationOnce(() =>
         makeChain({ data: reg({ status: "registered" }), error: null })
       )
@@ -134,12 +177,13 @@ describe("cancelPlayerRegistration", () => {
 
     await cancelPlayerRegistration("player-1", "tournament-1");
 
-    expect(mockFrom).toHaveBeenCalledTimes(4);
+    expect(mockFrom).toHaveBeenCalledTimes(5);
     expect(promoteChain.update).toHaveBeenCalledWith({ status: "registered" });
   });
 
   it("does not promote anyone when a waitlist player cancels", async () => {
     mockFrom
+      .mockImplementationOnce(() => makeChain({ data: activePlayerRow(), error: null }))
       .mockImplementationOnce(() =>
         makeChain({ data: reg({ status: "waitlist" }), error: null })
       )
@@ -147,6 +191,17 @@ describe("cancelPlayerRegistration", () => {
 
     await cancelPlayerRegistration("player-1", "tournament-1");
 
-    expect(mockFrom).toHaveBeenCalledTimes(2);
+    expect(mockFrom).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects cancellation for a blocked player", async () => {
+    mockFrom.mockImplementationOnce(() =>
+      makeChain({ data: activePlayerRow({ is_blocked: true }), error: null })
+    );
+
+    await expect(
+      cancelPlayerRegistration("player-1", "tournament-1")
+    ).rejects.toThrow("Аккаунт заблокирован администратором");
+    expect(mockFrom).toHaveBeenCalledTimes(1);
   });
 });

@@ -4,6 +4,7 @@ import "./globals.css";
 import { BottomNav } from "@/components/bottom-nav";
 import { TelegramAppShell } from "@/components/telegram-app-shell";
 import { TelegramDebugOverlay } from "@/components/telegram-debug-overlay";
+import { AccessGate } from "@/components/access-gate";
 
 const onest = Onest({
   subsets: ["latin", "cyrillic"],
@@ -38,8 +39,10 @@ export default function RootLayout({
         <TelegramAppShell />
         <TelegramDebugOverlay />
         <div className="telegram-app-safe-area min-h-screen pb-[calc(env(safe-area-inset-bottom)+108px)]">
-          {children}
-          <BottomNav />
+          <AccessGate>
+            {children}
+            <BottomNav />
+          </AccessGate>
         </div>
       </body>
     </html>

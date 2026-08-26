@@ -27,6 +27,7 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     custom_avatar_url: row.custom_avatar_url ?? undefined,
     avatar_updated_at: row.avatar_updated_at ?? undefined,
     role: row.role as "player" | "admin",
+    is_blocked: row.is_blocked,
     accepted_terms_at: row.accepted_terms_at ?? undefined,
     accepted_terms_version: row.accepted_terms_version ?? undefined,
     profile_completed_at: row.profile_completed_at ?? undefined,

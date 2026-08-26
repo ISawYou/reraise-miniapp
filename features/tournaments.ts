@@ -14,6 +14,7 @@ import { publishTournamentWinnerEvent } from "@/features/club-activity";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
+import { assertPlayerActive } from "@/features/auth-server";
 import type {
   Registration,
   RegistrationStatus,
@@ -246,6 +247,12 @@ export async function registerPlayerForTournament(
   playerId: string,
   tournamentId: string
 ) {
+  // Registration only ever receives a bare playerId, no session cookie --
+  // re-check the player is still active server-side so a blocked player
+  // can't register through a direct call to this action while their
+  // existing signed session is still technically valid.
+  await assertPlayerActive(playerId);
+
   const existingRegistrationData = await registrationRepository.findLatestByPlayerAndTournament(
     playerId,
     tournamentId
@@ -289,6 +296,10 @@ export async function cancelPlayerRegistration(
   playerId: string,
   tournamentId: string
 ) {
+  // Same direct-call exposure as registerPlayerForTournament above -- only
+  // a bare playerId in hand, no session cookie to fall back on.
+  await assertPlayerActive(playerId);
+
   const currentRegistration =
     await registrationRepository.findActiveOrWaitlistByPlayerAndTournamentOrThrow(
       playerId,

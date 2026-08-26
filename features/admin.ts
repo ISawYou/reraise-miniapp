@@ -34,6 +34,29 @@ export async function updatePlayerAdminDisplayName(
   }
 }
 
+export async function setPlayerBlocked(
+  playerId: string,
+  isBlocked: boolean
+): Promise<Player> {
+  const player = await playerRepository.findById(playerId);
+
+  if (!player) throw new Error("Игрок не найден");
+
+  // Admins are never blockable through this action — the role model is the
+  // only permission system this app has, so "can't be blocked" piggybacks
+  // on the existing players_role_check ('player' | 'admin') instead of a
+  // dedicated protection flag.
+  if (isBlocked && player.role === "admin") {
+    throw new Error("Нельзя заблокировать администратора");
+  }
+
+  try {
+    return await playerRepository.update(playerId, { is_blocked: isBlocked });
+  } catch (err) {
+    throw new Error(`Ошибка обновления статуса блокировки: ${errorMessage(err)}`);
+  }
+}
+
 export async function deleteManualPlayer(playerId: string): Promise<void> {
   const player = await playerRepository.findById(playerId);
 

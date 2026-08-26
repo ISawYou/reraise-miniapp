@@ -34,6 +34,7 @@ import {
 } from "@/lib/telegram";
 import { loadTelegramLoginWidget } from "@/lib/telegram-login";
 import { resolveCurrentPlayer } from "@/lib/current-player";
+import { openSupportChat } from "@/lib/support";
 import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
@@ -1148,17 +1149,6 @@ export default function HomePage() {
     }
   }
 
-  function openTelegramDestination(httpsUrl: string, fallbackUrl?: string) {
-    const webApp = getTelegramWebApp();
-
-    if (webApp?.openTelegramLink) {
-      webApp.openTelegramLink(httpsUrl);
-      return;
-    }
-
-    window.location.href = fallbackUrl ?? httpsUrl;
-  }
-
   function openExternalLink(url: string) {
     const webApp = getTelegramWebApp() as { openLink?: (value: string) => void } | null;
 
@@ -1724,10 +1714,7 @@ export default function HomePage() {
                   type="button"
                   onClick={() => {
                     logEvent("support_opened");
-                    openTelegramDestination(
-                      "https://t.me/ReRaise_Poker_Bot?start=support",
-                      "tg://resolve?domain=ReRaise_Poker_Bot&start=support"
-                    );
+                    openSupportChat();
                   }}
                   className="rounded-[20px] border border-white/[0.07] bg-white/4 p-3.5 text-left text-white transition active:scale-[0.99]"
                 >

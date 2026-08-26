@@ -32,6 +32,7 @@ export type Player = {
   custom_avatar_url?: string;
   avatar_updated_at?: string;
   role: "player" | "admin";
+  is_blocked?: boolean;
   accepted_terms_at?: string;
   accepted_terms_version?: string;
   profile_completed_at?: string;
