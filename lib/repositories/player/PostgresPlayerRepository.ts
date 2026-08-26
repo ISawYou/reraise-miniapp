@@ -30,6 +30,7 @@ function mapRowToPlayer(row: typeof players.$inferSelect): Player {
     custom_avatar_url: row.customAvatarUrl ?? undefined,
     avatar_updated_at: row.avatarUpdatedAt ? row.avatarUpdatedAt.toISOString() : undefined,
     role: row.role as "player" | "admin",
+    is_blocked: row.isBlocked,
     accepted_terms_at: row.acceptedTermsAt ? row.acceptedTermsAt.toISOString() : undefined,
     accepted_terms_version: row.acceptedTermsVersion ?? undefined,
     profile_completed_at: row.profileCompletedAt ? row.profileCompletedAt.toISOString() : undefined,
@@ -66,6 +67,7 @@ function toColumnValues(data: PlayerInsert | PlayerPatch): Partial<typeof player
     values.avatarUpdatedAt = data.avatar_updated_at ? new Date(data.avatar_updated_at) : null;
   }
   if (data.role !== undefined) values.role = data.role;
+  if (data.is_blocked !== undefined) values.isBlocked = data.is_blocked;
   if (data.accepted_terms_at !== undefined) {
     values.acceptedTermsAt = data.accepted_terms_at ? new Date(data.accepted_terms_at) : null;
   }

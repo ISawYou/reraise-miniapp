@@ -2,6 +2,7 @@
 
 import { playerRepository } from "@/lib/repositories";
 import { TERMS_VERSION } from "@/lib/terms";
+import { assertPlayerActive } from "@/features/auth-server";
 import type { Player } from "@/types/domain";
 import type { TelegramWebAppUser } from "@/lib/telegram";
 
@@ -89,6 +90,10 @@ export async function updatePlayerCustomAvatar(
 }
 
 export async function acceptTerms(playerId: string): Promise<Player> {
+  // Direct server action reachable with only a bare playerId -- re-check
+  // block status server-side, same reasoning as tournament registration.
+  await assertPlayerActive(playerId);
+
   try {
     return await playerRepository.update(playerId, {
       accepted_terms_at: new Date().toISOString(),
@@ -124,6 +129,11 @@ export async function completeProfile(
   player: Player;
   moderationRequired: boolean;
 }> {
+  // player is client-supplied (a Server Action argument, not re-derived
+  // from session) -- its own is_blocked field can't be trusted, so re-check
+  // fresh from the DB by id before writing anything.
+  await assertPlayerActive(player.id);
+
   const normalizedDisplayName = nextDisplayName.trim();
 
   if (!normalizedDisplayName) {
@@ -169,6 +179,8 @@ export async function submitNicknameForModeration(
   player: Player,
   nextDisplayName: string
 ): Promise<Player> {
+  await assertPlayerActive(player.id);
+
   const normalizedDisplayName = nextDisplayName.trim();
 
   if (!normalizedDisplayName) {

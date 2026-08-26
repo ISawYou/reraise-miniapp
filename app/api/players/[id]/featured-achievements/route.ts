@@ -3,7 +3,8 @@ import {
   getFeaturedAchievementKeys,
   saveFeaturedAchievementKeys,
 } from "@/features/featured-achievements";
-import { COOKIE_NAME, verifySession } from "@/lib/telegram-web-session";
+import { getPlayerFromSessionServer } from "@/features/auth-server";
+import { COOKIE_NAME } from "@/lib/telegram-web-session";
 
 export async function GET(
   _request: NextRequest,
@@ -18,8 +19,13 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const sessionPlayerId = verifySession(request.cookies.get(COOKIE_NAME)?.value ?? "");
-  if (sessionPlayerId !== id) {
+  // getPlayerFromSessionServer (not a raw verifySession check) so a
+  // blocked player's still-valid signed cookie can't be used to keep
+  // editing their profile.
+  const sessionPlayer = await getPlayerFromSessionServer(
+    request.cookies.get(COOKIE_NAME)?.value
+  );
+  if (sessionPlayer?.id !== id) {
     return NextResponse.json({ error: "Можно менять только свой профиль" }, { status: 403 });
   }
   try {

@@ -148,6 +148,39 @@ export default function AdminModerationPage() {
     setError(null);
   }
 
+  async function handleToggleBlock(targetPlayer: Player) {
+    const nextBlocked = !targetPlayer.is_blocked;
+    const nickname = getVisibleNickname(targetPlayer);
+
+    if (nextBlocked && !confirm(`Заблокировать игрока '${nickname}'? Он потеряет доступ к приложению.`)) {
+      return;
+    }
+
+    try {
+      setProcessingKey(`block-${targetPlayer.id}`);
+      setMessage(null);
+      setError(null);
+
+      const { player: updatedPlayer } = await fetchAdminJson<{ player: Player }>(
+        `/api/admin/players/${targetPlayer.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: nextBlocked ? "block" : "unblock" }),
+        }
+      );
+
+      setPlayers((prev) =>
+        prev.map((p) => (p.id === updatedPlayer.id ? updatedPlayer : p))
+      );
+      setMessage(nextBlocked ? "Игрок заблокирован" : "Игрок разблокирован");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка изменения статуса блокировки");
+    } finally {
+      setProcessingKey(null);
+    }
+  }
+
   async function handleDeleteManualPlayer(targetPlayer: Player) {
     const nickname = getVisibleNickname(targetPlayer);
     const confirmMessage = targetPlayer.telegram_id
@@ -401,6 +434,9 @@ export default function AdminModerationPage() {
                           {targetPlayer.admin_display_name ? (
                             <span className="text-xs text-yellow-300">админский ник</span>
                           ) : null}
+                          {targetPlayer.is_blocked ? (
+                            <span className="text-xs text-red-400">заблокирован</span>
+                          ) : null}
                           </div>
                         </div>
                       )}
@@ -423,6 +459,25 @@ export default function AdminModerationPage() {
                             ? "Сохранить"
                             : "Редактировать"}
                       </button>
+
+                      {targetPlayer.role !== "admin" ? (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBlock(targetPlayer)}
+                          disabled={processingKey === `block-${targetPlayer.id}`}
+                          className={
+                            targetPlayer.is_blocked
+                              ? "rounded-lg border border-green-500/30 px-3 py-2 text-sm font-medium text-green-400 disabled:opacity-60"
+                              : "rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                          }
+                        >
+                          {processingKey === `block-${targetPlayer.id}`
+                            ? "..."
+                            : targetPlayer.is_blocked
+                              ? "Разблокировать"
+                              : "Заблокировать"}
+                        </button>
+                      ) : null}
 
                       <button
                         type="button"

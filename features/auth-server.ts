@@ -20,12 +20,44 @@ export async function getPlayerByIdServer(playerId: string): Promise<Player | nu
   }
 }
 
+// A signed session cookie only proves *identity* (it's a stateless HMAC of
+// the player id, with no server-side revocation) -- it says nothing about
+// whether that player is still allowed to act. Every request re-fetches the
+// player row, so folding a blocked player into "no session" here is the one
+// change that re-checks authorization on every request for every route that
+// resolves its caller through this function (club-activity, academy), with
+// no per-route changes needed.
 export async function getPlayerFromSessionServer(
   sessionValue: string | undefined,
 ): Promise<Player | null> {
   if (!sessionValue) return null;
   const playerId = verifySession(sessionValue);
-  return playerId ? getPlayerByIdServer(playerId) : null;
+  if (!playerId) return null;
+  const player = await getPlayerByIdServer(playerId);
+  return player && !player.is_blocked ? player : null;
+}
+
+export class PlayerBlockedError extends Error {
+  constructor() {
+    super("Аккаунт заблокирован администратором");
+    this.name = "PlayerBlockedError";
+  }
+}
+
+// For server actions that only receive a bare playerId (no session cookie
+// in play, e.g. tournament registration) and therefore can't rely on
+// getPlayerFromSessionServer's blanket check above -- re-reads the player
+// fresh from the DB so a blocked player can't act through a direct call
+// even while their existing signed session is still technically valid.
+export async function assertPlayerActive(playerId: string): Promise<Player> {
+  const player = await getPlayerByIdServer(playerId);
+  if (!player) {
+    throw new Error("Игрок не найден");
+  }
+  if (player.is_blocked) {
+    throw new PlayerBlockedError();
+  }
+  return player;
 }
 
 export async function getPlayerByEmailServer(email: string): Promise<Player | null> {
