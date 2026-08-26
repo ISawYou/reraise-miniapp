@@ -644,7 +644,7 @@ export default function PlayerProfilePage() {
               </div>
               <div className="text-right text-xs text-white/50">
                 <p>{earnedFamiliesCount + earnedLegendaryCount} из 12 открыто</p>
-                <p className="mt-1">Legendary {earnedLegendaryCount}/4</p>
+                <p className="mt-1">Легендарные {earnedLegendaryCount}/4</p>
               </div>
             </div>
           </Link>

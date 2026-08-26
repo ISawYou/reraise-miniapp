@@ -1114,6 +1114,7 @@ export default function HomePage() {
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
+        draggable={false}
         className="relative block min-w-full shrink-0 overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
       >
         <TournamentVisual
@@ -1392,6 +1393,8 @@ export default function HomePage() {
                       <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-9 w-9" />
                     ))}
                   </div>
+                ) : completedAchievementsCount > 0 ? (
+                  <p className="text-[11px] text-white/45">Выберите достижение</p>
                 ) : null}
                 <p className="text-[11px] text-white/55">{homeDataLoading ? "—" : completedAchievementsCount} достижений</p>
               </div>
@@ -1460,7 +1463,7 @@ export default function HomePage() {
                     onPointerMove={handleTournamentPointerMove}
                     onPointerUp={handleTournamentPointerUp}
                     onPointerCancel={handleTournamentPointerCancel}
-                    onPointerLeave={handleTournamentPointerCancel}
+                    onDragStart={(event) => event.preventDefault()}
                     onClickCapture={handleTournamentCardClickCapture}
                     className="overflow-hidden pb-1 touch-pan-x select-none cursor-grab active:cursor-grabbing"
                   >

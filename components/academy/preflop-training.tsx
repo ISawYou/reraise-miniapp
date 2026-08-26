@@ -47,6 +47,13 @@ function subscribeToHydration() {
   return () => undefined;
 }
 
+// Presentation-only: the card face shows "10", not the internal "T" rank
+// notation. Every other use of HandRank (hand strings, range keys, the
+// sampler, scoring) is untouched -- only what's printed on this glyph changes.
+function displayRank(rank: RenderedPlayingCard["rank"]): string {
+  return rank === "T" ? "10" : rank;
+}
+
 function PlayingCard({ card }: { card: RenderedPlayingCard }) {
   return (
     <div
@@ -54,7 +61,7 @@ function PlayingCard({ card }: { card: RenderedPlayingCard }) {
         card.color === "red" ? "text-[#b52f32]" : "text-[#171a18]"
       }`}
     >
-      <span className="text-2xl font-bold leading-none">{card.rank}</span>
+      <span className="text-2xl font-bold leading-none">{displayRank(card.rank)}</span>
       <span className="self-end text-4xl leading-none">{card.suit}</span>
     </div>
   );

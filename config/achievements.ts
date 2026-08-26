@@ -199,7 +199,7 @@ export const ACHIEVEMENT_FAMILIES = {
     description: "Приглашай друзей в РЕРЕЙЗ и развивай клубное комьюнити. Если нужно восстановить или уточнить количество приглашённых друзей — обратись к администратору.",
   },
   [ACHIEVEMENT_FAMILY.TERMINATOR]: {
-    name: "Terminator",
+    name: "Терминатор",
     visualKey: ACHIEVEMENT_VISUAL_KEY.TERMINATOR,
     unit: "нокаутов",
     description: "Выбивай соперников из турниров. Учитываются обычные нокауты.",
@@ -211,7 +211,7 @@ export const ACHIEVEMENT_FAMILIES = {
     description: "Охоться на игроков со статусом Boss и собирай особые нокауты.",
   },
   [ACHIEVEMENT_FAMILY.STREAK]: {
-    name: "Streak",
+    name: "Серия",
     visualKey: ACHIEVEMENT_VISUAL_KEY.STREAK,
     unit: "турниров подряд",
     description: "Не пропускай турниры клуба и собирай серии участий.",
@@ -810,8 +810,8 @@ export const ACHIEVEMENTS_CATALOG = [
   {
     id: "royal_flush",
     code: "royal_flush",
-    name: "Royal Flush",
-    description: "Собрали Роял Флеш за столом РЕРЕЙЗ? Обратитесь к администратору, чтобы получить достижение.",
+    name: "Флеш Рояль",
+    description: "Собрали Флеш Рояль за столом РЕРЕЙЗ? Обратитесь к администратору, чтобы получить достижение.",
     category: ACHIEVEMENT_CATEGORY.LEGENDARY,
     icon: ACHIEVEMENT_ICON.AWARD,
     type: ACHIEVEMENT_TYPE.MANUAL,

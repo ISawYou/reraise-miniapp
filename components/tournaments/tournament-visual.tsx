@@ -17,6 +17,12 @@ export function TournamentVisual({ tournamentType, configs, className = "" }: To
     return null;
   }
 
+  // The card's own background must stay exactly as it was before artwork
+  // existed -- no full-card overlay here. Legibility instead comes from
+  // fading the artwork itself out on its left edge (mask-image), which
+  // disappears along with the artwork when there's nothing to mask.
+  const maskImage = "linear-gradient(to right, transparent, black 40%)";
+
   return (
     <div
       aria-hidden="true"
@@ -24,11 +30,20 @@ export function TournamentVisual({ tournamentType, configs, className = "" }: To
     >
       <div
         className="absolute inset-y-0 right-0 w-[68%] sm:w-[58%]"
-        style={{ opacity: config.opacity / 100 }}
+        style={{
+          opacity: config.opacity / 100,
+          maskImage,
+          WebkitMaskImage: maskImage,
+        }}
       >
         {/* Admin-managed URLs (local storage or absolute) cannot use next/image's static host allow-list. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          // Remounts whenever the asset URL changes (new upload, reset, or a
+          // different tournament type selected) so a stale `display: none`
+          // left behind by a previous failed load never survives onto an
+          // image that would actually load fine now.
+          key={config.assetUrl}
           src={config.assetUrl}
           alt=""
           className="h-full w-full object-contain object-right"
@@ -43,7 +58,6 @@ export function TournamentVisual({ tournamentType, configs, className = "" }: To
           }}
         />
       </div>
-      <div className="absolute inset-0 bg-gradient-to-r from-[#0b1210] via-[#0b1210]/45 to-transparent" />
     </div>
   );
 }

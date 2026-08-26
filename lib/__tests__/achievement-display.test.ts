@@ -69,7 +69,7 @@ describe("achievement display model", () => {
     ]).legendary.find((item) => item.code === "royal_flush")!;
     expect(locked.name).toBe("Секретное достижение");
     expect(locked.description).not.toMatch(/Роял/i);
-    expect(unlocked.name).toBe("Royal Flush");
+    expect(unlocked.name).toBe("Флеш Рояль");
     expect(unlocked.earned).toBe(true);
   });
 
