@@ -28,3 +28,4 @@ export * from "./achievement-visual";
 export * from "./achievement-asset-storage";
 export * from "./featured-achievement";
 export * from "./tournament-asset-storage";
+export * from "./dealer";

@@ -15,3 +15,4 @@ export * from "./clubActivityEvents";
 export * from "./clubActivitySocial";
 export * from "./achievementVisualConfigs";
 export * from "./playerFeaturedAchievements";
+export * from "./dealers";
