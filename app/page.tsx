@@ -18,6 +18,8 @@ import { ClubActivityCard } from "@/components/club-activity-card";
 import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
+import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
@@ -206,6 +208,7 @@ export default function HomePage() {
   const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
   const [featuredAchievements, setFeaturedAchievements] = useState<ReturnType<typeof resolveFeaturedAchievements>>([]);
   const [achievementVisuals, setAchievementVisuals] = useState<Record<string, AchievementVisualConfig>>({});
+  const [tournamentVisuals, setTournamentVisuals] = useState<Record<string, TournamentVisualConfig>>({});
   const [seasonTitle, setSeasonTitle] = useState("Активный сезон");
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
   const [homeDataLoading, setHomeDataLoading] = useState(true);
@@ -215,6 +218,13 @@ export default function HomePage() {
   const activeTournamentIndexRef = useRef(0);
   const swipeStartXRef = useRef<number | null>(null);
   const swipeStartIndexRef = useRef(0);
+  const pointerDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startIndex: number;
+    dragging: boolean;
+  } | null>(null);
+  const suppressNextCardClickRef = useRef(false);
   const termsLines = useMemo(() => {
     return TERMS_TEXT.split("\n").map((line) => line.trim());
   }, []);
@@ -351,7 +361,7 @@ export default function HomePage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts, achievementRows, ratingData, activityData, featuredData, visualsData] = await Promise.all([
+    const [registrations, tournaments, counts, achievementRows, ratingData, activityData, featuredData, visualsData, tournamentVisualsData] = await Promise.all([
       getPlayerRegistrations(currentPlayer.id),
       getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
@@ -388,6 +398,9 @@ export default function HomePage() {
         response.ok ? response.json() : { keys: [] }
       ),
       fetch("/api/achievement-visuals").then((response) =>
+        response.ok ? response.json() : { visuals: [] }
+      ),
+      fetch("/api/tournament-visuals").then((response) =>
         response.ok ? response.json() : { visuals: [] }
       ),
     ]);
@@ -435,6 +448,7 @@ export default function HomePage() {
     );
     setFeaturedAchievements(resolveFeaturedAchievements(achievementRows as AchievementProgressRow[], featuredData.keys ?? []));
     setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
+    setTournamentVisuals(Object.fromEntries((tournamentVisualsData.visuals ?? []).map((config: TournamentVisualConfig) => [config.tournamentType, config])));
     setHomeDataLoading(false);
   }
 
@@ -983,6 +997,84 @@ export default function HomePage() {
     updateActiveTournamentIndex(prevIndex);
   }
 
+  // Mouse/pen drag-to-swipe for desktop. Touch pointers are left alone here
+  // (pointerType === "touch") so they keep going through the dedicated
+  // onTouchStart/onTouchEnd handlers above instead of being handled twice.
+  function handleTournamentPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") {
+      return;
+    }
+
+    pointerDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startIndex: activeTournamentIndexRef.current,
+      dragging: false,
+    };
+
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is a best-effort UX nicety here (keeps drag
+      // tracking working if the cursor leaves the carousel bounds) -- the
+      // drag still works via the drag ref if the browser refuses it.
+    }
+  }
+
+  function handleTournamentPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = pointerDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+
+    if (Math.abs(event.clientX - drag.startX) > 8) {
+      drag.dragging = true;
+    }
+  }
+
+  function handleTournamentPointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = pointerDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    pointerDragRef.current = null;
+
+    if (!drag.dragging) {
+      return;
+    }
+
+    // The click that would otherwise fire on the underlying card Link right
+    // after this pointerup must not navigate away -- the user was dragging
+    // to change slides, not clicking the card.
+    suppressNextCardClickRef.current = true;
+
+    const deltaX = event.clientX - drag.startX;
+
+    if (Math.abs(deltaX) < 40) {
+      updateActiveTournamentIndex(drag.startIndex);
+      return;
+    }
+
+    if (deltaX < 0) {
+      updateActiveTournamentIndex(Math.min(drag.startIndex + 1, homeTournaments.length - 1));
+      return;
+    }
+
+    updateActiveTournamentIndex(Math.max(drag.startIndex - 1, 0));
+  }
+
+  function handleTournamentPointerCancel() {
+    pointerDragRef.current = null;
+  }
+
+  function handleTournamentCardClickCapture(event: React.MouseEvent<HTMLDivElement>) {
+    if (suppressNextCardClickRef.current) {
+      suppressNextCardClickRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
   function openTelegramDestination(httpsUrl: string, fallbackUrl?: string) {
     const webApp = getTelegramWebApp();
 
@@ -1022,34 +1114,42 @@ export default function HomePage() {
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
-        className="block min-w-full shrink-0 overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
+        className="relative block min-w-full shrink-0 overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
       >
-        <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
-          {tournament.title}
-        </h3>
+        <TournamentVisual
+          tournamentType={tournament.tournament_type}
+          configs={tournamentVisuals}
+          className="z-0"
+        />
 
-        <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
-          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-            {formatTournamentShortDate(tournament.start_at)}
-          </div>
-          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-            {formatTournamentShortTime(tournament.start_at)}
-          </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-            <UserIcon />
-            <span>{registeredCount} / {tournament.max_players}</span>
-          </div>
-        </div>
+        <div className="relative z-10">
+          <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
+            {tournament.title}
+          </h3>
 
-        <p className="mt-3 text-sm font-semibold text-white/70">
-          {countdownText === "Уже начался"
-            ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
-            : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
-        </p>
+          <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
+            <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+              {formatTournamentShortDate(tournament.start_at)}
+            </div>
+            <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+              {formatTournamentShortTime(tournament.start_at)}
+            </div>
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+              <UserIcon />
+              <span>{registeredCount} / {tournament.max_players}</span>
+            </div>
+          </div>
 
-        <div className="mt-4">
-          <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
-            {actionLabel}
+          <p className="mt-3 text-sm font-semibold text-white/70">
+            {countdownText === "Уже начался"
+              ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
+              : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
+          </p>
+
+          <div className="mt-4">
+            <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
+              {actionLabel}
+            </div>
           </div>
         </div>
       </Link>
@@ -1356,7 +1456,13 @@ export default function HomePage() {
                   <div
                     onTouchStart={handleTournamentTouchStart}
                     onTouchEnd={handleTournamentTouchEnd}
-                    className="overflow-hidden pb-1 touch-pan-x"
+                    onPointerDown={handleTournamentPointerDown}
+                    onPointerMove={handleTournamentPointerMove}
+                    onPointerUp={handleTournamentPointerUp}
+                    onPointerCancel={handleTournamentPointerCancel}
+                    onPointerLeave={handleTournamentPointerCancel}
+                    onClickCapture={handleTournamentCardClickCapture}
+                    className="overflow-hidden pb-1 touch-pan-x select-none cursor-grab active:cursor-grabbing"
                   >
                     <div
                       className="flex transition-transform duration-500 ease-out"
@@ -1373,8 +1479,12 @@ export default function HomePage() {
 
                   <div className="flex items-center justify-center gap-2">
                     {homeTournaments.map((tournament, index) =>
-                      <span
+                      <button
                         key={tournament.id}
+                        type="button"
+                        onClick={() => updateActiveTournamentIndex(index)}
+                        aria-label={`Показать турнир: ${tournament.title}`}
+                        aria-current={activeTournamentIndex === index}
                         className={`h-1.5 rounded-full transition-all ${
                           activeTournamentIndex === index
                             ? "w-6 bg-[#d7b55a]"
