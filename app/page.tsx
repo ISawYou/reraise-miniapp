@@ -50,6 +50,11 @@ const TELEGRAM_BOT_ID = Number(
   process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID ?? "8682500150"
 );
 
+// How long after a real tournament-card drag ends its trailing click stays
+// suppressed. Short and self-expiring, not a sticky flag -- see
+// lastCardDragEndAtRef below.
+const CARD_DRAG_CLICK_SUPPRESS_MS = 400;
+
 function InfoIcon() {
   return (
     <svg
@@ -224,7 +229,13 @@ export default function HomePage() {
     startIndex: number;
     dragging: boolean;
   } | null>(null);
-  const suppressNextCardClickRef = useRef(false);
+  // Timestamp of the most recent real drag's end, not a sticky boolean --
+  // the click the browser fires right after a drag's pointerup isn't
+  // guaranteed (some browsers/gestures never emit one at all), so a plain
+  // "suppress next click" flag can be left armed forever and swallow a
+  // completely unrelated later click. A short time window expires on its
+  // own even if no click ever consumes it.
+  const lastCardDragEndAtRef = useRef(0);
   const termsLines = useMemo(() => {
     return TERMS_TEXT.split("\n").map((line) => line.trim());
   }, []);
@@ -1045,8 +1056,9 @@ export default function HomePage() {
 
     // The click that would otherwise fire on the underlying card Link right
     // after this pointerup must not navigate away -- the user was dragging
-    // to change slides, not clicking the card.
-    suppressNextCardClickRef.current = true;
+    // to change slides, not clicking the card. Recorded as "when", not
+    // "whether" -- see CARD_DRAG_CLICK_SUPPRESS_MS.
+    lastCardDragEndAtRef.current = Date.now();
 
     const deltaX = event.clientX - drag.startX;
 
@@ -1068,8 +1080,9 @@ export default function HomePage() {
   }
 
   function handleTournamentCardClickCapture(event: React.MouseEvent<HTMLDivElement>) {
-    if (suppressNextCardClickRef.current) {
-      suppressNextCardClickRef.current = false;
+    const sinceLastDrag = Date.now() - lastCardDragEndAtRef.current;
+    if (sinceLastDrag < CARD_DRAG_CLICK_SUPPRESS_MS) {
+      lastCardDragEndAtRef.current = 0;
       event.preventDefault();
       event.stopPropagation();
     }

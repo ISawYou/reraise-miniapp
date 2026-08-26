@@ -16,6 +16,8 @@ import {
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { logEvent } from "@/lib/activity-client";
 import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
+import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import {
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
@@ -123,16 +125,6 @@ function CheckIcon() {
   );
 }
 
-function formatTournamentDate(date: string) {
-  return new Date(date).toLocaleString("ru-RU", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function formatTournamentDateParts(date: string) {
   const value = new Date(date);
 
@@ -235,6 +227,7 @@ export default function TournamentDetailsPage() {
   const [registrationStatus, setRegistrationStatus] =
     useState<RegistrationStatus | null>(null);
   const [registeredCount, setRegisteredCount] = useState(0);
+  const [tournamentVisuals, setTournamentVisuals] = useState<Record<string, TournamentVisualConfig>>({});
 
   const [activeTab, setActiveTab] = useState<TabKey>("about");
   const [loading, setLoading] = useState(true);
@@ -266,16 +259,24 @@ const waitlistParticipants = participants.filter(
   }
 
   async function refreshPageData(currentPlayer: Player, currentTournamentId: string) {
-    const [tournamentData, participantsData, myRegistration] = await Promise.all([
+    const [tournamentData, participantsData, myRegistration, visualsData] = await Promise.all([
       getVisibleTournamentByIdForPlayer(currentTournamentId, currentPlayer),
       getTournamentParticipants(currentTournamentId),
       getPlayerRegistrationForTournament(currentPlayer.id, currentTournamentId),
+      fetch("/api/tournament-visuals").then((response) =>
+        response.ok ? response.json() : { visuals: [] }
+      ),
     ]);
 
     setTournament(tournamentData);
     setParticipants(participantsData);
     setRegistrationStatus(myRegistration?.status ?? null);
     setRegisteredCount(participantsData.filter((p) => p.status === "registered").length);
+    setTournamentVisuals(
+      Object.fromEntries(
+        (visualsData.visuals ?? []).map((config: TournamentVisualConfig) => [config.tournamentType, config])
+      )
+    );
 
     if (tournamentData.status === "completed") {
       const resultsData = await getTournamentResults(currentTournamentId);
@@ -444,20 +445,29 @@ const waitlistParticipants = participants.filter(
       <div className="mx-auto max-w-md">
         <BackButton onClick={handleBack} className="mb-4" />
 
-        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-emerald-700/40 to-black p-4">
-          <p className="text-xs uppercase tracking-wider text-white/45">Турнир</p>
-          <h1 className="mt-1.5 text-2xl font-bold uppercase tracking-wide">
-            {tournament.title}
-          </h1>
+        <div className="relative overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+          <TournamentVisual
+            tournamentType={tournament.tournament_type}
+            configs={tournamentVisuals}
+            className="z-0"
+          />
 
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/65">
-              <CalendarIcon />
-              <span>{formatTournamentDate(tournament.start_at)}</span>
-            </div>
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/65">
-              <UserIcon />
-              <span>{tournament.status === "completed" ? results.length : registeredCount} / {tournament.max_players}</span>
+          <div className="relative z-10">
+            <h1 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
+              {tournament.title}
+            </h1>
+
+            <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
+              <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+                {tournamentDateParts?.date}
+              </div>
+              <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+                {tournamentDateParts?.time}
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
+                <UserIcon />
+                <span>{tournament.status === "completed" ? results.length : registeredCount} / {tournament.max_players}</span>
+              </div>
             </div>
           </div>
         </div>
