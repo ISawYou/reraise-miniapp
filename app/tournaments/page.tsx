@@ -14,6 +14,9 @@ import {
 } from "@/features/tournaments";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
+import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+import type { TournamentVisualConfig } from "@/config/tournament-visuals";
+import { fetchTournamentVisualConfigs } from "@/lib/tournament-visuals-client";
 import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 
 function CalendarIcon() {
@@ -141,6 +144,7 @@ export default function TournamentsPage() {
   const [completedTournaments, setCompletedTournaments] = useState<Tournament[]>([]);
   const [registrationMap, setRegistrationMap] = useState<Record<string, RegistrationStatus>>({});
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
+  const [tournamentVisuals, setTournamentVisuals] = useState<Record<string, TournamentVisualConfig>>({});
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -214,6 +218,7 @@ export default function TournamentsPage() {
         setPlayerId(currentPlayer.id);
         logEvent("page_view_tournaments");
 
+        void fetchTournamentVisualConfigs().then(setTournamentVisuals);
         await refreshPageData(currentPlayer, { showPromotionToast: false });
       } catch (err) {
         const nextError =
@@ -366,14 +371,15 @@ export default function TournamentsPage() {
       <Link
         key={tournament.id}
         href={`/tournaments/${tournament.id}`}
-        className="relative block overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.05),transparent_30%),linear-gradient(180deg,#121514_0%,#0d0f0f_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition active:scale-[0.99]"
+        className="relative block overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition active:scale-[0.99]"
       >
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-white/[0.05] to-transparent opacity-70"
+        <TournamentVisual
+          tournamentType={tournament.tournament_type}
+          configs={tournamentVisuals}
+          className="z-0"
         />
 
-        <div className="relative">
+        <div className="relative z-10">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="text-[22px] font-black uppercase leading-tight tracking-[0.05em] text-white">

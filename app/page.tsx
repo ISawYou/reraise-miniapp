@@ -55,6 +55,15 @@ const TELEGRAM_BOT_ID = Number(
 // lastCardDragEndAtRef below.
 const CARD_DRAG_CLICK_SUPPRESS_MS = 400;
 
+// Single distance threshold for the tournament carousel's drag gesture --
+// used both to decide "is this actually a drag" (vs. a click, touch and
+// mouse alike) and "did it move far enough to change slides". Two different
+// thresholds here previously left a dead zone: movement past the smaller one
+// counted as a drag (suppressing the click) but never reached the larger one
+// (so the slide never changed either) -- worst of both, no navigation and no
+// swipe.
+const CARD_DRAG_THRESHOLD_PX = 40;
+
 function InfoIcon() {
   return (
     <svg
@@ -990,7 +999,7 @@ export default function HomePage() {
 
     const deltaX = endX - startX;
 
-    if (Math.abs(deltaX) < 40) {
+    if (Math.abs(deltaX) < CARD_DRAG_THRESHOLD_PX) {
       updateActiveTournamentIndex(swipeStartIndexRef.current);
       return;
     }
@@ -1038,7 +1047,7 @@ export default function HomePage() {
       return;
     }
 
-    if (Math.abs(event.clientX - drag.startX) > 8) {
+    if (Math.abs(event.clientX - drag.startX) >= CARD_DRAG_THRESHOLD_PX) {
       drag.dragging = true;
     }
   }
@@ -1062,7 +1071,7 @@ export default function HomePage() {
 
     const deltaX = event.clientX - drag.startX;
 
-    if (Math.abs(deltaX) < 40) {
+    if (Math.abs(deltaX) < CARD_DRAG_THRESHOLD_PX) {
       updateActiveTournamentIndex(drag.startIndex);
       return;
     }

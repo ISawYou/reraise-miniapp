@@ -22,6 +22,9 @@ import { getTelegramWebApp } from "@/lib/telegram";
 import { logEvent } from "@/lib/activity-client";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
+import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+import type { TournamentVisualConfig } from "@/config/tournament-visuals";
+import { fetchTournamentVisualConfigs } from "@/lib/tournament-visuals-client";
 import {
   buildAchievementDisplayModel,
   getEarnedFeaturedOptions,
@@ -197,6 +200,7 @@ export default function PlayerProfilePage() {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [achievementRows, setAchievementRows] = useState<AchievementProgressRow[]>([]);
   const [achievementVisuals, setAchievementVisuals] = useState<Record<string, AchievementVisualConfig>>({});
+  const [tournamentVisuals, setTournamentVisuals] = useState<Record<string, TournamentVisualConfig>>({});
   const [featuredKeys, setFeaturedKeys] = useState<string[]>([]);
   const [featuredDraft, setFeaturedDraft] = useState<string[]>([]);
   const [showFeaturedEditor, setShowFeaturedEditor] = useState(false);
@@ -225,6 +229,7 @@ export default function PlayerProfilePage() {
           counts,
           visualsData,
           featuredData,
+          tournamentVisualsData,
         ] = await Promise.all([
           ensuredViewer?.id === playerId
             ? Promise.resolve(ensuredViewer)
@@ -237,6 +242,7 @@ export default function PlayerProfilePage() {
           getTournamentRegistrationCounts(),
           fetch("/api/achievement-visuals").then((r) => r.json()),
           fetch(`/api/players/${playerId}/featured-achievements`).then((r) => r.ok ? r.json() : { keys: [] }),
+          fetchTournamentVisualConfigs(),
         ]);
 
         if (!playerData) {
@@ -267,6 +273,7 @@ export default function PlayerProfilePage() {
             )
         );
         setRegistrationCounts(counts);
+        setTournamentVisuals(tournamentVisualsData);
         setAchievementRows(achievementRows);
         setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
         setFeaturedKeys(featuredData.keys ?? []);
@@ -438,7 +445,7 @@ export default function PlayerProfilePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="min-h-screen bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
           <p className="text-sm text-white/70">Загружаем профиль игрока...</p>
         </div>
@@ -448,7 +455,7 @@ export default function PlayerProfilePage() {
 
   if (error || !player) {
     return (
-      <main className="min-h-screen bg-black px-4 py-6 text-white">
+      <main className="min-h-screen bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
           <BackButton href="/" className="mb-4" />
 
@@ -461,7 +468,7 @@ export default function PlayerProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
+    <main className="min-h-screen bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-3xl">
         <div className="mb-8">
           <BackButton href="/" />
@@ -471,6 +478,7 @@ export default function PlayerProfilePage() {
           </h1>
         </div>
 
+        <div className="rounded-[28px] border border-[#7f9b8c]/15 bg-[linear-gradient(160deg,#15231b_0%,#0d1512_55%,#0a0f0c_100%)] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.35)]">
         <div className="flex items-center gap-4">
           <div className="relative">
             {avatarUrl ? (
@@ -549,6 +557,7 @@ export default function PlayerProfilePage() {
             ) : null}
           </div>
         </div>
+        </div>
 
         {player.nickname_status === "pending" && player.pending_display_name ? (
           <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/60">
@@ -603,8 +612,8 @@ export default function PlayerProfilePage() {
         ) : null}
 
         <div className="mt-7 space-y-3">
-          <div className="rounded-3xl border border-white/10 bg-white/[0.05] px-5 pb-5 pt-4">
-            <p className="text-2xl font-semibold text-white">
+          <div className="rounded-3xl border border-[#8a8262]/15 bg-[linear-gradient(160deg,#171a13_0%,#101210_100%)] px-5 pb-5 pt-4">
+            <p className="text-2xl font-semibold text-[#d9c68f]">
               Статистика
             </p>
 
@@ -614,12 +623,12 @@ export default function PlayerProfilePage() {
                 <p className="mt-2 text-sm text-white/55">Рейтинг</p>
               </div>
 
-              <div className="border-l border-white/10 pl-4 text-center">
+              <div className="border-l border-[#8a8262]/20 pl-4 text-center">
                 <p className="text-2xl font-semibold text-white">{playedCount}</p>
                 <p className="mt-2 text-sm text-white/55">Турниры</p>
               </div>
 
-              <div className="border-l border-white/10 pl-4 text-center">
+              <div className="border-l border-[#8a8262]/20 pl-4 text-center">
                 <p className="text-2xl font-semibold text-white">{totalKnockouts}</p>
                 <p className="mt-2 text-sm text-white/55">Нокауты</p>
               </div>
@@ -628,7 +637,7 @@ export default function PlayerProfilePage() {
 
           <Link
             href={`/players/${player.id}/achievements`}
-            className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-white"
+            className="block rounded-3xl border border-[#8a6a4a]/20 bg-[linear-gradient(160deg,#1c140f_0%,#120d0a_100%)] p-5 text-white"
           >
             <div className="flex items-center justify-between gap-3">
               <p className="text-xl font-semibold text-white">Достижения</p>
@@ -691,36 +700,44 @@ export default function PlayerProfilePage() {
                     <Link
                       key={item.registration.id}
                       href={`/tournaments/${item.tournament.id}`}
-                      className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
+                      className="relative block overflow-hidden rounded-3xl border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_14px_36px_rgba(0,0,0,0.3)] transition active:scale-[0.99]"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="text-lg font-semibold">
-                            {item.tournament.title}
-                          </h3>
-                          {showTournamentKindTags ? (
-                            <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
-                              {getTournamentKindLabel(item.tournament.kind)}
-                            </span>
-                          ) : null}
+                      <TournamentVisual
+                        tournamentType={item.tournament.tournament_type}
+                        configs={tournamentVisuals}
+                        className="z-0"
+                      />
+
+                      <div className="relative z-10">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="text-lg font-semibold text-white">
+                              {item.tournament.title}
+                            </h3>
+                            {showTournamentKindTags ? (
+                              <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
+                                {getTournamentKindLabel(item.tournament.kind)}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="inline-flex items-center text-white/45">
+                            <ArrowRightIcon />
+                          </div>
                         </div>
 
-                        <div className="inline-flex items-center text-white/45">
-                          <ArrowRightIcon />
+                        <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
+                          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-xs font-medium">
+                            {formatDateTimeWithoutSeconds(item.tournament.start_at)}
+                          </div>
+                          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-xs font-medium">
+                            {registrationCounts[item.tournament.id] ?? 0} / {item.tournament.max_players}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
-                        <div className="inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                          {formatDateTimeWithoutSeconds(item.tournament.start_at)}
+                        <div className="mt-3 text-sm text-white/60">
+                          {getStatusText(item.registration.status)}
                         </div>
-                        <div className="inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2">
-                          {registrationCounts[item.tournament.id] ?? 0} / {item.tournament.max_players}
-                        </div>
-                      </div>
-
-                      <div className="mt-3 text-sm text-white/60">
-                        {getStatusText(item.registration.status)}
                       </div>
                     </Link>
                   ))}
