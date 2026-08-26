@@ -1236,11 +1236,14 @@ export default function HomePage() {
           {isLive ? (
             <>
               <p className="mt-3 text-sm font-semibold text-white/70">
-                {clock?.currentLevel !== null &&
-                clock?.smallBlind !== null &&
-                clock?.bigBlind !== null
-                  ? `🔴 LIVE · Ур. ${clock?.currentLevel} · ${clock?.smallBlind} / ${clock?.bigBlind}`
-                  : "🔴 LIVE"}
+                {clock?.isBreak === true
+                  ? "🔴 LIVE · Перерыв"
+                  : clock?.isBreak === false &&
+                    clock?.currentLevel !== null &&
+                    clock?.smallBlind !== null &&
+                    clock?.bigBlind !== null
+                    ? `🔴 LIVE · Ур. ${clock?.currentLevel} · ${clock?.smallBlind} / ${clock?.bigBlind}`
+                    : "🔴 LIVE"}
               </p>
               {lateRegistrationLine ? (
                 <p className="mt-1 text-sm text-white/55">{lateRegistrationLine}</p>

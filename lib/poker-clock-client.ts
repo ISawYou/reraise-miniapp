@@ -27,10 +27,15 @@ function isFiniteNumberOrNull(value: unknown): value is number | null {
   return value === null || (typeof value === "number" && Number.isFinite(value));
 }
 
+function isBooleanOrNull(value: unknown): value is boolean | null {
+  return value === null || typeof value === "boolean";
+}
+
 // Never trusts the external JSON. Missing/malformed fields must not be
 // silently coerced into 0/undefined -- a running/paused clock without real
-// level+blind numbers is treated as fully invalid (same outcome as a failed
-// request) rather than rendered as "Ур. undefined · NaN / NaN".
+// level+blind numbers (or without a real isBreak) is treated as fully
+// invalid (same outcome as a failed request) rather than rendered as
+// "Ур. undefined · NaN / NaN" or a break inferred from 0/0 blinds.
 function parseLiveState(json: unknown): PokerClockClockState | null {
   if (!json || typeof json !== "object") return null;
   const raw = json as Record<string, unknown>;
@@ -50,6 +55,7 @@ function parseLiveState(json: unknown): PokerClockClockState | null {
   if (!isFiniteNumberOrNull(raw.smallBlind)) return null;
   if (!isFiniteNumberOrNull(raw.bigBlind)) return null;
   if (!isFiniteNumberOrNull(raw.lateRegistrationRemainingSeconds)) return null;
+  if (!isBooleanOrNull(raw.isBreak)) return null;
 
   const state: PokerClockClockState = {
     status,
@@ -59,13 +65,21 @@ function parseLiveState(json: unknown): PokerClockClockState | null {
     bigBlind: raw.bigBlind as number | null,
     lateRegistrationRemainingSeconds:
       raw.lateRegistrationRemainingSeconds as number | null,
+    isBreak: raw.isBreak as boolean | null,
   };
 
+  // Same "controlled fallback, never 0/0" rule as currentLevel/smallBlind/
+  // bigBlind above, extended to isBreak: a running/paused clock is
+  // contractually required to carry the real BlindLevel.is_break, never
+  // null. A response claiming LIVE without it is malformed -- treated as
+  // fully invalid (same outcome as a failed request), not defaulted to
+  // "not a break" and never inferred from smallBlind/bigBlind being 0.
   if (state.status === "running" || state.status === "paused") {
     if (
       state.currentLevel === null ||
       state.smallBlind === null ||
-      state.bigBlind === null
+      state.bigBlind === null ||
+      state.isBreak === null
     ) {
       return null;
     }

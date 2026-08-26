@@ -56,6 +56,7 @@ describe("getPokerClockLiveState", () => {
         smallBlind: null,
         bigBlind: null,
         lateRegistrationRemainingSeconds: null,
+        isBreak: null,
       }),
     });
 
@@ -100,7 +101,7 @@ describe("getPokerClockLiveState", () => {
     expect(await getPokerClockLiveState("t1")).toBeNull();
   });
 
-  it("valid draft response parses through with all-null fields", async () => {
+  it("valid draft response parses through with all-null fields, including isBreak", async () => {
     mockFetchOnce({
       ok: true,
       json: async () => ({
@@ -110,6 +111,7 @@ describe("getPokerClockLiveState", () => {
         smallBlind: null,
         bigBlind: null,
         lateRegistrationRemainingSeconds: null,
+        isBreak: null,
       }),
     });
 
@@ -120,10 +122,11 @@ describe("getPokerClockLiveState", () => {
       smallBlind: null,
       bigBlind: null,
       lateRegistrationRemainingSeconds: null,
+      isBreak: null,
     });
   });
 
-  it("valid running response parses through", async () => {
+  it("valid running response (not on break) parses through", async () => {
     mockFetchOnce({
       ok: true,
       json: async () => ({
@@ -133,6 +136,7 @@ describe("getPokerClockLiveState", () => {
         smallBlind: 300,
         bigBlind: 600,
         lateRegistrationRemainingSeconds: 2280,
+        isBreak: false,
       }),
     });
 
@@ -143,7 +147,30 @@ describe("getPokerClockLiveState", () => {
       smallBlind: 300,
       bigBlind: 600,
       lateRegistrationRemainingSeconds: 2280,
+      isBreak: false,
     });
+  });
+
+  it("valid running response on break parses through with isBreak true", async () => {
+    mockFetchOnce({
+      ok: true,
+      json: async () => ({
+        status: "running",
+        startedAt: "2026-08-26T19:05:00.000Z",
+        currentLevel: 5,
+        smallBlind: 300,
+        bigBlind: 600,
+        lateRegistrationRemainingSeconds: 2280,
+        isBreak: true,
+      }),
+    });
+
+    const result = await getPokerClockLiveState("t1");
+    expect(result?.isBreak).toBe(true);
+    // The break is carried as an explicit flag, not inferred from blinds --
+    // level/blind numbers can still be present and non-zero during a break.
+    expect(result?.smallBlind).toBe(300);
+    expect(result?.bigBlind).toBe(600);
   });
 
   it("running with missing level/blinds is treated as fully invalid, not zero/undefined", async () => {
@@ -156,6 +183,58 @@ describe("getPokerClockLiveState", () => {
         smallBlind: null,
         bigBlind: null,
         lateRegistrationRemainingSeconds: null,
+        isBreak: false,
+      }),
+    });
+
+    expect(await getPokerClockLiveState("t1")).toBeNull();
+  });
+
+  it("running with isBreak missing entirely is fully invalid (contract requires it live)", async () => {
+    mockFetchOnce({
+      ok: true,
+      json: async () => ({
+        status: "running",
+        startedAt: "2026-08-26T19:05:00.000Z",
+        currentLevel: 5,
+        smallBlind: 300,
+        bigBlind: 600,
+        lateRegistrationRemainingSeconds: null,
+        // isBreak omitted entirely
+      }),
+    });
+
+    expect(await getPokerClockLiveState("t1")).toBeNull();
+  });
+
+  it("running with isBreak explicitly null is fully invalid -- draft-only value leaking into a live status", async () => {
+    mockFetchOnce({
+      ok: true,
+      json: async () => ({
+        status: "running",
+        startedAt: "2026-08-26T19:05:00.000Z",
+        currentLevel: 5,
+        smallBlind: 300,
+        bigBlind: 600,
+        lateRegistrationRemainingSeconds: null,
+        isBreak: null,
+      }),
+    });
+
+    expect(await getPokerClockLiveState("t1")).toBeNull();
+  });
+
+  it("wrong-typed isBreak (e.g. string) is malformed -> null", async () => {
+    mockFetchOnce({
+      ok: true,
+      json: async () => ({
+        status: "running",
+        startedAt: null,
+        currentLevel: 5,
+        smallBlind: 300,
+        bigBlind: 600,
+        lateRegistrationRemainingSeconds: null,
+        isBreak: "true",
       }),
     });
 
@@ -172,6 +251,7 @@ describe("getPokerClockLiveState", () => {
         smallBlind: 300,
         bigBlind: 600,
         lateRegistrationRemainingSeconds: null,
+        isBreak: false,
       }),
     });
 
@@ -188,6 +268,7 @@ describe("getPokerClockLiveState", () => {
         smallBlind: null,
         bigBlind: null,
         lateRegistrationRemainingSeconds: null,
+        isBreak: null,
       }),
     });
 
@@ -204,6 +285,7 @@ describe("getPokerClockLiveState", () => {
         smallBlind: 300,
         bigBlind: 600,
         lateRegistrationRemainingSeconds: null,
+        isBreak: false,
       }),
     });
 
@@ -220,10 +302,49 @@ describe("getPokerClockLiveState", () => {
         smallBlind: 300,
         bigBlind: 600,
         lateRegistrationRemainingSeconds: null,
+        isBreak: false,
       }),
     });
 
     const result = await getPokerClockLiveState("t1");
     expect(result?.status).toBe("paused");
+  });
+
+  it("paused clock on break is a valid contract value", async () => {
+    mockFetchOnce({
+      ok: true,
+      json: async () => ({
+        status: "paused",
+        startedAt: "2026-08-26T19:05:00.000Z",
+        currentLevel: 5,
+        smallBlind: 300,
+        bigBlind: 600,
+        lateRegistrationRemainingSeconds: null,
+        isBreak: true,
+      }),
+    });
+
+    const result = await getPokerClockLiveState("t1");
+    expect(result?.status).toBe("paused");
+    expect(result?.isBreak).toBe(true);
+  });
+
+  it("finished response with a real isBreak parses through unchanged", async () => {
+    mockFetchOnce({
+      ok: true,
+      json: async () => ({
+        status: "finished",
+        startedAt: "2026-08-26T19:05:00.000Z",
+        currentLevel: 12,
+        smallBlind: 2000,
+        bigBlind: 4000,
+        lateRegistrationRemainingSeconds: null,
+        isBreak: false,
+      }),
+    });
+
+    const result = await getPokerClockLiveState("t1");
+    expect(result?.status).toBe("finished");
+    expect(result?.isBreak).toBe(false);
   });
 });

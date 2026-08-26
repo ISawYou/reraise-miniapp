@@ -15,6 +15,11 @@ export type PokerClockClockState = {
   smallBlind: number | null;
   bigBlind: number | null;
   lateRegistrationRemainingSeconds: number | null;
+  // Real BlindLevel.is_break from Poker Clock. `null` for "draft" (no level
+  // is active yet); running/paused/finished carry the actual value. Never
+  // inferred client-side from smallBlind/bigBlind being 0 -- see
+  // lib/poker-clock-client.ts's parseLiveState.
+  isBreak: boolean | null;
 };
 
 export type TournamentAttendanceSummary = {
