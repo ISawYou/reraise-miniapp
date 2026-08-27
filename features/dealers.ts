@@ -617,3 +617,150 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
 
   return { summary, byDealer, byTournament };
 }
+
+// --- Player-facing personal "Моя работа" area ---
+//
+// A dealer stays an ordinary player -- there is no separate 'dealer' auth
+// role. Access is entirely determined by the existence of a dealer_profiles
+// row for the CALLER's own player id, always resolved server-side (see
+// app/api/dealer/me/route.ts) -- this module never accepts a playerId from
+// the client for this read path, only the authenticated caller's own id.
+// Deliberately does not expose hourly_rate_rub, dealerDisplayName,
+// created_by_player_id, or ended_by_player_id -- none of that is needed by
+// (or safe to hand to) the dealer themselves.
+
+export type PersonalDealerTournamentInfo = {
+  tournamentId: string | null;
+  tournamentTitle: string | null;
+  tournamentDate: string | null;
+};
+
+export type PersonalDealerOpenShift = PersonalDealerTournamentInfo & {
+  startedAt: string;
+};
+
+export type PersonalDealerMonthSummary = {
+  completedShiftCount: number;
+  uniqueTournamentCount: number;
+  workedMinutes: number;
+  paidHours: number;
+  amountRub: number;
+};
+
+export type PersonalDealerShift = PersonalDealerTournamentInfo & {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  workedMinutes: number | null;
+  paidHours: number | null;
+  amountRub: number | null;
+};
+
+export type PersonalDealerSummary = {
+  // null = this player has never had a dealer profile at all -- the
+  // "Моя работа" card must not render. { isActive: false } = a former
+  // (deactivated) dealer, whose own historical payroll must still stay
+  // visible to them.
+  dealer: { isActive: boolean } | null;
+  openShift: PersonalDealerOpenShift | null;
+  monthSummary: PersonalDealerMonthSummary;
+  history: PersonalDealerShift[];
+};
+
+// V1 recent history -- same recency cap as the admin "История" list, no
+// pagination needed at this club's shift volume.
+const PERSONAL_HISTORY_LIMIT = 50;
+
+const EMPTY_MONTH_SUMMARY: PersonalDealerMonthSummary = {
+  completedShiftCount: 0,
+  uniqueTournamentCount: 0,
+  workedMinutes: 0,
+  paidHours: 0,
+  amountRub: 0,
+};
+
+export async function getPersonalDealerSummary(playerId: string): Promise<PersonalDealerSummary> {
+  const profile = await dealerRepository.findProfileByPlayerId(playerId);
+
+  if (!profile) {
+    return { dealer: null, openShift: null, monthSummary: EMPTY_MONTH_SUMMARY, history: [] };
+  }
+
+  const shifts = await dealerRepository.listShiftsByDealerId(playerId);
+
+  const tournamentIds = Array.from(
+    new Set(shifts.map((shift) => shift.tournament_id).filter((id): id is string => id != null))
+  );
+  const tournaments = await Promise.all(
+    tournamentIds.map((id) => tournamentRepository.findById(id).catch(() => null))
+  );
+  const tournamentById = new Map(
+    tournaments.filter((t): t is NonNullable<typeof t> => t !== null).map((t) => [t.id, t])
+  );
+
+  function resolveTournamentInfo(tournamentId: string | null): PersonalDealerTournamentInfo {
+    const tournament = tournamentId ? tournamentById.get(tournamentId) : undefined;
+    return {
+      tournamentId,
+      tournamentTitle: tournament?.title ?? null,
+      tournamentDate: tournament?.start_at ?? null,
+    };
+  }
+
+  // The DB-level partial unique index (dealer_shifts_one_open_per_dealer)
+  // guarantees at most one open shift per dealer.
+  const openShiftRow = shifts.find((shift) => shift.ended_at === null) ?? null;
+  const openShift: PersonalDealerOpenShift | null = openShiftRow
+    ? { startedAt: openShiftRow.started_at, ...resolveTournamentInfo(openShiftRow.tournament_id) }
+    : null;
+
+  // Only fully-closed shifts with frozen payroll values contribute -- an
+  // open shift has no final worked_minutes/paid_hours/amount_rub yet, and
+  // must never be shown as if it were already earned.
+  const completedShifts = shifts.filter(
+    (shift): shift is DealerShiftRow & { ended_at: string; worked_minutes: number; paid_hours: number; amount_rub: number } =>
+      shift.ended_at !== null &&
+      shift.worked_minutes !== null &&
+      shift.paid_hours !== null &&
+      shift.amount_rub !== null
+  );
+
+  // "Current month" = one calendar month in the app's local runtime
+  // timezone, grouped by STARTED_AT so an overnight shift belongs to the
+  // month/day it started, same convention as listTodayDealerShifts.
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const monthShifts = completedShifts.filter((shift) => {
+    const startedAtMs = new Date(shift.started_at).getTime();
+    return startedAtMs >= startOfMonth.getTime() && startedAtMs < startOfNextMonth.getTime();
+  });
+
+  const monthSummary: PersonalDealerMonthSummary = {
+    completedShiftCount: monthShifts.length,
+    uniqueTournamentCount: new Set(
+      monthShifts.map((shift) => shift.tournament_id).filter((id): id is string => id != null)
+    ).size,
+    workedMinutes: monthShifts.reduce((sum, shift) => sum + shift.worked_minutes, 0),
+    paidHours: monthShifts.reduce((sum, shift) => sum + shift.paid_hours, 0),
+    amountRub: monthShifts.reduce((sum, shift) => sum + shift.amount_rub, 0),
+  };
+
+  // Historical snapshotted values are used unchanged -- never recalculated
+  // from the dealer's CURRENT hourly rate (which isn't even fetched here).
+  const history: PersonalDealerShift[] = completedShifts
+    .slice()
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+    .slice(0, PERSONAL_HISTORY_LIMIT)
+    .map((shift) => ({
+      id: shift.id,
+      ...resolveTournamentInfo(shift.tournament_id),
+      startedAt: shift.started_at,
+      endedAt: shift.ended_at,
+      workedMinutes: shift.worked_minutes,
+      paidHours: shift.paid_hours,
+      amountRub: shift.amount_rub,
+    }));
+
+  return { dealer: { isActive: profile.is_active }, openShift, monthSummary, history };
+}

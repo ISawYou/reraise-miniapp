@@ -17,6 +17,7 @@ import {
 } from "@/features/tournaments";
 
 import { resolveCurrentPlayer } from "@/lib/current-player";
+import { fetchAdminJson } from "@/lib/client-request";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { getTelegramWebApp } from "@/lib/telegram";
 import { logEvent } from "@/lib/activity-client";
@@ -40,6 +41,15 @@ import type {
 } from "@/types/domain";
 
 type TabKey = "upcoming" | "past";
+
+type PersonalDealerCardSummary = {
+  dealer: { isActive: boolean } | null;
+  monthSummary: {
+    completedShiftCount: number;
+    workedMinutes: number;
+    amountRub: number;
+  };
+};
 
 type HistoryItem = {
   tournament: Tournament;
@@ -116,6 +126,14 @@ function getTournamentKindLabel(kind: Tournament["kind"]) {
 
 function pluralEntries(n: number): string {
   return `${n} re-entry`;
+}
+
+function formatWholeHours(totalMinutes: number): string {
+  return `${Math.round(totalMinutes / 60)} ч`;
+}
+
+function formatRub(amount: number): string {
+  return `${amount.toLocaleString("ru-RU")} ₽`;
 }
 
 function PencilIcon() {
@@ -241,6 +259,7 @@ export default function PlayerProfilePage() {
   const [featuredDraft, setFeaturedDraft] = useState<string[]>([]);
   const [showFeaturedEditor, setShowFeaturedEditor] = useState(false);
   const [featuredSaving, setFeaturedSaving] = useState(false);
+  const [dealerCard, setDealerCard] = useState<PersonalDealerCardSummary | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -255,6 +274,12 @@ export default function PlayerProfilePage() {
           setViewerId(ensuredViewer.id);
         }
 
+        // Personal dealer summary is only ever fetched for the viewer's OWN
+        // profile -- never when visiting another player's profile, and the
+        // server derives identity from the authenticated caller itself
+        // (see app/api/dealer/me/route.ts), never from this playerId.
+        const isOwnProfileLoad = ensuredViewer?.id === playerId;
+
         const [
           playerData,
           playerRating,
@@ -266,10 +291,9 @@ export default function PlayerProfilePage() {
           visualsData,
           featuredData,
           tournamentVisualsData,
+          dealerSummary,
         ] = await Promise.all([
-          ensuredViewer?.id === playerId
-            ? Promise.resolve(ensuredViewer)
-            : getPlayerById(playerId),
+          isOwnProfileLoad ? Promise.resolve(ensuredViewer) : getPlayerById(playerId),
           getPlayerRating(playerId),
           getPlayedTournamentsCount(playerId),
           getPlayerTournamentHistory(playerId),
@@ -279,6 +303,9 @@ export default function PlayerProfilePage() {
           fetch("/api/achievement-visuals").then((r) => r.json()),
           fetch(`/api/players/${playerId}/featured-achievements`).then((r) => r.ok ? r.json() : { keys: [] }),
           fetchTournamentVisualConfigs(),
+          isOwnProfileLoad
+            ? fetchAdminJson<PersonalDealerCardSummary>("/api/dealer/me").catch(() => null)
+            : Promise.resolve(null),
         ]);
 
         if (!playerData) {
@@ -313,6 +340,7 @@ export default function PlayerProfilePage() {
         setAchievementRows(achievementRows);
         setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
         setFeaturedKeys(featuredData.keys ?? []);
+        setDealerCard(dealerSummary?.dealer ? dealerSummary : null);
         logEvent("profile_opened", { metadata: { target_player_id: playerId } });
       } catch (err) {
         setError(
@@ -670,6 +698,29 @@ export default function PlayerProfilePage() {
               </div>
             </div>
           </Link>
+
+          {isOwnProfile && dealerCard?.dealer ? (
+            <Link
+              href="/dealer"
+              className="block rounded-3xl border border-[#4a7a8a]/20 bg-[linear-gradient(160deg,#0f1c1f_0%,#0a1214_100%)] p-5 text-white"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xl font-semibold text-white">Моя работа</p>
+                  <p className="mt-1 text-sm text-white/50">Дилер</p>
+                </div>
+                <ArrowRightIcon />
+              </div>
+
+              <p className="mt-4 text-sm text-white/70">
+                {dealerCard.monthSummary.completedShiftCount > 0
+                  ? `${dealerCard.monthSummary.completedShiftCount} смен · ${formatWholeHours(
+                      dealerCard.monthSummary.workedMinutes
+                    )} · ${formatRub(dealerCard.monthSummary.amountRub)}`
+                  : "В этом месяце смен ещё не было"}
+              </p>
+            </Link>
+          ) : null}
 
           <div className="rounded-3xl border border-[#8a8262]/15 bg-[linear-gradient(160deg,#171a13_0%,#101210_100%)] px-5 pb-4 pt-3.5">
             <p className="text-xl font-semibold text-white">

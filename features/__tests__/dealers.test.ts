@@ -67,6 +67,7 @@ const {
   editDealerShiftTimestamps,
   correctDealerShiftTournament,
   getDealerPayrollStats,
+  getPersonalDealerSummary,
   listTodayDealerShifts,
   computeShiftPayroll,
   InvalidTournamentIdError,
@@ -510,5 +511,151 @@ describe("getDealerPayrollStats", () => {
     );
     expect(mocks.listAllShifts).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+});
+
+describe("getPersonalDealerSummary", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("an ordinary player who never had a dealer profile gets dealer: null and no shift query is made", async () => {
+    mocks.findProfileByPlayerId.mockResolvedValue(null);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.dealer).toBeNull();
+    expect(result.history).toEqual([]);
+    expect(result.openShift).toBeNull();
+    expect(mocks.listShiftsByDealerId).not.toHaveBeenCalled();
+  });
+
+  it("queries shifts scoped to exactly the requested dealer's own player id", async () => {
+    mocks.findProfileByPlayerId.mockResolvedValue(profile({ player_id: "p1", is_active: true }));
+    mocks.listShiftsByDealerId.mockResolvedValue([]);
+
+    await getPersonalDealerSummary("p1");
+
+    expect(mocks.listShiftsByDealerId).toHaveBeenCalledWith("p1");
+    expect(mocks.listShiftsByDealerId).toHaveBeenCalledTimes(1);
+  });
+
+  it("an inactive (deactivated) former dealer still gets dealer: {isActive: false} and keeps their history", async () => {
+    mocks.findProfileByPlayerId.mockResolvedValue(profile({ player_id: "p1", is_active: false }));
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "s1", ended_at: "2026-01-01T20:00:00.000Z", worked_minutes: 60, paid_hours: 1, amount_rub: 500 }),
+    ]);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.dealer).toEqual({ isActive: false });
+    expect(result.history).toHaveLength(1);
+  });
+
+  it("an open shift is shown separately and excluded from completed month/history totals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 15, 10, 0));
+    mocks.findProfileByPlayerId.mockResolvedValue(profile());
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "open", started_at: "2026-08-15T18:00:00.000Z", ended_at: null, worked_minutes: null, paid_hours: null, amount_rub: null }),
+      shiftRow({ id: "closed", started_at: "2026-08-10T18:00:00.000Z", ended_at: "2026-08-10T20:00:00.000Z", worked_minutes: 120, paid_hours: 2, amount_rub: 1000 }),
+    ]);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.openShift).toEqual(
+      expect.objectContaining({ startedAt: "2026-08-15T18:00:00.000Z" })
+    );
+    expect(result.history).toHaveLength(1);
+    expect(result.history[0].id).toBe("closed");
+    expect(result.monthSummary.completedShiftCount).toBe(1);
+    expect(result.monthSummary.amountRub).toBe(1000);
+  });
+
+  it("current-month summary only aggregates completed shifts started within the current local calendar month", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 15, 10, 0));
+    mocks.findProfileByPlayerId.mockResolvedValue(profile());
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "this-month", started_at: "2026-08-05T18:00:00.000Z", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500, tournament_id: "t1" }),
+      shiftRow({ id: "last-month", started_at: "2026-07-30T18:00:00.000Z", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500 }),
+    ]);
+    mocks.findTournamentById.mockResolvedValue({ id: "t1", title: "Classic", start_at: "2026-08-05T18:00:00.000Z" });
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.monthSummary).toEqual({
+      completedShiftCount: 1,
+      uniqueTournamentCount: 1,
+      workedMinutes: 60,
+      paidHours: 1,
+      amountRub: 500,
+    });
+    expect(result.history).toHaveLength(2);
+  });
+
+  it("an overnight shift belongs to the month/day it STARTED, not the day it ended", async () => {
+    vi.useFakeTimers();
+    // Local-time constructors throughout (not UTC ISO literals) so this
+    // test is correct regardless of the machine's timezone: July 31
+    // 23:00 local -> August 1 03:00 local, crossing midnight but starting
+    // in July.
+    vi.setSystemTime(new Date(2026, 7, 15, 10, 0));
+    mocks.findProfileByPlayerId.mockResolvedValue(profile());
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({
+        id: "overnight",
+        started_at: new Date(2026, 6, 31, 23, 0).toISOString(),
+        ended_at: new Date(2026, 7, 1, 3, 0).toISOString(),
+        worked_minutes: 240,
+        paid_hours: 4,
+        amount_rub: 2000,
+      }),
+    ]);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.monthSummary.completedShiftCount).toBe(0);
+    expect(result.monthSummary.amountRub).toBe(0);
+    expect(result.history[0].id).toBe("overnight");
+  });
+
+  it("displays the linked tournament's title and date for a completed shift", async () => {
+    mocks.findProfileByPlayerId.mockResolvedValue(profile());
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "s1", tournament_id: "t1", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500 }),
+    ]);
+    mocks.findTournamentById.mockResolvedValue({ id: "t1", title: "Classic", start_at: "2026-08-27T18:00:00.000Z" });
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.history[0]).toEqual(
+      expect.objectContaining({ tournamentId: "t1", tournamentTitle: "Classic", tournamentDate: "2026-08-27T18:00:00.000Z" })
+    );
+  });
+
+  it("a NULL tournament_id is returned as tournamentTitle: null, never fabricated from timestamps", async () => {
+    mocks.findProfileByPlayerId.mockResolvedValue(profile());
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "s1", tournament_id: null, ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500 }),
+    ]);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.history[0]).toEqual(
+      expect.objectContaining({ tournamentId: null, tournamentTitle: null, tournamentDate: null })
+    );
+    expect(mocks.findTournamentById).not.toHaveBeenCalled();
+  });
+
+  it("uses the shift's own snapshotted amount_rub unchanged, never recalculated from the dealer's current rate", async () => {
+    mocks.findProfileByPlayerId.mockResolvedValue(profile({ hourly_rate_rub: 900 }));
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "s1", hourly_rate_rub: 400, ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 400 }),
+    ]);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.history[0].amountRub).toBe(400);
   });
 });
