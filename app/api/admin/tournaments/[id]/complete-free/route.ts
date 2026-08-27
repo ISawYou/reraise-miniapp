@@ -228,6 +228,9 @@ export async function POST(
           boss_knockouts: row.boss_knockouts ?? 0,
           mystery_bounty_points: row.mystery_bounty_points ?? 0,
           addons: row.addons ?? 0,
+          // Free entry -- now persisted canonically (lib/db/schema/results.ts),
+          // not only synced to the Google Sheet export below.
+          free_reentries: row.free_reentries ?? 0,
           rating_points: rating?.rating_points ?? 0,
           // Rating Breakdown -- same calculator call above, not a second
           // computation.

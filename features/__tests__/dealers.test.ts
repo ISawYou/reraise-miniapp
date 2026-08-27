@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   listShiftsStartedBetween: vi.fn(),
   listRecentCompletedShifts: vi.fn(),
   updateShiftTournament: vi.fn(),
+  setShiftTaxiAllowance: vi.fn(),
   listShiftsByDealerId: vi.fn(),
+  listShiftsByTournamentId: vi.fn(),
   listAllShifts: vi.fn(),
   findById: vi.fn(),
   findByIdOrThrow: vi.fn(),
@@ -44,7 +46,9 @@ vi.mock("@/lib/repositories", () => ({
     listShiftsStartedBetween: mocks.listShiftsStartedBetween,
     listRecentCompletedShifts: mocks.listRecentCompletedShifts,
     updateShiftTournament: mocks.updateShiftTournament,
+    setShiftTaxiAllowance: mocks.setShiftTaxiAllowance,
     listShiftsByDealerId: mocks.listShiftsByDealerId,
+    listShiftsByTournamentId: mocks.listShiftsByTournamentId,
     listAllShifts: mocks.listAllShifts,
   },
   playerRepository: {
@@ -66,14 +70,19 @@ const {
   endDealerShift,
   editDealerShiftTimestamps,
   correctDealerShiftTournament,
+  setDealerShiftTaxiAllowance,
   getDealerPayrollStats,
   getPersonalDealerSummary,
+  getTournamentDealerPayoutSummary,
   listTodayDealerShifts,
   computeShiftPayroll,
   InvalidTournamentIdError,
+  InvalidTaxiAllowanceError,
   DealerHasOpenShiftError,
   DealerAlreadyOnShiftError,
+  DealerShiftNotFoundError,
   DEFAULT_DEALER_HOURLY_RATE_RUB,
+  TAXI_ALLOWANCE_RUB,
 } = await import("@/features/dealers");
 
 function profile(overrides: Partial<{ player_id: string; is_active: boolean; hourly_rate_rub: number }> = {}) {
@@ -97,6 +106,7 @@ function shiftRow(overrides: Partial<Record<string, unknown>> = {}) {
     worked_minutes: null,
     paid_hours: null,
     amount_rub: null,
+    taxi_allowance_rub: 0,
     tournament_id: null,
     created_by_player_id: null,
     ended_by_player_id: null,
@@ -128,6 +138,10 @@ beforeEach(() => {
   mocks.updateShiftTournament.mockImplementation(async (id: string, tournamentId: string | null) =>
     shiftRow({ id, tournament_id: tournamentId })
   );
+  mocks.setShiftTaxiAllowance.mockImplementation(async (id: string, taxiAllowanceRub: number) =>
+    shiftRow({ id, taxi_allowance_rub: taxiAllowanceRub })
+  );
+  mocks.listShiftsByTournamentId.mockResolvedValue([]);
   mocks.findTournamentById.mockResolvedValue({ id: "t1", title: "Classic", start_at: "2026-08-27T18:00:00.000Z" });
   mocks.closeShift.mockImplementation(async (id: string, patch: Record<string, unknown>) =>
     shiftRow({ id, ended_at: patch.ended_at, worked_minutes: patch.worked_minutes, paid_hours: patch.paid_hours, amount_rub: patch.amount_rub })
@@ -252,6 +266,62 @@ describe("correctDealerShiftTournament", () => {
 
     await expect(correctDealerShiftTournament("s1", "bogus")).rejects.toThrow(InvalidTournamentIdError);
     expect(mocks.updateShiftTournament).not.toHaveBeenCalled();
+  });
+});
+
+describe("setDealerShiftTaxiAllowance (\"Чай\")", () => {
+  it("Super Admin can add the allowance to an OPEN shift (before amount_rub is frozen)", async () => {
+    mocks.findShiftById.mockResolvedValue(shiftRow({ id: "s1", ended_at: null, amount_rub: null }));
+
+    await setDealerShiftTaxiAllowance("s1", TAXI_ALLOWANCE_RUB);
+
+    expect(mocks.setShiftTaxiAllowance).toHaveBeenCalledWith("s1", 500);
+  });
+
+  it("Super Admin can add the allowance to a completed shift", async () => {
+    mocks.findShiftById.mockResolvedValue(
+      shiftRow({ id: "s1", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500 })
+    );
+
+    await setDealerShiftTaxiAllowance("s1", TAXI_ALLOWANCE_RUB);
+
+    expect(mocks.setShiftTaxiAllowance).toHaveBeenCalledWith("s1", 500);
+  });
+
+  it("Super Admin can remove/cancel a mistakenly-added allowance", async () => {
+    mocks.findShiftById.mockResolvedValue(shiftRow({ id: "s1", taxi_allowance_rub: 500 }));
+
+    await setDealerShiftTaxiAllowance("s1", 0);
+
+    expect(mocks.setShiftTaxiAllowance).toHaveBeenCalledWith("s1", 0);
+  });
+
+  it("only ever resolves to 0 or 500 -- any other value is rejected before touching the repository", async () => {
+    mocks.findShiftById.mockResolvedValue(shiftRow({ id: "s1" }));
+
+    await expect(setDealerShiftTaxiAllowance("s1", 250)).rejects.toThrow(InvalidTaxiAllowanceError);
+    await expect(setDealerShiftTaxiAllowance("s1", -500)).rejects.toThrow(InvalidTaxiAllowanceError);
+    await expect(setDealerShiftTaxiAllowance("s1", 1000)).rejects.toThrow(InvalidTaxiAllowanceError);
+    expect(mocks.setShiftTaxiAllowance).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-existent shift", async () => {
+    mocks.findShiftById.mockResolvedValue(null);
+
+    await expect(setDealerShiftTaxiAllowance("missing", 500)).rejects.toThrow(DealerShiftNotFoundError);
+    expect(mocks.setShiftTaxiAllowance).not.toHaveBeenCalled();
+  });
+
+  it("does not change worked_minutes/paid_hours/hourly_rate_rub/amount_rub -- only the repository call, never a payroll recompute", async () => {
+    mocks.findShiftById.mockResolvedValue(
+      shiftRow({ id: "s1", ended_at: "x", worked_minutes: 90, paid_hours: 2, hourly_rate_rub: 600, amount_rub: 1200 })
+    );
+
+    await setDealerShiftTaxiAllowance("s1", TAXI_ALLOWANCE_RUB);
+
+    expect(mocks.setShiftTaxiAllowance).toHaveBeenCalledWith("s1", 500);
+    expect(mocks.closeShift).not.toHaveBeenCalled();
+    expect(mocks.updateShiftTimestamps).not.toHaveBeenCalled();
   });
 });
 
@@ -405,9 +475,18 @@ describe("listTodayDealerShifts -- grouping by started_at", () => {
   it("excludes still-open shifts from the today summary", async () => {
     mocks.listShiftsStartedBetween.mockResolvedValue([shiftRow({ id: "open", ended_at: null })]);
 
-    const { shifts, totalAmountRub } = await listTodayDealerShifts();
+    const { shifts, totalPayoutRub } = await listTodayDealerShifts();
     expect(shifts).toHaveLength(0);
-    expect(totalAmountRub).toBe(0);
+    expect(totalPayoutRub).toBe(0);
+  });
+
+  it("totalPayoutRub includes the taxi allowance, not just the base amount", async () => {
+    mocks.listShiftsStartedBetween.mockResolvedValue([
+      shiftRow({ id: "s1", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500, taxi_allowance_rub: 500 }),
+    ]);
+
+    const { totalPayoutRub } = await listTodayDealerShifts();
+    expect(totalPayoutRub).toBe(1000);
   });
 });
 
@@ -431,6 +510,8 @@ describe("getDealerPayrollStats", () => {
         workedMinutes: 180,
         paidHours: 3,
         amountRub: 1500,
+        taxiAllowanceRub: 0,
+        payoutRub: 1500,
       },
     ]);
   });
@@ -458,6 +539,8 @@ describe("getDealerPayrollStats", () => {
         workedMinutes: 120,
         paidHours: 2,
         amountRub: 1000,
+        taxiAllowanceRub: 0,
+        payoutRub: 1000,
       },
     ]);
     expect(stats.summary).toEqual({
@@ -466,6 +549,8 @@ describe("getDealerPayrollStats", () => {
       workedMinutes: 120,
       paidHours: 2,
       amountRub: 1000,
+      taxiAllowanceRub: 0,
+      payoutRub: 1000,
     });
   });
 
@@ -511,6 +596,66 @@ describe("getDealerPayrollStats", () => {
     );
     expect(mocks.listAllShifts).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it("Super Admin dealer stats include the taxi allowance in payoutRub, keeping amountRub as base-only", async () => {
+    mocks.listAllShifts.mockResolvedValue([
+      shiftRow({ id: "s1", dealer_player_id: "p1", tournament_id: "t1", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500, taxi_allowance_rub: 500 }),
+      shiftRow({ id: "s2", dealer_player_id: "p1", tournament_id: "t1", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500, taxi_allowance_rub: 0 }),
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([{ id: "p1", display_name: "Alice", username: "alice", email: null, role: "player" }]);
+    mocks.findTournamentById.mockResolvedValue({ id: "t1", title: "Classic", start_at: "x" });
+
+    const stats = await getDealerPayrollStats("all");
+
+    expect(stats.summary).toEqual(
+      expect.objectContaining({ amountRub: 1000, taxiAllowanceRub: 500, payoutRub: 1500 })
+    );
+    expect(stats.byDealer[0]).toEqual(
+      expect.objectContaining({ amountRub: 1000, taxiAllowanceRub: 500, payoutRub: 1500 })
+    );
+    expect(stats.byTournament[0]).toEqual(
+      expect.objectContaining({ amountRub: 1000, taxiAllowanceRub: 500, payoutRub: 1500 })
+    );
+  });
+});
+
+describe("getTournamentDealerPayoutSummary", () => {
+  it("counts unique dealers with completed linked shifts and sums base + allowance", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([
+      shiftRow({ id: "s1", dealer_player_id: "p1", tournament_id: "t1", ended_at: "x", amount_rub: 500, taxi_allowance_rub: 500 }),
+      shiftRow({ id: "s2", dealer_player_id: "p1", tournament_id: "t1", ended_at: "x", amount_rub: 500, taxi_allowance_rub: 0 }),
+      shiftRow({ id: "s3", dealer_player_id: "p2", tournament_id: "t1", ended_at: "x", amount_rub: 500, taxi_allowance_rub: 0 }),
+    ]);
+
+    const summary = await getTournamentDealerPayoutSummary("t1");
+
+    expect(summary).toEqual({ dealersCount: 2, payoutRub: 2000 });
+    expect(mocks.listShiftsByTournamentId).toHaveBeenCalledWith("t1");
+  });
+
+  it("excludes an open shift (no frozen amount_rub) from the payout total", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([
+      shiftRow({ id: "open", dealer_player_id: "p1", tournament_id: "t1", ended_at: null, amount_rub: null }),
+      shiftRow({ id: "closed", dealer_player_id: "p1", tournament_id: "t1", ended_at: "x", amount_rub: 500, taxi_allowance_rub: 0 }),
+    ]);
+
+    const summary = await getTournamentDealerPayoutSummary("t1");
+
+    expect(summary).toEqual({ dealersCount: 1, payoutRub: 500 });
+  });
+
+  it("only queries shifts scoped to this exact tournament -- 'Без турнира' shifts are never attributed", async () => {
+    // listShiftsByTournamentId itself is the tournament_id filter -- a shift
+    // with tournament_id NULL would never be returned by it in the first
+    // place, so this test asserts the repository is queried with the right
+    // scope rather than re-filtering client-side.
+    mocks.listShiftsByTournamentId.mockResolvedValue([]);
+
+    const summary = await getTournamentDealerPayoutSummary("t1");
+
+    expect(summary).toEqual({ dealersCount: 0, payoutRub: 0 });
+    expect(mocks.listShiftsByTournamentId).toHaveBeenCalledWith("t1");
   });
 });
 
@@ -590,6 +735,8 @@ describe("getPersonalDealerSummary", () => {
       workedMinutes: 60,
       paidHours: 1,
       amountRub: 500,
+      taxiAllowanceRub: 0,
+      payoutRub: 500,
     });
     expect(result.history).toHaveLength(2);
   });
@@ -657,5 +804,47 @@ describe("getPersonalDealerSummary", () => {
     const result = await getPersonalDealerSummary("p1");
 
     expect(result.history[0].amountRub).toBe(400);
+  });
+
+  it("allowance defaults to 0 when a shift never had chai added", async () => {
+    mocks.findProfileByPlayerId.mockResolvedValue(profile());
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "s1", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500 }),
+    ]);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.history[0]).toEqual(
+      expect.objectContaining({ amountRub: 500, taxiAllowanceRub: 0, payoutRub: 500 })
+    );
+  });
+
+  it("month summary and shift history both include the taxi allowance in the payout total", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 15, 10, 0));
+    mocks.findProfileByPlayerId.mockResolvedValue(profile());
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "s1", started_at: "2026-08-05T18:00:00.000Z", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 3000, taxi_allowance_rub: 500 }),
+    ]);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.monthSummary).toEqual(
+      expect.objectContaining({ amountRub: 3000, taxiAllowanceRub: 500, payoutRub: 3500 })
+    );
+    expect(result.history[0]).toEqual(
+      expect.objectContaining({ amountRub: 3000, taxiAllowanceRub: 500, payoutRub: 3500 })
+    );
+  });
+
+  it("an open shift's allowance is visible even though there is no final payout yet", async () => {
+    mocks.findProfileByPlayerId.mockResolvedValue(profile());
+    mocks.listShiftsByDealerId.mockResolvedValue([
+      shiftRow({ id: "open", ended_at: null, amount_rub: null, taxi_allowance_rub: 500 }),
+    ]);
+
+    const result = await getPersonalDealerSummary("p1");
+
+    expect(result.openShift).toEqual(expect.objectContaining({ taxiAllowanceRub: 500 }));
   });
 });

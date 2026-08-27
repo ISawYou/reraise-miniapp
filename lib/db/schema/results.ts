@@ -33,6 +33,17 @@ export const results = pgTable("results", {
   // as the source of truth instead of staying an out-of-band raw-SQL patch).
   bossKnockouts: integer("boss_knockouts").notNull().default(0),
 
+  // Free entry: how many free re-entries this player USED in this specific
+  // tournament -- an existing per-player, per-tournament admin/Google-Sheets
+  // field (see lib/tournament-sheet-parsing.ts's NormalizedFreeSheetRow and
+  // the admin results form) that was previously only ever synced to the
+  // Google Sheet export, never persisted here. Unrelated to
+  // players.free_reentries_balance (a player's own running referral-credit
+  // balance, consumed/granted independently in features/admin.ts) -- same
+  // name, different concept, never conflated. 0 for every pre-existing row,
+  // same honest-placeholder convention as addons above.
+  freeReentries: integer("free_reentries").notNull().default(0),
+
   // Mystery Bounty format: sum of physical envelope values a player drew
   // (sql/mystery_bounty.sql). Frozen the same way as ratingPoints below —
   // "current value", not a running total; complete-free overwrites it via
@@ -76,6 +87,7 @@ export const results = pgTable("results", {
 }, (table) => [
   check("results_place_check", sql`${table.place} > 0`),
   check("results_rating_points_check", sql`${table.ratingPoints} >= 0`),
+  check("results_free_reentries_check", sql`${table.freeReentries} >= 0`),
 
   // Non-negativity, same style as results_rating_points_check. NULL-tolerant
   // by ordinary SQL three-valued logic (a NULL operand makes the whole

@@ -131,11 +131,16 @@ export function computeShiftPayroll(
   return { workedMinutes, paidHours, amountRub };
 }
 
+// "Чай" -- the only allowed non-zero taxi allowance amount. See
+// lib/db/schema/dealers.ts's taxiAllowanceRub doc comment.
+export const TAXI_ALLOWANCE_RUB = 500;
+
 export type DealerOpenShift = {
   id: string;
   startedAt: string;
   tournamentId: string | null;
   tournamentTitle: string | null;
+  taxiAllowanceRub: number;
 };
 
 export type DealerStatus = {
@@ -175,6 +180,7 @@ export async function listActiveDealers(): Promise<DealerStatus[]> {
               startedAt: openShift.started_at,
               tournamentId: openShift.tournament_id,
               tournamentTitle,
+              taxiAllowanceRub: openShift.taxi_allowance_rub,
             }
           : null,
       } satisfies DealerStatus;
@@ -343,6 +349,41 @@ export async function correctDealerShiftTournament(
   return dealerRepository.updateShiftTournament(shiftId, validTournamentId);
 }
 
+export class InvalidTaxiAllowanceError extends Error {
+  constructor(value: number) {
+    super(`Taxi allowance must be 0 or ${TAXI_ALLOWANCE_RUB}, got ${value}`);
+    this.name = "InvalidTaxiAllowanceError";
+  }
+}
+
+// Super Admin toggling "Чай" -- works on an OPEN shift (before amount_rub
+// is even frozen) or a completed one alike, unlike editDealerShiftTimestamps/
+// correctDealerShiftTournament which both require a completed shift. Never
+// touches worked_minutes/paid_hours/hourly_rate_rub/amount_rub. Operator
+// access is blocked entirely at the route/middleware layer (not in the
+// operator allowlist, per this task's explicit "financial mutation stays
+// Super-Admin-only" requirement), not re-checked here -- same pattern as
+// correctDealerShiftTournament above.
+// taxiAllowanceRub must resolve to exactly 0 (no chai) or TAXI_ALLOWANCE_RUB
+// (500) -- never a free-form amount, enforced here AND by the DB check
+// constraint (belt and suspenders, same pattern as computeShiftPayroll's
+// own validation).
+export async function setDealerShiftTaxiAllowance(
+  shiftId: string,
+  taxiAllowanceRub: number
+): Promise<DealerShiftRow> {
+  if (taxiAllowanceRub !== 0 && taxiAllowanceRub !== TAXI_ALLOWANCE_RUB) {
+    throw new InvalidTaxiAllowanceError(taxiAllowanceRub);
+  }
+
+  const shift = await dealerRepository.findShiftById(shiftId);
+  if (!shift) {
+    throw new DealerShiftNotFoundError(shiftId);
+  }
+
+  return dealerRepository.setShiftTaxiAllowance(shiftId, taxiAllowanceRub);
+}
+
 export type DealerShiftSummary = {
   id: string;
   dealerPlayerId: string;
@@ -353,6 +394,12 @@ export type DealerShiftSummary = {
   workedMinutes: number | null;
   paidHours: number | null;
   amountRub: number | null;
+  // "Чай" -- see TAXI_ALLOWANCE_RUB. payoutRub is amountRub +
+  // taxiAllowanceRub, exposed for convenience; null exactly when amountRub
+  // is null (an open shift has no frozen base amount yet, so no final
+  // payout can be shown either -- never fabricated before closure).
+  taxiAllowanceRub: number;
+  payoutRub: number | null;
   tournamentId: string | null;
   tournamentTitle: string | null;
   tournamentDate: string | null;
@@ -398,6 +445,8 @@ async function toShiftSummaries(shifts: DealerShiftRow[]): Promise<DealerShiftSu
       workedMinutes: shift.worked_minutes,
       paidHours: shift.paid_hours,
       amountRub: shift.amount_rub,
+      taxiAllowanceRub: shift.taxi_allowance_rub,
+      payoutRub: shift.amount_rub != null ? shift.amount_rub + shift.taxi_allowance_rub : null,
       tournamentId: shift.tournament_id,
       tournamentTitle: tournament?.title ?? null,
       tournamentDate: tournament?.start_at ?? null,
@@ -413,7 +462,9 @@ async function toShiftSummaries(shifts: DealerShiftRow[]): Promise<DealerShiftSu
 // day it started, never the day it ended.
 export async function listTodayDealerShifts(): Promise<{
   shifts: DealerShiftSummary[];
-  totalAmountRub: number;
+  // What dealers actually receive today: sum of payoutRub (amountRub +
+  // taxiAllowanceRub), not base-only -- "Итого сегодня" must include chai.
+  totalPayoutRub: number;
 }> {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -426,9 +477,9 @@ export async function listTodayDealerShifts(): Promise<{
   );
   const completedShifts = shifts.filter((shift) => shift.ended_at !== null);
   const summaries = await toShiftSummaries(completedShifts);
-  const totalAmountRub = summaries.reduce((sum, shift) => sum + (shift.amountRub ?? 0), 0);
+  const totalPayoutRub = summaries.reduce((sum, shift) => sum + (shift.payoutRub ?? 0), 0);
 
-  return { shifts: summaries, totalAmountRub };
+  return { shifts: summaries, totalPayoutRub };
 }
 
 // V1 recent history -- not analytics. A simple recency-limited list, no
@@ -447,7 +498,13 @@ export type DealerStatsSummary = {
   uniqueTournamentCount: number;
   workedMinutes: number;
   paidHours: number;
+  // Base frozen payroll only (sum of amount_rub) -- unchanged meaning.
   amountRub: number;
+  // Sum of taxi_allowance_rub ("Чай") across the same completed shifts.
+  taxiAllowanceRub: number;
+  // What dealers actually receive: amountRub + taxiAllowanceRub. Use this,
+  // not amountRub, for any "total payout" headline figure.
+  payoutRub: number;
 };
 
 export type DealerStatsByDealer = {
@@ -458,6 +515,8 @@ export type DealerStatsByDealer = {
   workedMinutes: number;
   paidHours: number;
   amountRub: number;
+  taxiAllowanceRub: number;
+  payoutRub: number;
 };
 
 export type DealerStatsByTournament = {
@@ -469,6 +528,8 @@ export type DealerStatsByTournament = {
   workedMinutes: number;
   paidHours: number;
   amountRub: number;
+  taxiAllowanceRub: number;
+  payoutRub: number;
 };
 
 export type DealerPayrollStats = {
@@ -526,12 +587,17 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
     tournaments.filter((t): t is NonNullable<typeof t> => t !== null).map((t) => [t.id, t])
   );
 
+  const summaryAmountRub = completedShifts.reduce((sum, s) => sum + s.amount_rub, 0);
+  const summaryTaxiAllowanceRub = completedShifts.reduce((sum, s) => sum + s.taxi_allowance_rub, 0);
+
   const summary: DealerStatsSummary = {
     completedShiftCount: completedShifts.length,
     uniqueTournamentCount: tournamentIds.length,
     workedMinutes: completedShifts.reduce((sum, s) => sum + s.worked_minutes, 0),
     paidHours: completedShifts.reduce((sum, s) => sum + s.paid_hours, 0),
-    amountRub: completedShifts.reduce((sum, s) => sum + s.amount_rub, 0),
+    amountRub: summaryAmountRub,
+    taxiAllowanceRub: summaryTaxiAllowanceRub,
+    payoutRub: summaryAmountRub + summaryTaxiAllowanceRub,
   };
 
   const byDealerMap = new Map<string, DealerStatsByDealer & { tournamentIdSet: Set<string> }>();
@@ -547,6 +613,8 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
         workedMinutes: 0,
         paidHours: 0,
         amountRub: 0,
+        taxiAllowanceRub: 0,
+        payoutRub: 0,
         tournamentIdSet: new Set<string>(),
       } satisfies DealerStatsByDealer & { tournamentIdSet: Set<string> });
 
@@ -554,6 +622,7 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
     entry.workedMinutes += shift.worked_minutes;
     entry.paidHours += shift.paid_hours;
     entry.amountRub += shift.amount_rub;
+    entry.taxiAllowanceRub += shift.taxi_allowance_rub;
     if (shift.tournament_id) entry.tournamentIdSet.add(shift.tournament_id);
 
     byDealerMap.set(shift.dealer_player_id, entry);
@@ -566,6 +635,8 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
     workedMinutes: entry.workedMinutes,
     paidHours: entry.paidHours,
     amountRub: entry.amountRub,
+    taxiAllowanceRub: entry.taxiAllowanceRub,
+    payoutRub: entry.amountRub + entry.taxiAllowanceRub,
   }));
 
   const NO_TOURNAMENT_KEY = "__none__";
@@ -585,6 +656,8 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
         workedMinutes: 0,
         paidHours: 0,
         amountRub: 0,
+        taxiAllowanceRub: 0,
+        payoutRub: 0,
         dealerIdSet: new Set<string>(),
       } satisfies DealerStatsByTournament & { dealerIdSet: Set<string> });
 
@@ -592,6 +665,7 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
     entry.workedMinutes += shift.worked_minutes;
     entry.paidHours += shift.paid_hours;
     entry.amountRub += shift.amount_rub;
+    entry.taxiAllowanceRub += shift.taxi_allowance_rub;
     entry.dealerIdSet.add(shift.dealer_player_id);
 
     byTournamentMap.set(key, entry);
@@ -606,6 +680,8 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
       workedMinutes: entry.workedMinutes,
       paidHours: entry.paidHours,
       amountRub: entry.amountRub,
+      taxiAllowanceRub: entry.taxiAllowanceRub,
+      payoutRub: entry.amountRub + entry.taxiAllowanceRub,
     }))
     // Most recent tournament first; "Без турнира" (no date) sinks to the end.
     .sort((a, b) => {
@@ -616,6 +692,38 @@ export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<
     });
 
   return { summary, byDealer, byTournament };
+}
+
+export type TournamentDealerPayoutSummary = {
+  dealersCount: number;
+  payoutRub: number;
+};
+
+// Completed-tournament admin summary's dealer figures -- Super-Admin-only
+// (see app/api/admin/tournaments/[id]/completion-summary/route.ts). Reuses
+// listShiftsByTournamentId (indexed by dealer_shifts_tournament_id_idx) so
+// this never fetches every shift in the club just to look at one
+// tournament's. Same rules as getDealerPayrollStats: only COMPLETED shifts
+// contribute (an open shift has no frozen amount_rub yet), and a shift with
+// tournament_id NULL ("Без турнира") can never appear here since the query
+// itself is scoped to this exact tournament_id.
+export async function getTournamentDealerPayoutSummary(
+  tournamentId: string
+): Promise<TournamentDealerPayoutSummary> {
+  const shifts = await dealerRepository.listShiftsByTournamentId(tournamentId);
+
+  const completedShifts = shifts.filter(
+    (shift): shift is DealerShiftRow & { amount_rub: number } =>
+      shift.ended_at !== null && shift.amount_rub !== null
+  );
+
+  const dealersCount = new Set(completedShifts.map((shift) => shift.dealer_player_id)).size;
+  const payoutRub = completedShifts.reduce(
+    (sum, shift) => sum + shift.amount_rub + shift.taxi_allowance_rub,
+    0
+  );
+
+  return { dealersCount, payoutRub };
 }
 
 // --- Player-facing personal "Моя работа" area ---
@@ -637,6 +745,7 @@ export type PersonalDealerTournamentInfo = {
 
 export type PersonalDealerOpenShift = PersonalDealerTournamentInfo & {
   startedAt: string;
+  taxiAllowanceRub: number;
 };
 
 export type PersonalDealerMonthSummary = {
@@ -644,7 +753,14 @@ export type PersonalDealerMonthSummary = {
   uniqueTournamentCount: number;
   workedMinutes: number;
   paidHours: number;
+  // Base frozen payroll only (sum of amount_rub) -- unchanged meaning.
   amountRub: number;
+  // Sum of taxi_allowance_rub ("Чай") across the same completed shifts.
+  taxiAllowanceRub: number;
+  // What the dealer actually receives this month: amountRub +
+  // taxiAllowanceRub. Use this, not amountRub, for the "Заработано"
+  // headline figure.
+  payoutRub: number;
 };
 
 export type PersonalDealerShift = PersonalDealerTournamentInfo & {
@@ -654,6 +770,8 @@ export type PersonalDealerShift = PersonalDealerTournamentInfo & {
   workedMinutes: number | null;
   paidHours: number | null;
   amountRub: number | null;
+  taxiAllowanceRub: number;
+  payoutRub: number | null;
 };
 
 export type PersonalDealerSummary = {
@@ -677,6 +795,8 @@ const EMPTY_MONTH_SUMMARY: PersonalDealerMonthSummary = {
   workedMinutes: 0,
   paidHours: 0,
   amountRub: 0,
+  taxiAllowanceRub: 0,
+  payoutRub: 0,
 };
 
 export async function getPersonalDealerSummary(playerId: string): Promise<PersonalDealerSummary> {
@@ -711,7 +831,11 @@ export async function getPersonalDealerSummary(playerId: string): Promise<Person
   // guarantees at most one open shift per dealer.
   const openShiftRow = shifts.find((shift) => shift.ended_at === null) ?? null;
   const openShift: PersonalDealerOpenShift | null = openShiftRow
-    ? { startedAt: openShiftRow.started_at, ...resolveTournamentInfo(openShiftRow.tournament_id) }
+    ? {
+        startedAt: openShiftRow.started_at,
+        taxiAllowanceRub: openShiftRow.taxi_allowance_rub,
+        ...resolveTournamentInfo(openShiftRow.tournament_id),
+      }
     : null;
 
   // Only fully-closed shifts with frozen payroll values contribute -- an
@@ -736,6 +860,9 @@ export async function getPersonalDealerSummary(playerId: string): Promise<Person
     return startedAtMs >= startOfMonth.getTime() && startedAtMs < startOfNextMonth.getTime();
   });
 
+  const monthAmountRub = monthShifts.reduce((sum, shift) => sum + shift.amount_rub, 0);
+  const monthTaxiAllowanceRub = monthShifts.reduce((sum, shift) => sum + shift.taxi_allowance_rub, 0);
+
   const monthSummary: PersonalDealerMonthSummary = {
     completedShiftCount: monthShifts.length,
     uniqueTournamentCount: new Set(
@@ -743,7 +870,9 @@ export async function getPersonalDealerSummary(playerId: string): Promise<Person
     ).size,
     workedMinutes: monthShifts.reduce((sum, shift) => sum + shift.worked_minutes, 0),
     paidHours: monthShifts.reduce((sum, shift) => sum + shift.paid_hours, 0),
-    amountRub: monthShifts.reduce((sum, shift) => sum + shift.amount_rub, 0),
+    amountRub: monthAmountRub,
+    taxiAllowanceRub: monthTaxiAllowanceRub,
+    payoutRub: monthAmountRub + monthTaxiAllowanceRub,
   };
 
   // Historical snapshotted values are used unchanged -- never recalculated
@@ -760,6 +889,8 @@ export async function getPersonalDealerSummary(playerId: string): Promise<Person
       workedMinutes: shift.worked_minutes,
       paidHours: shift.paid_hours,
       amountRub: shift.amount_rub,
+      taxiAllowanceRub: shift.taxi_allowance_rub,
+      payoutRub: shift.amount_rub + shift.taxi_allowance_rub,
     }));
 
   return { dealer: { isActive: profile.is_active }, openShift, monthSummary, history };

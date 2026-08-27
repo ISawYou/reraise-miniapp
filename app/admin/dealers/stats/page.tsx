@@ -15,6 +15,8 @@ type DealerStatsSummary = {
   workedMinutes: number;
   paidHours: number;
   amountRub: number;
+  taxiAllowanceRub: number;
+  payoutRub: number;
 };
 
 type DealerStatsByDealer = {
@@ -25,6 +27,8 @@ type DealerStatsByDealer = {
   workedMinutes: number;
   paidHours: number;
   amountRub: number;
+  taxiAllowanceRub: number;
+  payoutRub: number;
 };
 
 type DealerStatsByTournament = {
@@ -36,6 +40,8 @@ type DealerStatsByTournament = {
   workedMinutes: number;
   paidHours: number;
   amountRub: number;
+  taxiAllowanceRub: number;
+  payoutRub: number;
 };
 
 type DealerPayrollStats = {
@@ -193,8 +199,13 @@ export default function AdminDealerStatsPage() {
               <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
                 <p className="text-xs text-yellow-200/70">Выплаты</p>
                 <p className="mt-1 text-lg font-bold text-yellow-400">
-                  {formatRub(stats.summary.amountRub)}
+                  {formatRub(stats.summary.payoutRub)}
                 </p>
+                {stats.summary.taxiAllowanceRub > 0 ? (
+                  <p className="mt-0.5 text-[11px] text-yellow-200/60">
+                    включая чай {formatRub(stats.summary.taxiAllowanceRub)}
+                  </p>
+                ) : null}
               </div>
             </section>
 
@@ -210,7 +221,7 @@ export default function AdminDealerStatsPage() {
                 <div className="space-y-2">
                   {stats.byDealer
                     .slice()
-                    .sort((a, b) => b.amountRub - a.amountRub)
+                    .sort((a, b) => b.payoutRub - a.payoutRub)
                     .map((row) => (
                       <div
                         key={row.dealerPlayerId}
@@ -223,10 +234,11 @@ export default function AdminDealerStatsPage() {
                           <p className="mt-0.5 text-xs text-white/45">
                             {row.shiftCount} смен · {row.tournamentCount} турниров ·{" "}
                             {formatDurationMinutes(row.workedMinutes)}
+                            {row.taxiAllowanceRub > 0 ? ` · чай ${formatRub(row.taxiAllowanceRub)}` : ""}
                           </p>
                         </div>
                         <span className="shrink-0 text-sm font-semibold text-white">
-                          {formatRub(row.amountRub)}
+                          {formatRub(row.payoutRub)}
                         </span>
                       </div>
                     ))}
@@ -256,10 +268,11 @@ export default function AdminDealerStatsPage() {
                         <p className="mt-0.5 text-xs text-white/45">
                           {row.dealerCount} дилеров · {row.shiftCount} смен ·{" "}
                           {formatDurationMinutes(row.workedMinutes)}
+                          {row.taxiAllowanceRub > 0 ? ` · чай ${formatRub(row.taxiAllowanceRub)}` : ""}
                         </p>
                       </div>
                       <span className="shrink-0 text-sm font-semibold text-white">
-                        {formatRub(row.amountRub)}
+                        {formatRub(row.payoutRub)}
                       </span>
                     </div>
                   ))}

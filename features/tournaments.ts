@@ -970,6 +970,7 @@ export async function saveTournamentResults(
     boss_knockouts: item.boss_knockouts ?? 0,
     mystery_bounty_points: item.mystery_bounty_points ?? 0,
     addons: item.addons ?? 0,
+    free_reentries: item.free_reentries ?? 0,
     rating_points: item.rating_points,
     // Rating Breakdown -- caller (complete-free route) computes these via
     // the same calculateRatingPointsForTournament call it already uses for
@@ -1089,6 +1090,34 @@ export async function getTournamentResults(
   tournamentId: string
 ): Promise<TournamentResult[]> {
   return resultRepository.findByTournamentIdWithPlayer(tournamentId);
+}
+
+export type TournamentEntryStats = {
+  playersCount: number;
+  totalEntries: number;
+  rebuysCount: number;
+  addonsCount: number;
+  freeEntriesCount: number;
+};
+
+// Simple aggregate over the CANONICAL persisted results of a (completed)
+// tournament -- deliberately not a second rating/entries formula: it just
+// sums already-frozen results rows, the same "reentries is each player's
+// TOTAL entries" convention used everywhere else in this file. Distinct
+// from the admin results page's live Rating Engine v2 preview
+// (ratingEngineV2Summary, computed client-side from the in-progress editable
+// form and filtered to arrived players only) -- that stays untouched; this
+// reads whatever is actually saved, for any tournament/rating version.
+export async function getTournamentEntryStats(tournamentId: string): Promise<TournamentEntryStats> {
+  const results = await resultRepository.findByTournamentIdWithPlayer(tournamentId);
+
+  const playersCount = results.length;
+  const totalEntries = results.reduce((sum, row) => sum + row.reentries, 0);
+  const addonsCount = results.reduce((sum, row) => sum + (row.addons ?? 0), 0);
+  const freeEntriesCount = results.reduce((sum, row) => sum + (row.free_reentries ?? 0), 0);
+  const rebuysCount = Math.max(0, totalEntries - playersCount);
+
+  return { playersCount, totalEntries, rebuysCount, addonsCount, freeEntriesCount };
 }
 
 export async function getSeasonLeaderboard(seasonId: string) {

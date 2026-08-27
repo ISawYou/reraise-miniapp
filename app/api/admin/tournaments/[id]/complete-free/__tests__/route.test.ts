@@ -177,9 +177,11 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- live rebuy-state rec
     // reconciled from live state, not the submitted 1/0
     expect(results[0].reentries).toBe(2);
     expect(results[0].addons).toBe(1);
-    // free_reentries has no column on results at all -- proven by it not
-    // appearing anywhere in the payload saveTournamentResults receives.
-    expect(results[0]).not.toHaveProperty("free_reentries");
+    // free_reentries is now persisted canonically (results.free_reentries)
+    // and is NOT part of the rebuy-state reconciliation -- the submitted
+    // value passes through unchanged, exactly like mystery_bounty_points.
+    expect(results[0].free_reentries).toBe(4);
+    expect(results[0].mystery_bounty_points).toBe(0);
   });
 
   it("Mystery Bounty guard is unaffected by rebuy-state reconciliation -- still blocks completion on pool mismatch", async () => {

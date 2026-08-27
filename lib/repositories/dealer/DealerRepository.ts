@@ -23,6 +23,11 @@ export type DealerShiftRow = {
   worked_minutes: number | null;
   paid_hours: number | null;
   amount_rub: number | null;
+  // "Чай" -- optional +500 RUB taxi allowance, always 0 or 500. Kept
+  // strictly separate from amount_rub (the frozen base hourly payroll);
+  // final payout is amount_rub + taxi_allowance_rub, computed by callers,
+  // never merged into one column.
+  taxi_allowance_rub: number;
   tournament_id: string | null;
   created_by_player_id: string | null;
   ended_by_player_id: string | null;
@@ -88,6 +93,13 @@ export interface DealerRepository {
   // deliberately separate from updateShiftTimestamps (different concern,
   // no payroll recalculation involved).
   updateShiftTournament(shiftId: string, tournamentId: string | null): Promise<DealerShiftRow>;
+  // Super Admin toggling "Чай" -- taxiAllowanceRub must be exactly 0 or 500
+  // (enforced by features/dealers.ts and the DB check constraint). Works on
+  // an OPEN shift (before amount_rub is frozen) or a completed one alike --
+  // unlike updateShiftTimestamps, this never requires the shift to be
+  // closed, and never touches worked_minutes/paid_hours/hourly_rate_rub/
+  // amount_rub.
+  setShiftTaxiAllowance(shiftId: string, taxiAllowanceRub: number): Promise<DealerShiftRow>;
   // Half-open range [startInclusive, endExclusive) over started_at --
   // feeds both "Сегодня" (one club-local day) and any future date-range
   // need, without baking "today" into the repository itself.
@@ -97,6 +109,12 @@ export interface DealerRepository {
   // "Моя работа" area (a later task) and is reused here for per-dealer
   // stats aggregation.
   listShiftsByDealerId(dealerPlayerId: string): Promise<DealerShiftRow[]>;
+  // All shifts linked to one tournament (tournament_id = this id) --
+  // NEVER includes "Без турнира" (tournament_id NULL) shifts. Feeds the
+  // completed-tournament admin dealer-payout summary
+  // (features/dealers.ts::getTournamentDealerPayoutSummary), indexed by
+  // dealer_shifts_tournament_id_idx.
+  listShiftsByTournamentId(tournamentId: string): Promise<DealerShiftRow[]>;
   // Unbounded -- used for the "Всё время" statistics period. Callers
   // filter to completed (ended_at IS NOT NULL) and date-range themselves;
   // this club's real shift volume is small enough that no pagination is

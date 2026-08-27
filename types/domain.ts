@@ -132,6 +132,10 @@ export type TournamentResultInput = {
   boss_knockouts?: number;
   mystery_bounty_points?: number;
   addons?: number;
+  // How many free re-entries this player used in this tournament -- see
+  // lib/db/schema/results.ts's freeReentries doc comment. Unrelated to
+  // Player.free_reentries_balance below.
+  free_reentries?: number;
   rating_points: number;
   // Rating Breakdown -- see lib/repositories/result/ResultRepository.ts's
   // ResultInsert for why these stay optional/nullable rather than required.
@@ -154,6 +158,7 @@ export type TournamentResult = {
   mystery_bounty_points?: number;
   reentries: number;
   addons?: number;
+  free_reentries?: number;
   rating_points: number;
   username: string | null;
   display_name: string;

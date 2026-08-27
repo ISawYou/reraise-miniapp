@@ -52,6 +52,18 @@ export const dealerShifts = pgTable("dealer_shifts", {
   paidHours: integer("paid_hours"),
   amountRub: integer("amount_rub"),
 
+  // "Чай" -- optional, per-shift, fixed +500 RUB taxi allowance a Super
+  // Admin may add when a dealer finishes late. NOT automatic, NOT based on
+  // worked hours, NOT tied to every dealer -- a deliberate business decision
+  // per shift. Deliberately a SEPARATE column from amountRub: the frozen
+  // base hourly payroll (worked_minutes/paid_hours/hourly_rate_rub/
+  // amount_rub) must never be mutated or reinterpreted when this is
+  // toggled -- final payout is always computed as amount_rub +
+  // taxi_allowance_rub, read together, never merged into one column. Can be
+  // toggled on an OPEN shift (before amount_rub is even frozen) or later
+  // corrected on a completed one -- both Super-Admin-only.
+  taxiAllowanceRub: integer("taxi_allowance_rub").notNull().default(0),
+
   // Which tournament this shift worked, if any -- nullable, a dealer may
   // work outside a linked tournament and that must never be invented.
   // ON DELETE SET NULL: removing a tournament must never cascade into
@@ -84,6 +96,9 @@ export const dealerShifts = pgTable("dealer_shifts", {
   index("dealer_shifts_tournament_id_idx").on(table.tournamentId),
 
   check("dealer_shifts_hourly_rate_check", sql`${table.hourlyRateRub} >= 0`),
+  // Only 0 (no chai) or exactly 500 RUB -- a fixed business amount, not a
+  // free-form field.
+  check("dealer_shifts_taxi_allowance_check", sql`${table.taxiAllowanceRub} IN (0, 500)`),
   check("dealer_shifts_worked_minutes_check", sql`${table.workedMinutes} IS NULL OR ${table.workedMinutes} > 0`),
   check("dealer_shifts_paid_hours_check", sql`${table.paidHours} IS NULL OR ${table.paidHours} > 0`),
   check("dealer_shifts_amount_check", sql`${table.amountRub} IS NULL OR ${table.amountRub} >= 0`),

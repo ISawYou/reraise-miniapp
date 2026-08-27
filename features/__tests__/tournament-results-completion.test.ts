@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   patch: vi.fn().mockResolvedValue(undefined),
   deleteByTournamentId: vi.fn().mockResolvedValue(undefined),
   insertMany: vi.fn().mockResolvedValue(undefined),
+  findByTournamentIdWithPlayer: vi.fn(),
   markAttendedBulk: vi.fn().mockResolvedValue(undefined),
   findLiveEligible: vi.fn().mockResolvedValue([]),
   findPlayerIdsWithLiveEntry: vi.fn().mockResolvedValue([]),
@@ -39,6 +40,7 @@ vi.mock("@/lib/repositories", () => ({
   resultRepository: {
     deleteByTournamentId: mocks.deleteByTournamentId,
     insertMany: mocks.insertMany,
+    findByTournamentIdWithPlayer: mocks.findByTournamentIdWithPlayer,
   },
 }));
 
@@ -50,7 +52,11 @@ vi.mock("@/features/club-activity", () => ({
   publishTournamentWinnerEvent: mocks.publishTournamentWinnerEvent,
 }));
 
-import { completeTournamentFromLiveEntries, saveTournamentResults } from "@/features/tournaments";
+import {
+  completeTournamentFromLiveEntries,
+  getTournamentEntryStats,
+  saveTournamentResults,
+} from "@/features/tournaments";
 import { ResultPlaceValidationError } from "@/lib/tournament-results-validation";
 import type { TournamentResultInput } from "@/types/domain";
 
@@ -124,6 +130,27 @@ describe("saveTournamentResults (free completion flow)", () => {
     expect(inserted.map((row: { place: number }) => row.place).sort()).toEqual([1, 2, 3]);
     expect(mocks.patch).toHaveBeenCalledWith(FREE_TOURNAMENT_ID, { status: "completed" });
     expect(mocks.publishTournamentWinnerEvent).toHaveBeenCalledWith(FREE_TOURNAMENT_ID, "p1");
+  });
+
+  it("free entry: persists the submitted free_reentries count canonically, not only to the Google Sheet export", async () => {
+    const results = [
+      freeResultInput({ player_id: "p1", place: 1, display_name: "Alice", free_reentries: 2 }),
+      freeResultInput({ player_id: "p2", place: 2, display_name: "Bob" }),
+    ];
+
+    await saveTournamentResults(FREE_TOURNAMENT_ID, results);
+
+    const inserted = mocks.insertMany.mock.calls[0][0];
+    const alice = inserted.find((row: { player_id: string }) => row.player_id === "p1");
+    const bob = inserted.find((row: { player_id: string }) => row.player_id === "p2");
+    expect(alice.free_reentries).toBe(2);
+    // Untouched by this change -- rating/placement/formula fields are exactly
+    // what freeResultInput/calculateRatingPointsForTournament already produced.
+    expect(alice.rating_points).toBe(10);
+    expect(alice.place).toBe(1);
+    // Omitted free_reentries defaults to 0, never undefined/null in the
+    // persisted row -- same "honest placeholder" convention as addons.
+    expect(bob.free_reentries).toBe(0);
   });
 
   it("rejects two players sharing place=12 before touching the database (the production incident)", async () => {
@@ -234,5 +261,68 @@ describe("completeTournamentFromLiveEntries (live completion flow)", () => {
       /Заполните место/
     );
     expect(mocks.insertMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("getTournamentEntryStats", () => {
+  function resultRow(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      player_id: "p1",
+      place: 1,
+      knockouts: 0,
+      reentries: 1,
+      addons: 0,
+      free_reentries: 0,
+      rating_points: 10,
+      username: null,
+      display_name: "Player",
+      ...overrides,
+    };
+  }
+
+  it("aggregates players/entries/rebuys/add-ons/free-entries from the canonical persisted results", async () => {
+    mocks.findByTournamentIdWithPlayer.mockResolvedValue([
+      resultRow({ player_id: "p1", reentries: 2, addons: 1, free_reentries: 1 }),
+      resultRow({ player_id: "p2", reentries: 1, addons: 0, free_reentries: 0 }),
+      resultRow({ player_id: "p3", reentries: 1, addons: 2, free_reentries: 1 }),
+    ]);
+
+    const stats = await getTournamentEntryStats(FREE_TOURNAMENT_ID);
+
+    expect(stats).toEqual({
+      playersCount: 3,
+      totalEntries: 4, // 2 + 1 + 1
+      rebuysCount: 1, // 4 - 3
+      addonsCount: 3, // 1 + 0 + 2
+      freeEntriesCount: 2, // 1 + 0 + 1
+    });
+  });
+
+  it("an empty (not yet completed) tournament reports all zeros, not an error", async () => {
+    mocks.findByTournamentIdWithPlayer.mockResolvedValue([]);
+
+    const stats = await getTournamentEntryStats(FREE_TOURNAMENT_ID);
+
+    expect(stats).toEqual({
+      playersCount: 0,
+      totalEntries: 0,
+      rebuysCount: 0,
+      addonsCount: 0,
+      freeEntriesCount: 0,
+    });
+  });
+
+  it("does not change entries/rebuy/addon math -- reentries is each player's TOTAL entries, same convention as everywhere else", async () => {
+    mocks.findByTournamentIdWithPlayer.mockResolvedValue([
+      resultRow({ player_id: "p1", reentries: 1 }),
+      resultRow({ player_id: "p2", reentries: 1 }),
+    ]);
+
+    const stats = await getTournamentEntryStats(FREE_TOURNAMENT_ID);
+
+    // No rebuys at all when every player's total entries equals 1 (just
+    // their initial entry).
+    expect(stats.totalEntries).toBe(2);
+    expect(stats.rebuysCount).toBe(0);
   });
 });

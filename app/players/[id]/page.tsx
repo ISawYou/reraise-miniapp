@@ -47,7 +47,7 @@ type PersonalDealerCardSummary = {
   monthSummary: {
     completedShiftCount: number;
     workedMinutes: number;
-    amountRub: number;
+    payoutRub: number;
   };
 };
 
@@ -716,7 +716,7 @@ export default function PlayerProfilePage() {
                 {dealerCard.monthSummary.completedShiftCount > 0
                   ? `${dealerCard.monthSummary.completedShiftCount} смен · ${formatWholeHours(
                       dealerCard.monthSummary.workedMinutes
-                    )} · ${formatRub(dealerCard.monthSummary.amountRub)}`
+                    )} · ${formatRub(dealerCard.monthSummary.payoutRub)}`
                   : "В этом месяце смен ещё не было"}
               </p>
             </Link>

@@ -12,6 +12,7 @@ type PersonalDealerTournamentInfo = {
 
 type PersonalDealerOpenShift = PersonalDealerTournamentInfo & {
   startedAt: string;
+  taxiAllowanceRub: number;
 };
 
 type PersonalDealerMonthSummary = {
@@ -20,6 +21,8 @@ type PersonalDealerMonthSummary = {
   workedMinutes: number;
   paidHours: number;
   amountRub: number;
+  taxiAllowanceRub: number;
+  payoutRub: number;
 };
 
 type PersonalDealerShift = PersonalDealerTournamentInfo & {
@@ -29,6 +32,8 @@ type PersonalDealerShift = PersonalDealerTournamentInfo & {
   workedMinutes: number | null;
   paidHours: number | null;
   amountRub: number | null;
+  taxiAllowanceRub: number;
+  payoutRub: number | null;
 };
 
 type PersonalDealerSummary = {
@@ -195,6 +200,11 @@ export default function DealerPersonalPage() {
             <p className="mt-1 text-sm text-emerald-100/80">
               Прошло: {formatElapsedSince(openShift.startedAt, nowTick)}
             </p>
+            {openShift.taxiAllowanceRub > 0 ? (
+              <p className="mt-2 text-sm font-medium text-amber-300">
+                Чай +{openShift.taxiAllowanceRub} ₽
+              </p>
+            ) : null}
           </section>
         ) : null}
 
@@ -226,8 +236,13 @@ export default function DealerPersonalPage() {
                 <p className="mt-0.5 text-xs text-white/45">оплачиваемых часов</p>
               </div>
               <div>
-                <p className="text-lg font-bold text-yellow-400">{formatRub(monthSummary.amountRub)}</p>
+                <p className="text-lg font-bold text-yellow-400">{formatRub(monthSummary.payoutRub)}</p>
                 <p className="mt-0.5 text-xs text-white/45">заработано</p>
+                {monthSummary.taxiAllowanceRub > 0 ? (
+                  <p className="mt-0.5 text-[11px] text-amber-300/80">
+                    включая чай {formatRub(monthSummary.taxiAllowanceRub)}
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
@@ -268,9 +283,21 @@ export default function DealerPersonalPage() {
                               </p>
                             ) : null}
                           </div>
-                          <span className="shrink-0 text-sm font-semibold text-white">
-                            {shift.amountRub != null ? formatRub(shift.amountRub) : "—"}
-                          </span>
+                          {shift.taxiAllowanceRub > 0 && shift.amountRub != null ? (
+                            <div className="shrink-0 text-right text-xs">
+                              <p className="text-white/50">Смена: {formatRub(shift.amountRub)}</p>
+                              <p className="mt-0.5 text-amber-300/90">
+                                Чай: +{formatRub(shift.taxiAllowanceRub)}
+                              </p>
+                              <p className="mt-0.5 text-sm font-semibold text-white">
+                                Итого: {formatRub(shift.payoutRub ?? shift.amountRub)}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="shrink-0 text-sm font-semibold text-white">
+                              {shift.amountRub != null ? formatRub(shift.amountRub) : "—"}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}

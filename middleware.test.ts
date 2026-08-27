@@ -161,6 +161,9 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       // Season rating eligibility ("Вне зачёта") is Super-Admin-only.
       ["GET", "/api/admin/rating-eligibility"],
       ["PATCH", "/api/admin/rating-eligibility"],
+      // Completed-tournament admin summary bundles dealer payout (financial
+      // data) -- Super-Admin-only, same boundary as dealer stats.
+      ["GET", "/api/admin/tournaments/t1/completion-summary"],
       // A brand-new, never-listed route must fail closed too.
       ["POST", "/api/admin/tournaments/t1/some-future-destructive-action"],
     ];

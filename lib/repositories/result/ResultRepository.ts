@@ -23,6 +23,10 @@ export type ResultInsert = {
   boss_knockouts?: number;
   mystery_bounty_points?: number;
   addons?: number;
+  // See lib/db/schema/results.ts's freeReentries doc comment. Optional here
+  // for the same type-level-flexibility reason as addons/boss_knockouts;
+  // every real write path (features/tournaments.ts) provides it explicitly.
+  free_reentries?: number;
   rating_points: number;
   // Rating Breakdown (see lib/db/schema/results.ts) -- optional here for the
   // same reason boss_knockouts/mystery_bounty_points/addons are: every real

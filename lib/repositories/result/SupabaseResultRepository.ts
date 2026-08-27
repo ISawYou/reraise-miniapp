@@ -273,6 +273,12 @@ export class SupabaseResultRepository implements ResultRepository {
         boss_knockouts: row.boss_knockouts ?? 0,
         mystery_bounty_points: row.mystery_bounty_points ?? 0,
         addons: row.addons ?? 0,
+        // Free entry persistence is Postgres-only for now -- the Supabase
+        // `results` table has no free_reentries column (this domain never
+        // migrated it, unlike the Drizzle/Postgres schema -- see
+        // lib/db/schema/results.ts). Always 0 here, an honest "not tracked
+        // on this provider" default, not a guess.
+        free_reentries: 0,
         reentries: row.reentries,
         rating_points: row.rating_points ?? 0,
         username: player?.username ?? null,
@@ -395,7 +401,15 @@ export class SupabaseResultRepository implements ResultRepository {
 
   async insertMany(rows: ResultInsert[]): Promise<void> {
     const supabase = getSupabaseServer();
-    const { error } = await supabase.from("results").insert(rows);
+    // free_reentries is stripped -- the Supabase `results` table has no
+    // such column (see findByTournamentIdWithPlayer's doc comment above);
+    // sending it would error on an unrecognized column.
+    const supabaseRows = rows.map((row) => {
+      const supabaseRow: Partial<ResultInsert> = { ...row };
+      delete supabaseRow.free_reentries;
+      return supabaseRow;
+    });
+    const { error } = await supabase.from("results").insert(supabaseRows);
 
     if (error) {
       // { cause: error } preserves PostgrestError's `code`/`details` so

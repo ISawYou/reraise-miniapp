@@ -23,7 +23,7 @@ import {
 } from "@/lib/tournament-helpers";
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
-import { isStaff } from "@/lib/roles";
+import { isStaff, isSuperAdmin } from "@/lib/roles";
 import type {
   MysteryBountySnapshot,
   Player,
@@ -36,6 +36,23 @@ type DraftRow = {
   player_id: string;
   username: string | null;
   display_name: string;
+};
+
+// Super-Admin-only completed-tournament summary (see
+// app/api/admin/tournaments/[id]/completion-summary/route.ts) -- players/
+// entries/rebuys/add-ons/free entries from the canonical persisted results,
+// plus dealer payout figures for this tournament. Distinct from
+// ratingEngineV2Summary below (a live, client-side v2-only preview computed
+// from the in-progress editable form) -- this reads whatever is actually
+// saved, for any tournament/rating version.
+type TournamentCompletionSummary = {
+  playersCount: number;
+  totalEntries: number;
+  rebuysCount: number;
+  addonsCount: number;
+  freeEntriesCount: number;
+  dealersCount: number;
+  dealerPayoutRub: number;
 };
 
 type FreeFormRow = {
@@ -121,6 +138,10 @@ function formatRatingEngineMetaLines(meta: RatingPointsV2Meta): string[] {
   }
 }
 
+function formatRub(amount: number) {
+  return `${amount.toLocaleString("ru-RU")} ₽`;
+}
+
 function getTournamentModeTitle(tournament: Tournament | null) {
   if (!tournament) {
     return "Данные турнира";
@@ -178,6 +199,7 @@ export default function AdminTournamentResultsPage() {
 
   const [player, setPlayer] = useState<Player | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
+  const [completionSummary, setCompletionSummary] = useState<TournamentCompletionSummary | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -559,6 +581,32 @@ export default function AdminTournamentResultsPage() {
       meta,
     };
   }, [freeRows, tournament, isFreeTournament]);
+
+  // Completed-tournament admin summary -- Super-Admin-only (dealer payout is
+  // financial data, same boundary as dealer stats elsewhere). Only fetched
+  // once the tournament is actually completed -- before that there are no
+  // persisted results/dealer shifts to summarize yet.
+  useEffect(() => {
+    if (!tournamentId || tournament?.status !== "completed" || !isSuperAdmin(player?.role)) {
+      setCompletionSummary(null);
+      return;
+    }
+
+    let cancelled = false;
+    fetchAdminJson<TournamentCompletionSummary>(
+      `/api/admin/tournaments/${tournamentId}/completion-summary`
+    )
+      .then((data) => {
+        if (!cancelled) setCompletionSummary(data);
+      })
+      .catch(() => {
+        // Non-critical -- the rest of the page stays fully usable without it.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tournamentId, tournament?.status, player?.role]);
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -1466,6 +1514,21 @@ export default function AdminTournamentResultsPage() {
                 {formatRatingEngineMetaLines(ratingEngineV2Summary.meta).join(" · ")}
               </p>
             ) : null}
+          </div>
+        ) : null}
+
+        {completionSummary ? (
+          <div className="mt-2 rounded-xl border border-white/10 bg-white/5 p-3">
+            <p className="text-[11px] font-medium text-white/50">Итоги турнира</p>
+            <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-white/70 sm:grid-cols-4">
+              <span>Игроков: {completionSummary.playersCount}</span>
+              <span>Входов: {completionSummary.totalEntries}</span>
+              <span>Rebuy: {completionSummary.rebuysCount}</span>
+              <span>Add-on: {completionSummary.addonsCount}</span>
+              <span>Free entry: {completionSummary.freeEntriesCount}</span>
+              <span>Дилеры: {completionSummary.dealersCount}</span>
+              <span>Дилерам: {formatRub(completionSummary.dealerPayoutRub)}</span>
+            </div>
           </div>
         ) : null}
 

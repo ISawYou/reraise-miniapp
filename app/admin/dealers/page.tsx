@@ -10,11 +10,14 @@ import type { Player, Tournament } from "@/types/domain";
 
 const NO_TOURNAMENT_VALUE = "";
 
+const TAXI_ALLOWANCE_RUB = 500;
+
 type DealerOpenShift = {
   id: string;
   startedAt: string;
   tournamentId: string | null;
   tournamentTitle: string | null;
+  taxiAllowanceRub: number;
 };
 
 type DealerStatus = {
@@ -34,6 +37,8 @@ type DealerShiftSummary = {
   workedMinutes: number | null;
   paidHours: number | null;
   amountRub: number | null;
+  taxiAllowanceRub: number;
+  payoutRub: number | null;
   tournamentId: string | null;
   tournamentTitle: string | null;
 };
@@ -152,12 +157,13 @@ export default function AdminDealersPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const [dealers, setDealers] = useState<DealerStatus[]>([]);
-  const [today, setToday] = useState<{ shifts: DealerShiftSummary[]; totalAmountRub: number }>({
+  const [today, setToday] = useState<{ shifts: DealerShiftSummary[]; totalPayoutRub: number }>({
     shifts: [],
-    totalAmountRub: 0,
+    totalPayoutRub: 0,
   });
   const [recent, setRecent] = useState<DealerShiftSummary[]>([]);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [savingTaxiAllowanceFor, setSavingTaxiAllowanceFor] = useState<string | null>(null);
 
   const [showAddDealer, setShowAddDealer] = useState(false);
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
@@ -201,7 +207,7 @@ export default function AdminDealersPage() {
       if (actingAsSuperAdmin) {
         const [dealersData, todayData, recentData] = await Promise.all([
           fetchAdminJson<{ dealers: DealerStatus[] }>("/api/admin/dealers"),
-          fetchAdminJson<{ shifts: DealerShiftSummary[]; totalAmountRub: number }>(
+          fetchAdminJson<{ shifts: DealerShiftSummary[]; totalPayoutRub: number }>(
             "/api/admin/dealers/shifts/today"
           ),
           fetchAdminJson<{ shifts: DealerShiftSummary[] }>("/api/admin/dealers/shifts/recent"),
@@ -477,6 +483,32 @@ export default function AdminDealersPage() {
     }
   }
 
+  // "Чай" -- works on an open shift or a completed one, Super-Admin-only.
+  // Never touches worked_minutes/paid_hours/rate/amount -- a single
+  // independent PATCH field.
+  async function handleToggleTaxiAllowance(shiftId: string, enable: boolean) {
+    setSavingTaxiAllowanceFor(shiftId);
+    setError(null);
+    try {
+      const taxiAllowanceRub = enable ? TAXI_ALLOWANCE_RUB : 0;
+      await fetchAdminJson(`/api/admin/dealers/shifts/${shiftId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taxiAllowanceRub }),
+      });
+      setMessage(enable ? "Чай +500 ₽ добавлен" : "Чай отменён");
+      // editingShift is a locally-held snapshot from when the modal opened --
+      // loadAll refreshes the underlying lists but not this snapshot, so
+      // patch it directly if it's the shift that was just toggled.
+      setEditingShift((prev) => (prev?.id === shiftId ? { ...prev, taxiAllowanceRub } : prev));
+      await loadAll(isSuperAdminCaller);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось изменить чай");
+    } finally {
+      setSavingTaxiAllowanceFor(null);
+    }
+  }
+
   const startPreview = startShiftFor && startShiftAt ? fromDateTimeLocalValue(startShiftAt) : null;
   const endPreview =
     endShiftFor?.openShift && endShiftStartedAt && endShiftEndedAt
@@ -645,6 +677,32 @@ export default function AdminDealersPage() {
                               <p className="mt-1 text-xs text-emerald-100/60">
                                 {dealer.openShift.tournamentTitle ?? "Без турнира"}
                               </p>
+                              {isSuperAdminCaller ? (
+                                dealer.openShift.taxiAllowanceRub > 0 ? (
+                                  <div className="mt-1.5 flex items-center gap-1.5">
+                                    <span className="text-xs font-medium text-amber-300">
+                                      Чай +{dealer.openShift.taxiAllowanceRub} ₽
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={savingTaxiAllowanceFor === dealer.openShift.id}
+                                      onClick={() => handleToggleTaxiAllowance(dealer.openShift!.id, false)}
+                                      className="text-xs text-white/40 underline decoration-white/20 underline-offset-2 disabled:opacity-50"
+                                    >
+                                      Отменить
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={savingTaxiAllowanceFor === dealer.openShift.id}
+                                    onClick={() => handleToggleTaxiAllowance(dealer.openShift!.id, true)}
+                                    className="mt-1.5 text-xs text-amber-300/80 underline decoration-amber-300/30 underline-offset-2 disabled:opacity-50"
+                                  >
+                                    Добавить чай +500 ₽
+                                  </button>
+                                )
+                              ) : null}
                             </div>
                             <button
                               type="button"
@@ -706,17 +764,20 @@ export default function AdminDealersPage() {
                             </p>
                             <p className="mt-0.5 text-xs text-white/35">
                               {shift.tournamentTitle ?? "Без турнира"}
+                              {shift.taxiAllowanceRub > 0 ? (
+                                <span className="text-amber-300/80"> · Чай +{shift.taxiAllowanceRub} ₽</span>
+                              ) : null}
                             </p>
                           </div>
                           <div className="shrink-0 text-right text-sm font-semibold text-white">
-                            {shift.amountRub != null ? formatRub(shift.amountRub) : "—"}
+                            {shift.payoutRub != null ? formatRub(shift.payoutRub) : "—"}
                           </div>
                         </div>
                       ))}
                       <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.03] px-4 py-3">
                         <span className="text-sm font-semibold text-white/80">Итого сегодня</span>
                         <span className="text-sm font-bold text-yellow-400">
-                          {formatRub(today.totalAmountRub)}
+                          {formatRub(today.totalPayoutRub)}
                         </span>
                       </div>
                     </div>
@@ -753,11 +814,14 @@ export default function AdminDealersPage() {
                             </p>
                             <p className="mt-0.5 text-xs text-white/35">
                               {shift.tournamentTitle ?? "Без турнира"}
+                              {shift.taxiAllowanceRub > 0 ? (
+                                <span className="text-amber-300/80"> · Чай +{shift.taxiAllowanceRub} ₽</span>
+                              ) : null}
                             </p>
                           </div>
                           <div className="flex shrink-0 items-center gap-3">
                             <span className="text-sm font-semibold text-white">
-                              {shift.amountRub != null ? formatRub(shift.amountRub) : "—"}
+                              {shift.payoutRub != null ? formatRub(shift.payoutRub) : "—"}
                             </span>
                             <button
                               type="button"
@@ -976,6 +1040,33 @@ export default function AdminDealersPage() {
                 tournaments={tournaments}
                 loading={tournamentsLoading}
               />
+
+              <div className="mt-3">
+                {editingShift.taxiAllowanceRub > 0 ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium text-amber-300">
+                      Чай +{editingShift.taxiAllowanceRub} ₽
+                    </span>
+                    <button
+                      type="button"
+                      disabled={savingTaxiAllowanceFor === editingShift.id}
+                      onClick={() => handleToggleTaxiAllowance(editingShift.id, false)}
+                      className="text-xs text-white/40 underline decoration-white/20 underline-offset-2 disabled:opacity-50"
+                    >
+                      Отменить
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={savingTaxiAllowanceFor === editingShift.id}
+                    onClick={() => handleToggleTaxiAllowance(editingShift.id, true)}
+                    className="text-xs text-amber-300/80 underline decoration-amber-300/30 underline-offset-2 disabled:opacity-50"
+                  >
+                    Добавить чай +500 ₽
+                  </button>
+                )}
+              </div>
 
               <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm">
                 {editPreview ? (
