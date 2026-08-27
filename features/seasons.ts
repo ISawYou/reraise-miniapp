@@ -1,5 +1,5 @@
 import { seasonRepository } from "@/lib/repositories";
-import { getSeasonLeaderboard } from "@/features/leaderboard";
+import { getOfficialSeasonLeaderboard } from "@/features/leaderboard";
 import { grantEventAutomaticAchievement } from "@/features/achievements";
 
 const NUMBER_ONE_CODE = "number_one";
@@ -24,18 +24,23 @@ export type CloseSeasonResult =
 // that signal from now on: it flips `is_active` to false itself, once,
 // as the last step of a successful finalization.
 //
-// Winner determination reuses the exact same canonical calculation the
-// public leaderboard uses (features/leaderboard.ts::getSeasonLeaderboard)
-// -- not a second formula, and the rating formula itself
-// (features/rating.ts / features/rating-v2.ts) is untouched.
+// Winner determination reuses the exact same canonical OFFICIAL calculation
+// the public leaderboard uses (features/leaderboard.ts::
+// getOfficialSeasonLeaderboard) -- not a second formula, and the rating
+// formula itself (features/rating.ts / features/rating-v2.ts) is untouched.
+// A player marked "Вне зачёта" keeps their rating_points but is excluded
+// from THIS leaderboard entirely, so they can never become `first`/`second`
+// below and are correctly ignored by both winner selection and tie
+// detection -- exactly the same rule the public standings apply.
 //
-// Tie handling: getSeasonLeaderboard has no deterministic tie-breaker for
-// equal totals (see its own doc comment -- neither ResultRepository
-// implementation orders findWithPlayerBySeasonId). Picking an arbitrary
-// winner from an unordered tie would be exactly the kind of heuristic
-// substitution explicitly ruled out for this feature -- so a tie for rank
-// 1 aborts with status: "tie" instead: nothing is granted, the season is
-// NOT closed, and every tied player_id is reported so a human can decide.
+// Tie handling: the underlying raw calculation has no deterministic
+// tie-breaker for equal totals (see getSeasonLeaderboard's own doc comment
+// -- neither ResultRepository implementation orders findWithPlayerBySeasonId).
+// Picking an arbitrary winner from an unordered tie would be exactly the
+// kind of heuristic substitution explicitly ruled out for this feature --
+// so a tie for rank 1 (among ELIGIBLE players) aborts with status: "tie"
+// instead: nothing is granted, the season is NOT closed, and every tied
+// player_id is reported so a human can decide.
 export async function closeSeason(seasonId: string): Promise<CloseSeasonResult> {
   const seasons = await seasonRepository.listAll();
   const season = seasons.find((s) => s.id === seasonId);
@@ -60,7 +65,7 @@ export async function closeSeason(seasonId: string): Promise<CloseSeasonResult> 
     );
   }
 
-  const leaderboard = await getSeasonLeaderboard(seasonId);
+  const { leaderboard } = await getOfficialSeasonLeaderboard(seasonId);
 
   if (leaderboard.length === 0) {
     // No results at all -- nothing to award, but still a legitimate

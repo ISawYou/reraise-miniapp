@@ -158,6 +158,9 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       // Role management is Super-Admin-only.
       ["GET", "/api/admin/roles"],
       ["PATCH", "/api/admin/roles"],
+      // Season rating eligibility ("Вне зачёта") is Super-Admin-only.
+      ["GET", "/api/admin/rating-eligibility"],
+      ["PATCH", "/api/admin/rating-eligibility"],
       // A brand-new, never-listed route must fail closed too.
       ["POST", "/api/admin/tournaments/t1/some-future-destructive-action"],
     ];
@@ -166,5 +169,38 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       const response = await middleware(requestFor(method, path));
       expect(response.status, `${method} ${path}`).toBe(403);
     }
+  });
+});
+
+describe("admin middleware for season rating eligibility (\"Вне зачёта\")", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.verifySession.mockReturnValue("player-1");
+  });
+
+  it("rejects an ordinary player from both listing and toggling exclusions", async () => {
+    mocks.findById.mockResolvedValue({ id: "player-1", role: "player" });
+
+    for (const [method, path] of [
+      ["GET", "/api/admin/rating-eligibility"],
+      ["PATCH", "/api/admin/rating-eligibility"],
+    ] as const) {
+      const request = new NextRequest(`https://re-raise.ru${path}`, {
+        method,
+        headers: { cookie: "reraise_session=signed" },
+      });
+      const response = await middleware(request);
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+  });
+
+  it("allows an admin (Super Admin) to reach it", async () => {
+    mocks.findById.mockResolvedValue({ id: "admin-1", role: "admin" });
+    const request = new NextRequest("https://re-raise.ru/api/admin/rating-eligibility", {
+      headers: { cookie: "reraise_session=signed" },
+    });
+
+    const response = await middleware(request);
+    expect(response.status).toBe(200);
   });
 });

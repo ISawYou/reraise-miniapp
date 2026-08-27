@@ -233,6 +233,7 @@ export default function HomePage() {
   const [tournamentVisuals, setTournamentVisuals] = useState<Record<string, TournamentVisualConfig>>({});
   const [seasonTitle, setSeasonTitle] = useState("Активный сезон");
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
+  const [outOfCompetitionRows, setOutOfCompetitionRows] = useState<LeaderboardRow[]>([]);
   const [homeDataLoading, setHomeDataLoading] = useState(true);
   const [homeActivity, setHomeActivity] = useState<ClubActivityEvent[]>([]);
 
@@ -409,6 +410,7 @@ export default function HomePage() {
           const data = (await res.json()) as {
             season: { id: string; title: string };
             leaderboard: LeaderboardRow[];
+            outOfCompetition?: LeaderboardRow[];
           };
           return {
             seasonTitle:
@@ -416,12 +418,14 @@ export default function HomePage() {
                 ? data.season.title
                 : "Активный сезон",
             leaderboard: data.leaderboard ?? [],
+            outOfCompetition: data.outOfCompetition ?? [],
           };
         } catch (error) {
           console.error("Home leaderboard load error:", error);
           return {
             seasonTitle: "Активный сезон",
             leaderboard: [] as LeaderboardRow[],
+            outOfCompetition: [] as LeaderboardRow[],
           };
         }
       })(),
@@ -474,6 +478,7 @@ export default function HomePage() {
     setActiveTournamentIndex(0);
     setSeasonTitle(ratingData.seasonTitle);
     setLeaderboardRows(ratingData.leaderboard);
+    setOutOfCompetitionRows(ratingData.outOfCompetition);
     setHomeActivity((activityData.events ?? []) as ClubActivityEvent[]);
     setCompletedAchievementsCount(
       (achievementRows as Array<{ completed_at: string | null }>).filter(
@@ -972,6 +977,9 @@ export default function HomePage() {
       : null;
   const currentPlayerIsInTopThree =
     currentPlayerLeaderboardIndex >= 0 && currentPlayerLeaderboardIndex < 3;
+  const currentPlayerOutOfCompetitionRow = player
+    ? outOfCompetitionRows.find((row) => row.player_id === player.id)
+    : undefined;
 
   function getLeaderboardMedal(place: number) {
     if (place === 1) return "🥇";
@@ -986,6 +994,12 @@ export default function HomePage() {
       }
 
       return `Вы: #${currentPlayerLeaderboardIndex + 1} • ${currentPlayerLeaderboardRow.rating} очков`;
+    }
+
+    if (currentPlayerOutOfCompetitionRow) {
+      // Вне зачёта -- keeps earning rating_points normally, just excluded
+      // from official standing. Never imply the points were deleted.
+      return `Вы участвуете вне зачёта этого сезона • ${currentPlayerOutOfCompetitionRow.rating} очков`;
     }
 
     return "Вы пока не участвуете в рейтинге";
@@ -1603,7 +1617,7 @@ export default function HomePage() {
                 <p className="text-sm font-semibold text-white/88">
                   {homeDataLoading ? " " : getCompactLeaderboardSummary()}
                 </p>
-                {!homeDataLoading && !currentPlayerLeaderboardRow ? (
+                {!homeDataLoading && !currentPlayerLeaderboardRow && !currentPlayerOutOfCompetitionRow ? (
                   <p className="mt-1 text-sm text-white/60">
                     Сыграйте первый турнир, чтобы попасть в таблицу рейтинга
                   </p>

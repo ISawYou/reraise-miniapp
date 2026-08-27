@@ -1,4 +1,4 @@
-import { resultRepository } from "@/lib/repositories";
+import { resultRepository, seasonRatingExclusionRepository } from "@/lib/repositories";
 
 export type LeaderboardEntry = {
   player_id: string;
@@ -7,6 +7,20 @@ export type LeaderboardEntry = {
   telegram_avatar_url: string | null;
   custom_avatar_url: string | null;
   rating: number;
+};
+
+export type OfficialLeaderboardEntry = LeaderboardEntry & { officialRank: number };
+
+export type OfficialSeasonLeaderboard = {
+  // Eligible players only, ranked 1..N -- what "ТОП-9" / Number One /
+  // official standings mean. Excluded ("Вне зачёта") players never consume
+  // a rank number here, even though their rating_points are unchanged.
+  leaderboard: OfficialLeaderboardEntry[];
+  // Excluded players, same descending rating order, but deliberately
+  // WITHOUT an official rank -- "убрать из рейтинга, но не убрать
+  // рейтинг": their points stay visible/transparent, just outside
+  // qualification.
+  outOfCompetition: LeaderboardEntry[];
 };
 
 // Canonical leaderboard calculation for one season -- the single source of
@@ -45,4 +59,33 @@ export async function getSeasonLeaderboard(seasonId: string): Promise<Leaderboar
   }
 
   return Array.from(leaderboardMap.values()).sort((a, b) => b.rating - a.rating);
+}
+
+// "Вне зачёта" applied ON TOP of the raw calculation above -- reuses
+// getSeasonLeaderboard unchanged (one underlying accumulation, not a second
+// rating formula) and only partitions the already-sorted result by
+// season_rating_exclusions. This is the canonical entry point for anything
+// that means "official season standing": the public leaderboard route AND
+// season finalization (features/seasons.ts::closeSeason) both read from
+// here, so TOP-9/Number One/pagination all agree on the exact same rule.
+export async function getOfficialSeasonLeaderboard(seasonId: string): Promise<OfficialSeasonLeaderboard> {
+  const [raw, exclusions] = await Promise.all([
+    getSeasonLeaderboard(seasonId),
+    seasonRatingExclusionRepository.listBySeasonId(seasonId),
+  ]);
+
+  const excludedPlayerIds = new Set(exclusions.map((row) => row.player_id));
+
+  const leaderboard: OfficialLeaderboardEntry[] = [];
+  const outOfCompetition: LeaderboardEntry[] = [];
+
+  for (const entry of raw) {
+    if (excludedPlayerIds.has(entry.player_id)) {
+      outOfCompetition.push(entry);
+    } else {
+      leaderboard.push({ ...entry, officialRank: leaderboard.length + 1 });
+    }
+  }
+
+  return { leaderboard, outOfCompetition };
 }

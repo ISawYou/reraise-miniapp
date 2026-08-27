@@ -1,21 +1,21 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mockFindActive = vi.fn();
-const mockGetSeasonLeaderboard = vi.fn();
+const mockGetOfficialSeasonLeaderboard = vi.fn();
 
 vi.mock("@/lib/repositories", () => ({
   seasonRepository: { findActive: mockFindActive },
 }));
 
 vi.mock("@/features/leaderboard", () => ({
-  getSeasonLeaderboard: mockGetSeasonLeaderboard,
+  getOfficialSeasonLeaderboard: mockGetOfficialSeasonLeaderboard,
 }));
 
 const { GET, dynamic } = await import("@/app/api/leaderboard/route");
 
 beforeEach(() => {
   mockFindActive.mockReset();
-  mockGetSeasonLeaderboard.mockReset();
+  mockGetOfficialSeasonLeaderboard.mockReset();
 });
 
 describe("GET /api/leaderboard", () => {
@@ -29,27 +29,41 @@ describe("GET /api/leaderboard", () => {
     expect(dynamic).toBe("force-dynamic");
   });
 
-  it("returns the season and leaderboard on success", async () => {
+  it("returns the season, official leaderboard, and out-of-competition rows on success", async () => {
     mockFindActive.mockResolvedValue({ id: "s1", title: "Season 1" });
-    mockGetSeasonLeaderboard.mockResolvedValue([
-      {
-        player_id: "p1",
-        username: "p1",
-        display_name: "Player 1",
-        telegram_avatar_url: null,
-        custom_avatar_url: null,
-        rating: 100,
-      },
-    ]);
+    mockGetOfficialSeasonLeaderboard.mockResolvedValue({
+      leaderboard: [
+        {
+          player_id: "p1",
+          username: "p1",
+          display_name: "Player 1",
+          telegram_avatar_url: null,
+          custom_avatar_url: null,
+          rating: 100,
+          officialRank: 1,
+        },
+      ],
+      outOfCompetition: [
+        {
+          player_id: "p0",
+          username: "owner",
+          display_name: "Owner",
+          telegram_avatar_url: null,
+          custom_avatar_url: null,
+          rating: 1000,
+        },
+      ],
+    });
 
     const response = await GET();
     const json = await response.json();
 
-    expect(mockGetSeasonLeaderboard).toHaveBeenCalledWith("s1");
+    expect(mockGetOfficialSeasonLeaderboard).toHaveBeenCalledWith("s1");
     expect(response.status).toBe(200);
     expect(json).toMatchObject({
       season: { id: "s1", title: "Season 1" },
-      leaderboard: [{ player_id: "p1", rating: 100 }],
+      leaderboard: [{ player_id: "p1", rating: 100, officialRank: 1 }],
+      outOfCompetition: [{ player_id: "p0", rating: 1000 }],
     });
   });
 
@@ -59,14 +73,14 @@ describe("GET /api/leaderboard", () => {
     const response = await GET();
     const json = await response.json();
 
-    expect(mockGetSeasonLeaderboard).not.toHaveBeenCalled();
+    expect(mockGetOfficialSeasonLeaderboard).not.toHaveBeenCalled();
     expect(response.status).toBe(404);
     expect(json).toMatchObject({ error: expect.any(String) });
   });
 
   it("returns 500 when leaderboard computation throws", async () => {
     mockFindActive.mockResolvedValue({ id: "s1", title: "Season 1" });
-    mockGetSeasonLeaderboard.mockRejectedValue(new Error("db unreachable"));
+    mockGetOfficialSeasonLeaderboard.mockRejectedValue(new Error("db unreachable"));
 
     const response = await GET();
     const json = await response.json();

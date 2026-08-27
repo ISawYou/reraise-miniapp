@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { seasonRepository } from "@/lib/repositories";
-import { getSeasonLeaderboard } from "@/features/leaderboard";
+import { getOfficialSeasonLeaderboard } from "@/features/leaderboard";
 
 // Always run at request time -- never statically generated. `revalidate`
 // used to make Next.js execute this handler during `next build` itself (to
@@ -19,8 +19,12 @@ export async function GET() {
   }
 
   let leaderboard;
+  let outOfCompetition;
   try {
-    leaderboard = await getSeasonLeaderboard(season.id);
+    // Official standings: raw rating totals minus "Вне зачёта" season
+    // exclusions -- see features/leaderboard.ts. Excluded players are
+    // returned separately (outOfCompetition), never with an official rank.
+    ({ leaderboard, outOfCompetition } = await getOfficialSeasonLeaderboard(season.id));
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
@@ -28,5 +32,9 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json({ season: { id: season.id, title: season.title }, leaderboard });
+  return NextResponse.json({
+    season: { id: season.id, title: season.title },
+    leaderboard,
+    outOfCompetition,
+  });
 }

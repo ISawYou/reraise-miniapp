@@ -20,6 +20,7 @@ type LeaderboardRow = {
 export default function LeaderboardPage() {
   const [seasonTitle, setSeasonTitle] = useState("");
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
+  const [outOfCompetitionRows, setOutOfCompetitionRows] = useState<LeaderboardRow[]>([]);
   const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,9 +38,11 @@ export default function LeaderboardPage() {
         const data = (await response.json()) as {
           season: { id: string; title: string };
           leaderboard: LeaderboardRow[];
+          outOfCompetition?: LeaderboardRow[];
         };
         setSeasonTitle(data.season.title?.trim() || "Активный сезон");
         setRows(data.leaderboard);
+        setOutOfCompetitionRows(data.outOfCompetition ?? []);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Ошибка загрузки рейтинга";
@@ -51,6 +54,10 @@ export default function LeaderboardPage() {
 
     loadLeaderboard();
   }, []);
+
+  const currentPlayerIsOutOfCompetition = outOfCompetitionRows.some(
+    (row) => row.player_id === currentPlayerId
+  );
 
   if (loading) {
     return (
@@ -168,6 +175,56 @@ export default function LeaderboardPage() {
             })
           )}
         </div>
+
+        {outOfCompetitionRows.length > 0 ? (
+          <div className="mt-6">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/35">
+              Вне зачёта
+            </p>
+            {currentPlayerIsOutOfCompetition ? (
+              <p className="mb-2 text-xs text-white/50">
+                Вы участвуете вне зачёта этого сезона
+              </p>
+            ) : null}
+            <div className="overflow-hidden rounded-2xl border border-white/5 bg-white/[0.02]">
+              {outOfCompetitionRows.map((row) => {
+                const isCurrentPlayer = row.player_id === currentPlayerId;
+                return (
+                  <Link
+                    key={row.player_id}
+                    href={`/players/${row.player_id}`}
+                    className={`flex items-center justify-between gap-3 border-b border-white/5 px-3 py-3 last:border-b-0 sm:px-4 ${
+                      isCurrentPlayer ? "bg-[#d7b55a]/[0.06]" : ""
+                    }`}
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+                      {getPlayerAvatarUrl(row) ? (
+                        <img
+                          src={getPlayerAvatarUrl(row) ?? ""}
+                          alt={row.display_name}
+                          className="h-9 w-9 shrink-0 rounded-full border border-white/10 object-cover opacity-80"
+                        />
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-semibold text-white/60">
+                          {getPlayerAvatarFallback(row)}
+                        </div>
+                      )}
+
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-white/70">{row.display_name}</p>
+                        {isCurrentPlayer ? (
+                          <p className="mt-1 text-xs text-[#f0d38a]">Это вы</p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-sm text-white/50">{row.rating} очков</div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );
