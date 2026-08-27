@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
+import { fetchAdminJson } from "@/lib/client-request";
 import { isStaff, isSuperAdmin } from "@/lib/roles";
 import type { Player } from "@/types/domain";
 
@@ -208,12 +209,22 @@ const SUPER_ADMIN_SECTIONS = [
 export default function AdminPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
+  // Staff who ALSO happen to have a dealer profile (dealer is not an auth
+  // role -- purely orthogonal). Only used for a small "Моя работа"
+  // shortcut here; never affects access control.
+  const [isDealer, setIsDealer] = useState(false);
 
   useEffect(() => {
     async function loadAdminData() {
       try {
         const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
+        if (isStaff(ensuredPlayer?.role)) {
+          const dealerMe = await fetchAdminJson<{ dealer: { isActive: boolean } | null }>(
+            "/api/dealer/me"
+          ).catch(() => null);
+          setIsDealer(Boolean(dealerMe?.dealer));
+        }
       } catch (error) {
         console.error("Admin access check error:", error);
       } finally {
@@ -259,6 +270,15 @@ export default function AdminPage() {
         <BackButton href="/" className="mb-4" />
 
         <h1 className="text-2xl font-bold">Админ-панель</h1>
+
+        {isDealer ? (
+          <Link
+            href="/dealer"
+            className="mt-3 inline-flex items-center gap-1.5 text-sm text-yellow-400/90 underline decoration-yellow-400/30 underline-offset-2"
+          >
+            Моя работа (дилер) →
+          </Link>
+        ) : null}
 
         <div className="mt-6 space-y-6">
           {sections.map((section) => (

@@ -189,6 +189,8 @@ export default function AdminDealersPage() {
   const [editStartedAt, setEditStartedAt] = useState("");
   const [editEndedAt, setEditEndedAt] = useState("");
   const [editTournamentId, setEditTournamentId] = useState(NO_TOURNAMENT_VALUE);
+  const [editDealerPlayerId, setEditDealerPlayerId] = useState("");
+  const [editHourlyRateRub, setEditHourlyRateRub] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [editingRateFor, setEditingRateFor] = useState<string | null>(null);
@@ -251,6 +253,21 @@ export default function AdminDealersPage() {
   }, []);
 
   const dealerPlayerIds = useMemo(() => new Set(dealers.map((d) => d.player.id)), [dealers]);
+
+  // Options for the "Редактировать смену" dealer-reassignment select --
+  // active dealers plus, if the shift being edited belongs to a dealer no
+  // longer active (deactivated but with valid history), that dealer too,
+  // so the select always shows the shift's current assignment correctly.
+  const dealerReassignOptions = useMemo(() => {
+    const options = dealers.map((d) => ({
+      id: d.player.id,
+      label: d.player.admin_display_name || d.player.display_name,
+    }));
+    if (editingShift && !dealerPlayerIds.has(editingShift.dealerPlayerId)) {
+      options.push({ id: editingShift.dealerPlayerId, label: editingShift.dealerDisplayName });
+    }
+    return options;
+  }, [dealers, dealerPlayerIds, editingShift]);
 
   const filteredAddablePlayers = useMemo(() => {
     const query = dealerSearch.trim().toLowerCase();
@@ -426,12 +443,21 @@ export default function AdminDealersPage() {
     setEditStartedAt(toDateTimeLocalValue(shift.startedAt));
     setEditEndedAt(shift.endedAt ? toDateTimeLocalValue(shift.endedAt) : "");
     setEditTournamentId(shift.tournamentId ?? NO_TOURNAMENT_VALUE);
+    setEditDealerPlayerId(shift.dealerPlayerId);
+    setEditHourlyRateRub(String(shift.hourlyRateRub));
     setError(null);
     ensureTournamentsLoaded();
   }
 
   async function handleConfirmEditShift() {
     if (!editingShift || !editStartedAt || !editEndedAt) return;
+
+    const hourlyRateRub = Number(editHourlyRateRub);
+    if (!Number.isInteger(hourlyRateRub) || hourlyRateRub < 0) {
+      setError("Ставка должна быть неотрицательным целым числом");
+      return;
+    }
+
     setSavingEdit(true);
     setError(null);
     try {
@@ -439,8 +465,10 @@ export default function AdminDealersPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          dealerPlayerId: editDealerPlayerId,
           startedAt: fromDateTimeLocalValue(editStartedAt),
           endedAt: fromDateTimeLocalValue(editEndedAt),
+          hourlyRateRub,
           tournamentId: editTournamentId || null,
         }),
       });
@@ -523,7 +551,7 @@ export default function AdminDealersPage() {
       ? previewPayroll(
           fromDateTimeLocalValue(editStartedAt),
           fromDateTimeLocalValue(editEndedAt),
-          editingShift.hourlyRateRub
+          Number(editHourlyRateRub) || editingShift.hourlyRateRub
         )
       : null;
 
@@ -828,7 +856,7 @@ export default function AdminDealersPage() {
                               onClick={() => openEditShiftModal(shift)}
                               className="text-xs font-medium text-yellow-400 underline decoration-yellow-400/30 underline-offset-2"
                             >
-                              Изменить
+                              Редактировать смену
                             </button>
                           </div>
                         </div>
@@ -1014,10 +1042,23 @@ export default function AdminDealersPage() {
           >
             <div className="mx-auto max-w-md">
               <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
-              <h2 className="text-lg font-semibold">Изменить смену</h2>
+              <h2 className="text-lg font-semibold">Редактировать смену</h2>
               <p className="mt-1 text-sm text-white/60">{editingShift.dealerDisplayName}</p>
 
-              <label className="mt-4 block text-xs text-white/50">Пришёл</label>
+              <label className="mt-4 block text-xs text-white/50">Дилер</label>
+              <select
+                value={editDealerPlayerId}
+                onChange={(e) => setEditDealerPlayerId(e.target.value)}
+                className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none"
+              >
+                {dealerReassignOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <label className="mt-3 block text-xs text-white/50">Пришёл</label>
               <input
                 type="datetime-local"
                 value={editStartedAt}
@@ -1030,6 +1071,15 @@ export default function AdminDealersPage() {
                 type="datetime-local"
                 value={editEndedAt}
                 onChange={(e) => setEditEndedAt(e.target.value)}
+                className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none"
+              />
+
+              <label className="mt-3 block text-xs text-white/50">Ставка, ₽/ч</label>
+              <input
+                type="number"
+                min="0"
+                value={editHourlyRateRub}
+                onChange={(e) => setEditHourlyRateRub(e.target.value)}
                 className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none"
               />
 
@@ -1076,9 +1126,17 @@ export default function AdminDealersPage() {
                     </p>
                     <p className="mt-1 text-white/70">Оплачивается: {editPreview.paidHours} ч</p>
                     {editPreview.amountRub != null ? (
-                      <p className="mt-1 font-semibold text-yellow-400">
-                        К выплате: {formatRub(editPreview.amountRub)}
-                      </p>
+                      <>
+                        <p className="mt-1 text-white/70">Смена: {formatRub(editPreview.amountRub)}</p>
+                        {editingShift.taxiAllowanceRub > 0 ? (
+                          <p className="mt-1 text-amber-300/90">
+                            Чай: +{formatRub(editingShift.taxiAllowanceRub)}
+                          </p>
+                        ) : null}
+                        <p className="mt-1 font-semibold text-yellow-400">
+                          Итого: {formatRub(editPreview.amountRub + editingShift.taxiAllowanceRub)}
+                        </p>
+                      </>
                     ) : null}
                   </>
                 ) : (

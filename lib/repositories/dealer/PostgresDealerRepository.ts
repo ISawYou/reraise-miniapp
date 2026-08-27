@@ -178,6 +178,7 @@ export class PostgresDealerRepository implements DealerRepository {
       .set({
         startedAt: new Date(patch.started_at),
         endedAt: new Date(patch.ended_at),
+        hourlyRateRub: patch.hourly_rate_rub,
         workedMinutes: patch.worked_minutes,
         paidHours: patch.paid_hours,
         amountRub: patch.amount_rub,
@@ -200,6 +201,19 @@ export class PostgresDealerRepository implements DealerRepository {
     const [row] = rows;
     if (!row) {
       throw new Error("Failed to update dealer shift tournament: no rows returned");
+    }
+    return mapShiftRow(row);
+  }
+
+  async reassignShiftDealer(shiftId: string, dealerPlayerId: string): Promise<DealerShiftRow> {
+    const rows = await db
+      .update(dealerShifts)
+      .set({ dealerPlayerId })
+      .where(eq(dealerShifts.id, shiftId))
+      .returning();
+    const [row] = rows;
+    if (!row) {
+      throw new Error("Failed to reassign dealer shift: no rows returned");
     }
     return mapShiftRow(row);
   }

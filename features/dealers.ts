@@ -298,13 +298,17 @@ export async function endDealerShift(
 }
 
 // Admin correction for a COMPLETED shift only -- an open shift must be
-// closed via endDealerShift instead. The snapshotted hourly_rate_rub is
-// deliberately never part of this patch: only worked_minutes/paid_hours/
-// amount_rub are recalculated from the (possibly corrected) timestamps.
+// closed via endDealerShift instead. hourlyRateRub is an OPTIONAL Super
+// Admin correction of the snapshotted rate itself (omit to keep it
+// unchanged); either way, worked_minutes/paid_hours/amount_rub are always
+// recalculated together, server-side, from started_at/ended_at/
+// hourly_rate_rub via the one canonical computeShiftPayroll formula --
+// amount_rub itself is never independently editable.
 export async function editDealerShiftTimestamps(
   shiftId: string,
   startedAt: string,
-  endedAt: string
+  endedAt: string,
+  hourlyRateRub?: number
 ): Promise<DealerShiftRow> {
   const shift = await dealerRepository.findShiftById(shiftId);
   if (!shift) {
@@ -314,17 +318,23 @@ export async function editDealerShiftTimestamps(
     throw new DealerShiftOpenError(shiftId);
   }
 
+  const effectiveHourlyRateRub = hourlyRateRub ?? shift.hourly_rate_rub;
+  if (!Number.isInteger(effectiveHourlyRateRub) || effectiveHourlyRateRub < 0) {
+    throw new Error("Ставка должна быть неотрицательным целым числом");
+  }
+
   const startedDate = new Date(startedAt);
   const endedDate = new Date(endedAt);
   const { workedMinutes, paidHours, amountRub } = computeShiftPayroll(
     startedDate,
     endedDate,
-    shift.hourly_rate_rub
+    effectiveHourlyRateRub
   );
 
   return dealerRepository.updateShiftTimestamps(shiftId, {
     started_at: startedDate.toISOString(),
     ended_at: endedDate.toISOString(),
+    hourly_rate_rub: effectiveHourlyRateRub,
     worked_minutes: workedMinutes,
     paid_hours: paidHours,
     amount_rub: amountRub,
@@ -347,6 +357,35 @@ export async function correctDealerShiftTournament(
 
   const validTournamentId = await resolveTournamentIdOrThrow(tournamentId);
   return dealerRepository.updateShiftTournament(shiftId, validTournamentId);
+}
+
+// Super Admin correcting WHICH dealer a COMPLETED shift belongs to.
+// dealerPlayerId must have an existing dealer_profiles row -- active or
+// historical/deactivated, "has valid dealer history/profile" per this
+// task's own wording, never an arbitrary player. Never touches payroll
+// (worked_minutes/paid_hours/amount_rub/hourly_rate_rub/
+// taxi_allowance_rub) -- moving a shift to a different dealer doesn't
+// change what was earned, only who earned it. Personal dealer
+// history/stats are keyed off dealer_player_id, so this takes effect
+// immediately for both the old and new dealer.
+export async function correctDealerShiftDealer(
+  shiftId: string,
+  dealerPlayerId: string
+): Promise<DealerShiftRow> {
+  const shift = await dealerRepository.findShiftById(shiftId);
+  if (!shift) {
+    throw new DealerShiftNotFoundError(shiftId);
+  }
+  if (shift.ended_at === null) {
+    throw new DealerShiftOpenError(shiftId);
+  }
+
+  const profile = await dealerRepository.findProfileByPlayerId(dealerPlayerId);
+  if (!profile) {
+    throw new DealerNotFoundError(dealerPlayerId);
+  }
+
+  return dealerRepository.reassignShiftDealer(shiftId, dealerPlayerId);
 }
 
 export class InvalidTaxiAllowanceError extends Error {

@@ -1,27 +1,35 @@
 import { NextResponse } from "next/server";
 import {
+  DealerNotFoundError,
   DealerShiftNotFoundError,
   DealerShiftOpenError,
   InvalidShiftRangeError,
   InvalidTournamentIdError,
   InvalidTaxiAllowanceError,
+  correctDealerShiftDealer,
   correctDealerShiftTournament,
   editDealerShiftTimestamps,
   setDealerShiftTaxiAllowance,
 } from "@/features/dealers";
 
 // Super-Admin-only (not on the operator allowlist -- "operator cannot edit
-// completed shift", and financial mutation -- taxi allowance -- stays
+// completed shift", and financial mutation -- rate/taxi allowance -- stays
 // Super-Admin-only too).
 export const dynamic = "force-dynamic";
 
-// Three independent, optional corrections on one shift, applied in any
-// combination present in the body:
-// - startedAt/endedAt: "Изменить" a COMPLETED shift's timestamps.
-//   worked_minutes/paid_hours/amount_rub are always recalculated
-//   server-side; the snapshotted hourly_rate_rub is left untouched.
+// Four independent, optional corrections on one shift, applied in any
+// combination present in the body -- this is the ONLY write path for a
+// completed shift's payroll-affecting fields; amount_rub itself is never
+// directly editable, always recomputed:
+// - startedAt/endedAt (+ optional hourlyRateRub): "Изменить" a COMPLETED
+//   shift. worked_minutes/paid_hours/amount_rub are always recalculated
+//   server-side from whichever timestamps/rate apply (existing rate kept
+//   if hourlyRateRub is omitted) via the one canonical payroll formula.
 // - tournamentId: correct the linked tournament.
-// - taxiAllowanceRub: toggle "Чай" (0 or 500) -- unlike the two above, this
+// - dealerPlayerId: correct WHICH dealer a completed shift belongs to --
+//   moves it between personal dealer history/stats immediately. Never
+//   recalculates payroll.
+// - taxiAllowanceRub: toggle "Чай" (0 or 500) -- unlike the others, this
 //   works on an OPEN shift too (see setDealerShiftTaxiAllowance's doc
 //   comment), and never touches worked_minutes/paid_hours/hourly_rate_rub/
 //   amount_rub.
@@ -33,16 +41,29 @@ export async function PATCH(
 
   try {
     const body = (await request.json().catch(() => null)) as
-      | { startedAt?: string; endedAt?: string; tournamentId?: string | null; taxiAllowanceRub?: number }
+      | {
+          startedAt?: string;
+          endedAt?: string;
+          hourlyRateRub?: number;
+          tournamentId?: string | null;
+          dealerPlayerId?: string;
+          taxiAllowanceRub?: number;
+        }
       | null;
 
     let shift = null;
+
+    if (body && "dealerPlayerId" in body && body.dealerPlayerId?.trim()) {
+      shift = await correctDealerShiftDealer(shiftId, body.dealerPlayerId.trim());
+    }
 
     const startedAt = body?.startedAt?.trim();
     const endedAt = body?.endedAt?.trim();
 
     if (startedAt && endedAt) {
-      shift = await editDealerShiftTimestamps(shiftId, startedAt, endedAt);
+      const hourlyRateRub =
+        typeof body?.hourlyRateRub === "number" ? body.hourlyRateRub : undefined;
+      shift = await editDealerShiftTimestamps(shiftId, startedAt, endedAt, hourlyRateRub);
     }
 
     if (body && "tournamentId" in body) {
@@ -61,6 +82,9 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof DealerShiftNotFoundError) {
       return NextResponse.json({ error: "Смена не найдена" }, { status: 404 });
+    }
+    if (error instanceof DealerNotFoundError) {
+      return NextResponse.json({ error: "Дилер не найден" }, { status: 400 });
     }
     if (error instanceof DealerShiftOpenError) {
       return NextResponse.json({ error: "Нельзя редактировать открытую смену" }, { status: 409 });

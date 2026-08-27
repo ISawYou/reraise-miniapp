@@ -55,13 +55,17 @@ export type DealerShiftClosePatch = {
   ended_by_player_id: string | null;
 };
 
-// Editing a completed shift's timestamps -- hourly_rate_rub is
-// DELIBERATELY not part of this patch: the snapshotted rate never changes
-// on an edit, only worked_minutes/paid_hours/amount_rub are recalculated
-// from the (possibly corrected) started_at/ended_at.
+// Editing a completed shift's timestamps -- and, optionally, a Super Admin
+// correction of the snapshotted hourly_rate_rub itself. Either way,
+// worked_minutes/paid_hours/amount_rub are always recalculated server-side
+// from started_at/ended_at/hourly_rate_rub together (features/dealers.ts's
+// computeShiftPayroll, the one canonical formula), never accepted as a
+// client-submitted total -- amount_rub is deliberately not independently
+// editable.
 export type DealerShiftTimestampPatch = {
   started_at: string;
   ended_at: string;
+  hourly_rate_rub: number;
   worked_minutes: number;
   paid_hours: number;
   amount_rub: number;
@@ -93,6 +97,13 @@ export interface DealerRepository {
   // deliberately separate from updateShiftTimestamps (different concern,
   // no payroll recalculation involved).
   updateShiftTournament(shiftId: string, tournamentId: string | null): Promise<DealerShiftRow>;
+  // Super Admin correcting WHICH dealer a completed shift belongs to --
+  // moves the shift between personal dealer history/stats immediately
+  // (both are keyed off dealer_player_id). Never recalculates payroll;
+  // the shift's own frozen worked_minutes/paid_hours/amount_rub/
+  // hourly_rate_rub/taxi_allowance_rub are untouched by a dealer
+  // reassignment alone.
+  reassignShiftDealer(shiftId: string, dealerPlayerId: string): Promise<DealerShiftRow>;
   // Super Admin toggling "Чай" -- taxiAllowanceRub must be exactly 0 or 500
   // (enforced by features/dealers.ts and the DB check constraint). Works on
   // an OPEN shift (before amount_rub is frozen) or a completed one alike --

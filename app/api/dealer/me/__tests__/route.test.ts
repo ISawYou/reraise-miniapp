@@ -93,4 +93,38 @@ describe("GET /api/dealer/me", () => {
     expect(response.status).toBe(500);
     expect(json.error).toBe("db unreachable");
   });
+
+  it("an operator who also has a dealer profile gets their own dealer data too -- dealer is orthogonal to role", async () => {
+    mockResolveCurrentServerActor.mockResolvedValue({ id: "op1", role: "operator" });
+    mockGetPersonalDealerSummary.mockResolvedValue({
+      dealer: { isActive: true },
+      openShift: null,
+      monthSummary: { completedShiftCount: 0, uniqueTournamentCount: 0, workedMinutes: 0, paidHours: 0, amountRub: 0 },
+      history: [],
+    });
+
+    const response = await GET();
+    const json = await response.json();
+
+    expect(mockGetPersonalDealerSummary).toHaveBeenCalledWith("op1");
+    expect(response.status).toBe(200);
+    expect(json.dealer).toEqual({ isActive: true });
+  });
+
+  it("a Super Admin who also has a dealer profile gets their own dealer data too", async () => {
+    mockResolveCurrentServerActor.mockResolvedValue({ id: "admin1", role: "admin" });
+    mockGetPersonalDealerSummary.mockResolvedValue({
+      dealer: { isActive: true },
+      openShift: null,
+      monthSummary: { completedShiftCount: 0, uniqueTournamentCount: 0, workedMinutes: 0, paidHours: 0, amountRub: 0 },
+      history: [],
+    });
+
+    const response = await GET();
+    const json = await response.json();
+
+    expect(mockGetPersonalDealerSummary).toHaveBeenCalledWith("admin1");
+    expect(response.status).toBe(200);
+    expect(json.dealer).toEqual({ isActive: true });
+  });
 });

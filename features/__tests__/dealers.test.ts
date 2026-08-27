@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   listRecentCompletedShifts: vi.fn(),
   updateShiftTournament: vi.fn(),
   setShiftTaxiAllowance: vi.fn(),
+  reassignShiftDealer: vi.fn(),
   listShiftsByDealerId: vi.fn(),
   listShiftsByTournamentId: vi.fn(),
   listAllShifts: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("@/lib/repositories", () => ({
     listRecentCompletedShifts: mocks.listRecentCompletedShifts,
     updateShiftTournament: mocks.updateShiftTournament,
     setShiftTaxiAllowance: mocks.setShiftTaxiAllowance,
+    reassignShiftDealer: mocks.reassignShiftDealer,
     listShiftsByDealerId: mocks.listShiftsByDealerId,
     listShiftsByTournamentId: mocks.listShiftsByTournamentId,
     listAllShifts: mocks.listAllShifts,
@@ -70,6 +72,7 @@ const {
   endDealerShift,
   editDealerShiftTimestamps,
   correctDealerShiftTournament,
+  correctDealerShiftDealer,
   setDealerShiftTaxiAllowance,
   getDealerPayrollStats,
   getPersonalDealerSummary,
@@ -78,6 +81,7 @@ const {
   computeShiftPayroll,
   InvalidTournamentIdError,
   InvalidTaxiAllowanceError,
+  DealerNotFoundError,
   DealerHasOpenShiftError,
   DealerAlreadyOnShiftError,
   DealerShiftNotFoundError,
@@ -435,6 +439,137 @@ describe("editDealerShiftTimestamps", () => {
       editDealerShiftTimestamps("s1", "2026-01-01T10:00:00.000Z", "2026-01-01T15:00:00.000Z")
     ).rejects.toThrow();
     expect(mocks.updateShiftTimestamps).not.toHaveBeenCalled();
+  });
+
+  it("Super Admin can correct the snapshotted hourly_rate_rub, and amount_rub is recomputed with the NEW rate", async () => {
+    mocks.findShiftById.mockResolvedValue(
+      shiftRow({ started_at: "2026-01-01T10:00:00.000Z", ended_at: "2026-01-01T14:00:00.000Z", hourly_rate_rub: 500 })
+    );
+
+    await editDealerShiftTimestamps(
+      "s1",
+      "2026-01-01T10:00:00.000Z",
+      "2026-01-01T14:00:00.000Z",
+      700
+    );
+
+    expect(mocks.updateShiftTimestamps).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ hourly_rate_rub: 700, worked_minutes: 240, paid_hours: 4, amount_rub: 2800 })
+    );
+  });
+
+  it("correcting BOTH timestamps and rate at once recomputes worked_minutes/paid_hours/amount_rub together, not from stale intermediate state", async () => {
+    mocks.findShiftById.mockResolvedValue(
+      shiftRow({ started_at: "2026-01-01T10:00:00.000Z", ended_at: "2026-01-01T14:00:00.000Z", hourly_rate_rub: 500 })
+    );
+
+    await editDealerShiftTimestamps(
+      "s1",
+      "2026-01-01T10:00:00.000Z",
+      "2026-01-01T13:00:00.000Z", // corrected to 3h instead of 4h
+      1000 // corrected rate
+    );
+
+    expect(mocks.updateShiftTimestamps).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ worked_minutes: 180, paid_hours: 3, hourly_rate_rub: 1000, amount_rub: 3000 })
+    );
+  });
+
+  it("omitting hourlyRateRub keeps the existing snapshotted rate unchanged (backward compatible)", async () => {
+    mocks.findShiftById.mockResolvedValue(
+      shiftRow({ started_at: "2026-01-01T10:00:00.000Z", ended_at: "2026-01-01T14:00:00.000Z", hourly_rate_rub: 500 })
+    );
+
+    await editDealerShiftTimestamps("s1", "2026-01-01T10:00:00.000Z", "2026-01-01T14:00:00.000Z");
+
+    expect(mocks.updateShiftTimestamps).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ hourly_rate_rub: 500 })
+    );
+  });
+
+  it("rejects a negative corrected rate before touching the repository", async () => {
+    mocks.findShiftById.mockResolvedValue(
+      shiftRow({ started_at: "2026-01-01T10:00:00.000Z", ended_at: "2026-01-01T14:00:00.000Z", hourly_rate_rub: 500 })
+    );
+
+    await expect(
+      editDealerShiftTimestamps("s1", "2026-01-01T10:00:00.000Z", "2026-01-01T14:00:00.000Z", -100)
+    ).rejects.toThrow(/неотрицательным/);
+    expect(mocks.updateShiftTimestamps).not.toHaveBeenCalled();
+  });
+
+  it("there is no way to submit an arbitrary amount_rub directly -- only timestamps/rate flow into the recomputed payroll", async () => {
+    mocks.findShiftById.mockResolvedValue(
+      shiftRow({ started_at: "2026-01-01T10:00:00.000Z", ended_at: "2026-01-01T14:00:00.000Z", hourly_rate_rub: 500 })
+    );
+
+    // editDealerShiftTimestamps's signature has no amount_rub parameter at
+    // all -- amount_rub is always the server-computed
+    // paid_hours * hourly_rate_rub, never a caller-supplied value.
+    await editDealerShiftTimestamps("s1", "2026-01-01T10:00:00.000Z", "2026-01-01T14:00:00.000Z", 500);
+
+    expect(mocks.updateShiftTimestamps).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ amount_rub: 2000 }) // 4h * 500, never anything else
+    );
+  });
+});
+
+describe("correctDealerShiftDealer", () => {
+  it("Super Admin can reassign a completed shift to a different (valid) dealer", async () => {
+    mocks.findShiftById.mockResolvedValue(shiftRow({ id: "s1", dealer_player_id: "p1", ended_at: "x" }));
+    mocks.findProfileByPlayerId.mockResolvedValue(profile({ player_id: "p2" }));
+
+    await correctDealerShiftDealer("s1", "p2");
+
+    expect(mocks.reassignShiftDealer).toHaveBeenCalledWith("s1", "p2");
+  });
+
+  it("moves the shift between personal dealer history/stats immediately -- keyed purely off dealer_player_id, no payroll touched", async () => {
+    mocks.findShiftById.mockResolvedValue(
+      shiftRow({ id: "s1", dealer_player_id: "p1", ended_at: "x", worked_minutes: 60, paid_hours: 1, amount_rub: 500, hourly_rate_rub: 500 })
+    );
+    mocks.findProfileByPlayerId.mockResolvedValue(profile({ player_id: "p2" }));
+
+    await correctDealerShiftDealer("s1", "p2");
+
+    expect(mocks.reassignShiftDealer).toHaveBeenCalledWith("s1", "p2");
+    expect(mocks.updateShiftTimestamps).not.toHaveBeenCalled();
+    expect(mocks.closeShift).not.toHaveBeenCalled();
+  });
+
+  it("rejects reassigning to a player with no dealer profile at all (not 'has valid dealer history')", async () => {
+    mocks.findShiftById.mockResolvedValue(shiftRow({ id: "s1", ended_at: "x" }));
+    mocks.findProfileByPlayerId.mockResolvedValue(null);
+
+    await expect(correctDealerShiftDealer("s1", "not-a-dealer")).rejects.toThrow(DealerNotFoundError);
+    expect(mocks.reassignShiftDealer).not.toHaveBeenCalled();
+  });
+
+  it("allows reassigning to an INACTIVE (deactivated) former dealer -- 'valid dealer history' doesn't require currently active", async () => {
+    mocks.findShiftById.mockResolvedValue(shiftRow({ id: "s1", ended_at: "x" }));
+    mocks.findProfileByPlayerId.mockResolvedValue(profile({ player_id: "p2", is_active: false }));
+
+    await correctDealerShiftDealer("s1", "p2");
+
+    expect(mocks.reassignShiftDealer).toHaveBeenCalledWith("s1", "p2");
+  });
+
+  it("cannot reassign an OPEN shift -- dealer correction is for completed shifts only", async () => {
+    mocks.findShiftById.mockResolvedValue(shiftRow({ id: "s1", ended_at: null }));
+
+    await expect(correctDealerShiftDealer("s1", "p2")).rejects.toThrow();
+    expect(mocks.reassignShiftDealer).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-existent shift", async () => {
+    mocks.findShiftById.mockResolvedValue(null);
+
+    await expect(correctDealerShiftDealer("missing", "p2")).rejects.toThrow(DealerShiftNotFoundError);
+    expect(mocks.reassignShiftDealer).not.toHaveBeenCalled();
   });
 });
 

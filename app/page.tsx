@@ -23,7 +23,8 @@ import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
-import { isStaff } from "@/lib/roles";
+import { resolveHomeStaffCardKind } from "@/lib/home-staff-card";
+import { fetchAdminJson } from "@/lib/client-request";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
 import type { TournamentLiveSummary } from "@/types/poker-clock-live-state";
 import {
@@ -145,6 +146,25 @@ function ShieldIcon() {
   );
 }
 
+function BriefcaseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="7.5" width="18" height="12" rx="2" />
+      <path d="M8 7.5V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1.5" />
+      <path d="M3 12.5h18" />
+    </svg>
+  );
+}
+
 function formatTournamentShortDate(date: string) {
   const value = new Date(date);
   return value.toLocaleDateString("ru-RU", {
@@ -236,6 +256,12 @@ export default function HomePage() {
   const [outOfCompetitionRows, setOutOfCompetitionRows] = useState<LeaderboardRow[]>([]);
   const [homeDataLoading, setHomeDataLoading] = useState(true);
   const [homeActivity, setHomeActivity] = useState<ClubActivityEvent[]>([]);
+  // Dealer is not an auth role -- this is purely "does the current player
+  // have a dealer_profiles row" (active or historical), used only to decide
+  // whether the home "Моя работа" card shows for a non-staff dealer. Staff
+  // (operator/admin) always see "Админ-панель" instead, regardless of
+  // dealer status -- see the isStaff(...) precedence check below.
+  const [isDealer, setIsDealer] = useState(false);
 
   const homeTournamentIds = useMemo(
     () => homeTournaments.map((tournament) => tournament.id),
@@ -396,7 +422,7 @@ export default function HomePage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts, achievementRows, ratingData, activityData, featuredData, visualsData, tournamentVisualsData] = await Promise.all([
+    const [registrations, tournaments, counts, achievementRows, ratingData, activityData, featuredData, visualsData, tournamentVisualsData, dealerMe] = await Promise.all([
       getPlayerRegistrations(currentPlayer.id),
       getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
@@ -441,6 +467,11 @@ export default function HomePage() {
       fetch("/api/tournament-visuals").then((response) =>
         response.ok ? response.json() : { visuals: [] }
       ),
+      // "Does the current player have a dealer profile" -- only used to
+      // decide whether the home "Моя работа" card shows for a non-staff
+      // dealer (see isStaff/isDealer precedence below). Never fatal: a
+      // failed check just means no card, not a broken home page.
+      fetchAdminJson<{ dealer: { isActive: boolean } | null }>("/api/dealer/me").catch(() => null),
     ]);
 
     const nextMap: Record<string, string> = {};
@@ -479,6 +510,7 @@ export default function HomePage() {
     setSeasonTitle(ratingData.seasonTitle);
     setLeaderboardRows(ratingData.leaderboard);
     setOutOfCompetitionRows(ratingData.outOfCompetition);
+    setIsDealer(Boolean(dealerMe?.dealer));
     setHomeActivity((activityData.events ?? []) as ClubActivityEvent[]);
     setCompletedAchievementsCount(
       (achievementRows as Array<{ completed_at: string | null }>).filter(
@@ -980,6 +1012,7 @@ export default function HomePage() {
   const currentPlayerOutOfCompetitionRow = player
     ? outOfCompetitionRows.find((row) => row.player_id === player.id)
     : undefined;
+  const homeStaffCardKind = resolveHomeStaffCardKind(player?.role, isDealer);
 
   function getLeaderboardMedal(place: number) {
     if (place === 1) return "🥇";
@@ -1689,7 +1722,7 @@ export default function HomePage() {
               </div>
             </section>
 
-            {isStaff(player?.role) ? (
+            {homeStaffCardKind === "admin" ? (
               <section className="mt-3">
                 <Link
                   href="/admin"
@@ -1700,6 +1733,22 @@ export default function HomePage() {
                     <span className="text-xs uppercase tracking-wider">Управление</span>
                   </div>
                   <p className="mt-5 text-xl font-bold">Админ-панель</p>
+                </Link>
+              </section>
+            ) : homeStaffCardKind === "dealer" ? (
+              // Dealer is not an auth role -- this is the same conditional
+              // slot staff get "Админ-панель" in, just for a non-staff
+              // player who happens to have a dealer profile.
+              <section className="mt-3">
+                <Link
+                  href="/dealer"
+                  className="block rounded-3xl border border-white/[0.07] bg-white/4 p-5 text-white transition active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-2 text-[#c9a84c]/70">
+                    <BriefcaseIcon />
+                    <span className="text-xs uppercase tracking-wider">Дилер</span>
+                  </div>
+                  <p className="mt-5 text-xl font-bold">Моя работа</p>
                 </Link>
               </section>
             ) : null}

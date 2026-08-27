@@ -207,3 +207,48 @@ describe("admin middleware for season rating eligibility (\"Вне зачёта\
     expect(response.status).toBe(200);
   });
 });
+
+describe("admin middleware -- dealer-only user (dealer is NOT an auth role)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.verifySession.mockReturnValue("dealer-1");
+  });
+
+  function requestFor(method: string, path: string) {
+    return new NextRequest(`https://re-raise.ru${path}`, {
+      method,
+      headers: { cookie: "reraise_session=signed" },
+    });
+  }
+
+  // A "dealer-only user" has no dedicated auth role -- having a
+  // dealer_profiles row is completely invisible to this middleware, which
+  // only ever reads players.role. So a dealer with role: 'player' is
+  // authorized IDENTICALLY to any other ordinary player: no /api/admin/**
+  // access at all, including the Super-Admin-only completed-shift
+  // correction endpoint this task adds (dealer/tournament/rate/tea
+  // reassignment all live behind the SAME PATCH route already denied
+  // below).
+  it("a dealer-only user (role: player) gets no /api/admin/** access at all", async () => {
+    mocks.findById.mockResolvedValue({ id: "dealer-1", role: "player" });
+
+    for (const [method, path] of [
+      ["GET", "/api/admin/dealers"],
+      ["POST", "/api/admin/dealers/shifts"],
+      ["PATCH", "/api/admin/dealers/shifts/s1"],
+      ["GET", "/api/admin/dealers/stats"],
+      ["GET", "/api/admin/rating-eligibility"],
+      ["GET", "/api/admin/roles"],
+    ] as const) {
+      const response = await middleware(requestFor(method, path));
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+  });
+
+  it("an unauthenticated dealer (no valid session at all) gets 401, not 403", async () => {
+    mocks.verifySession.mockReturnValue(null);
+
+    const response = await middleware(requestFor("GET", "/api/admin/dealers"));
+    expect(response.status).toBe(401);
+  });
+});
