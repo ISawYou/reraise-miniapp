@@ -6,6 +6,7 @@ import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { isStaff, isSuperAdmin } from "@/lib/roles";
+import { filterStartableTournaments } from "@/lib/dealer-tournament-select";
 import type { Player, Tournament } from "@/types/domain";
 
 const NO_TOURNAMENT_VALUE = "";
@@ -304,16 +305,29 @@ export default function AdminDealersPage() {
     }
   }
 
+  // "Начать смену" only ever offers a tournament that's still actually
+  // running/upcoming -- a completed tournament can't be the one a dealer is
+  // currently working. Uses the canonical tournament.status field (never
+  // inferred from start_at/a date comparison), same source of truth as
+  // defaultTournamentId below. Deliberately NOT applied to the completed-
+  // shift correction TournamentSelect further down -- Super Admin must
+  // still be able to view/reference a shift's actual (often completed)
+  // tournament there. Filtering preserves the existing order of the
+  // remaining tournaments (no re-sort).
+  const startableTournaments = useMemo(
+    () => filterStartableTournaments(tournaments),
+    [tournaments]
+  );
+
   // Nearest non-completed tournament by start time -- a reasonable default
   // for "which tournament is this shift for", never auto-submitted without
   // the operator/admin seeing and being able to change it.
   const defaultTournamentId = useMemo(() => {
-    const active = tournaments
-      .filter((t) => t.status !== "completed")
+    const active = startableTournaments
       .slice()
       .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
     return active[0]?.id ?? NO_TOURNAMENT_VALUE;
-  }, [tournaments]);
+  }, [startableTournaments]);
 
   async function handleOpenAddDealer() {
     setShowAddDealer(true);
@@ -949,7 +963,7 @@ export default function AdminDealersPage() {
               <TournamentSelect
                 value={startShiftTournamentId}
                 onChange={setStartShiftTournamentId}
-                tournaments={tournaments}
+                tournaments={startableTournaments}
                 loading={tournamentsLoading}
               />
 
