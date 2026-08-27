@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getDerivedEliminationPlaces: vi.fn(),
   getTournamentAttendance: vi.fn(),
   getTournamentById: vi.fn(),
   getTournamentEliminations: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/tournaments", () => ({
+  getDerivedEliminationPlaces: mocks.getDerivedEliminationPlaces,
   getTournamentAttendance: mocks.getTournamentAttendance,
   getTournamentById: mocks.getTournamentById,
   getTournamentEliminations: mocks.getTournamentEliminations,
@@ -83,6 +85,7 @@ beforeEach(() => {
   mocks.getTournamentAttendance.mockResolvedValue(new Map());
   mocks.getTournamentEliminations.mockResolvedValue(new Map());
   mocks.getTournamentRebuyState.mockResolvedValue(new Map());
+  mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map());
   mocks.saveTournamentResults.mockResolvedValue(undefined);
   mocks.syncTournamentSheet.mockResolvedValue({ tabName: "Sheet1" });
   mocks.getTournamentLateRegistrationSnapshot.mockResolvedValue(null);
@@ -90,6 +93,7 @@ beforeEach(() => {
     attendanceChanges: 0,
     eliminationChanges: 0,
     rebuyChanges: 0,
+    unEliminatedPlayerIds: [],
   });
 });
 

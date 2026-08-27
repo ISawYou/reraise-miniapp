@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { getFreeSheetColumnLayout } from "@/lib/tournament-sheet-parsing";
 
 const mocks = vi.hoisted(() => ({
+  getDerivedEliminationPlaces: vi.fn(),
   getTournamentAttendance: vi.fn(),
   getTournamentById: vi.fn(),
   getTournamentEliminations: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/tournaments", () => ({
+  getDerivedEliminationPlaces: mocks.getDerivedEliminationPlaces,
   getTournamentAttendance: mocks.getTournamentAttendance,
   getTournamentById: mocks.getTournamentById,
   getTournamentEliminations: mocks.getTournamentEliminations,
@@ -43,6 +45,7 @@ const {
   reconcileTournamentFromSheet,
   runTournamentSheetSyncPass,
   getActiveFreeTournamentsWithSheet,
+  setTournamentPlayerEliminationThroughSheet,
 } = await import("@/features/tournament-sheet-sync");
 
 function tournament(overrides: Partial<Record<string, unknown>> = {}) {
@@ -108,6 +111,7 @@ beforeEach(() => {
   mocks.setTournamentPlayerAttendance.mockResolvedValue({ arrived: true, arrived_at: null });
   mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: true, eliminated_at: null });
   mocks.setTournamentPlayerRebuyState.mockResolvedValue({ rebuys: 0, addons: 0 });
+  mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map());
 });
 
 describe("reconcileTournamentFromSheet -- live field reconciliation", () => {
@@ -308,5 +312,172 @@ describe("runTournamentSheetSyncPass -- poll loop", () => {
     await expect(runTournamentSheetSyncPass()).resolves.toBeUndefined();
 
     expect(mocks.setTournamentPlayerAttendance).toHaveBeenCalledWith("ok", "p1", true);
+  });
+});
+
+// Same formatting the SUT uses (formatEliminationTimestamp in
+// tournament-sheet-sync.ts) -- duplicated here so the expected string is
+// computed the same way in the same process/timezone as the code under
+// test, rather than hardcoding a locale-formatted string that would be
+// flaky across machines in different timezones.
+function expectedTimeCell(iso: string) {
+  return new Date(iso).toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// classic layout: placeIndex=12 (column M), eliminatedAtIndex=15 (column P).
+const PLACE_RANGE = "Sheet1!M8";
+const TIME_RANGE = "Sheet1!P8";
+
+describe("reconcileTournamentFromSheet -- derived placement write-back", () => {
+  it("GS Выбыл=true writes the authoritative derived Место and server-derived Время выбытия back to the sheet", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "true" })]));
+    mocks.getTournamentAttendance.mockResolvedValue(new Map([["p1", { arrived: true, arrived_at: "x" }]]));
+    mocks.getTournamentEliminations.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    const result = await reconcileTournamentFromSheet("t1");
+
+    expect(result).toMatchObject({ skipped: false, placesUpdated: 2 });
+    const [updates] = mocks.batchUpdateSpreadsheetValues.mock.calls[0];
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        { range: PLACE_RANGE, values: [["1"]] },
+        { range: TIME_RANGE, values: [[expectedTimeCell("2026-08-25T19:00:00.000Z")]] },
+      ])
+    );
+  });
+
+  it("unchanged derived cells are never rewritten -- no batch call at all when the sheet already matches", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([
+        p1Row({ 5: "true", 14: "true", 12: "1", 15: expectedTimeCell("2026-08-25T19:00:00.000Z") }),
+      ])
+    );
+    mocks.getTournamentAttendance.mockResolvedValue(new Map([["p1", { arrived: true, arrived_at: "x" }]]));
+    mocks.getTournamentEliminations.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    const result = await reconcileTournamentFromSheet("t1");
+
+    expect(result).toMatchObject({ placesUpdated: 0 });
+    expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
+  });
+
+  it("un-eliminate (Выбыл false) clears Место and Время выбытия on the sheet", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    // Sheet currently says false, but a stale Место/Время is still sitting
+    // there from before the un-check -- exactly the transition
+    // unEliminatedPlayerIds exists to catch.
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([p1Row({ 5: "true", 14: "false", 12: "17", 15: "26.08.2026, 20:00" })])
+    );
+    mocks.getTournamentAttendance.mockResolvedValue(new Map([["p1", { arrived: true, arrived_at: "x" }]]));
+    // Was eliminated before this call; the sheet says false now.
+    mocks.getTournamentEliminations.mockResolvedValueOnce(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+    mocks.getTournamentEliminations.mockResolvedValue(new Map([["p1", { eliminated: false, eliminated_at: null }]]));
+
+    await reconcileTournamentFromSheet("t1");
+
+    const [updates] = mocks.batchUpdateSpreadsheetValues.mock.calls[0];
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        { range: PLACE_RANGE, values: [[""]] },
+        { range: TIME_RANGE, values: [[""]] },
+      ])
+    );
+  });
+
+  it("does not touch Место for a row that was already non-eliminated (an admin's manual winner entry survives)", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([p1Row({ 5: "true", 14: "false", 12: "1" })]) // manually-entered "1st place"
+    );
+    mocks.getTournamentAttendance.mockResolvedValue(new Map([["p1", { arrived: true, arrived_at: "x" }]]));
+    mocks.getTournamentEliminations.mockResolvedValue(new Map()); // never eliminated, no transition
+
+    await reconcileTournamentFromSheet("t1");
+
+    expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
+  });
+
+  it("a completed tournament is never recalculated -- reconcileTournamentFromSheet returns before any placement logic runs", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament({ status: "completed" }));
+
+    await reconcileTournamentFromSheet("t1");
+
+    expect(mocks.readSpreadsheetTabValues).not.toHaveBeenCalled();
+    expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
+  });
+});
+
+describe("setTournamentPlayerEliminationThroughSheet", () => {
+  it("for a GS-linked active tournament, writes the Выбыл cell through to the sheet before/with the Postgres write, so the next poller tick agrees and cannot revert it", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "false" })]));
+    mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" });
+    mocks.getTournamentAttendance.mockResolvedValue(new Map([["p1", { arrived: true, arrived_at: "x" }]]));
+    mocks.getTournamentEliminations.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+    mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map([["p1", 1]]));
+
+    const result = await setTournamentPlayerEliminationThroughSheet("t1", "p1", true);
+
+    // The Выбыл cell write happens in its own batch call, distinct from
+    // the placement write-back call.
+    const eliminatedCellWrite = mocks.batchUpdateSpreadsheetValues.mock.calls
+      .flatMap((call) => call[0])
+      .find((u: { range: string }) => u.range === "Sheet1!O8");
+    expect(eliminatedCellWrite).toEqual({ range: "Sheet1!O8", values: [[true]] });
+    expect(mocks.setTournamentPlayerElimination).toHaveBeenCalledWith("t1", "p1", true);
+    expect(result).toEqual({ eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z", place: 1 });
+  });
+
+  it("does not rewrite the Выбыл cell when the sheet already agrees", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "true" })]));
+    mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: true, eliminated_at: "x" });
+    mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map());
+
+    await setTournamentPlayerEliminationThroughSheet("t1", "p1", true);
+
+    const eliminatedCellWrite = mocks.batchUpdateSpreadsheetValues.mock.calls
+      .flatMap((call) => call[0])
+      .find((u: { range: string }) => u.range === "Sheet1!O8");
+    expect(eliminatedCellWrite).toBeUndefined();
+  });
+
+  it("for a tournament with no linked sheet, preserves the exact prior direct-Postgres behavior -- no sheet read, no sheet write", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament({ google_sheet_tab_name: null }));
+    mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: true, eliminated_at: "x" });
+    mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map([["p1", 5]]));
+
+    const result = await setTournamentPlayerEliminationThroughSheet("t1", "p1", true);
+
+    expect(mocks.readSpreadsheetTabValues).not.toHaveBeenCalled();
+    expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
+    expect(result).toEqual({ eliminated: true, eliminated_at: "x", place: 5 });
+  });
+
+  it("for a completed tournament, preserves direct-Postgres behavior even if a sheet is linked", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament({ status: "completed" }));
+    mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: false, eliminated_at: null });
+    mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map());
+
+    await setTournamentPlayerEliminationThroughSheet("t1", "p1", false);
+
+    expect(mocks.readSpreadsheetTabValues).not.toHaveBeenCalled();
   });
 });

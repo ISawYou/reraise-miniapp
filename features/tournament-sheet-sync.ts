@@ -39,6 +39,7 @@
 // completion-time fresh read (see complete-free/route.ts), which is
 // fail-closed by design there, not here.
 import {
+  getDerivedEliminationPlaces,
   getTournamentAttendance,
   getTournamentById,
   getTournamentEliminations,
@@ -60,7 +61,27 @@ import {
   parseFreeSheetValues,
   type NormalizedFreeSheetRow,
 } from "@/lib/tournament-sheet-parsing";
+import { computeDerivedEliminationPlaces } from "@/lib/tournament-placement";
 import type { Tournament } from "@/types/domain";
+
+// Duplicated (intentionally) from export-sheet/route.ts's own
+// formatEliminationTimestamp -- same reasoning features/tournaments.ts
+// already documents for its own small duplicated helpers: a private,
+// one-line formatting function isn't worth exporting/importing across a
+// route-handler/feature boundary just to save one duplicate definition.
+function formatEliminationTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  return new Date(value).toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 type SheetCellValue = string | number | boolean | null;
 
@@ -123,6 +144,13 @@ export type LiveFieldSyncResult = {
   attendanceChanges: number;
   eliminationChanges: number;
   rebuyChanges: number;
+  // player_ids that were eliminated=true BEFORE this call and are
+  // eliminated=false AFTER it -- a genuine un-elimination this tick, as
+  // opposed to a player who was already non-eliminated. Consumed by
+  // syncDerivedPlacementToSheet: only these rows' derived Место/Время
+  // выбытия get cleared -- every other non-eliminated row (including a
+  // manually-entered Место for an active top finisher) is left untouched.
+  unEliminatedPlayerIds: string[];
 };
 
 // Mirrors GS -> Postgres for exactly the fields live consumers need:
@@ -147,6 +175,7 @@ export async function applyLiveFieldsFromSheetSnapshot(
   let attendanceChanges = 0;
   let eliminationChanges = 0;
   let rebuyChanges = 0;
+  const unEliminatedPlayerIds: string[] = [];
 
   for (const playerId of eligiblePlayerIds) {
     const sheetRow = parsedRows.get(playerId);
@@ -161,11 +190,15 @@ export async function applyLiveFieldsFromSheetSnapshot(
     }
 
     const currentElimination = eliminations.get(playerId);
-    if ((currentElimination?.eliminated ?? false) !== sheetRow.eliminated) {
+    const wasEliminated = currentElimination?.eliminated ?? false;
+    if (wasEliminated !== sheetRow.eliminated) {
       // Never trust a GS elimination timestamp -- setTournamentPlayerElimination
       // derives/preserves eliminated_at itself.
       await setTournamentPlayerElimination(tournamentId, playerId, sheetRow.eliminated);
       eliminationChanges++;
+      if (wasEliminated && !sheetRow.eliminated) {
+        unEliminatedPlayerIds.push(playerId);
+      }
     }
 
     const currentRebuy = rebuyState.get(playerId);
@@ -178,7 +211,119 @@ export async function applyLiveFieldsFromSheetSnapshot(
     }
   }
 
-  return { attendanceChanges, eliminationChanges, rebuyChanges };
+  return { attendanceChanges, eliminationChanges, rebuyChanges, unEliminatedPlayerIds };
+}
+
+export type PlacementSyncResult = {
+  placesUpdated: number;
+};
+
+// Writes back exactly the two ReRaise-DERIVED cells (Место, Время
+// выбытия) for currently-eliminated players, using the SAME authoritative
+// placement algorithm as everywhere else (getDerivedEliminationPlaces).
+// Recomputed fresh from CURRENT attendance/elimination state on every
+// call -- not just when this player's own elimination changed -- so a
+// later arrival that grows the field automatically shifts an
+// already-eliminated player's place on the next call, with no click
+// required (see lib/tournament-placement.ts's doc comment). Only a cell
+// whose raw sheet text actually differs from the freshly-computed value is
+// queued for a write; `batchUpdateSpreadsheetValues` handles the actual
+// API call, and this function performs NO Sheets read of its own -- it
+// only ever consumes `parsedRows` from the caller's own single read this
+// pass.
+//
+// Non-eliminated rows are only ever touched if they're in
+// `unEliminatedPlayerIds` (a genuine un-elimination THIS call) -- every
+// other non-eliminated row, including one where an admin manually typed a
+// Место for an active top finisher, is left completely alone. This is the
+// one place that enforces "ReRaise owns Место only while Выбыл=TRUE" (see
+// this module's top-of-file source-of-truth contract).
+export async function syncDerivedPlacementToSheet(
+  tournament: Tournament,
+  parsedRows: Map<string, NormalizedFreeSheetRow>,
+  eligiblePlayerIds: Set<string>,
+  unEliminatedPlayerIds: string[]
+): Promise<PlacementSyncResult> {
+  const tabName = tournament.google_sheet_tab_name?.trim();
+  if (!tabName) {
+    return { placesUpdated: 0 };
+  }
+
+  const layout = getFreeSheetColumnLayout(tournament.tournament_type);
+  const [attendance, eliminations] = await Promise.all([
+    getTournamentAttendance(tournament.id),
+    getTournamentEliminations(tournament.id),
+  ]);
+
+  const fieldSize = Array.from(attendance.values()).filter((row) => row.arrived).length;
+  const derivedPlaces = computeDerivedPlacesFromEliminations(fieldSize, eliminations);
+  const unEliminatedSet = new Set(unEliminatedPlayerIds);
+
+  const updates: { range: string; values: SheetCellValue[][] }[] = [];
+
+  for (const playerId of eligiblePlayerIds) {
+    const sheetRow = parsedRows.get(playerId);
+    if (!sheetRow) {
+      continue;
+    }
+
+    const elimination = eliminations.get(playerId);
+
+    if (elimination?.eliminated) {
+      const place = derivedPlaces.get(playerId) ?? null;
+      const targetPlace = place != null ? String(place) : "";
+      const targetTime = formatEliminationTimestamp(elimination.eliminated_at);
+
+      if (sheetRow.raw_place !== targetPlace) {
+        updates.push({
+          range: `${tabName}!${columnIndexToLetter(layout.placeIndex)}${sheetRow.rowNumber}`,
+          values: [[targetPlace]],
+        });
+      }
+      if (sheetRow.raw_eliminated_at !== targetTime) {
+        updates.push({
+          range: `${tabName}!${columnIndexToLetter(layout.eliminatedAtIndex)}${sheetRow.rowNumber}`,
+          values: [[targetTime]],
+        });
+      }
+      continue;
+    }
+
+    if (unEliminatedSet.has(playerId)) {
+      if (sheetRow.raw_place !== "") {
+        updates.push({
+          range: `${tabName}!${columnIndexToLetter(layout.placeIndex)}${sheetRow.rowNumber}`,
+          values: [[""]],
+        });
+      }
+      if (sheetRow.raw_eliminated_at !== "") {
+        updates.push({
+          range: `${tabName}!${columnIndexToLetter(layout.eliminatedAtIndex)}${sheetRow.rowNumber}`,
+          values: [[""]],
+        });
+      }
+    }
+  }
+
+  if (updates.length > 0) {
+    await batchUpdateSpreadsheetValues(updates);
+  }
+
+  return { placesUpdated: updates.length };
+}
+
+function computeDerivedPlacesFromEliminations(
+  fieldSize: number,
+  eliminations: Map<string, { eliminated: boolean; eliminated_at: string | null }>
+): Map<string, number> {
+  const eliminatedEntries = Array.from(eliminations.entries())
+    .filter(([, status]) => status.eliminated)
+    .map(([player_id, status]) => ({
+      player_id,
+      eliminated_at: status.eliminated_at ?? new Date(0).toISOString(),
+    }));
+
+  return computeDerivedEliminationPlaces(fieldSize, eliminatedEntries);
 }
 
 function columnIndexToLetter(index: number): string {
@@ -295,12 +440,13 @@ export async function syncTournamentRosterToSheet(
 
 export type ReconcileTournamentResult =
   | { skipped: true; reason: string }
-  | ({ skipped: false } & LiveFieldSyncResult & RosterSyncResult);
+  | ({ skipped: false } & LiveFieldSyncResult & RosterSyncResult & PlacementSyncResult);
 
 // The single reconciliation pass for ONE tournament -- reads the sheet
-// once, then reuses that snapshot for both roster sync and live-field
-// sync. This is the function the background poller calls per tournament
-// (see runTournamentSheetSyncPass), and the function tests call directly.
+// once, then reuses that snapshot for roster sync, live-field sync, AND
+// derived-placement sync. This is the function the background poller
+// calls per tournament (see runTournamentSheetSyncPass), and the function
+// tests call directly.
 export async function reconcileTournamentFromSheet(
   tournamentId: string
 ): Promise<ReconcileTournamentResult> {
@@ -338,7 +484,19 @@ export async function reconcileTournamentFromSheet(
     readResult.dataRowCount
   );
 
-  return { skipped: false, ...liveResult, ...rosterResult };
+  // Recomputed fresh from CURRENT state every tick (not only when this
+  // tick's own eliminationChanges > 0) -- a late arrival elsewhere in the
+  // same pass already shifted fieldSize by the time this runs, and an
+  // already-eliminated player's place must shift with it with no separate
+  // click required (see syncDerivedPlacementToSheet's doc comment).
+  const placementResult = await syncDerivedPlacementToSheet(
+    tournament,
+    readResult.rows,
+    eligiblePlayerIds,
+    liveResult.unEliminatedPlayerIds
+  );
+
+  return { skipped: false, ...liveResult, ...rosterResult, ...placementResult };
 }
 
 // Called on every poller tick. One broken tournament's sheet must never
@@ -357,4 +515,97 @@ export async function runTournamentSheetSyncPass(): Promise<void> {
       });
     }
   }
+}
+
+export type EliminationWriteThroughResult = {
+  eliminated: boolean;
+  eliminated_at: string | null;
+  place: number | null;
+};
+
+// The ReRaise admin elimination checkbox's actual write path (see
+// app/api/admin/tournaments/[id]/eliminate/route.ts). For a GS-linked
+// ACTIVE free tournament, Google Sheets owns "Выбыл" -- so an elimination
+// click that only wrote Postgres would get silently reverted by the next
+// ~15s poller tick, which would see the sheet still disagreeing and
+// "correct" Postgres back. To keep the checkbox useful as authoritative
+// input rather than fighting the sheet, this writes the ONE Выбыл cell
+// through to the sheet FIRST (so the sheet and Postgres agree the moment
+// this returns), then applies the exact same authoritative
+// setTournamentPlayerElimination the sheet-driven path uses, then runs the
+// SAME derived-placement sync so the admin UI's returned `place` always
+// comes from the one shared algorithm (lib/tournament-placement.ts) --
+// never a second calculator.
+//
+// For a tournament with no linked sheet, or a completed one, this
+// preserves the exact prior direct-Postgres behavior (no sheet read, no
+// sheet write) -- see the eliminate route.
+//
+// Best-effort on the sheet side: if the sheet can't be read (transient
+// Google API failure) or this player's row isn't present in it this
+// moment, the write-through and placement sync are skipped, but the
+// Postgres elimination itself still applies -- an admin action must not
+// be blocked by a Sheets hiccup. The very next poller tick will reconcile
+// whatever the sheet says at that point, same fail-open philosophy as the
+// rest of this module.
+export async function setTournamentPlayerEliminationThroughSheet(
+  tournamentId: string,
+  playerId: string,
+  eliminated: boolean
+): Promise<EliminationWriteThroughResult> {
+  const tournament = await getTournamentById(tournamentId);
+
+  const isGsActive =
+    tournament.kind === "free" &&
+    tournament.status !== "completed" &&
+    !!tournament.google_sheet_tab_name?.trim();
+
+  // Sheet write-through only for a GS-linked active tournament -- a
+  // tournament with no sheet, or a completed one, keeps the exact prior
+  // direct-Postgres behavior below (no sheet read, no sheet write).
+  const readResult = isGsActive ? await readAndParseFreeTournamentSheet(tournament) : null;
+
+  if (readResult?.ok) {
+    const sheetRow = readResult.rows.get(playerId);
+    if (sheetRow && sheetRow.eliminated !== eliminated) {
+      const tabName = tournament.google_sheet_tab_name!.trim();
+      const layout = getFreeSheetColumnLayout(tournament.tournament_type);
+      try {
+        await batchUpdateSpreadsheetValues([
+          {
+            range: `${tabName}!${columnIndexToLetter(layout.eliminatedIndex)}${sheetRow.rowNumber}`,
+            values: [[eliminated]],
+          },
+        ]);
+      } catch (error) {
+        logSyncError("elimination write-through to sheet failed -- applying to Postgres only", {
+          tournamentId,
+          playerId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  const result = await setTournamentPlayerElimination(tournamentId, playerId, eliminated);
+
+  // The derived place itself is a pure Postgres computation -- always
+  // returned regardless of GS linkage, so the ReRaise admin UI never needs
+  // its own calculator (see lib/tournament-placement.ts). Only the SHEET
+  // write-back of Место/Время выбытия additionally requires a successful
+  // sheet read this call.
+  if (readResult?.ok) {
+    const draftRoster = await getTournamentResultsDraft(tournamentId);
+    const eligiblePlayerIds = new Set(draftRoster.map((row) => row.player_id));
+
+    await syncDerivedPlacementToSheet(
+      tournament,
+      readResult.rows,
+      eligiblePlayerIds,
+      eliminated ? [] : [playerId]
+    );
+  }
+
+  const places = await getDerivedEliminationPlaces(tournamentId);
+  return { ...result, place: places.get(playerId) ?? null };
 }

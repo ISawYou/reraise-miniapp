@@ -13,6 +13,7 @@ import { syncPlayersAchievementsIfEnabled } from "@/features/achievements";
 import { publishTournamentWinnerEvent } from "@/features/club-activity";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
+import { computeDerivedEliminationPlaces } from "@/lib/tournament-placement";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
 import { assertPlayerActive } from "@/features/auth-server";
 import type {
@@ -1139,6 +1140,36 @@ export async function setTournamentPlayerElimination(
   return { eliminated: true, eliminated_at: eliminatedAt };
 }
 
+// The single authoritative server-side elimination placement, for THIS
+// tournament's CURRENT live state -- see lib/tournament-placement.ts for
+// the algorithm itself. fieldSize = count(tournament_attendance.arrived
+// === true) (never total sheet rows/registrations/waitlist); eliminated
+// players are ordered by tournament_player_eliminations.eliminated_at.
+// Every consumer that needs a derived place (the GS live-sync's Место
+// write-back, the ReRaise admin elimination action, tournament completion,
+// the Poker Clock integration contract) goes through this one function --
+// see getArrivedPlayersForIntegration below for the one deliberate
+// exception (it already has both maps in hand and inlines the same pure
+// calculator to avoid a redundant round trip on a polled hot path).
+export async function getDerivedEliminationPlaces(
+  tournamentId: string
+): Promise<Map<string, number>> {
+  const [attendance, eliminations] = await Promise.all([
+    getTournamentAttendance(tournamentId),
+    getTournamentEliminations(tournamentId),
+  ]);
+
+  const fieldSize = Array.from(attendance.values()).filter((row) => row.arrived).length;
+  const eliminatedEntries = Array.from(eliminations.entries())
+    .filter(([, status]) => status.eliminated)
+    .map(([player_id, status]) => ({
+      player_id,
+      eliminated_at: status.eliminated_at ?? new Date(0).toISOString(),
+    }));
+
+  return computeDerivedEliminationPlaces(fieldSize, eliminatedEntries);
+}
+
 // Live "Пришёл" state -- see lib/db/schema/tournamentLiveState.ts's doc
 // comment on tournamentAttendance for why this exists separately from
 // registrations.status ('attended' there is a post-completion bulk marker,
@@ -1240,6 +1271,13 @@ export type IntegrationPlayer = {
   avatarUrl: string | null;
   ratingPoints: number | null;
   eliminated: boolean;
+  // Backwards-compatible addition: the SAME derived placement algorithm
+  // used for Google Sheets' Место write-back (see
+  // lib/tournament-placement.ts / getDerivedEliminationPlaces above) --
+  // never a second calculator. `null` while the player is still in the
+  // game; a finishing place (1..fieldSize) once eliminated. No existing
+  // field's semantics change.
+  place: number | null;
   initialStackTaken: boolean;
   rebuys: number;
   addons: number;
@@ -1291,6 +1329,22 @@ export async function getArrivedPlayersForIntegration(
     }, new Map<string, number>());
   }
 
+  // fieldSize = attendedRows.length exactly (attendedRows already only
+  // contains arrived===true players -- see
+  // findAttendedPlayersWithDetails' own WHERE clause), so this inlines the
+  // same pure calculator getDerivedEliminationPlaces uses rather than
+  // re-fetching attendance/eliminations a second time on this polled
+  // integration path.
+  const derivedPlaces = computeDerivedEliminationPlaces(
+    attendedRows.length,
+    Array.from(eliminations.entries())
+      .filter(([, status]) => status.eliminated)
+      .map(([player_id, status]) => ({
+        player_id,
+        eliminated_at: status.eliminated_at ?? new Date(0).toISOString(),
+      }))
+  );
+
   return attendedRows.map((row) => {
     const player = row.players;
     const rawRebuy = rebuyState.get(row.player_id)?.rebuys ?? 0;
@@ -1305,6 +1359,7 @@ export async function getArrivedPlayersForIntegration(
       // matches tournament_player_eliminations' own `eliminated boolean not
       // null default false` semantics.
       eliminated: eliminations.get(row.player_id)?.eliminated ?? false,
+      place: derivedPlaces.get(row.player_id) ?? null,
       // Per-player normalization, not the aggregate rating-v2.ts shortcut --
       // see IntegrationPlayer's doc comment above for why.
       initialStackTaken: rawRebuy >= 1,

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   findById: vi.fn(),
   upsertAttendance: vi.fn(),
+  findAttendanceByTournamentId: vi.fn().mockResolvedValue(new Map()),
   findAttendedPlayersWithDetails: vi.fn(),
   findEliminationsByTournamentId: vi.fn().mockResolvedValue(new Map()),
   findRebuyStateByTournamentId: vi.fn().mockResolvedValue(new Map()),
@@ -25,6 +26,7 @@ vi.mock("@/lib/repositories", () => ({
   registrationRepository: {},
   tournamentLiveStateRepository: {
     upsertAttendance: mocks.upsertAttendance,
+    findAttendanceByTournamentId: mocks.findAttendanceByTournamentId,
     findAttendedPlayersWithDetails: mocks.findAttendedPlayersWithDetails,
     findEliminationsByTournamentId: mocks.findEliminationsByTournamentId,
     findRebuyStateByTournamentId: mocks.findRebuyStateByTournamentId,
@@ -45,6 +47,7 @@ vi.mock("@/features/club-activity", () => ({
 
 import {
   getArrivedPlayersForIntegration,
+  getDerivedEliminationPlaces,
   getIntegrationTournamentList,
   getTournamentRebuyState,
   setTournamentPlayerAttendance,
@@ -161,6 +164,7 @@ describe("getArrivedPlayersForIntegration", () => {
         ratingPoints: null,
         // Default mock: no elimination row at all for this player.
         eliminated: false,
+        place: null,
         // Default mock: no rebuy-state row at all -- raw Re-buy = 0.
         initialStackTaken: false,
         rebuys: 0,
@@ -221,6 +225,7 @@ describe("getArrivedPlayersForIntegration", () => {
         avatarUrl: "https://example.com/telegram.png",
         ratingPoints: 20,
         eliminated: false,
+        place: null,
         initialStackTaken: true,
         rebuys: 2,
         addons: 1,
@@ -235,6 +240,8 @@ describe("getArrivedPlayersForIntegration", () => {
         // eliminated=true (see the type's own doc comment for why: Poker
         // Clock needs to show them, not silently drop them).
         eliminated: true,
+        // fieldSize=2 (both players arrived), eliminationIndex=0 -> 2-0=2.
+        place: 2,
         initialStackTaken: false,
         rebuys: 0,
         addons: 0,
@@ -280,7 +287,7 @@ describe("getArrivedPlayersForIntegration", () => {
     expect(afterUnEliminate[0].eliminated).toBe(false);
   });
 
-  it("response contains no PII beyond id/nickname/avatarUrl/ratingPoints/eliminated", async () => {
+  it("response contains no PII beyond id/nickname/avatarUrl/ratingPoints/eliminated/place", async () => {
     mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
     mocks.findAttendedPlayersWithDetails.mockResolvedValue([
       {
@@ -301,8 +308,79 @@ describe("getArrivedPlayersForIntegration", () => {
     const [player] = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
 
     expect(Object.keys(player).sort()).toEqual(
-      ["addons", "avatarUrl", "eliminated", "id", "initialStackTaken", "nickname", "ratingPoints", "rebuys"].sort()
+      ["addons", "avatarUrl", "eliminated", "id", "initialStackTaken", "nickname", "place", "ratingPoints", "rebuys"].sort()
     );
+  });
+
+  describe("place -- same derived placement algorithm as Google Sheets", () => {
+    it("a still-active (non-eliminated) player gets place: null", async () => {
+      mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+      mocks.findAttendedPlayersWithDetails.mockResolvedValue([
+        {
+          player_id: PLAYER_ID,
+          arrived_at: "2026-08-25T18:00:00.000Z",
+          players: { display_name: "Player", admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null },
+        },
+      ]);
+      mocks.findEliminationsByTournamentId.mockResolvedValue(new Map());
+
+      const [player] = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+      expect(player.place).toBeNull();
+    });
+
+    it("17 arrived, first eliminated -> place 17", async () => {
+      mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+      const arrivedRows = Array.from({ length: 17 }, (_, i) => ({
+        player_id: `p${i + 1}`,
+        arrived_at: "2026-08-25T18:00:00.000Z",
+        players: { display_name: `Player ${i + 1}`, admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null },
+      }));
+      mocks.findAttendedPlayersWithDetails.mockResolvedValue(arrivedRows);
+      mocks.findEliminationsByTournamentId.mockResolvedValue(
+        new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+      );
+
+      const players = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+      expect(players.find((p) => p.id === "p1")?.place).toBe(17);
+      expect(players.find((p) => p.id === "p2")?.place).toBeNull();
+    });
+
+    it("second eliminated after first (fieldSize 17): first -> 17, second -> 16", async () => {
+      mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+      const arrivedRows = Array.from({ length: 17 }, (_, i) => ({
+        player_id: `p${i + 1}`,
+        arrived_at: "2026-08-25T18:00:00.000Z",
+        players: { display_name: `Player ${i + 1}`, admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null },
+      }));
+      mocks.findAttendedPlayersWithDetails.mockResolvedValue(arrivedRows);
+      mocks.findEliminationsByTournamentId.mockResolvedValue(
+        new Map([
+          ["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }],
+          ["p2", { eliminated: true, eliminated_at: "2026-08-25T19:05:00.000Z" }],
+        ])
+      );
+
+      const players = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+      expect(players.find((p) => p.id === "p1")?.place).toBe(17);
+      expect(players.find((p) => p.id === "p2")?.place).toBe(16);
+    });
+
+    it("waitlist/never-arrived players never contribute to field size (only attendedRows exist here at all)", async () => {
+      mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+      // Only 2 arrived rows -- a waitlisted or registered-but-not-arrived
+      // player simply never appears in findAttendedPlayersWithDetails,
+      // which is exactly how fieldSize stays scoped to arrived===true.
+      mocks.findAttendedPlayersWithDetails.mockResolvedValue([
+        { player_id: "p1", arrived_at: "x", players: { display_name: "A", admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null } },
+        { player_id: "p2", arrived_at: "x", players: { display_name: "B", admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null } },
+      ]);
+      mocks.findEliminationsByTournamentId.mockResolvedValue(
+        new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+      );
+
+      const players = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+      expect(players.find((p) => p.id === "p1")?.place).toBe(2);
+    });
   });
 });
 
@@ -455,5 +533,121 @@ describe("getIntegrationTournamentList", () => {
     // called .listCompleted() it would throw "not a function", which this
     // call not throwing already proves. Asserted explicitly for clarity.
     expect(mocks.listOpen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getDerivedEliminationPlaces -- dynamic recalculation", () => {
+  function attendanceMap(arrivedPlayerIds: string[]) {
+    return new Map(arrivedPlayerIds.map((id) => [id, { arrived: true, arrived_at: "x" }]));
+  }
+
+  it("17 arrived, one eliminated -> place 17", async () => {
+    mocks.findAttendanceByTournamentId.mockResolvedValue(
+      attendanceMap(Array.from({ length: 17 }, (_, i) => `p${i + 1}`))
+    );
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    const places = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(places.get("p1")).toBe(17);
+  });
+
+  it("two MORE players arrive later -- the already-eliminated player's place shifts from 17 to 19, no re-click needed", async () => {
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    mocks.findAttendanceByTournamentId.mockResolvedValue(
+      attendanceMap(Array.from({ length: 17 }, (_, i) => `p${i + 1}`))
+    );
+    const before = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(before.get("p1")).toBe(17);
+
+    mocks.findAttendanceByTournamentId.mockResolvedValue(
+      attendanceMap(Array.from({ length: 19 }, (_, i) => `p${i + 1}`))
+    );
+    const after = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(after.get("p1")).toBe(19);
+  });
+
+  it("registered but never arrived does not increase field size", async () => {
+    // Only 17 players ever have an attendance row at all -- a
+    // registered-but-not-arrived player simply has no row here (matching
+    // tournament_attendance's own semantics), so it can't inflate fieldSize.
+    mocks.findAttendanceByTournamentId.mockResolvedValue(
+      attendanceMap(Array.from({ length: 17 }, (_, i) => `p${i + 1}`))
+    );
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "x" }]])
+    );
+
+    const places = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(places.get("p1")).toBe(17);
+  });
+
+  it("arrival correction (a mistaken Пришел is unchecked) shrinks the field and recalculates places", async () => {
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "x" }]])
+    );
+
+    mocks.findAttendanceByTournamentId.mockResolvedValue(
+      new Map([
+        ...Array.from({ length: 17 }, (_, i) => [`p${i + 1}`, { arrived: true, arrived_at: "x" }] as const),
+      ])
+    );
+    const before = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(before.get("p1")).toBe(17);
+
+    // p17's arrival gets corrected to false -- no longer counts.
+    const correctedAttendance: [string, { arrived: boolean; arrived_at: string | null }][] = [
+      ...Array.from({ length: 16 }, (_, i) => [`p${i + 1}`, { arrived: true, arrived_at: "x" }] as [string, { arrived: boolean; arrived_at: string | null }]),
+      ["p17", { arrived: false, arrived_at: null }],
+    ];
+    mocks.findAttendanceByTournamentId.mockResolvedValue(new Map(correctedAttendance));
+    const after = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(after.get("p1")).toBe(16);
+  });
+
+  it("un-eliminate removes the player from elimination order entirely and recalculates the rest", async () => {
+    mocks.findAttendanceByTournamentId.mockResolvedValue(attendanceMap(["p1", "p2", "p3"]));
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([
+        ["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }],
+        ["p2", { eliminated: true, eliminated_at: "2026-08-25T19:05:00.000Z" }],
+      ])
+    );
+    const before = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(before.get("p1")).toBe(3);
+    expect(before.get("p2")).toBe(2);
+
+    // p1 is un-eliminated.
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([
+        ["p1", { eliminated: false, eliminated_at: null }],
+        ["p2", { eliminated: true, eliminated_at: "2026-08-25T19:05:00.000Z" }],
+      ])
+    );
+    const after = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(after.has("p1")).toBe(false);
+    expect(after.get("p2")).toBe(3);
+  });
+
+  it("simultaneous eliminations (identical timestamp) resolve deterministically by player_id, not iteration order", async () => {
+    mocks.findAttendanceByTournamentId.mockResolvedValue(attendanceMap(["pA", "pB"]));
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([
+        ["pB", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }],
+        ["pA", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }],
+      ])
+    );
+
+    const first = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    const second = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(first).toEqual(second);
+    // pA sorts before pB lexicographically -> pA is treated as eliminated
+    // first (worse place).
+    expect(first.get("pA")).toBe(2);
+    expect(first.get("pB")).toBe(1);
   });
 });

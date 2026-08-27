@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  getDerivedEliminationPlaces,
   getTournamentAttendance,
   getTournamentById,
   getTournamentEliminations,
@@ -108,13 +109,25 @@ export async function POST(
     const [attendance, rebuyState, eliminations, lateRegistrationSnapshot] = await Promise.all([
       getTournamentAttendance(id),
       getTournamentRebuyState(id),
-      freshSheetSnapshot ? getTournamentEliminations(id) : Promise.resolve(new Map()),
+      getTournamentEliminations(id),
       getTournamentLateRegistrationSnapshot(id),
     ]);
+
+    // Before validation/rating, reconcile the SAME authoritative derived
+    // elimination placement everything else uses (see
+    // lib/tournament-placement.ts) -- computed fresh from the
+    // attendance/eliminations state just reconciled above, so completion
+    // never calculates from a stale client-cached place for an eliminated
+    // player. Only ever overrides an ELIMINATED player's place below --
+    // non-eliminated (winner/top-finisher) rows keep the existing
+    // sheet/client value untouched, same as before.
+    const derivedPlaces = await getDerivedEliminationPlaces(id);
+
     const rows = rawRows.map((row) => {
       const liveRebuyState = rebuyState.get(row.player_id);
       const sheetRow = freshSheetSnapshot?.get(row.player_id);
       const eliminationState = eliminations.get(row.player_id);
+      const isEliminated = eliminationState?.eliminated ?? row.eliminated ?? false;
 
       return {
         ...row,
@@ -124,21 +137,24 @@ export async function POST(
         // eliminated_at is never read from the sheet (never trusted) --
         // only eliminated itself; the timestamp stays whatever
         // setTournamentPlayerElimination derived/preserved server-side.
-        eliminated: freshSheetSnapshot
-          ? eliminationState?.eliminated ?? row.eliminated ?? false
-          : row.eliminated ?? false,
-        eliminated_at: freshSheetSnapshot
-          ? eliminationState?.eliminated_at ?? row.eliminated_at ?? null
-          : row.eliminated_at ?? null,
-        // KO/Boss KO/Mystery points/Место have no live Postgres mirror --
-        // the fresh sheet snapshot itself is the freshness fix for these,
+        eliminated: isEliminated,
+        eliminated_at: eliminationState?.eliminated_at ?? row.eliminated_at ?? null,
+        // KO/Boss KO/Mystery points have no live Postgres mirror -- the
+        // fresh sheet snapshot itself is the freshness fix for these,
         // falling back to the submitted value only for a player absent
         // from the sheet (e.g. registered in ReRaise but not yet
         // reflected there).
         knockouts: sheetRow?.knockouts ?? row.knockouts,
         boss_knockouts: sheetRow?.boss_knockouts ?? row.boss_knockouts ?? 0,
         mystery_bounty_points: sheetRow?.mystery_bounty_points ?? row.mystery_bounty_points ?? 0,
-        place: sheetRow?.place ?? row.place,
+        // Eliminated players: the derived placement algorithm wins,
+        // falling back to the fresh sheet value then the client value only
+        // if a derived place genuinely isn't available. Non-eliminated
+        // (active/winner) rows are untouched -- ReRaise only owns place
+        // for eliminated rows.
+        place: isEliminated
+          ? derivedPlaces.get(row.player_id) ?? sheetRow?.place ?? row.place
+          : sheetRow?.place ?? row.place,
       };
     });
 

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BackButton } from "@/components/ui/back-button";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
+  getDerivedEliminationPlaces,
   getTournamentAttendance,
   getTournamentById,
   getTournamentEliminations,
@@ -49,13 +50,14 @@ type FreeFormRow = {
   knockouts: string;
   boss_knockouts: string;
   mystery_bounty_points: string;
+  // Server-derived for eliminated players (see
+  // features/tournament-sheet-sync.ts's setTournamentPlayerEliminationThroughSheet
+  // / lib/tournament-placement.ts) -- the input is read-only while
+  // `eliminated` is true. Freely editable only for a non-eliminated
+  // (active/winner) row.
   place: string;
   eliminated: boolean;
   eliminated_at: string | null;
-  // UI-only: true when `place` was filled in automatically by the
-  // "Выбыл" checkbox, so unchecking it can safely clear the place again.
-  // Never sent to the server or Google Sheets.
-  placeAutoAssigned: boolean;
 };
 
 type PulledFreeRow = {
@@ -143,26 +145,6 @@ function formatEliminationTime(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-// Largest finishing position (1..totalCount) not already taken by another
-// row — i.e. "the last free place". First player eliminated gets the worst
-// (highest-numbered) remaining place, matching standard elimination order.
-function computeAutoPlace(rows: FreeFormRow[], playerId: string): string | null {
-  const totalCount = rows.length;
-  const occupied = new Set(
-    rows
-      .filter((row) => row.player_id !== playerId && row.place.trim() !== "")
-      .map((row) => Number(row.place))
-  );
-
-  for (let candidate = totalCount; candidate >= 1; candidate -= 1) {
-    if (!occupied.has(candidate)) {
-      return String(candidate);
-    }
-  }
-
-  return null;
 }
 
 // Strips UI-only / already-durably-saved fields before diffing snapshots,
@@ -389,7 +371,6 @@ export default function AdminTournamentResultsPage() {
                 place: row.place == null ? "" : String(row.place),
                 eliminated: false,
                 eliminated_at: null,
-                placeAutoAssigned: false,
               }));
               if (payload.entryPrice !== undefined) setEntryPrice(String(payload.entryPrice));
               if (payload.addonPrice !== undefined) setAddonPrice(String(payload.addonPrice));
@@ -417,14 +398,14 @@ export default function AdminTournamentResultsPage() {
               place: "",
               eliminated: false,
               eliminated_at: null,
-              placeAutoAssigned: false,
             }));
           }
 
-          const [eliminations, attendance, rebuyState] = await Promise.all([
+          const [eliminations, attendance, rebuyState, derivedPlaces] = await Promise.all([
             getTournamentEliminations(tournamentId),
             getTournamentAttendance(tournamentId),
             getTournamentRebuyState(tournamentId),
+            getDerivedEliminationPlaces(tournamentId),
           ]);
           nextRows = nextRows.map((row) => {
             const elimination = eliminations.get(row.player_id);
@@ -447,6 +428,13 @@ export default function AdminTournamentResultsPage() {
               // this page can never make a durably-saved edit look reverted.
               ...(rebuyRecord
                 ? { rebuys: String(rebuyRecord.rebuys), addons: String(rebuyRecord.addons) }
+                : null),
+              // Same single authoritative placement algorithm as the
+              // eliminate action itself (lib/tournament-placement.ts) --
+              // only ever overrides an eliminated row's place, so the UI
+              // never displays a stale client-typed/sheet-lagging number.
+              ...(elimination?.eliminated
+                ? { place: String(derivedPlaces.get(row.player_id) ?? row.place) }
                 : null),
             };
           });
@@ -636,17 +624,7 @@ export default function AdminTournamentResultsPage() {
     const previousRow = freeRows.find((row) => row.player_id === playerId);
 
     setFreeRows((prev) =>
-      prev.map((row) =>
-        row.player_id === playerId
-          ? {
-              ...row,
-              [field]: value,
-              // Typing a place manually always takes precedence: it's no
-              // longer safe to auto-clear it if the checkbox is unchecked.
-              ...(field === "place" ? { placeAutoAssigned: false } : null),
-            }
-          : row
-      )
+      prev.map((row) => (row.player_id === playerId ? { ...row, [field]: value } : row))
     );
 
     // Mystery Bounty "bust -> rebuy -> active again": auto-clear "Выбыл"
@@ -664,6 +642,12 @@ export default function AdminTournamentResultsPage() {
     }
   }
 
+  // Place is now entirely server-derived for an eliminated player (see
+  // lib/tournament-placement.ts / setTournamentPlayerEliminationThroughSheet)
+  // -- no client-side guess is made here, optimistically or otherwise. The
+  // checkbox state and eliminated_at update optimistically as before; place
+  // is left untouched until the server's authoritative response lands, then
+  // set from `result.place` directly (or cleared to "" on un-eliminate).
   async function handleToggleFreeEliminated(playerId: string, checked: boolean) {
     if (!tournamentId) {
       return;
@@ -675,23 +659,6 @@ export default function AdminTournamentResultsPage() {
       return;
     }
 
-    let nextPlace = previousRow.place;
-    let nextPlaceAutoAssigned = previousRow.placeAutoAssigned;
-
-    if (checked) {
-      if (!previousRow.place.trim()) {
-        const autoPlace = computeAutoPlace(freeRows, playerId);
-
-        if (autoPlace) {
-          nextPlace = autoPlace;
-          nextPlaceAutoAssigned = true;
-        }
-      }
-    } else if (previousRow.placeAutoAssigned) {
-      nextPlace = "";
-      nextPlaceAutoAssigned = false;
-    }
-
     const optimisticEliminatedAt = checked
       ? previousRow.eliminated_at ?? new Date().toISOString()
       : null;
@@ -699,31 +666,31 @@ export default function AdminTournamentResultsPage() {
     setFreeRows((prev) =>
       prev.map((row) =>
         row.player_id === playerId
-          ? {
-              ...row,
-              place: nextPlace,
-              placeAutoAssigned: nextPlaceAutoAssigned,
-              eliminated: checked,
-              eliminated_at: optimisticEliminatedAt,
-            }
+          ? { ...row, eliminated: checked, eliminated_at: optimisticEliminatedAt }
           : row
       )
     );
 
     try {
-      const result = await fetchAdminJson<{ eliminated: boolean; eliminated_at: string | null }>(
-        `/api/admin/tournaments/${tournamentId}/eliminate`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ player_id: playerId, eliminated: checked }),
-        }
-      );
+      const result = await fetchAdminJson<{
+        eliminated: boolean;
+        eliminated_at: string | null;
+        place: number | null;
+      }>(`/api/admin/tournaments/${tournamentId}/eliminate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player_id: playerId, eliminated: checked }),
+      });
 
       setFreeRows((prev) =>
         prev.map((row) =>
           row.player_id === playerId
-            ? { ...row, eliminated: result.eliminated, eliminated_at: result.eliminated_at }
+            ? {
+                ...row,
+                eliminated: result.eliminated,
+                eliminated_at: result.eliminated_at,
+                place: result.eliminated ? String(result.place ?? "") : "",
+              }
             : row
         )
       );
@@ -932,13 +899,13 @@ export default function AdminTournamentResultsPage() {
         place: row.place == null ? "" : String(row.place),
         eliminated: false,
         eliminated_at: null,
-        placeAutoAssigned: false,
       }));
 
-      const [eliminations, attendance, rebuyState] = await Promise.all([
+      const [eliminations, attendance, rebuyState, derivedPlaces] = await Promise.all([
         getTournamentEliminations(tournamentId),
         getTournamentAttendance(tournamentId),
         getTournamentRebuyState(tournamentId),
+        getDerivedEliminationPlaces(tournamentId),
       ]);
       nextRows = nextRows.map((row) => {
         const elimination = eliminations.get(row.player_id);
@@ -959,6 +926,11 @@ export default function AdminTournamentResultsPage() {
           // reason eliminations/attendance already re-fetch here.
           ...(rebuyRecord
             ? { rebuys: String(rebuyRecord.rebuys), addons: String(rebuyRecord.addons) }
+            : null),
+          // Same single authoritative placement algorithm as the eliminate
+          // action itself -- only overrides an eliminated row's place.
+          ...(elimination?.eliminated
+            ? { place: String(derivedPlaces.get(row.player_id) ?? row.place) }
             : null),
         };
       });
@@ -1794,10 +1766,12 @@ export default function AdminTournamentResultsPage() {
                         type="number"
                         min="1"
                         value={row.place}
+                        disabled={row.eliminated}
+                        title={row.eliminated ? "Место рассчитывается автоматически" : undefined}
                         onChange={(e) =>
                           updateFreeRow(row.player_id, "place", e.target.value)
                         }
-                        className="h-10 w-16 rounded-lg border border-white/10 bg-black/30 px-2 text-center text-base outline-none"
+                        className="h-10 w-16 rounded-lg border border-white/10 bg-black/30 px-2 text-center text-base outline-none disabled:opacity-50"
                       />
                     </div>
                   </div>

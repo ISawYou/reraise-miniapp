@@ -184,6 +184,7 @@ describe("GET /api/integrations/v1/tournaments/:id/players", () => {
         avatarUrl: null,
         ratingPoints: 5,
         eliminated: false,
+        place: null,
         initialStackTaken: false,
         rebuys: 0,
         addons: 0,
@@ -194,11 +195,45 @@ describe("GET /api/integrations/v1/tournaments/:id/players", () => {
     const json = await response.json();
 
     expect(Object.keys(json.players[0]).sort()).toEqual(
-      ["addons", "avatarUrl", "eliminated", "id", "initialStackTaken", "nickname", "ratingPoints", "rebuys"].sort()
+      ["addons", "avatarUrl", "eliminated", "id", "initialStackTaken", "nickname", "place", "ratingPoints", "rebuys"].sort()
     );
     const raw = JSON.stringify(json);
     for (const forbidden of ["email", "telegram", "username", "role", "moderation", "access"]) {
       expect(raw.toLowerCase()).not.toContain(forbidden);
     }
+  });
+
+  it("backwards-compatible `place` field: eliminated player gets a finishing place, active player gets null -- same algorithm as Google Sheets, computed entirely in the feature layer", async () => {
+    mockVerifyIntegrationRequest.mockReturnValue(true);
+    mockGetArrivedPlayersForIntegration.mockResolvedValue([
+      {
+        id: "p1",
+        nickname: "Still Playing",
+        avatarUrl: null,
+        ratingPoints: 5,
+        eliminated: false,
+        place: null,
+        initialStackTaken: true,
+        rebuys: 0,
+        addons: 0,
+      },
+      {
+        id: "p2",
+        nickname: "Busted 3rd",
+        avatarUrl: null,
+        ratingPoints: 0,
+        eliminated: true,
+        place: 17,
+        initialStackTaken: true,
+        rebuys: 1,
+        addons: 0,
+      },
+    ]);
+
+    const response = await GET(request("Bearer real-token"), context());
+    const json = await response.json();
+
+    expect(json.players.find((p: { id: string }) => p.id === "p1").place).toBeNull();
+    expect(json.players.find((p: { id: string }) => p.id === "p2").place).toBe(17);
   });
 });

@@ -90,11 +90,17 @@ export function getFreeSheetColumnLayout(tournamentType: TournamentType): FreeSh
   };
 }
 
-// Normalized shape of one player's row -- deliberately excludes
+// Normalized shape of one player's row -- deliberately excludes a PARSED
 // `eliminated_at`: the sheet's "Время выбытия" column is write-only/display
-// (see export-sheet's formatEliminationTimestamp), never parsed back.
-// `eliminated_at` semantics stay entirely server-derived via
+// (see export-sheet's formatEliminationTimestamp), never parsed back as a
+// timestamp. `eliminated_at` semantics stay entirely server-derived via
 // setTournamentPlayerElimination.
+//
+// `raw_place`/`raw_eliminated_at` are the two ReRaise-DERIVED cells' RAW
+// text, kept only for byte-for-byte diffing (see
+// features/tournament-sheet-sync.ts's syncDerivedPlacementToSheet) so the
+// live sync writes a cell only when its value actually differs from the
+// freshly-computed derived one -- never interpreted as authoritative data.
 export type NormalizedFreeSheetRow = {
   rowNumber: number;
   player_id: string;
@@ -102,6 +108,8 @@ export type NormalizedFreeSheetRow = {
   raw_display_name: string;
   raw_telegram: string;
   raw_status: string;
+  raw_place: string;
+  raw_eliminated_at: string;
   arrived: boolean;
   paid: boolean;
   payment_type: string;
@@ -158,6 +166,8 @@ export function parseFreeSheetValues(
       raw_display_name: (row[2] ?? "Игрок").toString(),
       raw_telegram: (row[3] ?? "").toString(),
       raw_status: (row[4] ?? "").toString(),
+      raw_place: (row[layout.placeIndex] ?? "").toString().trim(),
+      raw_eliminated_at: (row[layout.eliminatedAtIndex] ?? "").toString().trim(),
       arrived: parseBooleanCell(row[5]),
       paid: parseBooleanCell(row[6]),
       payment_type: (row[7] ?? "").toString().trim(),
