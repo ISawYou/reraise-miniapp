@@ -16,6 +16,7 @@ import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import { computeDerivedEliminationPlaces } from "@/lib/tournament-placement";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
 import { assertPlayerActive } from "@/features/auth-server";
+import { assertServerActorRole } from "@/lib/admin-auth";
 import type {
   Registration,
   RegistrationStatus,
@@ -443,6 +444,11 @@ export async function createTournament(input: {
   });
 }
 
+// Invoked directly from app/admin/tournaments/[id]/edit/page.tsx as a
+// Server Action -- this bypasses middleware.ts's /api/admin/:path* matcher
+// entirely (a Server Action hits its own Next.js RPC endpoint, not that
+// URL), so it must authorize itself. Staff (operator or Super Admin) --
+// "operator can edit tournament" is explicitly allowed.
 export async function updateTournament(
   tournamentId: string,
   input: {
@@ -455,6 +461,8 @@ export async function updateTournament(
     rating_guarantee?: number | null;
   }
 ) {
+  await assertServerActorRole(["admin", "operator"]);
+
   return tournamentRepository.update(tournamentId, {
     title: input.title,
     description: input.description,
@@ -466,7 +474,12 @@ export async function updateTournament(
   });
 }
 
+// Same bypass-of-middleware reasoning as updateTournament above -- but
+// tournament deletion is explicitly Super-Admin-only ("operator must NOT
+// be able to DELETE a tournament").
 export async function deleteTournament(tournamentId: string) {
+  await assertServerActorRole(["admin"]);
+
   await tournamentRepository.delete(tournamentId);
 }
 
@@ -542,10 +555,15 @@ export async function getAdminTournamentParticipants(
   });
 }
 
+// Same bypass-of-middleware reasoning as updateTournament above. Staff --
+// "add walk-in/manual participant through the existing tournament flow"
+// is explicitly allowed for operator.
 export async function addAdminTournamentParticipant(
   tournamentId: string,
   nick: string
 ) {
+  await assertServerActorRole(["admin", "operator"]);
+
   const normalizedNick = nick.trim();
 
   if (!normalizedNick) {
@@ -572,10 +590,15 @@ export async function addAdminTournamentParticipant(
   });
 }
 
+// Same bypass-of-middleware reasoning as updateTournament above. Staff --
+// "manage tournament registrations/participants/waitlist" is explicitly
+// allowed for operator.
 export async function addExistingPlayerToTournament(
   tournamentId: string,
   playerId: string
 ): Promise<void> {
+  await assertServerActorRole(["admin", "operator"]);
+
   const existing = await registrationRepository.findLatestByPlayerAndTournament(
     playerId,
     tournamentId
@@ -609,7 +632,12 @@ export async function addExistingPlayerToTournament(
   }
 }
 
+// Same bypass-of-middleware reasoning as updateTournament above. Staff --
+// "manage tournament registrations/participants/waitlist" is explicitly
+// allowed for operator.
 export async function removeAdminTournamentParticipant(registrationId: string) {
+  await assertServerActorRole(["admin", "operator"]);
+
   const regData = await registrationRepository.findStatusAndTournamentById(registrationId);
 
   await registrationRepository.delete(registrationId);

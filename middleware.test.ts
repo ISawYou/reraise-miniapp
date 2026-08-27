@@ -84,3 +84,87 @@ describe("admin middleware for Dealer Payroll", () => {
     expect(response.status).toBe(200);
   });
 });
+
+describe("admin middleware -- operator role (fail-closed allowlist)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.verifySession.mockReturnValue("operator-1");
+    mocks.findById.mockResolvedValue({ id: "operator-1", role: "operator" });
+  });
+
+  function requestFor(method: string, path: string) {
+    return new NextRequest(`https://re-raise.ru${path}`, {
+      method,
+      headers: { cookie: "reraise_session=signed" },
+    });
+  }
+
+  it("allows the normal tournament-day operational flow", async () => {
+    const allowed: [string, string][] = [
+      ["GET", "/api/admin/tournaments"],
+      ["POST", "/api/admin/tournaments"],
+      ["POST", "/api/admin/tournaments/t1/attendance"],
+      ["POST", "/api/admin/tournaments/t1/eliminate"],
+      ["POST", "/api/admin/tournaments/t1/rebuy-state"],
+      ["POST", "/api/admin/tournaments/t1/pull-sheet"],
+      ["POST", "/api/admin/tournaments/t1/export-sheet"],
+      ["GET", "/api/admin/tournaments/t1/late-registration"],
+      ["POST", "/api/admin/tournaments/t1/late-registration"],
+      ["POST", "/api/admin/tournaments/t1/mystery-bounty/activate"],
+      ["POST", "/api/admin/tournaments/t1/complete-free"],
+      ["POST", "/api/admin/tournaments/t1/complete-live"],
+      ["GET", "/api/admin/nicknames/players"],
+      ["GET", "/api/admin/dealers"],
+      ["POST", "/api/admin/dealers/shifts"],
+      ["POST", "/api/admin/dealers/shifts/s1/end"],
+    ];
+
+    for (const [method, path] of allowed) {
+      const response = await middleware(requestFor(method, path));
+      expect(response.status, `${method} ${path}`).toBe(200);
+    }
+  });
+
+  it("denies destructive/system/unrelated admin endpoints by default (fail closed)", async () => {
+    const denied: [string, string][] = [
+      // Tournament DELETE has no /api/admin/** route at all -- it's a
+      // Server Action, guarded separately (see features/tournaments.ts).
+      // Everything below DOES have a route, and must still be denied.
+      ["POST", "/api/admin/tournaments/notify"],
+      ["GET", "/api/admin/tournaments/recipients"],
+      ["GET", "/api/admin/players"],
+      ["PATCH", "/api/admin/players/p1"],
+      ["DELETE", "/api/admin/players/p1"],
+      ["PATCH", "/api/admin/players/access"],
+      ["GET", "/api/admin/nicknames/pending"],
+      ["PATCH", "/api/admin/nicknames/n1"],
+      ["GET", "/api/admin/referral"],
+      ["GET", "/api/admin/activity"],
+      ["GET", "/api/admin/academy"],
+      ["POST", "/api/admin/achievements/manual"],
+      ["POST", "/api/admin/achievements/resync"],
+      ["GET", "/api/admin/tournament-visuals"],
+      ["GET", "/api/admin/settings"],
+      ["GET", "/api/admin/seasons"],
+      ["POST", "/api/admin/club-activity"],
+      // Dealer administration/financial routes stay Super-Admin-only.
+      ["POST", "/api/admin/dealers"],
+      ["DELETE", "/api/admin/dealers/p1"],
+      ["PATCH", "/api/admin/dealers/p1"],
+      ["PATCH", "/api/admin/dealers/shifts/s1"],
+      ["GET", "/api/admin/dealers/shifts/today"],
+      ["GET", "/api/admin/dealers/shifts/recent"],
+      ["GET", "/api/admin/dealers/stats"],
+      // Role management is Super-Admin-only.
+      ["GET", "/api/admin/roles"],
+      ["PATCH", "/api/admin/roles"],
+      // A brand-new, never-listed route must fail closed too.
+      ["POST", "/api/admin/tournaments/t1/some-future-destructive-action"],
+    ];
+
+    for (const [method, path] of denied) {
+      const response = await middleware(requestFor(method, path));
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+  });
+});

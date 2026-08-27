@@ -34,6 +34,7 @@ function mapShiftRow(row: typeof dealerShifts.$inferSelect): DealerShiftRow {
     worked_minutes: row.workedMinutes,
     paid_hours: row.paidHours,
     amount_rub: row.amountRub,
+    tournament_id: row.tournamentId,
     created_by_player_id: row.createdByPlayerId,
     ended_by_player_id: row.endedByPlayerId,
     created_at: row.createdAt.toISOString(),
@@ -134,6 +135,7 @@ export class PostgresDealerRepository implements DealerRepository {
           dealerPlayerId: data.dealer_player_id,
           startedAt: new Date(data.started_at),
           hourlyRateRub: data.hourly_rate_rub,
+          tournamentId: data.tournament_id,
           createdByPlayerId: data.created_by_player_id,
         })
         .returning();
@@ -186,6 +188,33 @@ export class PostgresDealerRepository implements DealerRepository {
       throw new Error("Failed to update dealer shift: no rows returned");
     }
     return mapShiftRow(row);
+  }
+
+  async updateShiftTournament(shiftId: string, tournamentId: string | null): Promise<DealerShiftRow> {
+    const rows = await db
+      .update(dealerShifts)
+      .set({ tournamentId })
+      .where(eq(dealerShifts.id, shiftId))
+      .returning();
+    const [row] = rows;
+    if (!row) {
+      throw new Error("Failed to update dealer shift tournament: no rows returned");
+    }
+    return mapShiftRow(row);
+  }
+
+  async listShiftsByDealerId(dealerPlayerId: string): Promise<DealerShiftRow[]> {
+    const rows = await db
+      .select()
+      .from(dealerShifts)
+      .where(eq(dealerShifts.dealerPlayerId, dealerPlayerId))
+      .orderBy(desc(dealerShifts.startedAt));
+    return rows.map(mapShiftRow);
+  }
+
+  async listAllShifts(): Promise<DealerShiftRow[]> {
+    const rows = await db.select().from(dealerShifts).orderBy(desc(dealerShifts.startedAt));
+    return rows.map(mapShiftRow);
   }
 
   async listShiftsStartedBetween(startInclusive: string, endExclusive: string): Promise<DealerShiftRow[]> {

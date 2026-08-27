@@ -1,10 +1,12 @@
-import { pgTable, uuid, integer, boolean, timestamp, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, integer, boolean, timestamp, uniqueIndex, index, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { players } from "./players";
+import { tournaments } from "./tournaments";
 
-// Dealer Payroll V1. A dealer is still an ordinary `players` row (see
-// players.ts's `role` column, deliberately untouched -- 'player' | 'admin'
-// only) -- this is an ADDITIONAL staff designation, not a third role.
+// Dealer Payroll V1 (+ tournament link, added later). A dealer is still an
+// ordinary `players` row (see players.ts's `role` column -- 'player' |
+// 'operator' | 'admin' -- dealer status is independent of all three) --
+// this is an ADDITIONAL staff designation, not a fourth role.
 // `dealer_profiles` records "this player is currently staff"; deactivating
 // a dealer never deletes their row, only flips `is_active`, so `player_id`
 // stays a stable, reusable anchor for all their historical shifts even
@@ -50,6 +52,16 @@ export const dealerShifts = pgTable("dealer_shifts", {
   paidHours: integer("paid_hours"),
   amountRub: integer("amount_rub"),
 
+  // Which tournament this shift worked, if any -- nullable, a dealer may
+  // work outside a linked tournament and that must never be invented.
+  // ON DELETE SET NULL: removing a tournament must never cascade into
+  // deleting payroll history -- the shift row (and its frozen
+  // worked_minutes/paid_hours/amount_rub) survives with tournament_id
+  // cleared. Existing shifts created before this column existed are
+  // NULL, never backfilled by timestamp guessing (see
+  // features/dealers.ts -- deliberately no inference logic).
+  tournamentId: uuid("tournament_id").references(() => tournaments.id, { onDelete: "set null" }),
+
   // Admin identity for the two actions that create/close a shift -- both
   // nullable: a shift opened before this column existed, or an
   // already-deleted admin account, must not block reads. Not exposed
@@ -67,6 +79,9 @@ export const dealerShifts = pgTable("dealer_shifts", {
   uniqueIndex("dealer_shifts_one_open_per_dealer")
     .on(table.dealerPlayerId)
     .where(sql`${table.endedAt} IS NULL`),
+
+  // Feeds the by-tournament dealer-stats aggregation directly.
+  index("dealer_shifts_tournament_id_idx").on(table.tournamentId),
 
   check("dealer_shifts_hourly_rate_check", sql`${table.hourlyRateRub} >= 0`),
   check("dealer_shifts_worked_minutes_check", sql`${table.workedMinutes} IS NULL OR ${table.workedMinutes} > 0`),

@@ -23,6 +23,7 @@ import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
+import { isStaff } from "@/lib/roles";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
 import type { TournamentLiveSummary } from "@/types/poker-clock-live-state";
 import {
@@ -1674,7 +1675,7 @@ export default function HomePage() {
               </div>
             </section>
 
-            {player?.role === "admin" ? (
+            {isStaff(player?.role) ? (
               <section className="mt-3">
                 <Link
                   href="/admin"

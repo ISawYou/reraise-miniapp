@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { deleteTournament } from "@/features/tournaments";
 import { fetchAdminJson } from "@/lib/client-request";
+import { isStaff, isSuperAdmin } from "@/lib/roles";
 import type { Player, Tournament } from "@/types/domain";
 
 type AdminTab = "active" | "completed";
@@ -44,7 +45,7 @@ export default function AdminTournamentsPage() {
         const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
 
-        if (ensuredPlayer.role === "admin") {
+        if (isStaff(ensuredPlayer.role)) {
           await loadTournaments();
         }
       } catch (err) {
@@ -140,7 +141,7 @@ export default function AdminTournamentsPage() {
     );
   }
 
-  if (player?.role !== "admin") {
+  if (!isStaff(player?.role)) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-4xl">
@@ -288,16 +289,18 @@ export default function AdminTournamentsPage() {
                         </Link>
                       )}
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleDeleteTournament(tournament.id, tournament.title)
-                        }
-                        disabled={actionLoading}
-                        className="rounded-xl bg-red-600/90 px-3 py-2.5 text-center text-[13px] font-semibold text-white transition-colors active:bg-red-500 disabled:opacity-60"
-                      >
-                        Удалить турнир
-                      </button>
+                      {isSuperAdmin(player?.role) ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleDeleteTournament(tournament.id, tournament.title)
+                          }
+                          disabled={actionLoading}
+                          className="rounded-xl bg-red-600/90 px-3 py-2.5 text-center text-[13px] font-semibold text-white transition-colors active:bg-red-500 disabled:opacity-60"
+                        >
+                          Удалить турнир
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 );

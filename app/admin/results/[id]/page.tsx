@@ -23,6 +23,7 @@ import {
 } from "@/lib/tournament-helpers";
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
+import { isStaff } from "@/lib/roles";
 import type {
   MysteryBountySnapshot,
   Player,
@@ -1374,7 +1375,7 @@ export default function AdminTournamentResultsPage() {
     );
   }
 
-  if (player?.role !== "admin") {
+  if (!isStaff(player?.role)) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
         <div className="mx-auto max-w-4xl">

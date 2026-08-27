@@ -3,7 +3,7 @@ import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { players } from "@/lib/db/schema";
-import type { Player } from "@/types/domain";
+import type { Player, PlayerRole } from "@/types/domain";
 import type {
   PlayerRepository,
   PlayerInsert,
@@ -29,7 +29,7 @@ function mapRowToPlayer(row: typeof players.$inferSelect): Player {
     telegram_avatar_url: row.telegramAvatarUrl ?? undefined,
     custom_avatar_url: row.customAvatarUrl ?? undefined,
     avatar_updated_at: row.avatarUpdatedAt ? row.avatarUpdatedAt.toISOString() : undefined,
-    role: row.role as "player" | "admin",
+    role: row.role as PlayerRole,
     is_blocked: row.isBlocked,
     accepted_terms_at: row.acceptedTermsAt ? row.acceptedTermsAt.toISOString() : undefined,
     accepted_terms_version: row.acceptedTermsVersion ?? undefined,

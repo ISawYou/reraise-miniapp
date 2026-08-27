@@ -460,7 +460,7 @@ export default function AdminModerationPage() {
                             : "Редактировать"}
                       </button>
 
-                      {targetPlayer.role !== "admin" ? (
+                      {targetPlayer.role === "player" ? (
                         <button
                           type="button"
                           onClick={() => handleToggleBlock(targetPlayer)}
@@ -479,14 +479,16 @@ export default function AdminModerationPage() {
                         </button>
                       ) : null}
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteManualPlayer(targetPlayer)}
-                        disabled={processingKey === `delete-${targetPlayer.id}`}
-                        className="rounded-lg border border-red-500/30 px-3 py-2 text-sm font-medium text-red-400 disabled:opacity-60"
-                      >
-                        {processingKey === `delete-${targetPlayer.id}` ? "..." : "Удалить"}
-                      </button>
+                      {targetPlayer.role === "player" ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteManualPlayer(targetPlayer)}
+                          disabled={processingKey === `delete-${targetPlayer.id}`}
+                          className="rounded-lg border border-red-500/30 px-3 py-2 text-sm font-medium text-red-400 disabled:opacity-60"
+                        >
+                          {processingKey === `delete-${targetPlayer.id}` ? "..." : "Удалить"}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 );

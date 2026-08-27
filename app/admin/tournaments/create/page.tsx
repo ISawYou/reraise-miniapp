@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import { CLUB_ADDRESS } from "@/config/club";
+import { isStaff } from "@/lib/roles";
 import type { Player, TournamentType } from "@/types/domain";
 
 const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
@@ -149,7 +150,7 @@ export default function AdminTournamentCreatePage() {
     );
   }
 
-  if (player?.role !== "admin") {
+  if (!isStaff(player?.role)) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">

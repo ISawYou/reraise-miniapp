@@ -10,7 +10,9 @@ export type TournamentStatus =
   | "closed"
   | "completed";
 
-export type PlayerRole = "player" | "admin";
+// 'operator' = on-site tournament admin (restricted, see lib/roles.ts);
+// 'admin' keeps meaning Super Admin (unrestricted), unchanged.
+export type PlayerRole = "player" | "operator" | "admin";
 export type TournamentKind = "free" | "paid" | "cash";
 export type TournamentType =
   | "classic"
@@ -31,7 +33,7 @@ export type Player = {
   telegram_avatar_url?: string;
   custom_avatar_url?: string;
   avatar_updated_at?: string;
-  role: "player" | "admin";
+  role: PlayerRole;
   is_blocked?: boolean;
   accepted_terms_at?: string;
   accepted_terms_version?: string;

@@ -3,9 +3,38 @@
 // ADDITIONAL staff designation layered on top of the existing player base,
 // not a new role. See lib/db/schema/dealers.ts for the storage model and
 // PostgresDealerRepository.ts for why this domain is Postgres-only.
-import { dealerRepository, playerRepository, DealerAlreadyOnShiftError } from "@/lib/repositories";
+import {
+  dealerRepository,
+  playerRepository,
+  tournamentRepository,
+  DealerAlreadyOnShiftError,
+} from "@/lib/repositories";
 import type { DealerProfileRow, DealerShiftRow } from "@/lib/repositories";
 import type { Player } from "@/types/domain";
+
+export class InvalidTournamentIdError extends Error {
+  constructor(tournamentId: string) {
+    super(`Tournament ${tournamentId} not found`);
+    this.name = "InvalidTournamentIdError";
+  }
+}
+
+// Resolves a client-submitted tournament id server-side -- never trusts a
+// title/date the client might send instead. `null`/empty means "Без
+// турнира", a legitimate choice, not an error.
+async function resolveTournamentIdOrThrow(tournamentId: string | null): Promise<string | null> {
+  if (!tournamentId) {
+    return null;
+  }
+
+  try {
+    await tournamentRepository.findById(tournamentId);
+  } catch {
+    throw new InvalidTournamentIdError(tournamentId);
+  }
+
+  return tournamentId;
+}
 
 export { DealerAlreadyOnShiftError };
 
@@ -102,10 +131,17 @@ export function computeShiftPayroll(
   return { workedMinutes, paidHours, amountRub };
 }
 
+export type DealerOpenShift = {
+  id: string;
+  startedAt: string;
+  tournamentId: string | null;
+  tournamentTitle: string | null;
+};
+
 export type DealerStatus = {
   player: Player;
   hourlyRateRub: number;
-  openShift: { id: string; startedAt: string } | null;
+  openShift: DealerOpenShift | null;
 };
 
 export async function listActiveDealers(): Promise<DealerStatus[]> {
@@ -122,10 +158,25 @@ export async function listActiveDealers(): Promise<DealerStatus[]> {
         return null;
       }
 
+      let tournamentTitle: string | null = null;
+      if (openShift?.tournament_id) {
+        tournamentTitle = await tournamentRepository
+          .findById(openShift.tournament_id)
+          .then((t) => t.title)
+          .catch(() => null);
+      }
+
       return {
         player,
         hourlyRateRub: profile.hourly_rate_rub,
-        openShift: openShift ? { id: openShift.id, startedAt: openShift.started_at } : null,
+        openShift: openShift
+          ? {
+              id: openShift.id,
+              startedAt: openShift.started_at,
+              tournamentId: openShift.tournament_id,
+              tournamentTitle,
+            }
+          : null,
       } satisfies DealerStatus;
     })
   );
@@ -180,6 +231,7 @@ export async function updateDealerHourlyRate(
 export async function startDealerShift(
   dealerPlayerId: string,
   startedAt: string,
+  tournamentId: string | null,
   createdByPlayerId: string | null
 ): Promise<DealerShiftRow> {
   const startedDate = new Date(startedAt);
@@ -197,10 +249,16 @@ export async function startDealerShift(
     throw new DealerAlreadyOnShiftError(dealerPlayerId);
   }
 
+  // Server-validated -- never trusts a client-supplied tournament
+  // title/date. null/"" means "Без турнира", a legitimate, non-invented
+  // choice.
+  const validTournamentId = await resolveTournamentIdOrThrow(tournamentId);
+
   return dealerRepository.createShift({
     dealer_player_id: dealerPlayerId,
     started_at: startedDate.toISOString(),
     hourly_rate_rub: profile.hourly_rate_rub,
+    tournament_id: validTournamentId,
     created_by_player_id: createdByPlayerId,
   });
 }
@@ -267,6 +325,24 @@ export async function editDealerShiftTimestamps(
   });
 }
 
+// Super Admin correcting a completed shift's tournament association --
+// deliberately does not touch payroll (worked_minutes/paid_hours/
+// amount_rub, hourly_rate_rub all untouched). Operator access to this is
+// blocked entirely at the route/middleware layer (not in the operator
+// allowlist), not re-checked here -- see lib/admin-permissions.ts.
+export async function correctDealerShiftTournament(
+  shiftId: string,
+  tournamentId: string | null
+): Promise<DealerShiftRow> {
+  const shift = await dealerRepository.findShiftById(shiftId);
+  if (!shift) {
+    throw new DealerShiftNotFoundError(shiftId);
+  }
+
+  const validTournamentId = await resolveTournamentIdOrThrow(tournamentId);
+  return dealerRepository.updateShiftTournament(shiftId, validTournamentId);
+}
+
 export type DealerShiftSummary = {
   id: string;
   dealerPlayerId: string;
@@ -277,29 +353,56 @@ export type DealerShiftSummary = {
   workedMinutes: number | null;
   paidHours: number | null;
   amountRub: number | null;
+  tournamentId: string | null;
+  tournamentTitle: string | null;
+  tournamentDate: string | null;
 };
 
 async function toShiftSummaries(shifts: DealerShiftRow[]): Promise<DealerShiftSummary[]> {
   const dealerIds = Array.from(new Set(shifts.map((shift) => shift.dealer_player_id)));
-  const summaries = await playerRepository.findSummariesByIds(dealerIds);
+  const tournamentIds = Array.from(
+    new Set(shifts.map((shift) => shift.tournament_id).filter((id): id is string => id != null))
+  );
+
+  const [summaries, tournaments] = await Promise.all([
+    playerRepository.findSummariesByIds(dealerIds),
+    Promise.all(
+      tournamentIds.map((id) =>
+        tournamentRepository.findById(id).catch(() => null)
+      )
+    ),
+  ]);
+
   const nameByPlayerId = new Map(
     summaries.map((summary) => [
       summary.id,
       getPreferredPlayerDisplayName({ display_name: summary.display_name }),
     ])
   );
+  const tournamentById = new Map(
+    tournaments
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+      .map((t) => [t.id, t])
+  );
 
-  return shifts.map((shift) => ({
-    id: shift.id,
-    dealerPlayerId: shift.dealer_player_id,
-    dealerDisplayName: nameByPlayerId.get(shift.dealer_player_id) ?? "Игрок",
-    startedAt: shift.started_at,
-    endedAt: shift.ended_at,
-    hourlyRateRub: shift.hourly_rate_rub,
-    workedMinutes: shift.worked_minutes,
-    paidHours: shift.paid_hours,
-    amountRub: shift.amount_rub,
-  }));
+  return shifts.map((shift) => {
+    const tournament = shift.tournament_id ? tournamentById.get(shift.tournament_id) : undefined;
+
+    return {
+      id: shift.id,
+      dealerPlayerId: shift.dealer_player_id,
+      dealerDisplayName: nameByPlayerId.get(shift.dealer_player_id) ?? "Игрок",
+      startedAt: shift.started_at,
+      endedAt: shift.ended_at,
+      hourlyRateRub: shift.hourly_rate_rub,
+      workedMinutes: shift.worked_minutes,
+      paidHours: shift.paid_hours,
+      amountRub: shift.amount_rub,
+      tournamentId: shift.tournament_id,
+      tournamentTitle: tournament?.title ?? null,
+      tournamentDate: tournament?.start_at ?? null,
+    };
+  });
 }
 
 // "Today" = one calendar day in the app's local runtime timezone, same
@@ -335,4 +438,182 @@ const RECENT_SHIFTS_LIMIT = 50;
 export async function listRecentDealerShifts(): Promise<DealerShiftSummary[]> {
   const shifts = await dealerRepository.listRecentCompletedShifts(RECENT_SHIFTS_LIMIT);
   return toShiftSummaries(shifts);
+}
+
+export type DealerStatsPeriod = "month" | "all";
+
+export type DealerStatsSummary = {
+  completedShiftCount: number;
+  uniqueTournamentCount: number;
+  workedMinutes: number;
+  paidHours: number;
+  amountRub: number;
+};
+
+export type DealerStatsByDealer = {
+  dealerPlayerId: string;
+  dealerDisplayName: string;
+  tournamentCount: number;
+  shiftCount: number;
+  workedMinutes: number;
+  paidHours: number;
+  amountRub: number;
+};
+
+export type DealerStatsByTournament = {
+  tournamentId: string | null;
+  tournamentTitle: string;
+  tournamentDate: string | null;
+  dealerCount: number;
+  shiftCount: number;
+  workedMinutes: number;
+  paidHours: number;
+  amountRub: number;
+};
+
+export type DealerPayrollStats = {
+  summary: DealerStatsSummary;
+  byDealer: DealerStatsByDealer[];
+  byTournament: DealerStatsByTournament[];
+};
+
+// Super-Admin-only aggregate view -- only COMPLETED shifts contribute
+// (open shifts have no frozen worked_minutes/paid_hours/amount_rub to
+// aggregate, and are intentionally excluded from every total here, exactly
+// as they are from "Сегодня"/history). Uses each shift's own snapshotted
+// hourly_rate_rub-derived amount_rub -- never recalculates from the
+// dealer's CURRENT rate, so a later rate change never touches these
+// totals for past shifts.
+export async function getDealerPayrollStats(period: DealerStatsPeriod): Promise<DealerPayrollStats> {
+  const allShifts =
+    period === "month"
+      ? await (async () => {
+          const now = new Date();
+          const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+          const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+          return dealerRepository.listShiftsStartedBetween(
+            startOfMonth.toISOString(),
+            startOfNextMonth.toISOString()
+          );
+        })()
+      : await dealerRepository.listAllShifts();
+
+  const completedShifts = allShifts.filter(
+    (shift): shift is DealerShiftRow & { worked_minutes: number; paid_hours: number; amount_rub: number } =>
+      shift.ended_at !== null &&
+      shift.worked_minutes !== null &&
+      shift.paid_hours !== null &&
+      shift.amount_rub !== null
+  );
+
+  const dealerIds = Array.from(new Set(completedShifts.map((shift) => shift.dealer_player_id)));
+  const tournamentIds = Array.from(
+    new Set(completedShifts.map((shift) => shift.tournament_id).filter((id): id is string => id != null))
+  );
+
+  const [summaries, tournaments] = await Promise.all([
+    playerRepository.findSummariesByIds(dealerIds),
+    Promise.all(tournamentIds.map((id) => tournamentRepository.findById(id).catch(() => null))),
+  ]);
+
+  const nameByPlayerId = new Map(
+    summaries.map((summary) => [
+      summary.id,
+      getPreferredPlayerDisplayName({ display_name: summary.display_name }),
+    ])
+  );
+  const tournamentById = new Map(
+    tournaments.filter((t): t is NonNullable<typeof t> => t !== null).map((t) => [t.id, t])
+  );
+
+  const summary: DealerStatsSummary = {
+    completedShiftCount: completedShifts.length,
+    uniqueTournamentCount: tournamentIds.length,
+    workedMinutes: completedShifts.reduce((sum, s) => sum + s.worked_minutes, 0),
+    paidHours: completedShifts.reduce((sum, s) => sum + s.paid_hours, 0),
+    amountRub: completedShifts.reduce((sum, s) => sum + s.amount_rub, 0),
+  };
+
+  const byDealerMap = new Map<string, DealerStatsByDealer & { tournamentIdSet: Set<string> }>();
+  for (const shift of completedShifts) {
+    const existing = byDealerMap.get(shift.dealer_player_id);
+    const entry =
+      existing ??
+      ({
+        dealerPlayerId: shift.dealer_player_id,
+        dealerDisplayName: nameByPlayerId.get(shift.dealer_player_id) ?? "Игрок",
+        tournamentCount: 0,
+        shiftCount: 0,
+        workedMinutes: 0,
+        paidHours: 0,
+        amountRub: 0,
+        tournamentIdSet: new Set<string>(),
+      } satisfies DealerStatsByDealer & { tournamentIdSet: Set<string> });
+
+    entry.shiftCount += 1;
+    entry.workedMinutes += shift.worked_minutes;
+    entry.paidHours += shift.paid_hours;
+    entry.amountRub += shift.amount_rub;
+    if (shift.tournament_id) entry.tournamentIdSet.add(shift.tournament_id);
+
+    byDealerMap.set(shift.dealer_player_id, entry);
+  }
+  const byDealer: DealerStatsByDealer[] = Array.from(byDealerMap.values()).map((entry) => ({
+    dealerPlayerId: entry.dealerPlayerId,
+    dealerDisplayName: entry.dealerDisplayName,
+    tournamentCount: entry.tournamentIdSet.size,
+    shiftCount: entry.shiftCount,
+    workedMinutes: entry.workedMinutes,
+    paidHours: entry.paidHours,
+    amountRub: entry.amountRub,
+  }));
+
+  const NO_TOURNAMENT_KEY = "__none__";
+  const byTournamentMap = new Map<string, DealerStatsByTournament & { dealerIdSet: Set<string> }>();
+  for (const shift of completedShifts) {
+    const key = shift.tournament_id ?? NO_TOURNAMENT_KEY;
+    const tournament = shift.tournament_id ? tournamentById.get(shift.tournament_id) : undefined;
+    const existing = byTournamentMap.get(key);
+    const entry =
+      existing ??
+      ({
+        tournamentId: shift.tournament_id,
+        tournamentTitle: tournament?.title ?? "Без турнира",
+        tournamentDate: tournament?.start_at ?? null,
+        dealerCount: 0,
+        shiftCount: 0,
+        workedMinutes: 0,
+        paidHours: 0,
+        amountRub: 0,
+        dealerIdSet: new Set<string>(),
+      } satisfies DealerStatsByTournament & { dealerIdSet: Set<string> });
+
+    entry.shiftCount += 1;
+    entry.workedMinutes += shift.worked_minutes;
+    entry.paidHours += shift.paid_hours;
+    entry.amountRub += shift.amount_rub;
+    entry.dealerIdSet.add(shift.dealer_player_id);
+
+    byTournamentMap.set(key, entry);
+  }
+  const byTournament: DealerStatsByTournament[] = Array.from(byTournamentMap.values())
+    .map((entry) => ({
+      tournamentId: entry.tournamentId,
+      tournamentTitle: entry.tournamentTitle,
+      tournamentDate: entry.tournamentDate,
+      dealerCount: entry.dealerIdSet.size,
+      shiftCount: entry.shiftCount,
+      workedMinutes: entry.workedMinutes,
+      paidHours: entry.paidHours,
+      amountRub: entry.amountRub,
+    }))
+    // Most recent tournament first; "Без турнира" (no date) sinks to the end.
+    .sort((a, b) => {
+      if (!a.tournamentDate && !b.tournamentDate) return 0;
+      if (!a.tournamentDate) return 1;
+      if (!b.tournamentDate) return -1;
+      return new Date(b.tournamentDate).getTime() - new Date(a.tournamentDate).getTime();
+    });
+
+  return { summary, byDealer, byTournament };
 }

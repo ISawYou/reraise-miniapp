@@ -42,12 +42,12 @@ export async function setPlayerBlocked(
 
   if (!player) throw new Error("Игрок не найден");
 
-  // Admins are never blockable through this action — the role model is the
-  // only permission system this app has, so "can't be blocked" piggybacks
-  // on the existing players_role_check ('player' | 'admin') instead of a
-  // dedicated protection flag.
-  if (isBlocked && player.role === "admin") {
-    throw new Error("Нельзя заблокировать администратора");
+  // Staff (operator or Super Admin) are never blockable through this
+  // action -- demote to 'player' first. Piggybacks on the role model
+  // itself rather than a dedicated protection flag, same reasoning this
+  // check already used for 'admin' alone before 'operator' existed.
+  if (isBlocked && player.role !== "player") {
+    throw new Error("Нельзя заблокировать сотрудника (администратора или супер-администратора) — сначала снимите роль");
   }
 
   try {
@@ -61,6 +61,12 @@ export async function deleteManualPlayer(playerId: string): Promise<void> {
   const player = await playerRepository.findById(playerId);
 
   if (!player) throw new Error("Игрок не найден");
+
+  // Same staff protection as setPlayerBlocked above -- demote to 'player'
+  // first before deleting a staff account, accidental or not.
+  if (player.role !== "player") {
+    throw new Error("Нельзя удалить сотрудника (администратора или супер-администратора) — сначала снимите роль");
+  }
 
   await tournamentLiveStateRepository.deleteLiveEntriesByPlayerId(playerId);
   await achievementRepository.deleteByPlayerId(playerId);

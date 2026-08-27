@@ -20,6 +20,7 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
 } from "@/lib/tournament-helpers";
+import { isStaff } from "@/lib/roles";
 import type { Player, TournamentType } from "@/types/domain";
 
 const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
@@ -94,7 +95,7 @@ export default function AdminTournamentEditPage() {
         const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
 
-        if (ensuredPlayer.role !== "admin") {
+        if (!isStaff(ensuredPlayer.role)) {
           return;
         }
 
@@ -318,7 +319,7 @@ export default function AdminTournamentEditPage() {
     );
   }
 
-  if (player?.role !== "admin") {
+  if (!isStaff(player?.role)) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">

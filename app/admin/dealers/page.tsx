@@ -5,12 +5,23 @@ import { BackButton } from "@/components/ui/back-button";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
-import type { Player } from "@/types/domain";
+import { isStaff, isSuperAdmin } from "@/lib/roles";
+import type { Player, Tournament } from "@/types/domain";
+
+const NO_TOURNAMENT_VALUE = "";
+
+type DealerOpenShift = {
+  id: string;
+  startedAt: string;
+  tournamentId: string | null;
+  tournamentTitle: string | null;
+};
 
 type DealerStatus = {
   player: Player;
-  hourlyRateRub: number;
-  openShift: { id: string; startedAt: string } | null;
+  // Absent for an operator caller -- the route strips it server-side.
+  hourlyRateRub?: number;
+  openShift: DealerOpenShift | null;
 };
 
 type DealerShiftSummary = {
@@ -23,6 +34,8 @@ type DealerShiftSummary = {
   workedMinutes: number | null;
   paidHours: number | null;
   amountRub: number | null;
+  tournamentId: string | null;
+  tournamentTitle: string | null;
 };
 
 function pad(n: number) {
@@ -63,7 +76,9 @@ function formatRub(amount: number) {
 // Client-side preview only, mirrors the server formula exactly -- the
 // persisted calculation always comes from the server's own recalculation
 // (features/dealers.ts::computeShiftPayroll), never trusted from here.
-function previewPayroll(startedAtIso: string, endedAtIso: string, hourlyRateRub: number) {
+// hourlyRateRub is absent for an operator caller (the rate is never sent to
+// them), in which case only the worked duration is previewed, no amount.
+function previewPayroll(startedAtIso: string, endedAtIso: string, hourlyRateRub?: number) {
   const startMs = new Date(startedAtIso).getTime();
   const endMs = new Date(endedAtIso).getTime();
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
@@ -71,7 +86,7 @@ function previewPayroll(startedAtIso: string, endedAtIso: string, hourlyRateRub:
   }
   const workedMinutes = Math.round((endMs - startMs) / 60000);
   const paidHours = Math.ceil(workedMinutes / 60);
-  const amountRub = paidHours * hourlyRateRub;
+  const amountRub = typeof hourlyRateRub === "number" ? paidHours * hourlyRateRub : null;
   return { workedMinutes, paidHours, amountRub };
 }
 
@@ -101,6 +116,34 @@ function PlayerAvatar({ player, size = 40 }: { player: Player; size?: number }) 
   );
 }
 
+function TournamentSelect({
+  value,
+  onChange,
+  tournaments,
+  loading,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  tournaments: Tournament[];
+  loading: boolean;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={loading}
+      className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none disabled:opacity-50"
+    >
+      <option value={NO_TOURNAMENT_VALUE}>Без турнира</option>
+      {tournaments.map((t) => (
+        <option key={t.id} value={t.id}>
+          {t.title}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export default function AdminDealersPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
@@ -122,8 +165,13 @@ export default function AdminDealersPage() {
   const [dealerSearch, setDealerSearch] = useState("");
   const [addingPlayerId, setAddingPlayerId] = useState<string | null>(null);
 
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [tournamentsLoading, setTournamentsLoading] = useState(false);
+  const [tournamentsLoaded, setTournamentsLoaded] = useState(false);
+
   const [startShiftFor, setStartShiftFor] = useState<DealerStatus | null>(null);
   const [startShiftAt, setStartShiftAt] = useState("");
+  const [startShiftTournamentId, setStartShiftTournamentId] = useState(NO_TOURNAMENT_VALUE);
   const [startingShift, setStartingShift] = useState(false);
 
   const [endShiftFor, setEndShiftFor] = useState<DealerStatus | null>(null);
@@ -134,6 +182,7 @@ export default function AdminDealersPage() {
   const [editingShift, setEditingShift] = useState<DealerShiftSummary | null>(null);
   const [editStartedAt, setEditStartedAt] = useState("");
   const [editEndedAt, setEditEndedAt] = useState("");
+  const [editTournamentId, setEditTournamentId] = useState(NO_TOURNAMENT_VALUE);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [editingRateFor, setEditingRateFor] = useState<string | null>(null);
@@ -142,20 +191,30 @@ export default function AdminDealersPage() {
 
   const [deactivatingPlayerId, setDeactivatingPlayerId] = useState<string | null>(null);
 
-  async function loadAll() {
+  const isSuperAdminCaller = isSuperAdmin(player?.role);
+
+  async function loadAll(actingAsSuperAdmin: boolean) {
     try {
       setLoading(true);
       setError(null);
-      const [dealersData, todayData, recentData] = await Promise.all([
-        fetchAdminJson<{ dealers: DealerStatus[] }>("/api/admin/dealers"),
-        fetchAdminJson<{ shifts: DealerShiftSummary[]; totalAmountRub: number }>(
-          "/api/admin/dealers/shifts/today"
-        ),
-        fetchAdminJson<{ shifts: DealerShiftSummary[] }>("/api/admin/dealers/shifts/recent"),
-      ]);
-      setDealers(dealersData.dealers);
-      setToday(todayData);
-      setRecent(recentData.shifts);
+
+      if (actingAsSuperAdmin) {
+        const [dealersData, todayData, recentData] = await Promise.all([
+          fetchAdminJson<{ dealers: DealerStatus[] }>("/api/admin/dealers"),
+          fetchAdminJson<{ shifts: DealerShiftSummary[]; totalAmountRub: number }>(
+            "/api/admin/dealers/shifts/today"
+          ),
+          fetchAdminJson<{ shifts: DealerShiftSummary[] }>("/api/admin/dealers/shifts/recent"),
+        ]);
+        setDealers(dealersData.dealers);
+        setToday(todayData);
+        setRecent(recentData.shifts);
+      } else {
+        const dealersData = await fetchAdminJson<{ dealers: DealerStatus[] }>(
+          "/api/admin/dealers"
+        );
+        setDealers(dealersData.dealers);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось загрузить данные");
     } finally {
@@ -168,11 +227,11 @@ export default function AdminDealersPage() {
       try {
         const currentPlayer = await resolveCurrentPlayer();
         setPlayer(currentPlayer);
-        if (currentPlayer?.role === "admin") {
-          await loadAll();
+        if (isStaff(currentPlayer?.role)) {
+          await loadAll(isSuperAdmin(currentPlayer?.role));
         }
       } catch {
-        // resolveCurrentPlayer failure -> access gate below shows "not admin".
+        // resolveCurrentPlayer failure -> access gate below shows "not staff".
       } finally {
         setAccessChecked(true);
       }
@@ -206,6 +265,33 @@ export default function AdminDealersPage() {
     );
   }, [allPlayers, dealerSearch, dealerPlayerIds]);
 
+  async function ensureTournamentsLoaded() {
+    if (tournamentsLoaded) return;
+    try {
+      setTournamentsLoading(true);
+      const data = await fetchAdminJson<{ tournaments: Tournament[] }>(
+        "/api/admin/tournaments?scope=manage"
+      );
+      setTournaments(data.tournaments);
+      setTournamentsLoaded(true);
+    } catch {
+      // Tournament select falls back to "Без турнира" only -- not fatal.
+    } finally {
+      setTournamentsLoading(false);
+    }
+  }
+
+  // Nearest non-completed tournament by start time -- a reasonable default
+  // for "which tournament is this shift for", never auto-submitted without
+  // the operator/admin seeing and being able to change it.
+  const defaultTournamentId = useMemo(() => {
+    const active = tournaments
+      .filter((t) => t.status !== "completed")
+      .slice()
+      .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
+    return active[0]?.id ?? NO_TOURNAMENT_VALUE;
+  }, [tournaments]);
+
   async function handleOpenAddDealer() {
     setShowAddDealer(true);
     setMessage(null);
@@ -235,7 +321,7 @@ export default function AdminDealersPage() {
       setMessage("Дилер добавлен");
       setDealerSearch("");
       setShowAddDealer(false);
-      await loadAll();
+      await loadAll(isSuperAdminCaller);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось добавить дилера");
     } finally {
@@ -250,7 +336,7 @@ export default function AdminDealersPage() {
     try {
       await fetchAdminJson(`/api/admin/dealers/${playerId}`, { method: "DELETE" });
       setMessage("Дилер убран из списка");
-      await loadAll();
+      await loadAll(isSuperAdminCaller);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось убрать дилера");
     } finally {
@@ -261,8 +347,19 @@ export default function AdminDealersPage() {
   function openStartShiftModal(dealer: DealerStatus) {
     setStartShiftFor(dealer);
     setStartShiftAt(toDateTimeLocalValue(new Date().toISOString()));
+    setStartShiftTournamentId(NO_TOURNAMENT_VALUE);
     setError(null);
+    ensureTournamentsLoaded();
   }
+
+  // Once tournaments finish loading, seed the default selection -- only if
+  // the modal for starting a shift is still open and nothing was picked yet.
+  useEffect(() => {
+    if (startShiftFor && startShiftTournamentId === NO_TOURNAMENT_VALUE && defaultTournamentId) {
+      setStartShiftTournamentId(defaultTournamentId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultTournamentId, startShiftFor]);
 
   async function handleConfirmStartShift() {
     if (!startShiftFor || !startShiftAt) return;
@@ -275,12 +372,12 @@ export default function AdminDealersPage() {
         body: JSON.stringify({
           dealerPlayerId: startShiftFor.player.id,
           startedAt: fromDateTimeLocalValue(startShiftAt),
-          createdByPlayerId: player?.id ?? null,
+          tournamentId: startShiftTournamentId || null,
         }),
       });
       setMessage("Смена начата");
       setStartShiftFor(null);
-      await loadAll();
+      await loadAll(isSuperAdminCaller);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось начать смену");
     } finally {
@@ -306,12 +403,11 @@ export default function AdminDealersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           endedAt: fromDateTimeLocalValue(endShiftEndedAt),
-          endedByPlayerId: player?.id ?? null,
         }),
       });
       setMessage("Смена завершена");
       setEndShiftFor(null);
-      await loadAll();
+      await loadAll(isSuperAdminCaller);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось завершить смену");
     } finally {
@@ -323,7 +419,9 @@ export default function AdminDealersPage() {
     setEditingShift(shift);
     setEditStartedAt(toDateTimeLocalValue(shift.startedAt));
     setEditEndedAt(shift.endedAt ? toDateTimeLocalValue(shift.endedAt) : "");
+    setEditTournamentId(shift.tournamentId ?? NO_TOURNAMENT_VALUE);
     setError(null);
+    ensureTournamentsLoaded();
   }
 
   async function handleConfirmEditShift() {
@@ -337,11 +435,12 @@ export default function AdminDealersPage() {
         body: JSON.stringify({
           startedAt: fromDateTimeLocalValue(editStartedAt),
           endedAt: fromDateTimeLocalValue(editEndedAt),
+          tournamentId: editTournamentId || null,
         }),
       });
       setMessage("Смена изменена");
       setEditingShift(null);
-      await loadAll();
+      await loadAll(isSuperAdminCaller);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось изменить смену");
     } finally {
@@ -350,6 +449,7 @@ export default function AdminDealersPage() {
   }
 
   function openRateEdit(dealer: DealerStatus) {
+    if (typeof dealer.hourlyRateRub !== "number") return;
     setEditingRateFor(dealer.player.id);
     setRateDraft(String(dealer.hourlyRateRub));
   }
@@ -369,7 +469,7 @@ export default function AdminDealersPage() {
         body: JSON.stringify({ hourlyRateRub: value }),
       });
       setEditingRateFor(null);
-      await loadAll();
+      await loadAll(isSuperAdminCaller);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось изменить ставку");
     } finally {
@@ -405,7 +505,7 @@ export default function AdminDealersPage() {
     );
   }
 
-  if (player?.role !== "admin") {
+  if (!isStaff(player?.role)) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-3xl">
@@ -428,13 +528,15 @@ export default function AdminDealersPage() {
 
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Дилеры</h1>
-          <button
-            type="button"
-            onClick={handleOpenAddDealer}
-            className="rounded-lg bg-yellow-500 px-4 py-2 text-sm font-semibold text-black"
-          >
-            Добавить дилера
-          </button>
+          {isSuperAdminCaller ? (
+            <button
+              type="button"
+              onClick={handleOpenAddDealer}
+              className="rounded-lg bg-yellow-500 px-4 py-2 text-sm font-semibold text-black"
+            >
+              Добавить дилера
+            </button>
+          ) : null}
         </div>
 
         {error ? (
@@ -476,53 +578,57 @@ export default function AdminDealersPage() {
                             <p className="truncate text-sm font-semibold text-white">
                               {dealer.player.admin_display_name || dealer.player.display_name}
                             </p>
-                            {editingRateFor === dealer.player.id ? (
-                              <div className="mt-1 flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={rateDraft}
-                                  onChange={(e) => setRateDraft(e.target.value)}
-                                  className="h-7 w-20 rounded-md border border-white/15 bg-black/40 px-2 text-xs outline-none"
-                                />
-                                <span className="text-xs text-white/50">₽/ч</span>
+                            {isSuperAdminCaller && typeof dealer.hourlyRateRub === "number" ? (
+                              editingRateFor === dealer.player.id ? (
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={rateDraft}
+                                    onChange={(e) => setRateDraft(e.target.value)}
+                                    className="h-7 w-20 rounded-md border border-white/15 bg-black/40 px-2 text-xs outline-none"
+                                  />
+                                  <span className="text-xs text-white/50">₽/ч</span>
+                                  <button
+                                    type="button"
+                                    disabled={savingRate}
+                                    onClick={() => handleSaveRate(dealer.player.id)}
+                                    className="text-xs font-semibold text-yellow-400 disabled:opacity-50"
+                                  >
+                                    Ок
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingRateFor(null)}
+                                    className="text-xs text-white/50"
+                                  >
+                                    Отмена
+                                  </button>
+                                </div>
+                              ) : (
                                 <button
                                   type="button"
-                                  disabled={savingRate}
-                                  onClick={() => handleSaveRate(dealer.player.id)}
-                                  className="text-xs font-semibold text-yellow-400 disabled:opacity-50"
+                                  onClick={() => openRateEdit(dealer)}
+                                  className="mt-0.5 text-xs text-white/50 underline decoration-white/20 underline-offset-2"
                                 >
-                                  Ок
+                                  {dealer.hourlyRateRub} ₽/ч
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingRateFor(null)}
-                                  className="text-xs text-white/50"
-                                >
-                                  Отмена
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => openRateEdit(dealer)}
-                                className="mt-0.5 text-xs text-white/50 underline decoration-white/20 underline-offset-2"
-                              >
-                                {dealer.hourlyRateRub} ₽/ч
-                              </button>
-                            )}
+                              )
+                            ) : null}
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          disabled={!!dealer.openShift || deactivatingPlayerId === dealer.player.id}
-                          onClick={() => handleDeactivateDealer(dealer.player.id)}
-                          className="shrink-0 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/60 disabled:opacity-30"
-                          title={dealer.openShift ? "Нельзя убрать: есть открытая смена" : undefined}
-                        >
-                          Убрать
-                        </button>
+                        {isSuperAdminCaller ? (
+                          <button
+                            type="button"
+                            disabled={!!dealer.openShift || deactivatingPlayerId === dealer.player.id}
+                            onClick={() => handleDeactivateDealer(dealer.player.id)}
+                            className="shrink-0 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/60 disabled:opacity-30"
+                            title={dealer.openShift ? "Нельзя убрать: есть открытая смена" : undefined}
+                          >
+                            Убрать
+                          </button>
+                        ) : null}
                       </div>
 
                       <div className="mt-3">
@@ -535,6 +641,9 @@ export default function AdminDealersPage() {
                               </div>
                               <p className="mt-1 text-xs text-emerald-100/70">
                                 {formatElapsedSince(dealer.openShift.startedAt, nowTick)}
+                              </p>
+                              <p className="mt-1 text-xs text-emerald-100/60">
+                                {dealer.openShift.tournamentTitle ?? "Без турнира"}
                               </p>
                             </div>
                             <button
@@ -564,101 +673,113 @@ export default function AdminDealersPage() {
               )}
             </section>
 
-            {/* Сегодня */}
-            <section className="mt-8">
-              <h2 className="mb-3 text-xs font-semibold tracking-widest text-white/40">СЕГОДНЯ</h2>
+            {isSuperAdminCaller ? (
+              <>
+                {/* Сегодня */}
+                <section className="mt-8">
+                  <h2 className="mb-3 text-xs font-semibold tracking-widest text-white/40">
+                    СЕГОДНЯ
+                  </h2>
 
-              {today.shifts.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                  Сегодня завершённых смен ещё нет
-                </div>
-              ) : (
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
-                  {today.shifts.map((shift) => (
-                    <div
-                      key={shift.id}
-                      className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 last:border-b-0"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-white">
-                          {shift.dealerDisplayName}
-                        </p>
-                        <p className="mt-0.5 text-xs text-white/55">
-                          {formatHM(shift.startedAt)} — {shift.endedAt ? formatHM(shift.endedAt) : "—"}
-                        </p>
-                        <p className="mt-0.5 text-xs text-white/40">
-                          {shift.workedMinutes != null ? formatDurationMinutes(shift.workedMinutes) : "—"}
-                          {" → "}
-                          {shift.paidHours != null ? `${shift.paidHours} ч` : "—"}
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right text-sm font-semibold text-white">
-                        {shift.amountRub != null ? formatRub(shift.amountRub) : "—"}
-                      </div>
+                  {today.shifts.length === 0 ? (
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                      Сегодня завершённых смен ещё нет
                     </div>
-                  ))}
-                  <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.03] px-4 py-3">
-                    <span className="text-sm font-semibold text-white/80">Итого сегодня</span>
-                    <span className="text-sm font-bold text-yellow-400">
-                      {formatRub(today.totalAmountRub)}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            {/* История */}
-            <section className="mt-8">
-              <h2 className="mb-3 text-xs font-semibold tracking-widest text-white/40">
-                ИСТОРИЯ (ПОСЛЕДНИЕ СМЕНЫ)
-              </h2>
-
-              {recent.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                  История пуста
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {recent.map((shift) => (
-                    <div
-                      key={shift.id}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-white">
-                          {shift.dealerDisplayName}
-                        </p>
-                        <p className="mt-0.5 text-xs text-white/50">
-                          {new Date(shift.startedAt).toLocaleDateString("ru-RU", {
-                            day: "2-digit",
-                            month: "2-digit",
-                          })}{" "}
-                          · {formatHM(shift.startedAt)} — {shift.endedAt ? formatHM(shift.endedAt) : "—"}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <span className="text-sm font-semibold text-white">
-                          {shift.amountRub != null ? formatRub(shift.amountRub) : "—"}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => openEditShiftModal(shift)}
-                          className="text-xs font-medium text-yellow-400 underline decoration-yellow-400/30 underline-offset-2"
+                  ) : (
+                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
+                      {today.shifts.map((shift) => (
+                        <div
+                          key={shift.id}
+                          className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 last:border-b-0"
                         >
-                          Изменить
-                        </button>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">
+                              {shift.dealerDisplayName}
+                            </p>
+                            <p className="mt-0.5 text-xs text-white/55">
+                              {formatHM(shift.startedAt)} — {shift.endedAt ? formatHM(shift.endedAt) : "—"}
+                            </p>
+                            <p className="mt-0.5 text-xs text-white/40">
+                              {shift.workedMinutes != null ? formatDurationMinutes(shift.workedMinutes) : "—"}
+                              {" → "}
+                              {shift.paidHours != null ? `${shift.paidHours} ч` : "—"}
+                            </p>
+                            <p className="mt-0.5 text-xs text-white/35">
+                              {shift.tournamentTitle ?? "Без турнира"}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right text-sm font-semibold text-white">
+                            {shift.amountRub != null ? formatRub(shift.amountRub) : "—"}
+                          </div>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.03] px-4 py-3">
+                        <span className="text-sm font-semibold text-white/80">Итого сегодня</span>
+                        <span className="text-sm font-bold text-yellow-400">
+                          {formatRub(today.totalAmountRub)}
+                        </span>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </section>
+                  )}
+                </section>
+
+                {/* История */}
+                <section className="mt-8">
+                  <h2 className="mb-3 text-xs font-semibold tracking-widest text-white/40">
+                    ИСТОРИЯ (ПОСЛЕДНИЕ СМЕНЫ)
+                  </h2>
+
+                  {recent.length === 0 ? (
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                      История пуста
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {recent.map((shift) => (
+                        <div
+                          key={shift.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">
+                              {shift.dealerDisplayName}
+                            </p>
+                            <p className="mt-0.5 text-xs text-white/50">
+                              {new Date(shift.startedAt).toLocaleDateString("ru-RU", {
+                                day: "2-digit",
+                                month: "2-digit",
+                              })}{" "}
+                              · {formatHM(shift.startedAt)} — {shift.endedAt ? formatHM(shift.endedAt) : "—"}
+                            </p>
+                            <p className="mt-0.5 text-xs text-white/35">
+                              {shift.tournamentTitle ?? "Без турнира"}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3">
+                            <span className="text-sm font-semibold text-white">
+                              {shift.amountRub != null ? formatRub(shift.amountRub) : "—"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => openEditShiftModal(shift)}
+                              className="text-xs font-medium text-yellow-400 underline decoration-yellow-400/30 underline-offset-2"
+                            >
+                              Изменить
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </>
+            ) : null}
           </>
         )}
       </div>
 
       {/* Добавить дилера */}
-      {showAddDealer ? (
+      {isSuperAdminCaller && showAddDealer ? (
         <div
           className="fixed inset-0 z-50 flex items-end bg-black/70"
           onClick={() => setShowAddDealer(false)}
@@ -732,6 +853,14 @@ export default function AdminDealersPage() {
                 className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none"
               />
 
+              <label className="mt-3 block text-xs text-white/50">Турнир</label>
+              <TournamentSelect
+                value={startShiftTournamentId}
+                onChange={setStartShiftTournamentId}
+                tournaments={tournaments}
+                loading={tournamentsLoading}
+              />
+
               <button
                 type="button"
                 disabled={startingShift || !startPreview}
@@ -785,9 +914,11 @@ export default function AdminDealersPage() {
                       Отработано: {formatDurationMinutes(endPreview.workedMinutes)}
                     </p>
                     <p className="mt-1 text-white/70">Оплачивается: {endPreview.paidHours} ч</p>
-                    <p className="mt-1 font-semibold text-yellow-400">
-                      К выплате: {formatRub(endPreview.amountRub)}
-                    </p>
+                    {endPreview.amountRub != null ? (
+                      <p className="mt-1 font-semibold text-yellow-400">
+                        К выплате: {formatRub(endPreview.amountRub)}
+                      </p>
+                    ) : null}
                   </>
                 ) : (
                   <p className="text-white/50">Укажите корректное время окончания позже начала</p>
@@ -807,8 +938,8 @@ export default function AdminDealersPage() {
         </div>
       ) : null}
 
-      {/* Изменить завершённую смену */}
-      {editingShift ? (
+      {/* Изменить завершённую смену (Super Admin only) */}
+      {isSuperAdminCaller && editingShift ? (
         <div
           className="fixed inset-0 z-50 flex items-end bg-black/70"
           onClick={() => !savingEdit && setEditingShift(null)}
@@ -838,6 +969,14 @@ export default function AdminDealersPage() {
                 className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none"
               />
 
+              <label className="mt-3 block text-xs text-white/50">Турнир</label>
+              <TournamentSelect
+                value={editTournamentId}
+                onChange={setEditTournamentId}
+                tournaments={tournaments}
+                loading={tournamentsLoading}
+              />
+
               <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm">
                 {editPreview ? (
                   <>
@@ -845,9 +984,11 @@ export default function AdminDealersPage() {
                       Отработано: {formatDurationMinutes(editPreview.workedMinutes)}
                     </p>
                     <p className="mt-1 text-white/70">Оплачивается: {editPreview.paidHours} ч</p>
-                    <p className="mt-1 font-semibold text-yellow-400">
-                      К выплате: {formatRub(editPreview.amountRub)}
-                    </p>
+                    {editPreview.amountRub != null ? (
+                      <p className="mt-1 font-semibold text-yellow-400">
+                        К выплате: {formatRub(editPreview.amountRub)}
+                      </p>
+                    ) : null}
                   </>
                 ) : (
                   <p className="text-white/50">Укажите корректное время окончания позже начала</p>

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSupabaseServer } from "@/lib/database";
-import type { Player } from "@/types/domain";
+import type { Player, PlayerRole } from "@/types/domain";
 import type { PlayerRow } from "@/types/database";
 import type {
   PlayerRepository,
@@ -26,7 +26,13 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     telegram_avatar_url: row.telegram_avatar_url ?? undefined,
     custom_avatar_url: row.custom_avatar_url ?? undefined,
     avatar_updated_at: row.avatar_updated_at ?? undefined,
-    role: row.role as "player" | "admin",
+    // The Supabase-backed deployment's own `players_role_check` is NOT
+    // updated by this app's Drizzle/Postgres migrations (separate
+    // database, no migration tooling here -- same precedent as Dealer
+    // Payroll V1 being Postgres-only). Writing role: 'operator' there will
+    // fail at the DB constraint until that schema is separately widened;
+    // this cast only keeps the shared PlayerRole type consistent for reads.
+    role: row.role as PlayerRole,
     is_blocked: row.is_blocked,
     accepted_terms_at: row.accepted_terms_at ?? undefined,
     accepted_terms_version: row.accepted_terms_version ?? undefined,

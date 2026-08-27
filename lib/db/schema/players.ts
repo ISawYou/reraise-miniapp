@@ -47,7 +47,11 @@ export const players = pgTable("players", {
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  check("players_role_check", sql`${table.role} IN ('player', 'admin')`),
+  // 'operator' added for the on-site tournament-admin role -- existing
+  // 'admin' rows are untouched by this change and keep meaning Super Admin
+  // (unrestricted access), so widening this CHECK can never downgrade or
+  // lock out an existing admin. See lib/roles.ts for the three-tier model.
+  check("players_role_check", sql`${table.role} IN ('player', 'operator', 'admin')`),
   check("players_display_name_length", sql`char_length(${table.displayName}) BETWEEN 1 AND 100`),
   check(
     "players_pending_display_name_length",
