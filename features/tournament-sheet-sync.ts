@@ -46,9 +46,11 @@ import {
   getTournamentRebuyState,
   getTournamentResultsDraft,
   getTournamentSheetExportData,
+  reorderTournamentEliminations,
   setTournamentPlayerAttendance,
   setTournamentPlayerElimination,
   setTournamentPlayerRebuyState,
+  type ReorderEliminationsResult,
 } from "@/features/tournaments";
 import { tournamentRepository } from "@/lib/repositories";
 import {
@@ -541,19 +543,32 @@ export type EliminationWriteThroughResult = {
 // preserves the exact prior direct-Postgres behavior (no sheet read, no
 // sheet write) -- see the eliminate route.
 //
-// Best-effort on the sheet side: if the sheet can't be read (transient
-// Google API failure) or this player's row isn't present in it this
-// moment, the write-through and placement sync are skipped, but the
+// Best-effort on the sheet side by default: if the sheet can't be read
+// (transient Google API failure) or this player's row isn't present in it
+// this moment, the write-through and placement sync are skipped, but the
 // Postgres elimination itself still applies -- an admin action must not
 // be blocked by a Sheets hiccup. The very next poller tick will reconcile
 // whatever the sheet says at that point, same fail-open philosophy as the
 // rest of this module.
+//
+// `options.failClosedOnSheetWrite` flips that for the dedicated "Вернуть в
+// игру" correction action (see app/api/admin/tournaments/[id]/return-to-game/
+// route.ts): un-eliminating a player only in Postgres while GS still says
+// Выбыл=true is worse than doing nothing, because the very next ~15s poller
+// tick would see that exact disagreement and "helpfully" re-eliminate the
+// player, silently undoing the correction. In that mode, any required-but-
+// failed sheet interaction throws instead of logging-and-continuing, so
+// Postgres is never touched and the caller gets a clear error. The ordinary
+// checkbox path (eliminated: false | true from the results screen) never
+// sets this flag, so its behavior above is completely unchanged.
 export async function setTournamentPlayerEliminationThroughSheet(
   tournamentId: string,
   playerId: string,
-  eliminated: boolean
+  eliminated: boolean,
+  options: { failClosedOnSheetWrite?: boolean } = {}
 ): Promise<EliminationWriteThroughResult> {
   const tournament = await getTournamentById(tournamentId);
+  const failClosed = options.failClosedOnSheetWrite ?? false;
 
   const isGsActive =
     tournament.kind === "free" &&
@@ -565,8 +580,17 @@ export async function setTournamentPlayerEliminationThroughSheet(
   // direct-Postgres behavior below (no sheet read, no sheet write).
   const readResult = isGsActive ? await readAndParseFreeTournamentSheet(tournament) : null;
 
+  if (isGsActive && failClosed && !readResult?.ok) {
+    throw new Error("Не удалось прочитать Google Таблицу — попробуйте ещё раз");
+  }
+
   if (readResult?.ok) {
     const sheetRow = readResult.rows.get(playerId);
+
+    if (failClosed && !sheetRow) {
+      throw new Error("Игрок не найден в текущей строке Google Таблицы");
+    }
+
     if (sheetRow && sheetRow.eliminated !== eliminated) {
       const tabName = tournament.google_sheet_tab_name!.trim();
       const layout = getFreeSheetColumnLayout(tournament.tournament_type);
@@ -578,11 +602,16 @@ export async function setTournamentPlayerEliminationThroughSheet(
           },
         ]);
       } catch (error) {
-        logSyncError("elimination write-through to sheet failed -- applying to Postgres only", {
+        logSyncError("elimination write-through to sheet failed", {
           tournamentId,
           playerId,
+          failClosed,
           error: error instanceof Error ? error.message : String(error),
         });
+        if (failClosed) {
+          throw new Error("Не удалось обновить Google Таблицу — попробуйте ещё раз");
+        }
+        // fail-open (default): Postgres still applies below.
       }
     }
   }
@@ -608,4 +637,50 @@ export async function setTournamentPlayerEliminationThroughSheet(
 
   const places = await getDerivedEliminationPlaces(tournamentId);
   return { ...result, place: places.get(playerId) ?? null };
+}
+
+// "Исправить порядок выбывания" (see app/api/admin/tournaments/[id]/
+// reorder-eliminations/route.ts): the admin correction for a wrong
+// elimination ORDER when every affected player genuinely is eliminated,
+// only in the wrong sequence. All the actual validation/reassignment logic
+// (including the stale-client-list rejection) lives in the single canonical
+// features/tournaments.ts::reorderTournamentEliminations -- this wrapper's
+// only job is pushing the recomputed Место/Время выбытия to Google Sheets
+// afterward, the same way every other write in this module does.
+//
+// No `Выбыл` checkbox is touched here (every player in `orderedPlayerIds`
+// stays eliminated=true in both systems), so unlike
+// setTournamentPlayerEliminationThroughSheet's failClosedOnSheetWrite mode,
+// there is no scenario where the next poller tick could "undo" this
+// correction -- Postgres's eliminated_at is already authoritative and
+// correct the moment reorderTournamentEliminations resolves; the sheet push
+// below is a best-effort convenience, and a failure here just means the
+// very next ~15s poll (or the next manual "Синхронизировать сейчас") writes
+// the same already-correct derived cells instead.
+export async function reorderTournamentEliminationsThroughSheet(
+  tournamentId: string,
+  orderedPlayerIds: string[]
+): Promise<ReorderEliminationsResult> {
+  const tournament = await getTournamentById(tournamentId);
+
+  if (tournament.status === "completed") {
+    return { ok: false, error: "Турнир завершён" };
+  }
+
+  const reorderResult = await reorderTournamentEliminations(tournamentId, orderedPlayerIds);
+  if (!reorderResult.ok) {
+    return reorderResult;
+  }
+
+  const isGsActive = tournament.kind === "free" && !!tournament.google_sheet_tab_name?.trim();
+  if (isGsActive) {
+    const readResult = await readAndParseFreeTournamentSheet(tournament);
+    if (readResult.ok) {
+      const draftRoster = await getTournamentResultsDraft(tournamentId);
+      const eligiblePlayerIds = new Set(draftRoster.map((row) => row.player_id));
+      await syncDerivedPlacementToSheet(tournament, readResult.rows, eligiblePlayerIds, []);
+    }
+  }
+
+  return { ok: true };
 }

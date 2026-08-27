@@ -45,6 +45,8 @@ const OPERATOR_ALLOWED_ROUTES: OperatorRoute[] = [
   route("POST", "/api/admin/tournaments"),
   route("POST", "/api/admin/tournaments/:id/attendance"),
   route("POST", "/api/admin/tournaments/:id/eliminate"),
+  route("POST", "/api/admin/tournaments/:id/return-to-game"),
+  route("POST", "/api/admin/tournaments/:id/reorder-eliminations"),
   route("POST", "/api/admin/tournaments/:id/rebuy-state"),
   route("POST", "/api/admin/tournaments/:id/pull-sheet"),
   route("POST", "/api/admin/tournaments/:id/export-sheet"),

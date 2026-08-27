@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getTournamentRebuyState: vi.fn(),
   getTournamentResultsDraft: vi.fn(),
   getTournamentSheetExportData: vi.fn(),
+  reorderTournamentEliminations: vi.fn(),
   setTournamentPlayerAttendance: vi.fn(),
   setTournamentPlayerElimination: vi.fn(),
   setTournamentPlayerRebuyState: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@/features/tournaments", () => ({
   getTournamentRebuyState: mocks.getTournamentRebuyState,
   getTournamentResultsDraft: mocks.getTournamentResultsDraft,
   getTournamentSheetExportData: mocks.getTournamentSheetExportData,
+  reorderTournamentEliminations: mocks.reorderTournamentEliminations,
   setTournamentPlayerAttendance: mocks.setTournamentPlayerAttendance,
   setTournamentPlayerElimination: mocks.setTournamentPlayerElimination,
   setTournamentPlayerRebuyState: mocks.setTournamentPlayerRebuyState,
@@ -46,6 +48,7 @@ const {
   runTournamentSheetSyncPass,
   getActiveFreeTournamentsWithSheet,
   setTournamentPlayerEliminationThroughSheet,
+  reorderTournamentEliminationsThroughSheet,
 } = await import("@/features/tournament-sheet-sync");
 
 function tournament(overrides: Partial<Record<string, unknown>> = {}) {
@@ -420,6 +423,91 @@ describe("reconcileTournamentFromSheet -- derived placement write-back", () => {
     expect(mocks.readSpreadsheetTabValues).not.toHaveBeenCalled();
     expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
   });
+
+  // Reproduces the exact "un-eliminate one of several eliminated players"
+  // scenario: 5 arrived, p1/p2/p3 eliminated in that chronological order
+  // (p1 first -> worst place, p3 most recently -> best of the three), then
+  // GS flips p2's Выбыл back to false. A single poller tick must: clear
+  // p2's own Место/Время (already covered above for the single-player
+  // case), recompute p3's place now that p2 no longer separates it from
+  // p1, leave p1's place alone (nothing about its own position changed),
+  // and never require the admin to re-toggle p1 or p3 themselves.
+  it("un-eliminating one of several eliminated players recomputes every remaining eliminated player's place -- no other player needs to be manually toggled", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.getTournamentResultsDraft.mockResolvedValue(
+      ["p1", "p2", "p3", "p4", "p5"].map((id) => ({
+        player_id: id,
+        display_name: "Alice",
+        username: "alice",
+        status: "registered",
+      }))
+    );
+    mocks.getTournamentSheetExportData.mockResolvedValue(
+      exportRoster(["p1", "p2", "p3", "p4", "p5"].map((id) => ({ player_id: id })))
+    );
+
+    const P1_AT = "2026-01-01T00:00:00.000Z";
+    const P2_AT = "2026-01-01T00:01:00.000Z";
+    const P3_AT = "2026-01-01T00:02:00.000Z";
+
+    // Sheet state THIS tick: p1 and p3 still say Выбыл=true (unchanged --
+    // their own raw Место/Время already match what the algorithm will
+    // recompute for p1, but are stale for p3). p2 now says Выбыл=false,
+    // with its old Место/Время still sitting in the row from before.
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([
+        p1Row({ 0: "p1", 5: "true", 14: "true", 12: "5", 15: expectedTimeCell(P1_AT) }),
+        p1Row({ 0: "p2", 5: "true", 14: "false", 12: "4", 15: expectedTimeCell(P2_AT) }),
+        p1Row({ 0: "p3", 5: "true", 14: "true", 12: "3", 15: expectedTimeCell(P3_AT) }),
+        p1Row({ 0: "p4", 5: "true", 14: "false" }),
+        p1Row({ 0: "p5", 5: "true", 14: "false" }),
+      ])
+    );
+    mocks.getTournamentAttendance.mockResolvedValue(
+      new Map(["p1", "p2", "p3", "p4", "p5"].map((id) => [id, { arrived: true, arrived_at: "x" }]))
+    );
+
+    // BEFORE this tick's reconciliation (read by applyLiveFieldsFromSheetSnapshot).
+    mocks.getTournamentEliminations.mockResolvedValueOnce(
+      new Map([
+        ["p1", { eliminated: true, eliminated_at: P1_AT }],
+        ["p2", { eliminated: true, eliminated_at: P2_AT }],
+        ["p3", { eliminated: true, eliminated_at: P3_AT }],
+      ])
+    );
+    // AFTER Postgres was updated for p2 (read fresh by syncDerivedPlacementToSheet).
+    mocks.getTournamentEliminations.mockResolvedValue(
+      new Map([
+        ["p1", { eliminated: true, eliminated_at: P1_AT }],
+        ["p2", { eliminated: false, eliminated_at: null }],
+        ["p3", { eliminated: true, eliminated_at: P3_AT }],
+      ])
+    );
+
+    const result = await reconcileTournamentFromSheet("t1");
+
+    // p1 and p3 are never re-toggled in Postgres -- only p2's own
+    // elimination flag actually changed this tick.
+    expect(mocks.setTournamentPlayerElimination).toHaveBeenCalledTimes(1);
+    expect(mocks.setTournamentPlayerElimination).toHaveBeenCalledWith("t1", "p2", false);
+
+    expect(result).toMatchObject({ skipped: false, eliminationChanges: 1 });
+
+    const [updates] = mocks.batchUpdateSpreadsheetValues.mock.calls[0];
+    // p2 (row 9): Место/Время cleared.
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        { range: "Sheet1!M9", values: [[""]] },
+        { range: "Sheet1!P9", values: [[""]] },
+        // p3 (row 10): was 3rd (behind p1 and p2), now 4th with p2 no
+        // longer counted as eliminated -- recomputed automatically.
+        { range: "Sheet1!M10", values: [["4"]] },
+      ])
+    );
+    // p1 (row 8) keeps its own place (5th, unaffected by p2's removal) --
+    // its sheet cell already matches, so it must NOT appear as an update.
+    expect(updates.find((u: { range: string }) => u.range === "Sheet1!M8")).toBeUndefined();
+  });
 });
 
 describe("setTournamentPlayerEliminationThroughSheet", () => {
@@ -479,5 +567,165 @@ describe("setTournamentPlayerEliminationThroughSheet", () => {
     await setTournamentPlayerEliminationThroughSheet("t1", "p1", false);
 
     expect(mocks.readSpreadsheetTabValues).not.toHaveBeenCalled();
+  });
+
+  describe("failClosedOnSheetWrite (\"Вернуть в игру\")", () => {
+    it("with the flag OMITTED, a sheet write failure stays fail-open -- Postgres still applies (unchanged default behavior)", async () => {
+      mocks.getTournamentById.mockResolvedValue(tournament());
+      mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "true" })]));
+      mocks.batchUpdateSpreadsheetValues.mockRejectedValueOnce(new Error("Sheets API down"));
+      mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: false, eliminated_at: null });
+      mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map());
+
+      const result = await setTournamentPlayerEliminationThroughSheet("t1", "p1", false);
+
+      expect(mocks.setTournamentPlayerElimination).toHaveBeenCalledWith("t1", "p1", false);
+      expect(result.eliminated).toBe(false);
+    });
+
+    it("sheet checkbox write failure -> throws, and Postgres is NEVER touched (no GS=true/Postgres=false split)", async () => {
+      mocks.getTournamentById.mockResolvedValue(tournament());
+      mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "true" })]));
+      mocks.batchUpdateSpreadsheetValues.mockRejectedValueOnce(new Error("Sheets API down"));
+
+      await expect(
+        setTournamentPlayerEliminationThroughSheet("t1", "p1", false, { failClosedOnSheetWrite: true })
+      ).rejects.toThrow();
+
+      expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalled();
+    });
+
+    it("sheet cannot be read -> throws, Postgres untouched", async () => {
+      mocks.getTournamentById.mockResolvedValue(tournament());
+      mocks.readSpreadsheetTabValues.mockRejectedValue(new Error("network error"));
+
+      await expect(
+        setTournamentPlayerEliminationThroughSheet("t1", "p1", false, { failClosedOnSheetWrite: true })
+      ).rejects.toThrow();
+
+      expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalled();
+    });
+
+    it("player's row missing from this moment's sheet snapshot -> throws, Postgres untouched", async () => {
+      mocks.getTournamentById.mockResolvedValue(tournament());
+      // Sheet read succeeds but has no row for p1 (e.g. a mid-edit gap).
+      mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([]));
+
+      await expect(
+        setTournamentPlayerEliminationThroughSheet("t1", "p1", false, { failClosedOnSheetWrite: true })
+      ).rejects.toThrow();
+
+      expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalled();
+    });
+
+    it("sheet write succeeds -> proceeds exactly like the default path (Postgres updated, place returned)", async () => {
+      mocks.getTournamentById.mockResolvedValue(tournament());
+      mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "true" })]));
+      mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: false, eliminated_at: null });
+      mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map());
+
+      const result = await setTournamentPlayerEliminationThroughSheet(
+        "t1",
+        "p1",
+        false,
+        { failClosedOnSheetWrite: true }
+      );
+
+      expect(mocks.setTournamentPlayerElimination).toHaveBeenCalledWith("t1", "p1", false);
+      expect(result).toEqual({ eliminated: false, eliminated_at: null, place: null });
+    });
+  });
+});
+
+describe("reorderTournamentEliminationsThroughSheet -- \"Исправить порядок выбывания\"", () => {
+  it("completed tournament rejects the correction outright", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament({ status: "completed" }));
+
+    const result = await reorderTournamentEliminationsThroughSheet("t1", ["p1"]);
+
+    expect(result).toEqual({ ok: false, error: expect.any(String) });
+    expect(mocks.reorderTournamentEliminations).not.toHaveBeenCalled();
+  });
+
+  it("propagates a stale-list rejection from reorderTournamentEliminations without touching the sheet", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.reorderTournamentEliminations.mockResolvedValue({ ok: false, error: "stale" });
+
+    const result = await reorderTournamentEliminationsThroughSheet("t1", ["p1"]);
+
+    expect(result).toEqual({ ok: false, error: "stale" });
+    expect(mocks.readSpreadsheetTabValues).not.toHaveBeenCalled();
+    expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
+  });
+
+  it("on success, pushes recomputed Место/Время выбытия for the corrected set to the sheet", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.reorderTournamentEliminations.mockResolvedValue({ ok: true });
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([p1Row({ 5: "true", 14: "true", 12: "1" })]) // stale Место, needs recompute
+    );
+    mocks.getTournamentAttendance.mockResolvedValue(new Map([["p1", { arrived: true, arrived_at: "x" }]]));
+    mocks.getTournamentEliminations.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    const result = await reorderTournamentEliminationsThroughSheet("t1", ["p1"]);
+
+    expect(result).toEqual({ ok: true });
+    expect(mocks.batchUpdateSpreadsheetValues).toHaveBeenCalled();
+  });
+
+  it("a sheet-side failure after a successful Postgres reorder is swallowed -- the correction still reports ok (self-heals on the next poll)", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.reorderTournamentEliminations.mockResolvedValue({ ok: true });
+    mocks.readSpreadsheetTabValues.mockRejectedValue(new Error("Sheets API down"));
+
+    const result = await reorderTournamentEliminationsThroughSheet("t1", ["p1"]);
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("no linked sheet -- Postgres reorder still applies, no sheet interaction attempted", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament({ google_sheet_tab_name: null }));
+    mocks.reorderTournamentEliminations.mockResolvedValue({ ok: true });
+
+    const result = await reorderTournamentEliminationsThroughSheet("t1", ["p1"]);
+
+    expect(result).toEqual({ ok: true });
+    expect(mocks.readSpreadsheetTabValues).not.toHaveBeenCalled();
+  });
+
+  it("the very next poller tick after a reorder is idempotent -- no elimination checkbox changed, so nothing is undone", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.reorderTournamentEliminations.mockResolvedValue({ ok: true });
+    // Simulates state immediately after a successful reorder: sheet already
+    // reflects the corrected Место/Время, Выбыл is untouched (still true).
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([
+        p1Row({
+          5: "true",
+          14: "true",
+          12: "1",
+          15: new Date("2026-08-25T19:00:00.000Z").toLocaleString("ru-RU", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        }),
+      ])
+    );
+    mocks.getTournamentAttendance.mockResolvedValue(new Map([["p1", { arrived: true, arrived_at: "x" }]]));
+    mocks.getTournamentEliminations.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    await reconcileTournamentFromSheet("t1");
+
+    // No un-elimination, no re-elimination -- the poller found nothing to
+    // reconcile because Postgres and the sheet already agree.
+    expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalled();
+    expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
   });
 });

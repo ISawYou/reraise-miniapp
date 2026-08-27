@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   findAttendanceByTournamentId: vi.fn().mockResolvedValue(new Map()),
   findAttendedPlayersWithDetails: vi.fn(),
   findEliminationsByTournamentId: vi.fn().mockResolvedValue(new Map()),
+  upsertElimination: vi.fn().mockResolvedValue(undefined),
   findRebuyStateByTournamentId: vi.fn().mockResolvedValue(new Map()),
   upsertRebuyState: vi.fn(),
   findRatingPointsBySeasonId: vi.fn().mockResolvedValue([]),
@@ -29,6 +30,7 @@ vi.mock("@/lib/repositories", () => ({
     findAttendanceByTournamentId: mocks.findAttendanceByTournamentId,
     findAttendedPlayersWithDetails: mocks.findAttendedPlayersWithDetails,
     findEliminationsByTournamentId: mocks.findEliminationsByTournamentId,
+    upsertElimination: mocks.upsertElimination,
     findRebuyStateByTournamentId: mocks.findRebuyStateByTournamentId,
     upsertRebuyState: mocks.upsertRebuyState,
   },
@@ -50,6 +52,7 @@ import {
   getDerivedEliminationPlaces,
   getIntegrationTournamentList,
   getTournamentRebuyState,
+  reorderTournamentEliminations,
   setTournamentPlayerAttendance,
   setTournamentPlayerRebuyState,
 } from "@/features/tournaments";
@@ -649,5 +652,111 @@ describe("getDerivedEliminationPlaces -- dynamic recalculation", () => {
     // first (worse place).
     expect(first.get("pA")).toBe(2);
     expect(first.get("pB")).toBe(1);
+  });
+});
+
+describe("reorderTournamentEliminations -- \"Исправить порядок выбывания\"", () => {
+  it("reassigns the existing eliminated_at set to the corrected order and recomputes places accordingly", async () => {
+    // p1 busted first (worst), p2 second, p3 third (best of the three) --
+    // admin corrects the real order to p1, p3, p2 (p3 actually busted
+    // before p2).
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([
+        ["p1", { eliminated: true, eliminated_at: "2026-01-01T00:00:00.000Z" }],
+        ["p2", { eliminated: true, eliminated_at: "2026-01-01T00:01:00.000Z" }],
+        ["p3", { eliminated: true, eliminated_at: "2026-01-01T00:02:00.000Z" }],
+      ])
+    );
+
+    const result = await reorderTournamentEliminations(TOURNAMENT_ID, ["p1", "p3", "p2"]);
+
+    expect(result).toEqual({ ok: true });
+    // The existing timestamp SET (00:00, 00:01, 00:02) is reassigned in the
+    // corrected order -- never fabricated new times.
+    expect(mocks.upsertElimination).toHaveBeenCalledWith(
+      expect.objectContaining({ player_id: "p1", eliminated_at: "2026-01-01T00:00:00.000Z" })
+    );
+    expect(mocks.upsertElimination).toHaveBeenCalledWith(
+      expect.objectContaining({ player_id: "p3", eliminated_at: "2026-01-01T00:01:00.000Z" })
+    );
+    expect(mocks.upsertElimination).toHaveBeenCalledWith(
+      expect.objectContaining({ player_id: "p2", eliminated_at: "2026-01-01T00:02:00.000Z" })
+    );
+
+    // Feeding the newly-assigned timestamps back through the SAME canonical
+    // placement algorithm confirms the corrected order actually took effect
+    // (fieldSize=3: first eliminated -> 3, then 2, then 1).
+    mocks.findAttendanceByTournamentId.mockResolvedValue(
+      new Map([
+        ["p1", { arrived: true, arrived_at: "x" }],
+        ["p2", { arrived: true, arrived_at: "x" }],
+        ["p3", { arrived: true, arrived_at: "x" }],
+      ])
+    );
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([
+        ["p1", { eliminated: true, eliminated_at: "2026-01-01T00:00:00.000Z" }],
+        ["p3", { eliminated: true, eliminated_at: "2026-01-01T00:01:00.000Z" }],
+        ["p2", { eliminated: true, eliminated_at: "2026-01-01T00:02:00.000Z" }],
+      ])
+    );
+    const places = await getDerivedEliminationPlaces(TOURNAMENT_ID);
+    expect(places.get("p1")).toBe(3);
+    expect(places.get("p3")).toBe(2);
+    expect(places.get("p2")).toBe(1);
+  });
+
+  it("duplicate source timestamps still produce a strictly-increasing, deterministic reassignment", async () => {
+    // p1 and p2 both landed at the exact same timestamp (poller latency) --
+    // admin knows p1 actually busted first.
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([
+        ["p1", { eliminated: true, eliminated_at: "2026-01-01T00:00:00.000Z" }],
+        ["p2", { eliminated: true, eliminated_at: "2026-01-01T00:00:00.000Z" }],
+      ])
+    );
+
+    await reorderTournamentEliminations(TOURNAMENT_ID, ["p1", "p2"]);
+
+    const p1Call = mocks.upsertElimination.mock.calls.find((c) => c[0].player_id === "p1")![0];
+    const p2Call = mocks.upsertElimination.mock.calls.find((c) => c[0].player_id === "p2")![0];
+    // Strictly increasing -- p2's timestamp can never tie or precede p1's,
+    // so the corrected order is unambiguous regardless of any tie-break
+    // computeDerivedEliminationPlaces might otherwise apply.
+    expect(new Date(p2Call.eliminated_at).getTime()).toBeGreaterThan(
+      new Date(p1Call.eliminated_at).getTime()
+    );
+  });
+
+  it("rejects a submitted order that no longer matches the current eliminated set (stale client)", async () => {
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([
+        ["p1", { eliminated: true, eliminated_at: "2026-01-01T00:00:00.000Z" }],
+        ["p2", { eliminated: true, eliminated_at: "2026-01-01T00:01:00.000Z" }],
+      ])
+    );
+
+    // p3 has since been un-eliminated server-side; this client is stale.
+    const result = await reorderTournamentEliminations(TOURNAMENT_ID, ["p1", "p2", "p3"]);
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.any(String),
+    });
+    expect(mocks.upsertElimination).not.toHaveBeenCalled();
+  });
+
+  it("rejects a shorter list even if every submitted id is currently eliminated (missing p2)", async () => {
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([
+        ["p1", { eliminated: true, eliminated_at: "2026-01-01T00:00:00.000Z" }],
+        ["p2", { eliminated: true, eliminated_at: "2026-01-01T00:01:00.000Z" }],
+      ])
+    );
+
+    const result = await reorderTournamentEliminations(TOURNAMENT_ID, ["p1"]);
+
+    expect(result.ok).toBe(false);
+    expect(mocks.upsertElimination).not.toHaveBeenCalled();
   });
 });

@@ -1197,6 +1197,85 @@ export async function setTournamentPlayerElimination(
   return { eliminated: true, eliminated_at: eliminatedAt };
 }
 
+export type ReorderEliminationsResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+// Admin correction for a wrong elimination ORDER (as opposed to a wrong
+// eliminated/not-eliminated STATE, which setTournamentPlayerElimination
+// above already handles). Deliberately does not add a manual `place`
+// column/override -- eliminated_at stays the one canonical ordering source
+// computeDerivedEliminationPlaces (lib/tournament-placement.ts) reads, so no
+// schema migration and no second place formula.
+//
+// `orderedPlayerIds` must be validated by the caller to be exactly the
+// currently-eliminated set (this function re-checks it itself, fail-closed,
+// so a stale admin client can never silently corrupt state) -- see
+// features/tournament-sheet-sync.ts's reorderTournamentEliminationsThroughSheet,
+// the actual entry point that also pushes the recomputed places to Google
+// Sheets afterward.
+//
+// Preserves the existing SET of eliminated_at timestamps rather than
+// fabricating new ones: sorts them ascending, then reassigns them to
+// players in the admin's corrected order (earliest -> first player in the
+// list). Any duplicate (or missing, treated as epoch 0) value is nudged
+// forward by the smallest possible increment (1ms) so the final sequence is
+// always strictly increasing -- the corrected order is then unambiguous and
+// can never depend on computeDerivedEliminationPlaces' own player_id
+// tie-break for equal timestamps.
+export async function reorderTournamentEliminations(
+  tournamentId: string,
+  orderedPlayerIds: string[]
+): Promise<ReorderEliminationsResult> {
+  const eliminations = await getTournamentEliminations(tournamentId);
+  const currentlyEliminated = Array.from(eliminations.entries()).filter(
+    ([, status]) => status.eliminated
+  );
+  const currentSet = new Set(currentlyEliminated.map(([playerId]) => playerId));
+  const submittedSet = new Set(orderedPlayerIds);
+
+  const isExactMatch =
+    orderedPlayerIds.length === currentlyEliminated.length &&
+    submittedSet.size === orderedPlayerIds.length &&
+    orderedPlayerIds.every((playerId) => currentSet.has(playerId));
+
+  if (!isExactMatch) {
+    return {
+      ok: false,
+      error: "Список выбывших устарел — обновите страницу и повторите",
+    };
+  }
+
+  const eliminatedAtByPlayer = new Map(
+    currentlyEliminated.map(([playerId, status]) => [playerId, status.eliminated_at])
+  );
+  const sortedTimestamps = orderedPlayerIds
+    .map((playerId) => new Date(eliminatedAtByPlayer.get(playerId) ?? 0).getTime())
+    .sort((a, b) => a - b);
+
+  let previous = -Infinity;
+  const assignedTimestamps = sortedTimestamps.map((value) => {
+    const next = value > previous ? value : previous + 1;
+    previous = next;
+    return next;
+  });
+
+  const now = new Date().toISOString();
+  await Promise.all(
+    orderedPlayerIds.map((playerId, index) =>
+      tournamentLiveStateRepository.upsertElimination({
+        tournament_id: tournamentId,
+        player_id: playerId,
+        eliminated: true,
+        eliminated_at: new Date(assignedTimestamps[index]).toISOString(),
+        updated_at: now,
+      })
+    )
+  );
+
+  return { ok: true };
+}
+
 // The single authoritative server-side elimination placement, for THIS
 // tournament's CURRENT live state -- see lib/tournament-placement.ts for
 // the algorithm itself. fieldSize = count(tournament_attendance.arrived

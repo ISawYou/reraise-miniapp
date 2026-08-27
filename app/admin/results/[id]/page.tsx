@@ -24,6 +24,7 @@ import {
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
 import { isStaff, isSuperAdmin } from "@/lib/roles";
+import { useBodyScrollLock } from "@/lib/hooks/use-body-scroll-lock";
 import type {
   MysteryBountySnapshot,
   Player,
@@ -220,6 +221,18 @@ export default function AdminTournamentResultsPage() {
   const [activatingMysteryBounty, setActivatingMysteryBounty] = useState(false);
   const [recalculatingMysteryBounty, setRecalculatingMysteryBounty] = useState(false);
   const [bountyPrice, setBountyPrice] = useState("0");
+
+  // "Исправить порядок выбывания" (see features/tournament-sheet-sync.ts's
+  // reorderTournamentEliminationsThroughSheet). `correctionOrder` holds only
+  // player_ids, in the admin's current (possibly reordered) chronological
+  // elimination order -- freeRows itself stays the single source of display
+  // data (name/derived place/time), looked up by id.
+  const [showEliminationCorrection, setShowEliminationCorrection] = useState(false);
+  const [correctionOrder, setCorrectionOrder] = useState<string[]>([]);
+  const [correctionSaving, setCorrectionSaving] = useState(false);
+  const [correctionError, setCorrectionError] = useState<string | null>(null);
+  const [returningPlayerId, setReturningPlayerId] = useState<string | null>(null);
+  useBodyScrollLock(showEliminationCorrection);
 
   // Kept fresh every render so the queue's `send` closure (created once,
   // below) always calls the right tournament -- params.id is effectively
@@ -507,6 +520,26 @@ export default function AdminTournamentResultsPage() {
   }, [tournamentId]);
 
   const isFreeTournament = tournament?.kind === "free";
+  // Canonical elimination (chronological) order -- earliest eliminated_at
+  // first, same ordering computeDerivedEliminationPlaces itself sorts by.
+  // This is what the correction panel opens with and what "Вернуть в игру"
+  // reads from; it is NOT re-sorted by the server-derived `place` field
+  // (which is just fieldSize - index of this same order, so sorting by one
+  // or the other is equivalent, but this avoids parsing `place` back out of
+  // its string form here).
+  const eliminatedFreeRows = useMemo(
+    () =>
+      freeRows
+        .filter((row) => row.eliminated)
+        .slice()
+        .sort((a, b) => {
+          const aTime = a.eliminated_at ? new Date(a.eliminated_at).getTime() : 0;
+          const bTime = b.eliminated_at ? new Date(b.eliminated_at).getTime() : 0;
+          if (aTime !== bTime) return aTime - bTime;
+          return a.player_id.localeCompare(b.player_id);
+        }),
+    [freeRows]
+  );
   const isBossBountyTournament = tournament?.tournament_type === "boss_bounty";
   const isMysteryBountyTournament = tournament?.tournament_type === "mystery_bounty";
   const mysteryBountyAwarded = useMemo(
@@ -750,6 +783,135 @@ export default function AdminTournamentResultsPage() {
       setError(
         err instanceof Error ? err.message : "Не удалось сохранить отметку о выбытии"
       );
+    }
+  }
+
+  // Opens "Исправить порядок выбывания" with the CURRENT canonical
+  // elimination order -- always freshly derived from freeRows, never stale
+  // state left over from a previous open/close.
+  function openEliminationCorrectionPanel() {
+    setCorrectionError(null);
+    setCorrectionOrder(eliminatedFreeRows.map((row) => row.player_id));
+    setShowEliminationCorrection(true);
+  }
+
+  function closeEliminationCorrectionPanel() {
+    setShowEliminationCorrection(false);
+    setCorrectionError(null);
+  }
+
+  function moveCorrectionEntry(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    setCorrectionOrder((prev) => {
+      if (target < 0 || target >= prev.length) {
+        return prev;
+      }
+      const next = prev.slice();
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  // Re-reads only the derived elimination fields (eliminated_at, place) for
+  // rows the server still considers eliminated, and leaves every other row
+  // completely untouched -- in particular a manually-typed Место for a
+  // non-eliminated top finisher, exactly like
+  // syncDerivedPlacementToSheet's own "never touch a non-eliminated row"
+  // rule. Deliberately NOT a full handlePullFreeRows() reuse: that pulls
+  // fresh from Google Sheets with commit:true, which requires a linked
+  // sheet and would throw for a tournament with none -- both correction
+  // actions must work either way.
+  async function refreshDerivedEliminationFields() {
+    if (!tournamentId) return;
+
+    const [eliminations, derivedPlaces] = await Promise.all([
+      getTournamentEliminations(tournamentId),
+      getDerivedEliminationPlaces(tournamentId),
+    ]);
+
+    setFreeRows((prev) =>
+      prev.map((row) => {
+        const elimination = eliminations.get(row.player_id);
+        if (!elimination?.eliminated) {
+          return row;
+        }
+        return {
+          ...row,
+          eliminated: true,
+          eliminated_at: elimination.eliminated_at,
+          place: String(derivedPlaces.get(row.player_id) ?? row.place),
+        };
+      })
+    );
+  }
+
+  // "Вернуть в игру" -- a safe one-player correction, fail-closed on the
+  // sheet side (see setTournamentPlayerEliminationThroughSheet's
+  // failClosedOnSheetWrite doc comment): if the required GS write fails,
+  // the server returns an error and Postgres is left exactly as it was, so
+  // there is never a moment where GS still says Выбыл=true while Postgres
+  // says false (the state the next poller tick would "fix" by silently
+  // re-eliminating this player).
+  async function handleReturnPlayerToGame(playerId: string) {
+    if (!tournamentId) return;
+
+    setReturningPlayerId(playerId);
+    setCorrectionError(null);
+
+    try {
+      await fetchAdminJson(`/api/admin/tournaments/${tournamentId}/return-to-game`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player_id: playerId }),
+      });
+
+      setFreeRows((prev) =>
+        prev.map((row) =>
+          row.player_id === playerId
+            ? { ...row, eliminated: false, eliminated_at: null, place: "" }
+            : row
+        )
+      );
+      setCorrectionOrder((prev) => prev.filter((id) => id !== playerId));
+      // Every OTHER remaining eliminated player's derived place may also
+      // have shifted now that this one player is out of the field.
+      await refreshDerivedEliminationFields();
+    } catch (err) {
+      setCorrectionError(
+        err instanceof Error ? err.message : "Не удалось вернуть игрока в игру"
+      );
+    } finally {
+      setReturningPlayerId(null);
+    }
+  }
+
+  // Saves a corrected elimination ORDER (every player here stays
+  // eliminated -- only their relative sequence changes). The server
+  // re-validates that `correctionOrder` is exactly the tournament's current
+  // eliminated set before touching anything (see
+  // features/tournaments.ts::reorderTournamentEliminations), so a stale
+  // panel left open in another tab can never silently corrupt state.
+  async function handleSaveEliminationOrder() {
+    if (!tournamentId) return;
+
+    setCorrectionSaving(true);
+    setCorrectionError(null);
+
+    try {
+      await fetchAdminJson(`/api/admin/tournaments/${tournamentId}/reorder-eliminations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player_ids: correctionOrder }),
+      });
+
+      setShowEliminationCorrection(false);
+      await refreshDerivedEliminationFields();
+    } catch (err) {
+      setCorrectionError(
+        err instanceof Error ? err.message : "Не удалось сохранить порядок выбывания"
+      );
+    } finally {
+      setCorrectionSaving(false);
     }
   }
 
@@ -1756,7 +1918,7 @@ export default function AdminTournamentResultsPage() {
               disabled={pulling || !tournament?.google_sheet_tab_name}
               className="rounded-lg border border-white/10 px-3 py-3 text-sm font-semibold text-white/85 disabled:opacity-50"
             >
-              {pulling ? "Обновляем..." : "Обновить из GS"}
+              {pulling ? "Обновляем..." : "Синхронизировать сейчас"}
             </button>
 
             <button
@@ -1772,6 +1934,27 @@ export default function AdminTournamentResultsPage() {
               {completing ? "Завершаем..." : "Завершить турнир"}
             </button>
           </div>
+          {tournament?.google_sheet_tab_name ? (
+            <p className="mt-1.5 text-center text-[11px] text-white/40">
+              Google Sheets → приложение
+            </p>
+          ) : null}
+
+          {isFreeTournament && tournament?.status !== "completed" ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={openEliminationCorrectionPanel}
+                disabled={eliminatedFreeRows.length === 0}
+                className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-3 text-sm font-semibold text-white/85 disabled:opacity-40"
+              >
+                Исправить порядок выбывания
+              </button>
+              <p className="mt-1.5 text-center text-[11px] text-white/40">
+                Места рассчитываются по порядку выбывания автоматически.
+              </p>
+            </div>
+          ) : null}
           </>
         ) : null}
 
@@ -2254,6 +2437,118 @@ export default function AdminTournamentResultsPage() {
           )}
         </div>
       </div>
+
+      {showEliminationCorrection ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={closeEliminationCorrectionPanel}
+        >
+          <section
+            className="max-h-[86vh] w-full overflow-y-auto overscroll-contain rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] shadow-2xl backdrop-blur-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Порядок выбывания</h2>
+                <p className="mt-1.5 text-xs text-white/50">
+                  Места рассчитываются по порядку выбывания автоматически — стрелками
+                  можно исправить очерёдность, если игрок выбыл не в том порядке.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEliminationCorrectionPanel}
+                className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-sm text-white/70"
+              >
+                Закрыть
+              </button>
+            </div>
+
+            {correctionError ? (
+              <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-200">
+                {correctionError}
+              </p>
+            ) : null}
+
+            <div className="mt-4 space-y-2">
+              {correctionOrder.length === 0 ? (
+                <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                  Нет выбывших игроков.
+                </p>
+              ) : (
+                correctionOrder.map((playerId, index) => {
+                  const row = freeRows.find((r) => r.player_id === playerId);
+                  if (!row) return null;
+                  const fieldSize = eliminatedFreeRows.length;
+                  const derivedPlace = fieldSize - index;
+
+                  return (
+                    <div
+                      key={playerId}
+                      className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-black/25 p-2.5"
+                    >
+                      <div className="flex w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] py-1.5 text-sm font-semibold text-white/80">
+                        {derivedPlace}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-white">
+                          {row.display_name}
+                        </p>
+                        {row.eliminated_at ? (
+                          <p className="text-[11px] text-white/45">
+                            {formatEliminationTime(row.eliminated_at)}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="flex shrink-0 flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={() => moveCorrectionEntry(index, -1)}
+                          disabled={index === 0}
+                          aria-label="Переместить раньше по времени выбытия"
+                          className="flex h-7 w-9 items-center justify-center rounded-md border border-white/10 text-white/70 disabled:opacity-30"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveCorrectionEntry(index, 1)}
+                          disabled={index === correctionOrder.length - 1}
+                          aria-label="Переместить позже по времени выбытия"
+                          className="flex h-7 w-9 items-center justify-center rounded-md border border-white/10 text-white/70 disabled:opacity-30"
+                        >
+                          ↓
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleReturnPlayerToGame(playerId)}
+                        disabled={returningPlayerId === playerId}
+                        className="shrink-0 rounded-lg border border-white/15 px-2.5 py-2 text-xs font-semibold text-white/85 disabled:opacity-50"
+                      >
+                        {returningPlayerId === playerId ? "..." : "Вернуть в игру"}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSaveEliminationOrder}
+              disabled={correctionSaving || correctionOrder.length < 2}
+              className="mt-4 w-full rounded-lg bg-yellow-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-50"
+            >
+              {correctionSaving ? "Сохраняем..." : "Сохранить порядок"}
+            </button>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
