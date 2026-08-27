@@ -6,6 +6,7 @@ import {
   registrationRepository,
 } from "@/lib/repositories";
 import type { Player } from "@/types/domain";
+import { syncPlayerAchievements } from "@/features/achievements";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -163,9 +164,31 @@ export async function updatePlayerReferralData(
     };
   }
 
+  let updated: Player;
   try {
-    return await playerRepository.update(playerId, update);
+    updated = await playerRepository.update(playerId, update);
   } catch (err) {
     throw new Error(`Ошибка обновления: ${errorMessage(err)}`);
   }
+
+  // referral_count is the Achievement Engine's canonical "referrals" metric
+  // (features/achievements.ts::getPlayerAchievementMetrics) -- an admin
+  // referral edit must resync "Своя тусовка" progress the same way a
+  // tournament completion resyncs its own metrics, or the two go silently
+  // out of sync. Only increment/decrement actually touch referral_count (and
+  // decrementing an already-zero count is a no-op), so every other action
+  // here -- free-reentry balance, Yandex review -- correctly never triggers
+  // this. Runs outside the flag that gates the tournament-completion
+  // automatic path (see syncPlayersAchievementsIfEnabled's comment): like
+  // the admin achievements resync route, this is a human-triggered mutation,
+  // not that automatic runtime path.
+  if (update.referral_count !== undefined && update.referral_count !== current.referral_count) {
+    try {
+      await syncPlayerAchievements(playerId, { publishActivityEvents: true });
+    } catch (err) {
+      console.error("[updatePlayerReferralData] Achievement sync failed:", err);
+    }
+  }
+
+  return updated;
 }

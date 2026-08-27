@@ -306,6 +306,69 @@ describe("syncPlayerAchievements — Boss Hunter (boss_knockouts)", () => {
   });
 });
 
+describe("syncPlayerAchievements — Своя тусовка (referrals)", () => {
+  function withReferralCount(count: number) {
+    mockPlayerRepository.findReferralFieldsById.mockResolvedValue({
+      referral_count: count,
+      free_reentries_balance: 0,
+      yandex_review_bonus_claimed: false,
+    });
+  }
+
+  it("1 referral completes first_referral without touching the five-referral tier", async () => {
+    withReferralCount(1);
+
+    await syncPlayerAchievements(PLAYER_ID);
+
+    expect(findByCode("first_referral")).toMatchObject({ current_value: 1, completed_at: NOW_ISO });
+    expect(findByCode("five_referrals")).toMatchObject({ current_value: 1, completed_at: null });
+  });
+
+  it("crossing the five-referral tier completes it immediately", async () => {
+    withReferralCount(4);
+    await syncPlayerAchievements(PLAYER_ID);
+    expect(findByCode("five_referrals")?.completed_at).toBeNull();
+
+    withReferralCount(5);
+    await syncPlayerAchievements(PLAYER_ID);
+    expect(findByCode("five_referrals")).toMatchObject({ current_value: 5, completed_at: NOW_ISO });
+  });
+
+  it("a later referral decrement reconciles current_value but preserves the original completed_at", async () => {
+    const ORIGINAL_COMPLETED_AT = "2022-02-02T00:00:00.000Z";
+    // Admin removed 2 of the 5 referrals that originally earned this tier.
+    withReferralCount(3);
+    mockAchievementRepository.findSummariesByPlayerId.mockResolvedValue([
+      { achievement_code: "five_referrals", current_value: 5, completed_at: ORIGINAL_COMPLETED_AT },
+    ]);
+
+    await syncPlayerAchievements(PLAYER_ID);
+
+    expect(findByCode("five_referrals")).toMatchObject({
+      current_value: 3,
+      completed_at: ORIGINAL_COMPLETED_AT,
+    });
+  });
+
+  it("exactly one evaluator owns every referral-metric achievement (no duplicate formula)", async () => {
+    const { evaluatorRegistry } = await import("@/lib/achievement-engine/evaluators/registry");
+    const { ACHIEVEMENTS_CATALOG, ACHIEVEMENT_METRIC } = await import("@/config/achievements");
+
+    const referralDefinitions = ACHIEVEMENTS_CATALOG.filter(
+      (definition) => "metric" in definition && definition.metric === ACHIEVEMENT_METRIC.REFERRALS,
+    );
+    expect(referralDefinitions.length).toBeGreaterThan(0);
+
+    for (const definition of referralDefinitions) {
+      const supportingEvaluators = evaluatorRegistry
+        .list()
+        .filter((evaluator) => evaluator.supports(definition));
+      expect(supportingEvaluators).toHaveLength(1);
+      expect(supportingEvaluators[0].name).toBe("referral");
+    }
+  });
+});
+
 describe("syncPlayerAchievements — Headhunter (max knockouts in a single tournament)", () => {
   it("5 + 5 knockouts across two different tournaments does NOT complete Headhunter", async () => {
     mockResultRepository.findKnockoutsByPlayerId.mockResolvedValue([

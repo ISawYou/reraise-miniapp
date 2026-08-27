@@ -22,6 +22,7 @@ import {
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
+  sortParticipantsByRating,
 } from "@/lib/tournament-helpers";
 import { getTelegramUser } from "@/lib/telegram";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
@@ -283,6 +284,11 @@ export default function TournamentDetailsPage() {
   const [tournamentVisuals, setTournamentVisuals] = useState<Record<string, TournamentVisualConfig>>({});
 
   const [activeTab, setActiveTab] = useState<TabKey>("about");
+  // Display-only convenience sort for the Registration tab -- never
+  // persisted, never sent to the server, never touches registration order in
+  // the DB. Off by default so the existing order is exactly what it was
+  // before this control existed.
+  const [sortRegistrationByRating, setSortRegistrationByRating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -302,6 +308,14 @@ export default function TournamentDetailsPage() {
 const waitlistParticipants = participants.filter(
   (participant) => participant.status === "waitlist"
 );
+
+  // Never offered for a completed tournament (see the toggle button below),
+  // so this only ever reorders an open/closed/live registration list, never
+  // the frozen Results view.
+  const displayedRegisteredParticipants =
+    sortRegistrationByRating && tournament?.status !== "completed"
+      ? sortParticipantsByRating(registeredParticipants)
+      : registeredParticipants;
 
   // Single source of clock truth, shared with Home -- no second poll/logic
   // for "is this tournament live" here.
@@ -788,9 +802,25 @@ const waitlistParticipants = participants.filter(
                   <UserIcon />
                   <span>Игроки</span>
                 </div>
-                <div className="flex items-center gap-1 pr-2">
-                  <StarIcon />
-                  <span>Рейтинг</span>
+                <div className="flex items-center gap-2">
+                  {tournament.status !== "completed" ? (
+                    <button
+                      type="button"
+                      onClick={() => setSortRegistrationByRating((current) => !current)}
+                      aria-pressed={sortRegistrationByRating}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] normal-case tracking-normal transition ${
+                        sortRegistrationByRating
+                          ? "border-[#d5b867] text-[#d5b867]"
+                          : "border-white/15 text-white/55"
+                      }`}
+                    >
+                      По рейтингу
+                    </button>
+                  ) : null}
+                  <div className="flex items-center gap-1 pr-2">
+                    <StarIcon />
+                    <span>Рейтинг</span>
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -798,7 +828,7 @@ const waitlistParticipants = participants.filter(
             {registeredParticipants.length === 0 ? (
               <div className="px-4 py-6 text-sm text-white/60">Пока записанных участников нет</div>
             ) : (
-              registeredParticipants.map((participant, index) => (
+              displayedRegisteredParticipants.map((participant, index) => (
                 <ParticipantRow
                   key={participant.registration_id}
                   participant={participant}

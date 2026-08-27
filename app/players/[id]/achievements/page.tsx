@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
+import { useBodyScrollLock } from "@/lib/hooks/use-body-scroll-lock";
 import {
   buildAchievementDisplayModel,
   TIER_LABELS,
@@ -50,6 +51,8 @@ export default function PlayerAchievementsPage() {
   }, [playerId]);
 
   const model = buildAchievementDisplayModel(rows);
+
+  useBodyScrollLock(detail !== null);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#10271e_0,#050706_42%,#000_75%)] px-4 py-6 pb-28 text-white">
@@ -139,7 +142,7 @@ export default function PlayerAchievementsPage() {
 
       {detail ? (
         <div className="fixed inset-0 z-50 flex items-end bg-black/70" onClick={() => setDetail(null)}>
-          <section className="max-h-[86vh] w-full overflow-y-auto rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] shadow-2xl backdrop-blur-2xl" onClick={(event) => event.stopPropagation()}>
+          <section className="max-h-[86vh] w-full overflow-y-auto overscroll-contain rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] shadow-2xl backdrop-blur-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
             <div className="mx-auto max-w-md">
               <div className="flex items-start justify-between gap-4">

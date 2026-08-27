@@ -1,4 +1,4 @@
-import type { TournamentKind, TournamentType } from "@/types/domain";
+import type { TournamentKind, TournamentType, TournamentParticipant } from "@/types/domain";
 
 export function getTournamentKindLabel(kind: TournamentKind): string {
   if (kind === "paid") return "Платный";
@@ -76,6 +76,22 @@ export function getTournamentTypeBonusLines(type: TournamentType): string[] {
   }
 
   return lines;
+}
+
+// Display-only "По рейтингу" convenience sort for the Registration tab's
+// participant list (app/tournaments/[id]/page.tsx) -- never mutates
+// registration order in the DB, just the array the tab happens to render.
+// `participant.rating` is already the raw current-season points total
+// getTournamentParticipants computed for everyone (features/tournaments.ts)
+// -- no second rating formula, and a "Вне зачёта" player's real points sort
+// exactly like anyone else's. Array.prototype.sort is a stable sort, so
+// equal ratings (including every 0/no-rating participant) keep their
+// original registration order, which also naturally puts every 0 after
+// every positive rating without any extra tie-break logic.
+export function sortParticipantsByRating<T extends Pick<TournamentParticipant, "rating">>(
+  participants: T[],
+): T[] {
+  return [...participants].sort((a, b) => b.rating - a.rating);
 }
 
 export function getExpectedPrizePlaces(uniquePlayersCount: number): number {

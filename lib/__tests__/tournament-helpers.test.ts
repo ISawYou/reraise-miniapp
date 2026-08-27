@@ -7,6 +7,7 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
   getTournamentTypeMultiplier,
+  sortParticipantsByRating,
   supportsTournamentKnockouts,
 } from "@/lib/tournament-helpers";
 
@@ -72,6 +73,75 @@ describe("tournament type helpers", () => {
     expect(getTournamentTypeBonusLines("boss_bounty")).toEqual([
       "Нокауты: +5 очков",
       "Boss-нокауты: +10 очков",
+    ]);
+  });
+});
+
+describe("sortParticipantsByRating", () => {
+  function participant(id: string, rating: number) {
+    return { registration_id: id, rating };
+  }
+
+  it("sorts descending by rating", () => {
+    const input = [participant("a", 10), participant("b", 30), participant("c", 20)];
+
+    expect(sortParticipantsByRating(input).map((p) => p.registration_id)).toEqual([
+      "b",
+      "c",
+      "a",
+    ]);
+  });
+
+  it("preserves original registration order for tied ratings", () => {
+    const input = [
+      participant("first", 50),
+      participant("second", 50),
+      participant("third", 50),
+    ];
+
+    expect(sortParticipantsByRating(input).map((p) => p.registration_id)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
+  });
+
+  it("puts zero/no-rating participants after everyone with positive rating", () => {
+    const input = [
+      participant("zero-1", 0),
+      participant("scored", 15),
+      participant("zero-2", 0),
+    ];
+
+    expect(sortParticipantsByRating(input).map((p) => p.registration_id)).toEqual([
+      "scored",
+      "zero-1",
+      "zero-2",
+    ]);
+  });
+
+  it("does not mutate the input array (display-only, never touches registration order)", () => {
+    const input = [participant("a", 1), participant("b", 2)];
+    const original = [...input];
+
+    sortParticipantsByRating(input);
+
+    expect(input).toEqual(original);
+  });
+
+  it("sorts a player marked out-of-competition by their raw points like anyone else", () => {
+    // "Вне зачёта" eligibility is a separate flag entirely -- this helper
+    // only ever sees each participant's raw current-season rating number,
+    // the same field every row already displays, so an out-of-competition
+    // player with real points sorts normally instead of being pushed down.
+    const input = [
+      participant("eligible-low", 5),
+      participant("out-of-competition-high", 40),
+    ];
+
+    expect(sortParticipantsByRating(input).map((p) => p.registration_id)).toEqual([
+      "out-of-competition-high",
+      "eligible-low",
     ]);
   });
 });

@@ -1,7 +1,17 @@
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import type { TournamentType } from "@/types/domain";
 
-const DEFAULT_ARTWORK_SIZE_CLASSNAME = "absolute inset-y-0 right-0 w-[68%] sm:w-[58%]";
+// Card-relative, not viewport-relative: this box's own containing block is
+// already the (relatively positioned) tournament card, so its width scales
+// deterministically with the card regardless of window width. A `sm:`
+// variant here would key off the *browser viewport* instead -- on any real
+// phone (all portrait widths stay well under Tailwind's 640px `sm` breakpoint)
+// it never fires, so live cards always got 68%; but the admin preview card
+// (rendered inside a wide desktop browser, itself capped at 280px) crossed
+// that viewport threshold and silently previewed a different, narrower 58%
+// box than what every phone actually showed. One deterministic value keeps
+// admin preview and live rendering in sync everywhere at any device width.
+const DEFAULT_ARTWORK_SIZE_CLASSNAME = "absolute inset-y-0 right-0 w-[68%]";
 
 type TournamentVisualProps = {
   tournamentType: TournamentType;
