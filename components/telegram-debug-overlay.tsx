@@ -6,6 +6,10 @@ import { getTelegramWebApp, isTelegramMiniAppContext } from "@/lib/telegram";
 
 export const TG_DEBUG_STORAGE_KEY = "tgDebugOverlay";
 export const TG_DEBUG_TOGGLE_EVENT = "tgDebugOverlayToggled";
+// Separate opt-in from the base overlay: safe-area/viewport debugging is
+// useful on every page, but per-artwork geometry rows would just be noise
+// there -- this section only renders when both flags are on.
+export const TG_DEBUG_VISUAL_STORAGE_KEY = "tgDebugVisual";
 
 type DebugState = {
   pathname: string;
@@ -32,6 +36,52 @@ type DebugState = {
   lastSafe: string;
   lastContent: string;
   lastViewport: string;
+  visualEnabled: boolean;
+  visual: VisualDebugState | null;
+};
+
+// One row per value requested for the Android-vs-iPhone TournamentVisual
+// geometry comparison -- see components/tournaments/tournament-visual.tsx
+// for the data-tournament-visual-* attributes this reads.
+type VisualDebugState = {
+  userAgent: string;
+  innerWidth: string;
+  innerHeight: string;
+  clientWidth: string;
+  clientHeight: string;
+  devicePixelRatio: string;
+  vvWidth: string;
+  vvHeight: string;
+  vvScale: string;
+  tournamentType: string;
+  cardWidth: string;
+  cardHeight: string;
+  cardLeft: string;
+  cardTop: string;
+  boxWidth: string;
+  boxHeight: string;
+  boxLeft: string;
+  boxTop: string;
+  imgWidth: string;
+  imgHeight: string;
+  imgLeft: string;
+  imgTop: string;
+  naturalWidth: string;
+  naturalHeight: string;
+  computedWidth: string;
+  computedHeight: string;
+  computedObjectFit: string;
+  computedTransform: string;
+  computedTransformOrigin: string;
+  assetUrl: string;
+  configScale: string;
+  configOffsetX: string;
+  configOffsetY: string;
+  configOpacity: string;
+  ratioBoxW: string;
+  ratioBoxH: string;
+  ratioImgW: string;
+  ratioImgH: string;
 };
 
 type EventLog = { ts: string; event: string; detail?: string };
@@ -114,6 +164,8 @@ function readState(
     lastSafe,
     lastContent,
     lastViewport,
+    visualEnabled: isVisualEnabled(),
+    visual: isVisualEnabled() ? readVisualState() : null,
   };
 }
 
@@ -125,6 +177,99 @@ function isEnabled(): boolean {
   } catch {
     return false;
   }
+}
+
+function isVisualEnabled(): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    if (new URLSearchParams(window.location.search).has("debugVisual")) return true;
+    return localStorage.getItem(TG_DEBUG_VISUAL_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+// Multiple TournamentVisual instances can be mounted at once (e.g. every
+// slide of the Home carousel), only translated off-screen -- picking by
+// bounding-box overlap with the viewport finds the one actually on screen
+// without needing to know which page or carousel index rendered it.
+function findVisibleVisualRoot(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  const roots = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-tournament-visual-root]")
+  );
+  return (
+    roots.find((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.right > 0 && rect.left < window.innerWidth;
+    }) ?? null
+  );
+}
+
+function readVisualState(): VisualDebugState | null {
+  const root = findVisibleVisualRoot();
+  if (!root) return null;
+  const box = root.querySelector<HTMLElement>("[data-tournament-visual-box]");
+  const img = root.querySelector<HTMLImageElement>("[data-tournament-visual-img]");
+  const card = root.parentElement;
+  if (!box || !img || !card) return null;
+
+  const cardRect = card.getBoundingClientRect();
+  const boxRect = box.getBoundingClientRect();
+  const imgRect = img.getBoundingClientRect();
+  const imgStyle = window.getComputedStyle(img);
+
+  let config: { assetUrl?: unknown; scale?: unknown; offsetX?: unknown; offsetY?: unknown; opacity?: unknown } = {};
+  try {
+    config = JSON.parse(box.dataset.config ?? "{}");
+  } catch {
+    config = {};
+  }
+
+  const vv = typeof window !== "undefined" ? window.visualViewport : null;
+
+  const ratio = (part: number, whole: number) => (whole > 0 ? String(part / whole) : "–");
+
+  return {
+    userAgent: str(typeof navigator !== "undefined" ? navigator.userAgent : undefined),
+    innerWidth: str(window.innerWidth),
+    innerHeight: str(window.innerHeight),
+    clientWidth: str(document.documentElement.clientWidth),
+    clientHeight: str(document.documentElement.clientHeight),
+    devicePixelRatio: str(window.devicePixelRatio),
+    vvWidth: str(vv?.width),
+    vvHeight: str(vv?.height),
+    vvScale: str(vv?.scale),
+    tournamentType: str(root.dataset.tournamentType),
+    cardWidth: str(cardRect.width),
+    cardHeight: str(cardRect.height),
+    cardLeft: str(cardRect.left),
+    cardTop: str(cardRect.top),
+    boxWidth: str(boxRect.width),
+    boxHeight: str(boxRect.height),
+    boxLeft: str(boxRect.left),
+    boxTop: str(boxRect.top),
+    imgWidth: str(imgRect.width),
+    imgHeight: str(imgRect.height),
+    imgLeft: str(imgRect.left),
+    imgTop: str(imgRect.top),
+    naturalWidth: str(img.naturalWidth),
+    naturalHeight: str(img.naturalHeight),
+    computedWidth: imgStyle.width,
+    computedHeight: imgStyle.height,
+    computedObjectFit: imgStyle.objectFit,
+    computedTransform: imgStyle.transform,
+    computedTransformOrigin: imgStyle.transformOrigin,
+    assetUrl: str(config.assetUrl),
+    configScale: str(config.scale),
+    configOffsetX: str(config.offsetX),
+    configOffsetY: str(config.offsetY),
+    configOpacity: str(config.opacity),
+    ratioBoxW: ratio(boxRect.width, cardRect.width),
+    ratioBoxH: ratio(boxRect.height, cardRect.height),
+    ratioImgW: ratio(imgRect.width, cardRect.width),
+    ratioImgH: ratio(imgRect.height, cardRect.height),
+  };
 }
 
 export function TelegramDebugOverlay() {
@@ -256,6 +401,34 @@ export function TelegramDebugOverlay() {
       `last safeAreaChanged: ${state.lastSafe}`,
       `last contentSafeAreaChanged: ${state.lastContent}`,
       `last viewportChanged: ${state.lastViewport}`,
+      ...(state.visualEnabled
+        ? [
+            ``,
+            `--- TOURNAMENT VISUAL ---`,
+            ...(state.visual
+              ? [
+                  `userAgent: ${state.visual.userAgent}`,
+                  `innerWidth/innerHeight: ${state.visual.innerWidth}/${state.visual.innerHeight}`,
+                  `documentElement clientWidth/clientHeight: ${state.visual.clientWidth}/${state.visual.clientHeight}`,
+                  `devicePixelRatio: ${state.visual.devicePixelRatio}`,
+                  `visualViewport w/h/scale: ${state.visual.vvWidth}/${state.visual.vvHeight}/${state.visual.vvScale}`,
+                  `tournamentType: ${state.visual.tournamentType}`,
+                  `card rect (w/h/l/t): ${state.visual.cardWidth}/${state.visual.cardHeight}/${state.visual.cardLeft}/${state.visual.cardTop}`,
+                  `artworkBox rect (w/h/l/t): ${state.visual.boxWidth}/${state.visual.boxHeight}/${state.visual.boxLeft}/${state.visual.boxTop}`,
+                  `img rect (w/h/l/t): ${state.visual.imgWidth}/${state.visual.imgHeight}/${state.visual.imgLeft}/${state.visual.imgTop}`,
+                  `img natural (w/h): ${state.visual.naturalWidth}/${state.visual.naturalHeight}`,
+                  `img computed (w/h): ${state.visual.computedWidth}/${state.visual.computedHeight}`,
+                  `img computed objectFit: ${state.visual.computedObjectFit}`,
+                  `img computed transform: ${state.visual.computedTransform}`,
+                  `img computed transformOrigin: ${state.visual.computedTransformOrigin}`,
+                  `config assetUrl: ${state.visual.assetUrl}`,
+                  `config scale/offsetX/offsetY/opacity: ${state.visual.configScale}/${state.visual.configOffsetX}/${state.visual.configOffsetY}/${state.visual.configOpacity}`,
+                  `ratio box/card (w/h): ${state.visual.ratioBoxW}/${state.visual.ratioBoxH}`,
+                  `ratio img/card (w/h): ${state.visual.ratioImgW}/${state.visual.ratioImgH}`,
+                ]
+              : [`no visible [data-tournament-visual-root] found on this page`]),
+          ]
+        : []),
       ``,
       `--- EVENTS (last ${logs.length}) ---`,
       ...logs.map(l => `${l.ts} ${l.event}${l.detail ? ` ${l.detail}` : ""}`),
@@ -356,6 +529,35 @@ export function TelegramDebugOverlay() {
       {row("last safeAreaChanged", state.lastSafe)}
       {row("last contentSafeChanged", state.lastContent)}
       {row("last viewportChanged", state.lastViewport)}
+
+      {state.visualEnabled && (
+        <>
+          {divider()}
+          <div style={{ color: "#f5c451", fontSize: 9, fontWeight: 700, marginBottom: 2 }}>
+            TOURNAMENT VISUAL
+          </div>
+          {state.visual ? (
+            <>
+              {row("dpr", state.visual.devicePixelRatio)}
+              {row("inner w/h", `${state.visual.innerWidth}/${state.visual.innerHeight}`)}
+              {row("vv w/h/scale", `${state.visual.vvWidth}/${state.visual.vvHeight}/${state.visual.vvScale}`)}
+              {row("type", state.visual.tournamentType)}
+              {row("card w/h", `${state.visual.cardWidth}/${state.visual.cardHeight}`)}
+              {row("box w/h", `${state.visual.boxWidth}/${state.visual.boxHeight}`)}
+              {row("img rect w/h", `${state.visual.imgWidth}/${state.visual.imgHeight}`)}
+              {row("img natural w/h", `${state.visual.naturalWidth}/${state.visual.naturalHeight}`)}
+              {row("img computed w/h", `${state.visual.computedWidth}/${state.visual.computedHeight}`)}
+              {row("computed transform", state.visual.computedTransform)}
+              {row("config scale", state.visual.configScale)}
+              {row("config offX/offY", `${state.visual.configOffsetX}/${state.visual.configOffsetY}`)}
+              {row("ratio box/card w", state.visual.ratioBoxW)}
+              {row("ratio img/card w", state.visual.ratioImgW)}
+            </>
+          ) : (
+            row("visual", "no artwork on this page")
+          )}
+        </>
+      )}
 
       {divider()}
 

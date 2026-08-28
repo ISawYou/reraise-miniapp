@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -68,5 +70,79 @@ describe("TournamentVisual", () => {
     });
 
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("maps saved scale/offset/opacity onto the img transform and opacity style", async () => {
+    const tuned: TournamentVisualConfig = {
+      ...config,
+      scale: 120,
+      offsetX: -15,
+      offsetY: 8,
+      opacity: 60,
+    };
+    await act(async () => {
+      root.render(<TournamentVisual tournamentType="classic" configs={{ classic: tuned }} />);
+    });
+
+    const img = container.querySelector("img");
+    const box = img?.parentElement;
+    expect(img?.style.transform).toBe("translate(-15%, 8%) scale(1.2)");
+    expect(box?.style.opacity).toBe("0.6");
+  });
+
+  // Regression: telegram-debug-overlay.tsx reads geometry purely off these
+  // data-* attributes (card = root.parentElement, box/img via selector) so
+  // it works on Home, /tournaments, tournament detail and the admin preview
+  // without page-specific wiring. If these disappear or move, the debug
+  // overlay silently stops finding the visible artwork.
+  it("exposes stable data-* hooks for the debug overlay to read geometry from", async () => {
+    await act(async () => {
+      root.render(
+        <TournamentVisual tournamentType="classic" configs={{ classic: config }} />,
+      );
+    });
+
+    const root_ = container.querySelector("[data-tournament-visual-root]");
+    const box = container.querySelector("[data-tournament-visual-box]");
+    const img = container.querySelector("[data-tournament-visual-img]");
+
+    expect(root_?.getAttribute("data-tournament-type")).toBe("classic");
+    expect(box).not.toBeNull();
+    expect(img).not.toBeNull();
+    expect(box?.contains(img)).toBe(true);
+    expect(root_?.contains(box)).toBe(true);
+
+    const storedConfig = JSON.parse(box?.getAttribute("data-config") ?? "{}");
+    expect(storedConfig).toMatchObject({
+      assetUrl: config.assetUrl,
+      scale: config.scale,
+      offsetX: config.offsetX,
+      offsetY: config.offsetY,
+      opacity: config.opacity,
+    });
+  });
+
+  it("is imported by every surface that renders tournament artwork, with no parallel implementation", () => {
+    const consumers = [
+      "app/page.tsx",
+      "app/tournaments/page.tsx",
+      "app/tournaments/[id]/page.tsx",
+      "app/players/[id]/page.tsx",
+      "app/admin/tournament-visuals/page.tsx",
+    ];
+    for (const relativePath of consumers) {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+      expect(source).toContain('from "@/components/tournaments/tournament-visual"');
+    }
+  });
+
+  it("has no Android/platform-specific branch in the shared render path", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/tournaments/tournament-visual.tsx"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/android/i);
+    expect(source).not.toMatch(/userAgent/i);
+    expect(source).not.toMatch(/platform/i);
   });
 });

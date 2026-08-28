@@ -4,7 +4,11 @@ import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getTelegramInitData } from "@/lib/telegram";
-import { TG_DEBUG_STORAGE_KEY, TG_DEBUG_TOGGLE_EVENT } from "@/components/telegram-debug-overlay";
+import {
+  TG_DEBUG_STORAGE_KEY,
+  TG_DEBUG_TOGGLE_EVENT,
+  TG_DEBUG_VISUAL_STORAGE_KEY,
+} from "@/components/telegram-debug-overlay";
 import type { Player } from "@/types/domain";
 
 export default function AdminSettingsPage() {
@@ -17,10 +21,12 @@ export default function AdminSettingsPage() {
   );
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [tgDebugEnabled, setTgDebugEnabled] = useState(false);
+  const [tgDebugVisualEnabled, setTgDebugVisualEnabled] = useState(false);
 
   useEffect(() => {
     try {
       setTgDebugEnabled(localStorage.getItem(TG_DEBUG_STORAGE_KEY) === "true");
+      setTgDebugVisualEnabled(localStorage.getItem(TG_DEBUG_VISUAL_STORAGE_KEY) === "true");
     } catch {
       // localStorage unavailable
     }
@@ -63,6 +69,21 @@ export default function AdminSettingsPage() {
         localStorage.setItem(TG_DEBUG_STORAGE_KEY, "true");
       } else {
         localStorage.removeItem(TG_DEBUG_STORAGE_KEY);
+      }
+      window.dispatchEvent(new Event(TG_DEBUG_TOGGLE_EVENT));
+    } catch {
+      // localStorage unavailable
+    }
+  }
+
+  function handleToggleTgDebugVisual() {
+    const next = !tgDebugVisualEnabled;
+    setTgDebugVisualEnabled(next);
+    try {
+      if (next) {
+        localStorage.setItem(TG_DEBUG_VISUAL_STORAGE_KEY, "true");
+      } else {
+        localStorage.removeItem(TG_DEBUG_VISUAL_STORAGE_KEY);
       }
       window.dispatchEvent(new Event(TG_DEBUG_TOGGLE_EVENT));
     } catch {
@@ -280,6 +301,31 @@ export default function AdminSettingsPage() {
               <span
                 className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
                   tgDebugEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="mt-4 flex items-start justify-between gap-4 border-t border-white/5 pt-4">
+            <div>
+              <p className="text-sm font-medium">TournamentVisual геометрия</p>
+              <p className="mt-1 text-xs text-white/60">
+                Добавляет в TG debug overlay блок с геометрией артворка турнира
+                (card/box/img rects, natural size, computed transform) — для
+                сравнения рендера на разных устройствах
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleTgDebugVisual}
+              aria-label={tgDebugVisualEnabled ? "Выключить" : "Включить"}
+              className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                tgDebugVisualEnabled ? "bg-yellow-500" : "bg-white/20"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  tgDebugVisualEnabled ? "translate-x-6" : "translate-x-1"
                 }`}
               />
             </button>

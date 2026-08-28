@@ -45,12 +45,28 @@ export function TournamentVisual({
   // disappears along with the artwork when there's nothing to mask.
   const maskImage = "linear-gradient(to right, transparent, black 40%)";
 
+  // Plain data attributes, not React state -- the debug overlay reads these
+  // straight off the DOM (it has no access to whatever page happens to be
+  // rendering this component), so the config values it reports are always
+  // exactly what actually produced the geometry on screen.
+  const debugConfig = JSON.stringify({
+    assetUrl: config.assetUrl,
+    scale: config.scale,
+    offsetX: config.offsetX,
+    offsetY: config.offsetY,
+    opacity: config.opacity,
+  });
+
   return (
     <div
       aria-hidden="true"
+      data-tournament-visual-root=""
+      data-tournament-type={tournamentType}
       className={`pointer-events-none absolute inset-0 overflow-hidden ${className}`}
     >
       <div
+        data-tournament-visual-box=""
+        data-config={debugConfig}
         className={artworkSizeClassName}
         style={{
           opacity: config.opacity / 100,
@@ -66,6 +82,7 @@ export function TournamentVisual({
           // left behind by a previous failed load never survives onto an
           // image that would actually load fine now.
           key={config.assetUrl}
+          data-tournament-visual-img=""
           src={config.assetUrl}
           alt=""
           className="h-full w-full object-contain object-right"
