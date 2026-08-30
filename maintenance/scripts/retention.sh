@@ -230,7 +230,10 @@ list_sha_images() {
 # state before a project's first deploy since this feature shipped has
 # created its rollback-previous marker).
 resolve_tag_id() {
-  docker image inspect --no-trunc --format '{{.Id}}' "$1" 2>/dev/null || true
+  # `docker image inspect` has no --no-trunc flag (that only exists on
+  # `docker images`) -- inspect's `.Id` is always the full sha256:<64hex>
+  # digest regardless, so nothing is lost by omitting it.
+  docker image inspect --format '{{.Id}}' "$1" 2>/dev/null || true
 }
 
 TOTAL_DELETE_COUNT=0
