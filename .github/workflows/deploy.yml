@@ -189,6 +189,39 @@ jobs:
             echo "No previous app container found -- no rollback target available for this run."
           fi
 
+          # ============ SHARED VPS PRODUCTION LOCK ============
+          # /var/lock/poker-production.lock is the single mutex meant to be
+          # shared by every production-mutating section on this VPS: this
+          # deploy, the three sibling projects' deploy.yml (poker-app,
+          # poker-clock, spb-poker -- not yet wired as of this change, see
+          # report), and re-raise's own maintenance.yml. GitHub Actions
+          # `concurrency:` groups are scoped per repository and do NOT
+          # provide this on their own -- confirmed by reading poker-app's
+          # and spb-poker's own maintenance.yml comments, which each
+          # independently reached the same conclusion.
+          #
+          # Taken here, immediately before the first Docker state mutation
+          # (`docker pull`) -- not any earlier. Everything above this line
+          # (git sync, capturing the previous image) only reads state, so
+          # holding the VPS-wide lock during the `checks`/`build` jobs
+          # (which don't even SSH into the VPS) or during those reads would
+          # only make the lock be held longer than necessary.
+          #
+          # Acquired via flock on an fd opened with `exec` -- not a
+          # touch/rm homemade lock file -- so it releases automatically the
+          # moment this script's process exits, for any reason (success,
+          # failure, or an uncaught error under `set -Eeuo pipefail`,
+          # rollback included), with no explicit unlock step required.
+          LOCK_PATH=/var/lock/poker-production.lock
+          LOCK_WAIT_SECONDS=300
+          echo "Acquiring shared VPS production lock ($LOCK_PATH, waiting up to ${LOCK_WAIT_SECONDS}s)..."
+          exec 9>"$LOCK_PATH"
+          if ! flock -w "$LOCK_WAIT_SECONDS" 9; then
+            echo "Could not acquire the shared VPS production lock within ${LOCK_WAIT_SECONDS}s -- another deploy or maintenance run is holding it. Refusing to pull or touch any Docker state." >&2
+            exit 1
+          fi
+          echo "Lock acquired (pid $$). Pull, migrate/recreate, health and rollback all run inside this critical section; the lock releases automatically when this script exits."
+
           echo "== Pulling the built image (no build ever happens here) =="
           docker pull "$NEW_IMAGE_REF"
           NEW_IMAGE_ID="$(docker image inspect "$NEW_IMAGE_REF" --format '{{.Id}}')"
@@ -313,7 +346,33 @@ jobs:
             fi
 
             echo "Rollback succeeded: previous image ($PREVIOUS_IMAGE_ID) restored and healthy."
+            # PREVIOUS_IMAGE_ID never becomes the rollback-previous marker
+            # here -- this deploy attempt FAILED, so nothing about
+            # production's known-good history has changed: it was $IMAGE
+            # before this run and it still is. Touching the marker on a
+            # failed run would let a still-unverified image sneak into
+            # maintenance's retention KEEP set on some future run. Exiting
+            # 1 without updating it is correct, not an oversight.
             exit 1
+          fi
+
+          # Only reached when the NEW image passed health+smoke -- this is
+          # the one place this deploy is allowed to update the shared
+          # rollback-previous marker maintenance.yml's retention.sh reads.
+          # It is retagged to $PREVIOUS_IMAGE_ID (the image that was
+          # actually running and healthy in production immediately before
+          # this deploy started) -- never to the new image, and never on
+          # any of the failure/rollback paths above. This is a purely
+          # local Docker tag (never pushed to GHCR); GHCR keeps every real
+          # SHA tag as the source of truth for the rare manual re-pull of
+          # something older than what this marker tracks. Still inside the
+          # lock acquired above, so this can't race a concurrent
+          # maintenance run reading the marker mid-update.
+          if [ -n "$PREVIOUS_IMAGE_ID" ]; then
+            docker tag "$PREVIOUS_IMAGE_ID" "$IMAGE:rollback-previous"
+            echo "Updated rollback-previous marker: $IMAGE:rollback-previous -> $PREVIOUS_IMAGE_ID"
+          else
+            echo "No previous running image was captured at the start of this deploy (first deploy on this host, or the container didn't exist yet) -- rollback-previous marker left as-is. maintenance's retention.sh fails closed (deletes nothing) for this project until the marker exists."
           fi
 
           echo "Deploy complete: $ACTUAL_SHA is live and healthy (image $NEW_IMAGE_ID)."

@@ -6,7 +6,22 @@ on:
     # deliberately after Sunday-night poker tournaments have wrapped up,
     # not during. Cron in GitHub Actions is always UTC.
     - cron: '0 3 * * 1'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      retention_mode:
+        description: >-
+          Tagged deployment image retention (maintenance/scripts/retention.sh):
+          dry-run only reports KEEP/DELETE, apply actually removes images.
+          Scheduled (cron) runs always force dry-run regardless of this input
+          -- see the RETENTION_MODE step below -- until poker-app, poker-clock
+          and spb-poker all take the same /var/lock/poker-production.lock in
+          their own deploy.yml. Manual dry-run is always safe to run any time.
+        required: false
+        type: choice
+        default: dry-run
+        options:
+          - dry-run
+          - apply
 
 permissions:
   contents: read
@@ -16,19 +31,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Deliberately the SAME concurrency group deploy.yml's `deploy` job
-    # uses — not a copy-paste accident. `docker builder prune` removing
-    # cache blobs at the exact moment `docker compose build app` is reading
-    # them (a real deploy running at the same time) is the one scenario
-    # that could turn a routine cleanup into a flaky deploy. Sharing the
-    # group means GitHub serializes maintenance and deploy runs against
-    # this VPS — whichever started first finishes before the other begins
-    # — without touching deploy.yml at all (concurrency groups are shared
-    # across workflow files by name). cancel-in-progress stays false for
-    # the same reason it does in deploy.yml: never abort mid-cleanup.
+    # uses — not a copy-paste accident. This is intra-repo only (GitHub
+    # Actions concurrency groups do not span repositories — confirmed by
+    # reading poker-app's and spb-poker's own maintenance.yml comments,
+    # which independently arrived at the same conclusion). It still serializes
+    # this repo's own maintenance runs against this repo's own deploy runs
+    # at the GitHub Actions layer, on top of (not instead of) the real
+    # VPS-side flock taken below, which is the only thing that also protects
+    # against poker-app/poker-clock/spb-poker's deploys -- and only once
+    # those three repos' deploy.yml take the same lock (see script header
+    # comments and the retention.sh locking contract).
     concurrency:
       group: production-deploy
       cancel-in-progress: false
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine retention mode
+        id: retention
+        run: |
+          set -Eeuo pipefail
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Hard-coded, not driven by the dispatch input: scheduled runs
+            # must stay non-destructive until poker-app, poker-clock and
+            # spb-poker's own deploy.yml all take /var/lock/poker-production.lock
+            # before their first `docker pull`. Without that, this VPS-wide
+            # retention could delete an image one of those three just pulled
+            # for an in-flight deploy that hasn't recreated its container yet.
+            # Flip this once all four deploy flows share the lock (see report).
+            echo "mode=dry-run" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=${{ inputs.retention_mode }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure SSH
         run: |
           set -Eeuo pipefail
@@ -37,13 +73,28 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
 
-      # Every command here is scoped to either BuildKit's own cache store,
-      # dangling (untagged) images, systemd's journal, or npm's package
-      # cache — none of those code paths can touch a running container, a
-      # tagged image, a volume, or a bind mount. No `docker system prune`,
-      # no `-a`, no `docker volume prune`, no `docker container prune`
-      # anywhere in this script. See the PR/report for the per-command
-      # safety rationale.
+      # Uploads this exact commit's retention.sh to the VPS. Deliberately
+      # not relying on /opt/reraise already having a fresh `git pull` (that
+      # only happens during deploy.yml's run, which may be arbitrarily
+      # stale relative to this workflow run) -- this way the script that
+      # runs is always the one this workflow was actually triggered with.
+      - name: Upload retention script to VPS
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            'cat > /tmp/poker-production-retention.sh && chmod +x /tmp/poker-production-retention.sh' \
+            < maintenance/scripts/retention.sh
+
+      # Every command here is scoped to either the shared VPS production
+      # lock's own retention logic (tagged deployment images only, see
+      # retention.sh), BuildKit's own cache store, dangling (untagged)
+      # images, systemd's journal, or npm's package cache -- none of those
+      # code paths can touch a running container, a volume, or a bind
+      # mount, and retention.sh never uses `docker rmi -f` or
+      # `docker image prune -a`. See the PR/report for the full safety
+      # rationale.
       - name: Run maintenance on VPS
         run: |
           set -Eeuo pipefail
@@ -53,6 +104,40 @@ jobs:
             -o ServerAliveCountMax=6 \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s <<'REMOTE_SCRIPT'
           set -Eeuo pipefail
+
+          RETENTION_MODE="${{ steps.retention.outputs.mode }}"
+
+          # ============ SHARED VPS PRODUCTION LOCK ============
+          # /var/lock/poker-production.lock is the single mutex meant to be
+          # shared by every production-mutating section on this VPS: this
+          # maintenance run, and each of the four projects' deploy.yml
+          # (re-raise, poker-app, poker-clock, spb-poker). GitHub Actions
+          # `concurrency:` groups are scoped per repository and do NOT
+          # provide this on their own (see the comment on the job above).
+          #
+          # As of this change, only re-raise's deploy.yml and this file
+          # take this lock -- poker-app, poker-clock and spb-poker do not
+          # yet (see report). Until all four do, this lock only actually
+          # protects re-raise's own deploy from this maintenance run; it
+          # does nothing to prevent an in-flight poker-app/poker-clock/
+          # spb-poker deploy from racing this script. That is exactly why
+          # RETENTION_MODE is forced to dry-run on schedule until rollout
+          # is complete (see the "Determine retention mode" step above).
+          #
+          # Acquired via flock on an fd opened with `exec` -- not a
+          # touch/rm homemade lock file -- so it is released automatically
+          # the moment this script's process exits, for any reason
+          # (success, failure, or an uncaught error under `set -Eeuo
+          # pipefail`), with no explicit unlock step required.
+          LOCK_PATH=/var/lock/poker-production.lock
+          LOCK_WAIT_SECONDS=240
+          echo "Acquiring shared VPS production lock ($LOCK_PATH, waiting up to ${LOCK_WAIT_SECONDS}s)..."
+          exec 9>"$LOCK_PATH"
+          if ! flock -w "$LOCK_WAIT_SECONDS" 9; then
+            echo "Could not acquire the shared VPS production lock within ${LOCK_WAIT_SECONDS}s -- another deploy or maintenance run is holding it. Refusing to make any Docker state changes." >&2
+            exit 1
+          fi
+          echo "Lock acquired (pid $$). Everything below runs inside the critical section; the lock releases automatically when this script exits."
 
           echo "================ BEFORE CLEANUP ================"
           echo "--- df -h ---"
@@ -65,7 +150,19 @@ jobs:
           docker builder du
 
           echo ""
-          echo "================ CLEANUP ================"
+          echo "================ TAGGED DEPLOYMENT IMAGE RETENTION (mode: ${RETENTION_MODE}) ================"
+          echo "CURRENT/PREVIOUS are computed here, AFTER the lock above was acquired -- not before --"
+          echo "so the snapshot retention.sh reasons about can't be invalidated by a deploy that starts"
+          echo "mid-computation (that deploy would itself be blocked on the same lock)."
+          if [ "$RETENTION_MODE" = "apply" ]; then
+            CONFIRM=DELETE-PRODUCTION-IMAGES /tmp/poker-production-retention.sh --apply
+          else
+            /tmp/poker-production-retention.sh --dry-run
+          fi
+          rm -f /tmp/poker-production-retention.sh
+
+          echo ""
+          echo "================ EXISTING CLEANUP (BuildKit / dangling / journal / npm) ================"
 
           echo "-- docker builder prune: BuildKit cache older than 72h (3 days) --"
           docker builder prune -f --filter "until=72h"
@@ -110,5 +207,5 @@ jobs:
           curl --fail --silent --show-error https://re-raise.ru/api/health
           echo ""
 
-          echo "Maintenance complete — app confirmed running and healthy."
+          echo "Maintenance complete — app confirmed running and healthy. Lock will now be released (process exit)."
           REMOTE_SCRIPT
