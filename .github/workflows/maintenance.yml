@@ -12,10 +12,12 @@ on:
         description: >-
           Tagged deployment image retention (maintenance/scripts/retention.sh):
           dry-run only reports KEEP/DELETE, apply actually removes images.
-          Scheduled (cron) runs always force dry-run regardless of this input
-          -- see the RETENTION_MODE step below -- until poker-app, poker-clock
-          and spb-poker all take the same /var/lock/poker-production.lock in
-          their own deploy.yml. Manual dry-run is always safe to run any time.
+          Scheduled (cron) runs always apply -- see the RETENTION_MODE step
+          below -- now that re-raise, poker-app, poker-clock and spb-poker
+          have all verified they take the same /var/lock/poker-production.lock
+          in their own deploy.yml. This input only controls manual dispatch
+          runs, and defaults to dry-run so a manual run never deletes
+          anything unless apply is explicitly chosen.
         required: false
         type: choice
         default: dry-run
@@ -37,10 +39,10 @@ jobs:
     # which independently arrived at the same conclusion). It still serializes
     # this repo's own maintenance runs against this repo's own deploy runs
     # at the GitHub Actions layer, on top of (not instead of) the real
-    # VPS-side flock taken below, which is the only thing that also protects
-    # against poker-app/poker-clock/spb-poker's deploys -- and only once
-    # those three repos' deploy.yml take the same lock (see script header
-    # comments and the retention.sh locking contract).
+    # cross-repo protection: the VPS-side flock taken below, which as of
+    # this change re-raise, poker-app, poker-clock and spb-poker's deploy.yml
+    # all take too (verified against each repo's actual workflow file, not
+    # assumed -- see report), making it a genuine four-project mutex.
     concurrency:
       group: production-deploy
       cancel-in-progress: false
@@ -54,13 +56,16 @@ jobs:
           set -Eeuo pipefail
           if [ "${{ github.event_name }}" = "schedule" ]; then
             # Hard-coded, not driven by the dispatch input: scheduled runs
-            # must stay non-destructive until poker-app, poker-clock and
-            # spb-poker's own deploy.yml all take /var/lock/poker-production.lock
-            # before their first `docker pull`. Without that, this VPS-wide
-            # retention could delete an image one of those three just pulled
-            # for an in-flight deploy that hasn't recreated its container yet.
-            # Flip this once all four deploy flows share the lock (see report).
-            echo "mode=dry-run" >> "$GITHUB_OUTPUT"
+            # now apply. This was gated on dry-run until poker-app,
+            # poker-clock and spb-poker's own deploy.yml all took
+            # /var/lock/poker-production.lock before their first `docker
+            # pull` -- without that, this VPS-wide retention could have
+            # deleted an image one of those three just pulled for an
+            # in-flight deploy that hadn't recreated its container yet. All
+            # four deploy flows now take that same lock (verified against
+            # each repo's actual workflow file), so the scheduled run is
+            # safe to apply.
+            echo "mode=apply" >> "$GITHUB_OUTPUT"
           else
             echo "mode=${{ inputs.retention_mode }}" >> "$GITHUB_OUTPUT"
           fi
@@ -108,21 +113,16 @@ jobs:
           RETENTION_MODE="${{ steps.retention.outputs.mode }}"
 
           # ============ SHARED VPS PRODUCTION LOCK ============
-          # /var/lock/poker-production.lock is the single mutex meant to be
-          # shared by every production-mutating section on this VPS: this
-          # maintenance run, and each of the four projects' deploy.yml
-          # (re-raise, poker-app, poker-clock, spb-poker). GitHub Actions
-          # `concurrency:` groups are scoped per repository and do NOT
-          # provide this on their own (see the comment on the job above).
-          #
-          # As of this change, only re-raise's deploy.yml and this file
-          # take this lock -- poker-app, poker-clock and spb-poker do not
-          # yet (see report). Until all four do, this lock only actually
-          # protects re-raise's own deploy from this maintenance run; it
-          # does nothing to prevent an in-flight poker-app/poker-clock/
-          # spb-poker deploy from racing this script. That is exactly why
-          # RETENTION_MODE is forced to dry-run on schedule until rollout
-          # is complete (see the "Determine retention mode" step above).
+          # /var/lock/poker-production.lock is the single mutex shared by
+          # every production-mutating section on this VPS: this maintenance
+          # run, and each of the four projects' deploy.yml (re-raise,
+          # poker-app, poker-clock, spb-poker) -- all four confirmed to take
+          # this same lock before their first `docker pull` (see report).
+          # GitHub Actions `concurrency:` groups are scoped per repository
+          # and do NOT provide this on their own (see the comment on the
+          # job above), so this flock is the only thing actually preventing
+          # this run's deletes from racing an in-flight deploy on any of
+          # the other three projects.
           #
           # Acquired via flock on an fd opened with `exec` -- not a
           # touch/rm homemade lock file -- so it is released automatically
