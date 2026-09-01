@@ -140,6 +140,23 @@ export interface ResultRepository {
       custom_avatar_url: string | null;
     }>
   >;
+  // All-time leaderboard (features/leaderboard.ts::getAllTimeLeaderboard) --
+  // every result row regardless of season_id, i.e. the player's raw frozen
+  // historical rating_points summed across every completed tournament ever
+  // played. Deliberately NOT season-filtered and deliberately NOT aware of
+  // season_rating_exclusions ("Вне зачёта" is season-specific qualification,
+  // not a historical erasure -- a player excluded from one season's official
+  // standings keeps every point they earned in all-time totals).
+  findAllTimeWithPlayer(): Promise<
+    Array<{
+      player_id: string;
+      rating_points: number | null;
+      username: string | null;
+      display_name: string;
+      telegram_avatar_url: string | null;
+      custom_avatar_url: string | null;
+    }>
+  >;
   findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]>;
 
   deleteByTournamentId(tournamentId: string): Promise<void>;

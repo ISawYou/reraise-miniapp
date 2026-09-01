@@ -11,6 +11,7 @@ import {
 import type { LiveEntryPatch } from "@/lib/repositories";
 import { syncPlayersAchievementsIfEnabled } from "@/features/achievements";
 import { publishTournamentWinnerEvent } from "@/features/club-activity";
+import { resolveSeasonForTournamentDate } from "@/features/seasons";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import { computeDerivedEliminationPlaces } from "@/lib/tournament-placement";
@@ -417,6 +418,16 @@ export async function getPlayedTournamentsCount(
   return resultRepository.countByPlayerId(playerId);
 }
 
+// Season assignment is date-based, NOT "whichever season happens to be
+// active" -- see lib/season-resolver.ts / features/seasons.ts::
+// resolveSeasonForTournamentDate, the ONE canonical resolution used
+// everywhere (admin preview, resync, this function). A September
+// tournament created while an older season is still active correctly
+// resolves to a future, still-inactive September season. No manual season
+// selector exists anywhere in the create UI -- this is the entire
+// assignment mechanism. Throws (NoSeasonForDateError /
+// AmbiguousSeasonError, see lib/season-resolver.ts) rather than ever
+// falling back to the active season.
 export async function createTournament(input: {
   title: string;
   description: string;
@@ -424,12 +435,9 @@ export async function createTournament(input: {
   start_at: string;
   max_players: number;
   tournament_type: TournamentType;
+  rating_guarantee?: number | null;
 }) {
-  const activeSeason = await seasonRepository.findActive();
-
-  if (!activeSeason) {
-    throw new Error("Активный сезон не найден");
-  }
+  const season = await resolveSeasonForTournamentDate(input.start_at);
 
   return tournamentRepository.create({
     title: input.title,
@@ -440,7 +448,8 @@ export async function createTournament(input: {
     kind: "free",
     tournament_type: input.tournament_type,
     status: "open",
-    season_id: activeSeason.id,
+    season_id: season.id,
+    rating_guarantee: input.rating_guarantee ?? null,
   });
 }
 
@@ -449,6 +458,13 @@ export async function createTournament(input: {
 // entirely (a Server Action hits its own Next.js RPC endpoint, not that
 // URL), so it must authorize itself. Staff (operator or Super Admin) --
 // "operator can edit tournament" is explicitly allowed.
+//
+// season_id: a COMPLETED tournament is historical -- its season membership
+// is frozen and never silently recalculated here, even if start_at is
+// edited (e.g. a typo fix) or season ranges change later. A non-completed
+// tournament (draft/open/closed) gets season_id re-resolved from whatever
+// start_at ends up being saved, same canonical resolver createTournament
+// uses -- editing its date across a season boundary correctly moves it.
 export async function updateTournament(
   tournamentId: string,
   input: {
@@ -463,6 +479,12 @@ export async function updateTournament(
 ) {
   await assertServerActorRole(["admin", "operator"]);
 
+  const current = await tournamentRepository.findById(tournamentId);
+  const seasonPatch =
+    current.status === "completed"
+      ? {}
+      : { season_id: (await resolveSeasonForTournamentDate(input.start_at)).id };
+
   return tournamentRepository.update(tournamentId, {
     title: input.title,
     description: input.description,
@@ -471,6 +493,7 @@ export async function updateTournament(
     max_players: input.max_players,
     tournament_type: input.tournament_type,
     rating_guarantee: input.rating_guarantee ?? null,
+    ...seasonPatch,
   });
 }
 

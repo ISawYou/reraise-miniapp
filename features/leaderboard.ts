@@ -89,3 +89,36 @@ export async function getOfficialSeasonLeaderboard(seasonId: string): Promise<Of
 
   return { leaderboard, outOfCompetition };
 }
+
+// All-time: cumulative RAW rating_points across every completed result ever
+// recorded, regardless of season. Deliberately NOT season-filtered and
+// deliberately NOT aware of season_rating_exclusions -- "Вне зачёта" is a
+// season-specific official-standings exclusion (features/leaderboard.ts's
+// getOfficialSeasonLeaderboard doc comment), not a historical erasure. A
+// player excluded from one season's official ranks keeps every point they
+// earned in this total. No second rating formula: this sums the exact same
+// frozen result.rating_points the season leaderboards already sum, just
+// without a season_id filter.
+export async function getAllTimeLeaderboard(): Promise<LeaderboardEntry[]> {
+  const results = await resultRepository.findAllTimeWithPlayer();
+
+  const leaderboardMap = new Map<string, LeaderboardEntry>();
+
+  for (const row of results) {
+    const existing = leaderboardMap.get(row.player_id);
+    if (existing) {
+      existing.rating += row.rating_points ?? 0;
+    } else {
+      leaderboardMap.set(row.player_id, {
+        player_id: row.player_id,
+        username: row.username,
+        display_name: row.display_name,
+        telegram_avatar_url: row.telegram_avatar_url,
+        custom_avatar_url: row.custom_avatar_url,
+        rating: row.rating_points ?? 0,
+      });
+    }
+  }
+
+  return Array.from(leaderboardMap.values()).sort((a, b) => b.rating - a.rating);
+}

@@ -152,7 +152,15 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       ["POST", "/api/admin/achievements/resync"],
       ["GET", "/api/admin/tournament-visuals"],
       ["GET", "/api/admin/settings"],
+      // Season management/rollover -- high-impact rating configuration,
+      // Super-Admin-only (season management v2).
       ["GET", "/api/admin/seasons"],
+      ["POST", "/api/admin/seasons"],
+      ["PATCH", "/api/admin/seasons/s1"],
+      ["GET", "/api/admin/seasons/resolve"],
+      ["POST", "/api/admin/seasons/resync"],
+      ["POST", "/api/admin/seasons/s1/close"],
+      ["POST", "/api/admin/seasons/s1/rollover"],
       ["POST", "/api/admin/club-activity"],
       // Dealer administration/financial routes stay Super-Admin-only.
       ["POST", "/api/admin/dealers"],

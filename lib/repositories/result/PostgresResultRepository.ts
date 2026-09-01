@@ -201,6 +201,35 @@ export class PostgresResultRepository implements ResultRepository {
     });
   }
 
+  async findAllTimeWithPlayer() {
+    const rows = await db
+      .select({
+        player_id: results.playerId,
+        rating_points: results.ratingPoints,
+        players: {
+          id: players.id,
+          username: players.username,
+          display_name: players.displayName,
+          telegram_avatar_url: players.telegramAvatarUrl,
+          custom_avatar_url: players.customAvatarUrl,
+        },
+      })
+      .from(results)
+      .leftJoin(players, eq(results.playerId, players.id));
+
+    return rows.map((row) => {
+      const player = row.players;
+      return {
+        player_id: row.player_id,
+        rating_points: row.rating_points,
+        username: player?.username ?? null,
+        display_name: player?.display_name ?? "Игрок",
+        telegram_avatar_url: player?.telegram_avatar_url ?? null,
+        custom_avatar_url: player?.custom_avatar_url ?? null,
+      };
+    });
+  }
+
   async findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]> {
     const rows = await db
       .select({

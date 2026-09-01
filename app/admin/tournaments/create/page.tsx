@@ -65,6 +65,8 @@ export default function AdminTournamentCreatePage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedSeason, setResolvedSeason] = useState<{ title: string } | null>(null);
+  const [seasonError, setSeasonError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadPage() {
@@ -80,6 +82,41 @@ export default function AdminTournamentCreatePage() {
 
     loadPage();
   }, []);
+
+  // Read-only preview only -- calls the same canonical server-side
+  // resolver the actual create request uses (see app/api/admin/seasons/
+  // resolve/route.ts). No client-side date-resolution logic here; this
+  // never gates submission by itself, the server re-resolves and validates
+  // at save time regardless.
+  useEffect(() => {
+    if (!startAt) {
+      setResolvedSeason(null);
+      setSeasonError(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const isoStartAt = new Date(startAt).toISOString();
+        const data = await fetchAdminJson<{ season: { title: string } }>(
+          `/api/admin/seasons/resolve?start_at=${encodeURIComponent(isoStartAt)}`
+        );
+        if (!cancelled) {
+          setResolvedSeason(data.season);
+          setSeasonError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setResolvedSeason(null);
+          setSeasonError(err instanceof Error ? err.message : "Не удалось определить сезон");
+        }
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [startAt]);
 
   async function handleCreateTournament() {
     if (!title.trim()) {
@@ -217,6 +254,13 @@ export default function AdminTournamentCreatePage() {
             onChange={(e) => setStartAt(e.target.value)}
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
+          {startAt ? (
+            resolvedSeason ? (
+              <p className="mt-1.5 text-xs text-white/50">Сезон: {resolvedSeason.title}</p>
+            ) : seasonError ? (
+              <p className="mt-1.5 text-xs text-red-300">{seasonError}</p>
+            ) : null
+          ) : null}
 
           <label className="mt-4 block text-sm text-white/80">
             Лимит игроков

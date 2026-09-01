@@ -65,6 +65,9 @@ export default function AdminTournamentEditPage() {
   const [maxPlayers, setMaxPlayers] = useState("20");
   const [tournamentType, setTournamentType] = useState<TournamentType>("classic");
   const [ratingGuarantee, setRatingGuarantee] = useState("");
+  const [resolvedSeason, setResolvedSeason] = useState<{ title: string } | null>(null);
+  const [seasonError, setSeasonError] = useState<string | null>(null);
+  const [tournamentStatus, setTournamentStatus] = useState<string | null>(null);
   const [participants, setParticipants] = useState<AdminTournamentParticipant[]>([]);
   const [showAddParticipantForm, setShowAddParticipantForm] = useState(false);
   const [newParticipantNick, setNewParticipantNick] = useState("");
@@ -111,6 +114,7 @@ export default function AdminTournamentEditPage() {
         setRatingGuarantee(
           tournament.rating_guarantee != null ? String(tournament.rating_guarantee) : ""
         );
+        setTournamentStatus(tournament.status);
         setParticipants(participantsData);
       } catch (err) {
         const nextMessage =
@@ -124,6 +128,42 @@ export default function AdminTournamentEditPage() {
 
     loadPage();
   }, [tournamentId]);
+
+  // Read-only preview, same canonical resolver the save action itself uses
+  // (see app/api/admin/seasons/resolve/route.ts) -- for a COMPLETED
+  // tournament this still shows what the date resolves to today, but
+  // saving will NOT move it between seasons (see updateTournament's doc
+  // comment in features/tournaments.ts): historical season membership is
+  // frozen.
+  useEffect(() => {
+    if (!startAt) {
+      setResolvedSeason(null);
+      setSeasonError(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const isoStartAt = new Date(startAt).toISOString();
+        const data = await fetchAdminJson<{ season: { title: string } }>(
+          `/api/admin/seasons/resolve?start_at=${encodeURIComponent(isoStartAt)}`
+        );
+        if (!cancelled) {
+          setResolvedSeason(data.season);
+          setSeasonError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setResolvedSeason(null);
+          setSeasonError(err instanceof Error ? err.message : "Не удалось определить сезон");
+        }
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [startAt]);
 
   async function handleSave() {
     if (!tournamentId) {
@@ -394,6 +434,16 @@ export default function AdminTournamentEditPage() {
             onChange={(e) => setStartAt(e.target.value)}
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
+          {startAt ? (
+            resolvedSeason ? (
+              <p className="mt-1.5 text-xs text-white/50">
+                Сезон: {resolvedSeason.title}
+                {tournamentStatus === "completed" ? " (турнир завершён, сезон не изменится)" : ""}
+              </p>
+            ) : seasonError ? (
+              <p className="mt-1.5 text-xs text-red-300">{seasonError}</p>
+            ) : null
+          ) : null}
 
           <label className="mt-4 block text-sm text-white/80">Кол-во мест</label>
           <input

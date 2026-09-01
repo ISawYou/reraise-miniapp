@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import {
+  createTournament,
   getAdminNotificationTournaments,
   getOpenTournaments,
 } from "@/features/tournaments";
-import { seasonRepository, tournamentRepository } from "@/lib/repositories";
+import { NoSeasonForDateError, AmbiguousSeasonError } from "@/lib/season-resolver";
+import { tournamentRepository } from "@/lib/repositories";
 
 export async function GET(request: Request) {
   try {
@@ -52,42 +54,26 @@ export async function POST(request: Request) {
       rating_guarantee?: number | null;
     };
 
-    let activeSeason;
-    try {
-      activeSeason = await seasonRepository.findActive();
-    } catch (err) {
-      return NextResponse.json(
-        {
-          error: `Не удалось получить активный сезон: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!activeSeason) {
-      return NextResponse.json(
-        { error: "Активный сезон не найден" },
-        { status: 400 }
-      );
-    }
-
     let tournament;
     try {
-      tournament = await tournamentRepository.create({
+      // Season is resolved from body.start_at (Europe/Moscow calendar
+      // date), NOT the currently active season -- see
+      // features/tournaments.ts::createTournament /
+      // features/seasons.ts::resolveSeasonForTournamentDate, the one
+      // canonical resolution.
+      tournament = await createTournament({
         title: body.title,
         description: body.description,
         location: body.location,
         start_at: body.start_at,
         max_players: body.max_players,
-        kind: "free",
         tournament_type: body.tournament_type ?? "classic",
-        status: "open",
-        season_id: activeSeason.id,
         rating_guarantee: body.rating_guarantee ?? null,
       });
     } catch (err) {
+      if (err instanceof NoSeasonForDateError || err instanceof AmbiguousSeasonError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
       return NextResponse.json(
         {
           error: `Не удалось создать турнир: ${

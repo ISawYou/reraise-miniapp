@@ -24,6 +24,19 @@ export type SeasonFullRow = {
 
 export type SeasonInsert = SeasonFullRow;
 
+// Admin-provided fields for a genuinely NEW season (season management v2 --
+// see features/seasons.ts::createSeason). Distinct from SeasonInsert: id/
+// created_at are DB-generated here, not caller-supplied, and this is a real
+// insert (errors on failure), not the backfill script's idempotent upsert.
+export type SeasonCreateInput = {
+  title: string;
+  start_date: string;
+  end_date: string | null;
+  is_active: boolean;
+};
+
+export type SeasonUpdateInput = Partial<Pick<SeasonFullRow, "title" | "start_date" | "end_date">>;
+
 export interface SeasonRepository {
   // Returns null both on a genuine "not found" (0 rows) and lets the
   // caller decide what error/response to produce — every one of today's
@@ -43,4 +56,18 @@ export interface SeasonRepository {
   // the app itself flips it (previously only ever set by the external
   // process that manages seasons -- see the module comment above).
   setActive(seasonId: string, isActive: boolean): Promise<void>;
+
+  // Season management v2 -- genuine admin-facing writes, distinct from the
+  // backfill-only `create` above.
+  insert(data: SeasonCreateInput): Promise<SeasonFullRow>;
+  update(seasonId: string, patch: SeasonUpdateInput): Promise<SeasonFullRow>;
+  // Atomically deactivate one season and activate another -- required by
+  // the seasons_one_active_key partial unique index (migration 0020): two
+  // separate non-transactional UPDATEs risk a moment where either zero or
+  // two rows are active, and a crash between them could leave production
+  // with zero active seasons. `deactivateId: null` activates `activateId`
+  // alone (rollover retry after the old season was already deactivated in
+  // a prior, partially-failed attempt -- see features/seasons.ts::
+  // rolloverSeason).
+  setActivePair(deactivateId: string | null, activateId: string): Promise<void>;
 }

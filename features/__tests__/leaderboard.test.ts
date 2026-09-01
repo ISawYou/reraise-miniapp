@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockFindWithPlayerBySeasonId = vi.fn();
+const mockFindAllTimeWithPlayer = vi.fn();
 const mockListBySeasonId = vi.fn();
 
 vi.mock("@/lib/repositories", () => ({
-  resultRepository: { findWithPlayerBySeasonId: mockFindWithPlayerBySeasonId },
+  resultRepository: {
+    findWithPlayerBySeasonId: mockFindWithPlayerBySeasonId,
+    findAllTimeWithPlayer: mockFindAllTimeWithPlayer,
+  },
   seasonRatingExclusionRepository: { listBySeasonId: mockListBySeasonId },
 }));
 
-const { getSeasonLeaderboard, getOfficialSeasonLeaderboard } = await import("@/features/leaderboard");
+const { getSeasonLeaderboard, getOfficialSeasonLeaderboard, getAllTimeLeaderboard } = await import(
+  "@/features/leaderboard"
+);
 
 function resultRow(playerId: string, ratingPoints: number) {
   return {
@@ -34,6 +40,7 @@ function exclusion(playerId: string, seasonId = "s1") {
 
 beforeEach(() => {
   mockFindWithPlayerBySeasonId.mockReset();
+  mockFindAllTimeWithPlayer.mockReset();
   mockListBySeasonId.mockReset();
 });
 
@@ -141,5 +148,45 @@ describe("getOfficialSeasonLeaderboard", () => {
 
     expect(seasonA.leaderboard.some((row) => row.player_id === "p1")).toBe(false);
     expect(seasonB.leaderboard.some((row) => row.player_id === "p1")).toBe(true);
+  });
+});
+
+describe("getAllTimeLeaderboard", () => {
+  it("sums frozen raw rating_points across every result regardless of season", async () => {
+    mockFindAllTimeWithPlayer.mockResolvedValue([
+      resultRow("p1", 100), // season A
+      resultRow("p1", 50), // season B
+      resultRow("p2", 80),
+    ]);
+
+    const all = await getAllTimeLeaderboard();
+
+    expect(all).toEqual([
+      expect.objectContaining({ player_id: "p1", rating: 150 }),
+      expect.objectContaining({ player_id: "p2", rating: 80 }),
+    ]);
+    // No season_id argument -- the repository call itself is season-agnostic.
+    expect(mockFindAllTimeWithPlayer).toHaveBeenCalledWith();
+  });
+
+  it("does NOT remove points earned while the player was 'Вне зачёта' in some season -- exclusions are never consulted", async () => {
+    mockFindAllTimeWithPlayer.mockResolvedValue([resultRow("owner", 1000)]);
+
+    const all = await getAllTimeLeaderboard();
+
+    expect(all).toEqual([expect.objectContaining({ player_id: "owner", rating: 1000 })]);
+    expect(mockListBySeasonId).not.toHaveBeenCalled();
+  });
+
+  it("sorts descending by total rating", async () => {
+    mockFindAllTimeWithPlayer.mockResolvedValue([
+      resultRow("low", 10),
+      resultRow("high", 900),
+      resultRow("mid", 300),
+    ]);
+
+    const all = await getAllTimeLeaderboard();
+
+    expect(all.map((row) => row.player_id)).toEqual(["high", "mid", "low"]);
   });
 });

@@ -329,6 +329,45 @@ export class SupabaseResultRepository implements ResultRepository {
     });
   }
 
+  async findAllTimeWithPlayer() {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase.from("results").select(
+      `
+        player_id,
+        rating_points,
+        players (
+          username,
+          display_name,
+          telegram_avatar_url,
+          custom_avatar_url
+        )
+      `
+    );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    type ResultWithPlayerLeaderboardRow = {
+      player_id: string;
+      rating_points: number | null;
+      players: PlayerLeaderboardJoin | PlayerLeaderboardJoin[] | null;
+    };
+
+    return (data ?? []).map((row: ResultWithPlayerLeaderboardRow) => {
+      const player = flattenEmbedded(row.players);
+
+      return {
+        player_id: row.player_id,
+        rating_points: row.rating_points,
+        username: player?.username ?? null,
+        display_name: player?.display_name ?? "Игрок",
+        telegram_avatar_url: player?.telegram_avatar_url ?? null,
+        custom_avatar_url: player?.custom_avatar_url ?? null,
+      };
+    });
+  }
+
   async findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]> {
     const supabase = getSupabaseServer();
     const { data, error } = await supabase

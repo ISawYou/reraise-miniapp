@@ -65,6 +65,13 @@ vi.mock("@/features/achievements", () => ({
 vi.mock("@/features/club-activity", () => ({
   publishTournamentWinnerEvent: vi.fn(),
 }));
+// Season resolution is covered in detail by
+// features/__tests__/tournament-season-assignment.test.ts -- this file only
+// verifies the authorization boundary, so the resolver is stubbed to a
+// fixed season rather than exercising real date/season-range logic.
+vi.mock("@/features/seasons", () => ({
+  resolveSeasonForTournamentDate: vi.fn().mockResolvedValue({ id: "season-1" }),
+}));
 
 const {
   updateTournament,
@@ -93,7 +100,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.tournamentUpdate.mockResolvedValue({ id: "t1" });
   mocks.tournamentDelete.mockResolvedValue(undefined);
-  mocks.tournamentFindById.mockResolvedValue({ id: "t1", max_players: 20 });
+  mocks.tournamentFindById.mockResolvedValue({ id: "t1", max_players: 20, status: "open" });
   mocks.playerCreate.mockResolvedValue({ id: "p-new" });
   mocks.registrationCreateSilent.mockResolvedValue(undefined);
   mocks.registrationFindLatest.mockResolvedValue([]);
