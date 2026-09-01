@@ -17,6 +17,7 @@ import { PromotionToast } from "@/components/promotion-toast";
 import { ClubActivityCard } from "@/components/club-activity-card";
 import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
+import { RatingIcon } from "@/components/icons/rating-icon";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
 import { TournamentVisual } from "@/components/tournaments/tournament-visual";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
@@ -1605,7 +1606,8 @@ export default function HomePage() {
 
             <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <RatingIcon className="h-5 w-5 shrink-0 text-[#d7b55a]" />
                   <h2 className="text-xl font-bold text-white">Рейтинг сезона</h2>
                 </div>
 

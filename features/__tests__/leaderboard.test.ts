@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockFindWithPlayerBySeasonId = vi.fn();
 const mockFindAllTimeWithPlayer = vi.fn();
 const mockListBySeasonId = vi.fn();
+const mockFindActiveSeason = vi.fn();
 
 vi.mock("@/lib/repositories", () => ({
   resultRepository: {
@@ -10,11 +11,15 @@ vi.mock("@/lib/repositories", () => ({
     findAllTimeWithPlayer: mockFindAllTimeWithPlayer,
   },
   seasonRatingExclusionRepository: { listBySeasonId: mockListBySeasonId },
+  seasonRepository: { findActive: mockFindActiveSeason },
 }));
 
-const { getSeasonLeaderboard, getOfficialSeasonLeaderboard, getAllTimeLeaderboard } = await import(
-  "@/features/leaderboard"
-);
+const {
+  getSeasonLeaderboard,
+  getOfficialSeasonLeaderboard,
+  getAllTimeLeaderboard,
+  getPlayerRatingSummary,
+} = await import("@/features/leaderboard");
 
 function resultRow(playerId: string, ratingPoints: number) {
   return {
@@ -42,6 +47,7 @@ beforeEach(() => {
   mockFindWithPlayerBySeasonId.mockReset();
   mockFindAllTimeWithPlayer.mockReset();
   mockListBySeasonId.mockReset();
+  mockFindActiveSeason.mockReset();
 });
 
 describe("getSeasonLeaderboard (raw)", () => {
@@ -188,5 +194,79 @@ describe("getAllTimeLeaderboard", () => {
     const all = await getAllTimeLeaderboard();
 
     expect(all.map((row) => row.player_id)).toEqual(["high", "mid", "low"]);
+  });
+});
+
+describe("getPlayerRatingSummary -- profile data contract", () => {
+  it("returns current-season rank/points and distinct all-time points for an officially ranked player", async () => {
+    mockFindActiveSeason.mockResolvedValue({ id: "s1", title: "Осень 2026", is_active: true });
+    mockFindWithPlayerBySeasonId.mockResolvedValue([resultRow("p1", 150)]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockFindAllTimeWithPlayer.mockResolvedValue([resultRow("p1", 150), resultRow("p1", 400)]);
+
+    const summary = await getPlayerRatingSummary("p1");
+
+    expect(summary.currentSeason).toEqual({
+      id: "s1",
+      title: "Осень 2026",
+      points: 150,
+      rank: 1,
+      isOutOfCompetition: false,
+    });
+    // Current-season points (150) and all-time points (550) are genuinely
+    // distinct numbers, not the same value duplicated.
+    expect(summary.allTime.points).toBe(550);
+    expect(summary.allTime.points).not.toBe(summary.currentSeason?.points);
+  });
+
+  it("an OOC player in the current season gets their points but no fake rank, while all-time is unaffected by the exclusion", async () => {
+    mockFindActiveSeason.mockResolvedValue({ id: "s1", title: "Осень 2026", is_active: true });
+    mockFindWithPlayerBySeasonId.mockResolvedValue([resultRow("owner", 1000)]);
+    mockListBySeasonId.mockResolvedValue([exclusion("owner")]);
+    mockFindAllTimeWithPlayer.mockResolvedValue([resultRow("owner", 1000)]);
+
+    const summary = await getPlayerRatingSummary("owner");
+
+    expect(summary.currentSeason).toMatchObject({ rank: null, points: 1000, isOutOfCompetition: true });
+    // All-time never consults season_rating_exclusions -- OOC in-season
+    // does not erase the points from the all-time total or rank.
+    expect(summary.allTime).toEqual({ rank: 1, points: 1000 });
+  });
+
+  it("a player with no results at all -> 0 points, null rank, in both current and all-time", async () => {
+    mockFindActiveSeason.mockResolvedValue({ id: "s1", title: "Осень 2026", is_active: true });
+    mockFindWithPlayerBySeasonId.mockResolvedValue([]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockFindAllTimeWithPlayer.mockResolvedValue([]);
+
+    const summary = await getPlayerRatingSummary("nobody");
+
+    expect(summary.currentSeason).toMatchObject({ points: 0, rank: null, isOutOfCompetition: false });
+    expect(summary.allTime).toEqual({ points: 0, rank: null });
+  });
+
+  it("no active season at all -> currentSeason is null, allTime still resolves", async () => {
+    mockFindActiveSeason.mockResolvedValue(null);
+    mockFindAllTimeWithPlayer.mockResolvedValue([resultRow("p1", 200)]);
+
+    const summary = await getPlayerRatingSummary("p1");
+
+    expect(summary.currentSeason).toBeNull();
+    expect(summary.allTime).toEqual({ points: 200, rank: 1 });
+  });
+
+  it("public payload never contains season start_date/end_date", async () => {
+    mockFindActiveSeason.mockResolvedValue({ id: "s1", title: "Осень 2026", is_active: true });
+    mockFindWithPlayerBySeasonId.mockResolvedValue([resultRow("p1", 100)]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockFindAllTimeWithPlayer.mockResolvedValue([resultRow("p1", 100)]);
+
+    const summary = await getPlayerRatingSummary("p1");
+
+    const serialized = JSON.stringify(summary);
+    expect(serialized).not.toContain("start_date");
+    expect(serialized).not.toContain("end_date");
+    expect(summary.currentSeason).not.toHaveProperty("start_date");
+    expect(summary.currentSeason).not.toHaveProperty("end_date");
   });
 });

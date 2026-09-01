@@ -11,10 +11,10 @@ import {
 import {
   getMyTournaments,
   getPlayedTournamentsCount,
-  getPlayerRating,
   getPlayerTournamentHistory,
   getTournamentRegistrationCounts,
 } from "@/features/tournaments";
+import type { PlayerRatingSummary } from "@/features/leaderboard";
 
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
@@ -236,7 +236,7 @@ export default function PlayerProfilePage() {
 
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
-  const [rating, setRating] = useState(0);
+  const [ratingSummary, setRatingSummary] = useState<PlayerRatingSummary | null>(null);
   const [playedCount, setPlayedCount] = useState(0);
   const [registrationCounts, setRegistrationCounts] = useState<
     Record<string, number>
@@ -284,7 +284,7 @@ export default function PlayerProfilePage() {
 
         const [
           playerData,
-          playerRating,
+          ratingSummaryData,
           tournamentsCount,
           playerHistory,
           myTournaments,
@@ -296,7 +296,7 @@ export default function PlayerProfilePage() {
           dealerSummary,
         ] = await Promise.all([
           isOwnProfileLoad ? Promise.resolve(ensuredViewer) : getPlayerById(playerId),
-          getPlayerRating(playerId),
+          fetch(`/api/players/${playerId}/rating-summary`).then((r) => r.json()) as Promise<PlayerRatingSummary>,
           getPlayedTournamentsCount(playerId),
           getPlayerTournamentHistory(playerId),
           getMyTournaments(playerId),
@@ -316,7 +316,7 @@ export default function PlayerProfilePage() {
 
         setPlayer(playerData);
         setNickname(playerData.pending_display_name ?? playerData.display_name);
-        setRating(playerRating);
+        setRatingSummary(ratingSummaryData);
         setPlayedCount(tournamentsCount);
         setHistory(
           playerHistory.sort(
@@ -728,13 +728,33 @@ export default function PlayerProfilePage() {
               Статистика
             </p>
 
-            <div className="mt-3 grid grid-cols-3 gap-4">
+            <div className="mt-3 grid grid-cols-2 gap-4">
               <div className="text-center">
-                <p className="text-xl font-semibold text-white">{rating}</p>
-                <p className="mt-1.5 text-sm text-white/55">Рейтинг</p>
+                <p className="text-xl font-semibold text-[#f0d38a]">
+                  {ratingSummary?.currentSeason?.points ?? 0}
+                </p>
+                <p className="mt-1.5 text-sm text-white/55">Очки сезона</p>
+                <p className="mt-0.5 text-xs text-white/40">
+                  За всё время: {ratingSummary?.allTime.points ?? 0}
+                </p>
               </div>
 
               <div className="border-l border-[#8a8262]/20 pl-4 text-center">
+                <p className="text-xl font-semibold text-white">
+                  {ratingSummary?.currentSeason?.isOutOfCompetition
+                    ? "—"
+                    : ratingSummary?.currentSeason?.rank
+                      ? `#${ratingSummary.currentSeason.rank}`
+                      : "—"}
+                </p>
+                <p className="mt-1.5 text-sm text-white/55">
+                  {ratingSummary?.currentSeason?.isOutOfCompetition ? "Вне зачёта" : "Место"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-4 border-t border-[#8a8262]/15 pt-4">
+              <div className="text-center">
                 <p className="text-xl font-semibold text-white">{playedCount}</p>
                 <p className="mt-1.5 text-sm text-white/55">Турниры</p>
               </div>

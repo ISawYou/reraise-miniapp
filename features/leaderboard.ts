@@ -1,4 +1,5 @@
-import { resultRepository, seasonRatingExclusionRepository } from "@/lib/repositories";
+import { resultRepository, seasonRatingExclusionRepository, seasonRepository } from "@/lib/repositories";
+import { resolvePlayerStanding } from "@/lib/leaderboard-display";
 
 export type LeaderboardEntry = {
   player_id: string;
@@ -121,4 +122,58 @@ export async function getAllTimeLeaderboard(): Promise<LeaderboardEntry[]> {
   }
 
   return Array.from(leaderboardMap.values()).sort((a, b) => b.rating - a.rating);
+}
+
+// Player-safe rating summary for a profile view (own or someone else's) --
+// current-season standing + all-time career total, in ONE call so a
+// profile never has to download and re-derive rank from the full
+// leaderboards itself. No PII beyond what the profile already shows, no
+// season dates, no second rating formula: this reuses
+// getOfficialSeasonLeaderboard / getAllTimeLeaderboard exactly as the
+// leaderboard screen does and just extracts one player's row via the same
+// canonical resolvePlayerStanding used there.
+export type PlayerRatingSummary = {
+  currentSeason: {
+    id: string;
+    title: string;
+    points: number;
+    rank: number | null;
+    isOutOfCompetition: boolean;
+  } | null; // null only if there is currently no active season at all
+  allTime: {
+    points: number;
+    rank: number | null;
+  };
+};
+
+export async function getPlayerRatingSummary(playerId: string): Promise<PlayerRatingSummary> {
+  const [activeSeason, allTime] = await Promise.all([
+    seasonRepository.findActive(),
+    getAllTimeLeaderboard(),
+  ]);
+
+  const allTimeRanked = allTime.map((entry, index) => ({
+    player_id: entry.player_id,
+    officialRank: index + 1,
+    rating: entry.rating,
+  }));
+  const allTimeStanding = resolvePlayerStanding(allTimeRanked, [], playerId);
+
+  let currentSeason: PlayerRatingSummary["currentSeason"] = null;
+  if (activeSeason) {
+    const { leaderboard, outOfCompetition } = await getOfficialSeasonLeaderboard(activeSeason.id);
+    const standing = resolvePlayerStanding(leaderboard, outOfCompetition, playerId);
+    currentSeason = {
+      id: activeSeason.id,
+      title: activeSeason.title,
+      points: standing.points,
+      rank: standing.rank,
+      isOutOfCompetition: standing.isOutOfCompetition,
+    };
+  }
+
+  return {
+    currentSeason,
+    allTime: { points: allTimeStanding.points, rank: allTimeStanding.rank },
+  };
 }
