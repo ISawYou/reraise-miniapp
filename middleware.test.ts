@@ -117,6 +117,12 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       ["GET", "/api/admin/dealers"],
       ["POST", "/api/admin/dealers/shifts"],
       ["POST", "/api/admin/dealers/shifts/s1/end"],
+      // "Чай" toggle -- fixed 0/500, deliberately narrower than the
+      // Super-Admin-only PATCH .../shifts/s1 below.
+      ["PATCH", "/api/admin/dealers/shifts/s1/taxi-allowance"],
+      // Nickname moderation -- approve-only.
+      ["GET", "/api/admin/nicknames/pending"],
+      ["PATCH", "/api/admin/nicknames/p1/approve"],
     ];
 
     for (const [method, path] of allowed) {
@@ -136,7 +142,8 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       ["PATCH", "/api/admin/players/p1"],
       ["DELETE", "/api/admin/players/p1"],
       ["PATCH", "/api/admin/players/access"],
-      ["GET", "/api/admin/nicknames/pending"],
+      // Reject / edit / set_admin_display_name -- approve is on a separate,
+      // narrower route (.../n1/approve) that IS allowed above.
       ["PATCH", "/api/admin/nicknames/n1"],
       ["GET", "/api/admin/referral"],
       ["GET", "/api/admin/activity"],
@@ -236,9 +243,12 @@ describe("admin middleware -- dealer-only user (dealer is NOT an auth role)", ()
       ["GET", "/api/admin/dealers"],
       ["POST", "/api/admin/dealers/shifts"],
       ["PATCH", "/api/admin/dealers/shifts/s1"],
+      ["PATCH", "/api/admin/dealers/shifts/s1/taxi-allowance"],
       ["GET", "/api/admin/dealers/stats"],
       ["GET", "/api/admin/rating-eligibility"],
       ["GET", "/api/admin/roles"],
+      ["GET", "/api/admin/nicknames/pending"],
+      ["PATCH", "/api/admin/nicknames/p1/approve"],
     ] as const) {
       const response = await middleware(requestFor(method, path));
       expect(response.status, `${method} ${path}`).toBe(403);

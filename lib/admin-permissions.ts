@@ -67,6 +67,18 @@ const OPERATOR_ALLOWED_ROUTES: OperatorRoute[] = [
   // denied.
   route("GET", "/api/admin/nicknames/players"),
 
+  // Nickname moderation -- approve-only. GET .../pending strips down to
+  // just what's needed to make the approve/no decision (route itself
+  // reduces the payload for a non-admin caller, same split as
+  // GET /api/admin/dealers below). PATCH .../:id/approve always applies
+  // the CURRENT pending_display_name as-is -- it reads no body, so there
+  // is no way to submit a replacement nickname through it. The generic
+  // PATCH /api/admin/nicknames/:id (reject, set_admin_display_name) and
+  // DELETE/PATCH /api/admin/players/:id (block, unblock, delete) stay
+  // denied -- operator gets exactly "approve", nothing else.
+  route("GET", "/api/admin/nicknames/pending"),
+  route("PATCH", "/api/admin/nicknames/:id/approve"),
+
   // Dealers -- operational flow only (see app/admin/dealers/page.tsx's
   // operator branch). Listing dealers is allowed but the route itself
   // strips hourly_rate_rub from the response for a non-admin caller --
@@ -76,6 +88,12 @@ const OPERATOR_ALLOWED_ROUTES: OperatorRoute[] = [
   route("GET", "/api/admin/dealers"),
   route("POST", "/api/admin/dealers/shifts"),
   route("POST", "/api/admin/dealers/shifts/:shiftId/end"),
+
+  // "Чай" -- fixed 0/500 toggle only. Deliberately NOT the general
+  // PATCH /api/admin/dealers/shifts/:shiftId (Super-Admin-only: rate
+  // edits, timestamp corrections, dealer reassignment, tournament
+  // correction all live there and stay denied).
+  route("PATCH", "/api/admin/dealers/shifts/:shiftId/taxi-allowance"),
 ];
 
 export function isAdminRouteAllowedForOperator(method: string, pathname: string): boolean {

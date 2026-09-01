@@ -197,7 +197,16 @@ const SYSTEM_SECTION = {
   ],
 };
 
-const OPERATOR_SECTIONS = [TOURNAMENT_SECTION, STAFF_SECTION];
+// Operator gets ONLY the "Модерация ников" entry from the full PLAYERS
+// section (approve-only, see app/admin/moderation/page.tsx) -- Активность,
+// Реферальная программа, Зачёт рейтинга stay Super-Admin-only, so they're
+// deliberately not included here.
+const PLAYERS_SECTION_OPERATOR = {
+  title: PLAYERS_SECTION.title,
+  items: [PLAYERS_SECTION.items.find((item) => item.href === "/admin/moderation")!],
+};
+
+export const OPERATOR_SECTIONS = [TOURNAMENT_SECTION, PLAYERS_SECTION_OPERATOR, STAFF_SECTION];
 
 const SUPER_ADMIN_SECTIONS = [
   TOURNAMENT_SECTION,

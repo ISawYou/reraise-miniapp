@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import { isStaff, isSuperAdmin } from "@/lib/roles";
 import type { Player } from "@/types/domain";
 
 function getVisibleNickname(player: Player) {
@@ -24,7 +25,20 @@ export default function AdminModerationPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadModerationData() {
+  const isSuperAdminCaller = isSuperAdmin(player?.role);
+
+  // Operator only ever needs the pending-approval queue -- the player
+  // catalog (edit admin nickname, block/delete/unblock) is Super-Admin-only
+  // functionality, so it's not even fetched for a non-admin caller.
+  async function loadModerationData(actingAsSuperAdmin: boolean) {
+    if (!actingAsSuperAdmin) {
+      const pendingPayload = await fetchAdminJson<{ players: Player[] }>(
+        "/api/admin/nicknames/pending",
+      );
+      setPendingPlayers(pendingPayload.players);
+      return;
+    }
+
     const [pendingPayload, playersPayload] = await Promise.all([
       fetchAdminJson<{ players: Player[] }>("/api/admin/nicknames/pending"),
       fetchAdminJson<{ players: Player[] }>("/api/admin/nicknames/players"),
@@ -40,8 +54,8 @@ export default function AdminModerationPage() {
         const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
 
-        if (ensuredPlayer.role === "admin") {
-          await loadModerationData();
+        if (isStaff(ensuredPlayer.role)) {
+          await loadModerationData(ensuredPlayer.role === "admin");
         }
       } catch (err) {
         const nextMessage =
@@ -90,17 +104,15 @@ export default function AdminModerationPage() {
       setMessage(null);
       setError(null);
 
-      await fetchAdminJson<{ player: Player }>(`/api/admin/nicknames/${playerId}`, {
+      // Narrow, approve-only endpoint -- no body to send, it always applies
+      // pending_display_name exactly as submitted (see
+      // app/api/admin/nicknames/[id]/approve/route.ts). Operator and Super
+      // Admin both use this one path now.
+      await fetchAdminJson<{ player: Player }>(`/api/admin/nicknames/${playerId}/approve`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "approve",
-        }),
       });
 
-      await loadModerationData();
+      await loadModerationData(isSuperAdminCaller);
       setMessage("Ник одобрен");
     } catch (err) {
       const nextMessage =
@@ -127,7 +139,7 @@ export default function AdminModerationPage() {
         }),
       });
 
-      await loadModerationData();
+      await loadModerationData(isSuperAdminCaller);
       setMessage("Ник отклонен");
     } catch (err) {
       const nextMessage =
@@ -219,7 +231,7 @@ export default function AdminModerationPage() {
         }),
       });
 
-      await loadModerationData();
+      await loadModerationData(isSuperAdminCaller);
       setEditingPlayerId(null);
       setMessage("Админский ник сохранен");
     } catch (err) {
@@ -241,7 +253,7 @@ export default function AdminModerationPage() {
     );
   }
 
-  if (player?.role !== "admin") {
+  if (!isStaff(player?.role)) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-4xl">
@@ -318,23 +330,33 @@ export default function AdminModerationPage() {
                         </p>
                       </div>
 
-                      <div className="grid shrink-0 grid-cols-2 gap-2">
+                      <div
+                        className={
+                          isSuperAdminCaller
+                            ? "grid shrink-0 grid-cols-2 gap-2"
+                            : "shrink-0"
+                        }
+                      >
                         <button
                           type="button"
                           onClick={() => handleApprove(pendingPlayer.id)}
                           disabled={isProcessing}
                           className="rounded-lg bg-yellow-500 px-3 py-2 text-sm font-semibold text-black disabled:opacity-60"
                         >
-                          {processingKey === approveKey ? "..." : "Ок"}
+                          {processingKey === approveKey ? "..." : "Одобрить"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleReject(pendingPlayer.id)}
-                          disabled={isProcessing}
-                          className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                        >
-                          {processingKey === rejectKey ? "..." : "Нет"}
-                        </button>
+                        {/* Reject stays Super-Admin-only -- operator only
+                            gets "approve the submitted nickname as-is". */}
+                        {isSuperAdminCaller ? (
+                          <button
+                            type="button"
+                            onClick={() => handleReject(pendingPlayer.id)}
+                            disabled={isProcessing}
+                            className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                          >
+                            {processingKey === rejectKey ? "..." : "Нет"}
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -344,6 +366,10 @@ export default function AdminModerationPage() {
           )}
         </section>
 
+        {/* Player catalog (edit admin nickname, block/delete/unblock) is
+            Super-Admin-only -- operator gets nothing beyond the pending
+            queue above. */}
+        {isSuperAdminCaller ? (
         <section className="mt-8">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -496,6 +522,7 @@ export default function AdminModerationPage() {
             )}
           </div>
         </section>
+        ) : null}
       </div>
     </main>
   );

@@ -33,3 +33,41 @@ describe("isAdminRouteAllowedForOperator -- elimination correction routes", () =
     ).toBe(false);
   });
 });
+
+// Operator gets exactly two new operational actions: toggle the existing
+// fixed "Чай" allowance on a dealer shift, and approve a pending nickname
+// submission as-is. Neither widens operator access to the surrounding
+// Super-Admin-only capabilities (shift corrections / reject / edit /
+// block / delete).
+describe("isAdminRouteAllowedForOperator -- dealer 'Чай' + nickname approval", () => {
+  it("allows an operator to toggle the dealer shift taxi allowance", () => {
+    expect(
+      isAdminRouteAllowedForOperator(
+        "PATCH",
+        "/api/admin/dealers/shifts/s1/taxi-allowance"
+      )
+    ).toBe(true);
+  });
+
+  it("still denies the broad Super-Admin-only shift-correction route -- rate/timestamps/reassignment stay locked", () => {
+    expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/dealers/shifts/s1")).toBe(
+      false
+    );
+  });
+
+  it("allows an operator to read the pending-nicknames queue", () => {
+    expect(isAdminRouteAllowedForOperator("GET", "/api/admin/nicknames/pending")).toBe(true);
+  });
+
+  it("allows an operator to approve a pending nickname", () => {
+    expect(
+      isAdminRouteAllowedForOperator("PATCH", "/api/admin/nicknames/p1/approve")
+    ).toBe(true);
+  });
+
+  it("still denies the generic nickname PATCH (reject / set_admin_display_name) and player block/delete", () => {
+    expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/nicknames/p1")).toBe(false);
+    expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/players/p1")).toBe(false);
+    expect(isAdminRouteAllowedForOperator("DELETE", "/api/admin/players/p1")).toBe(false);
+  });
+});

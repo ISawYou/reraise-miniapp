@@ -201,6 +201,10 @@ export default function AdminDealersPage() {
   const [deactivatingPlayerId, setDeactivatingPlayerId] = useState<string | null>(null);
 
   const isSuperAdminCaller = isSuperAdmin(player?.role);
+  // "Чай" is the one shift-correction action an operator gets too (see
+  // lib/admin-permissions.ts) -- everything else on this page (rate edits,
+  // historical shift corrections, dealer activation) stays Super-Admin-only.
+  const isStaffCaller = isStaff(player?.role);
 
   async function loadAll(actingAsSuperAdmin: boolean) {
     try {
@@ -525,15 +529,16 @@ export default function AdminDealersPage() {
     }
   }
 
-  // "Чай" -- works on an open shift or a completed one, Super-Admin-only.
-  // Never touches worked_minutes/paid_hours/rate/amount -- a single
-  // independent PATCH field.
+  // "Чай" -- works on an open shift or a completed one, available to
+  // operator and Super Admin alike (see lib/admin-permissions.ts). Never
+  // touches worked_minutes/paid_hours/rate/amount -- the dedicated
+  // taxi-allowance endpoint only ever accepts the fixed 0/500 toggle.
   async function handleToggleTaxiAllowance(shiftId: string, enable: boolean) {
     setSavingTaxiAllowanceFor(shiftId);
     setError(null);
     try {
       const taxiAllowanceRub = enable ? TAXI_ALLOWANCE_RUB : 0;
-      await fetchAdminJson(`/api/admin/dealers/shifts/${shiftId}`, {
+      await fetchAdminJson(`/api/admin/dealers/shifts/${shiftId}/taxi-allowance`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ taxiAllowanceRub }),
@@ -719,7 +724,7 @@ export default function AdminDealersPage() {
                               <p className="mt-1 text-xs text-emerald-100/60">
                                 {dealer.openShift.tournamentTitle ?? "Без турнира"}
                               </p>
-                              {isSuperAdminCaller ? (
+                              {isStaffCaller ? (
                                 dealer.openShift.taxiAllowanceRub > 0 ? (
                                   <div className="mt-1.5 flex items-center gap-1.5">
                                     <span className="text-xs font-medium text-amber-300">
