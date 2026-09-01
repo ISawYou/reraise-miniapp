@@ -29,7 +29,9 @@ import { fetchTournamentVisualConfigs } from "@/lib/tournament-visuals-client";
 import {
   buildAchievementDisplayModel,
   getEarnedFeaturedOptions,
+  LEGENDARY_SORT_PRIORITY,
   resolveFeaturedAchievements,
+  TIER_SORT_PRIORITY,
   type AchievementProgressRow,
 } from "@/lib/achievement-display";
 import type {
@@ -370,9 +372,8 @@ export default function PlayerProfilePage() {
     ...achievementModel.families.filter((card) => card.currentTier),
     ...achievementModel.legendary.filter((card) => card.earned),
   ].sort((left, right) => {
-    const tierPriority = { bronze: 1, silver: 2, gold: 3, platinum: 4 } as const;
-    const leftPriority = "currentTier" in left ? tierPriority[left.currentTier!] : 5;
-    const rightPriority = "currentTier" in right ? tierPriority[right.currentTier!] : 5;
+    const leftPriority = "currentTier" in left ? TIER_SORT_PRIORITY[left.currentTier!] : LEGENDARY_SORT_PRIORITY;
+    const rightPriority = "currentTier" in right ? TIER_SORT_PRIORITY[right.currentTier!] : LEGENDARY_SORT_PRIORITY;
     return rightPriority - leftPriority;
   }).slice(0, 4);
   const showTournamentKindTags = false;

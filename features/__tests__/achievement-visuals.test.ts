@@ -29,8 +29,10 @@ describe("achievement visual config", () => {
     expect(configs).toHaveLength(16);
     expect(configs.find((item) => item.visualKey === "in_game")?.assetUrl)
       .toBe("/achievement-assets/in-game.png");
+    // Platinum tier -> Diamond artwork rebrand: internal visualKey stays
+    // "platinum", only the served asset changed.
     expect(configs.find((item) => item.visualKey === "platinum")?.assetUrl)
-      .toBe("/achievement-assets/platinum.png");
+      .toBe("/achievement-assets/diamond.png");
   });
 
   it("saves and reads persistent admin geometry", async () => {

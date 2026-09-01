@@ -315,7 +315,7 @@ export async function publishLegendaryAchievementEvent(
   if (!player) return null;
   return enrichEvent(await repository.createAutomaticIdempotently({
     event_type: CLUB_ACTIVITY_EVENT_TYPES.ACHIEVEMENT,
-    title: `${player.display_name} получает Legendary achievement`,
+    title: `${player.display_name} получает легендарное достижение`,
     body: `${definition.name} · ${definition.description}`,
     image_url: null,
     cta_label: "Открыть достижения",

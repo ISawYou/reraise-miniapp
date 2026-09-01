@@ -15,7 +15,7 @@ import {
   getDefaultAchievementVisual,
   type AchievementVisualConfig,
 } from "@/config/achievement-visuals";
-import { buildAchievementDisplayModel, type AchievementProgressRow } from "@/lib/achievement-display";
+import { buildAchievementDisplayModel, TIER_LABELS, type AchievementProgressRow } from "@/lib/achievement-display";
 
 type PlayerOption = { id: string; display_name: string; username: string | null };
 type ManualAchievement = { code: string; name: string; description: string; granted: boolean; completed_at: string | null };
@@ -195,7 +195,7 @@ export default function AdminAchievementsPage() {
           <p className="mt-1 text-sm text-white/45">Единый preview для приложения и редактора</p>
 
           <div className="mt-4 flex gap-2 overflow-x-auto pb-2">
-            {[...CENTRAL_ITEMS, ...FRAME_KEYS.map((key) => ({ key, label: `Frame: ${key}` }))].map((item) => (
+            {[...CENTRAL_ITEMS, ...FRAME_KEYS.map((key) => ({ key, label: `Frame: ${TIER_LABELS[key]}` }))].map((item) => (
               <button
                 key={item.key}
                 type="button"
@@ -222,7 +222,7 @@ export default function AdminAchievementsPage() {
                 <div className="flex gap-2">
                   {FRAME_KEYS.map((tier) => (
                     <button key={tier} type="button" onClick={() => setPreviewTier(tier)} className={`rounded-lg px-2 py-1 text-xs ${previewTier === tier ? "bg-[#d5b867] text-black" : "bg-white/8 text-white/55"}`}>
-                      {tier}
+                      {TIER_LABELS[tier]}
                     </button>
                   ))}
                 </div>

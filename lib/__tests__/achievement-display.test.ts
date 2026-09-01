@@ -1,7 +1,12 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildAchievementDisplayModel,
+  LEGENDARY_SORT_PRIORITY,
   resolveFeaturedAchievements,
+  TIER_LABELS,
+  TIER_SORT_PRIORITY,
   validateFeaturedAchievementKeys,
 } from "@/lib/achievement-display";
 import { ACHIEVEMENTS_CATALOG } from "@/config/achievements";
@@ -48,7 +53,7 @@ describe("achievement display model", () => {
     expect(card.maxLevel).toBe(false);
   });
 
-  it("marks Platinum as max level", () => {
+  it("marks Platinum as max level -- internal tier value is unaffected by the Diamond rebrand", () => {
     const model = buildAchievementDisplayModel([
       { achievement_code: "first_itm", current_value: 1, completed_at: "1" },
       { achievement_code: "ten_itm", current_value: 10, completed_at: "2" },
@@ -60,6 +65,75 @@ describe("achievement display model", () => {
       nextTier: null,
       maxLevel: true,
     });
+  });
+
+  it("the internal 'platinum' tier publicly renders as 'Алмаз' end-to-end (via the real display model, not just the raw dictionary)", () => {
+    const model = buildAchievementDisplayModel([
+      { achievement_code: "first_itm", current_value: 1, completed_at: "1" },
+      { achievement_code: "ten_itm", current_value: 10, completed_at: "2" },
+      { achievement_code: "twenty_five_itm", current_value: 25, completed_at: "3" },
+      { achievement_code: "hundred_itm", current_value: 100, completed_at: "4" },
+    ]);
+    expect(model.families.find((family) => family.family === "itm")?.currentTierLabel).toBe("Алмаз");
+  });
+
+  it("TIER_LABELS is the one canonical public-name mapping -- Russian names, internal keys unchanged", () => {
+    expect(TIER_LABELS).toEqual({
+      bronze: "Бронза",
+      silver: "Серебро",
+      gold: "Золото",
+      platinum: "Алмаз",
+    });
+  });
+
+  it("TIER_SORT_PRIORITY + LEGENDARY_SORT_PRIORITY preserve the public prestige order Легендарная -> Алмаз -> Золото -> Серебро -> Бронза", () => {
+    expect(TIER_SORT_PRIORITY.bronze).toBeLessThan(TIER_SORT_PRIORITY.silver);
+    expect(TIER_SORT_PRIORITY.silver).toBeLessThan(TIER_SORT_PRIORITY.gold);
+    expect(TIER_SORT_PRIORITY.gold).toBeLessThan(TIER_SORT_PRIORITY.platinum);
+    expect(TIER_SORT_PRIORITY.platinum).toBeLessThan(LEGENDARY_SORT_PRIORITY);
+
+    // The exact ordering a "sort descending by priority" consumer (e.g. the
+    // profile page's featured-achievements preview) produces, expressed as
+    // public labels -- this is what actually appears on screen.
+    const entries: Array<{ label: string; priority: number }> = [
+      { label: TIER_LABELS.bronze, priority: TIER_SORT_PRIORITY.bronze },
+      { label: TIER_LABELS.silver, priority: TIER_SORT_PRIORITY.silver },
+      { label: TIER_LABELS.gold, priority: TIER_SORT_PRIORITY.gold },
+      { label: TIER_LABELS.platinum, priority: TIER_SORT_PRIORITY.platinum },
+      { label: "Легендарная", priority: LEGENDARY_SORT_PRIORITY },
+    ];
+    const shuffled = [entries[2], entries[4], entries[0], entries[3], entries[1]];
+    const sorted = [...shuffled].sort((a, b) => b.priority - a.priority).map((e) => e.label);
+    expect(sorted).toEqual(["Легендарная", "Алмаз", "Золото", "Серебро", "Бронза"]);
+  });
+
+  it("no user-visible 'Platinum'/'Платина'/raw 'Legendary' text remains on any achievement surface", () => {
+    const filesToCheck = [
+      "lib/achievement-display.ts",
+      "app/players/[id]/achievements/page.tsx",
+      "app/players/[id]/page.tsx",
+      "app/admin/achievements/page.tsx",
+      "features/club-activity.ts",
+    ];
+    for (const relativePath of filesToCheck) {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+      // Capitalized English "Platinum"/"Legendary" or the old Cyrillic
+      // "Платина" would only ever appear here as display text -- the
+      // internal identifiers are always lowercase ("platinum", "legendary").
+      expect(source, relativePath).not.toMatch(/\bPlatinum\b/);
+      expect(source, relativePath).not.toMatch(/Платина/);
+      expect(source, relativePath).not.toMatch(/\bLegendary\b/);
+    }
+
+    // config/achievements.ts legitimately keeps the internal ACHIEVEMENT_TIER
+    // /ACHIEVEMENT_FRAME_KEY "platinum" values and PLATINUM identifiers --
+    // only the three user-visible `name` fields that used to read
+    // "...: Платина" are checked here.
+    const catalogSource = readFileSync(join(process.cwd(), "config/achievements.ts"), "utf8");
+    expect(catalogSource).not.toMatch(/Платина/);
+    expect(catalogSource).toContain("Terminator: Алмаз");
+    expect(catalogSource).toContain("Boss Hunter: Алмаз");
+    expect(catalogSource).toContain("Tournament Streak: Алмаз");
   });
 
   it("keeps hidden Legendary secret until earned", () => {

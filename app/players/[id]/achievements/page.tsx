@@ -86,7 +86,7 @@ export default function PlayerAchievementsPage() {
                       />
                       <h3 className="mt-2 text-base font-semibold">{card.name}</h3>
                       <p className="mt-0.5 min-h-5 text-xs font-medium text-[#d5b867]">
-                        {card.currentTierLabel ?? "До Bronze"}
+                        {card.currentTierLabel ?? `До ${TIER_LABELS.bronze}`}
                       </p>
                       <p className="mt-2 text-xs text-white/55">
                         {card.maxLevel

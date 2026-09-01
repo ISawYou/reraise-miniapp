@@ -13,6 +13,15 @@ export type AchievementVisualConfig = {
 };
 
 // Explicit product mapping. Filenames are storage details, never business keys.
+//
+// PLATINUM tier was publicly rebranded to "Diamond" -- the internal tier
+// key/value stays `platinum` (see ACHIEVEMENT_TIER/ACHIEVEMENT_FRAME_KEY in
+// config/achievements.ts; player_achievements rows, sortOrder, and every
+// achievement_code are untouched), only the artwork and public label
+// changed. public/achievement-assets/platinum.png was ALSO overwritten with
+// the same new artwork (not deleted) as a defensive alias, in case any
+// already-persisted achievement_visual_configs row still points at the old
+// literal URL string -- both paths serve the identical PNG.
 export const DEFAULT_ACHIEVEMENT_VISUALS = {
   [ACHIEVEMENT_VISUAL_KEY.IN_GAME]: "/achievement-assets/in-game.png",
   [ACHIEVEMENT_VISUAL_KEY.TRIUMPHATOR]: "/achievement-assets/triumphator.png",
@@ -29,7 +38,7 @@ export const DEFAULT_ACHIEVEMENT_VISUALS = {
   [ACHIEVEMENT_FRAME_KEY.BRONZE]: "/achievement-assets/bronze.png",
   [ACHIEVEMENT_FRAME_KEY.SILVER]: "/achievement-assets/silver.png",
   [ACHIEVEMENT_FRAME_KEY.GOLD]: "/achievement-assets/gold.png",
-  [ACHIEVEMENT_FRAME_KEY.PLATINUM]: "/achievement-assets/platinum.png",
+  [ACHIEVEMENT_FRAME_KEY.PLATINUM]: "/achievement-assets/diamond.png",
 } as const satisfies Record<AchievementAssetKey, string>;
 
 export const ACHIEVEMENT_ASSET_KEYS = Object.keys(

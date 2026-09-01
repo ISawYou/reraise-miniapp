@@ -112,9 +112,15 @@ export type AchievementIconKey = (typeof ACHIEVEMENT_ICON)[keyof typeof ACHIEVEM
 // own achievement_code/row exactly as before (e.g. Terminator's 4 tiers
 // are still ten_knockouts/fifty_knockouts/hundred_knockouts/
 // two_hundred_fifty_knockouts, unchanged codes). `tier` is pure display
-// metadata on the catalog definition, letting a future UI show "Bronze /
-// Silver / Gold / Platinum" without any backend/schema change. Deliberate
-// first-version decision, not an oversight.
+// metadata on the catalog definition, letting a future UI show tier names
+// without any backend/schema change. Deliberate first-version decision,
+// not an oversight.
+//
+// PLATINUM is publicly rebranded to "Diamond" (Cyrillic: Алмаз) — see
+// lib/achievement-display.ts's TIER_LABELS for the public name mapping and
+// config/achievement-visuals.ts for the artwork. The internal value stays
+// exactly "platinum": nothing about this rebrand touches persisted
+// player_achievements rows, achievement_codes, or sortOrder.
 export const ACHIEVEMENT_TIER = {
   BRONZE: "bronze",
   SILVER: "silver",
@@ -514,7 +520,7 @@ export const ACHIEVEMENTS_CATALOG = [
   {
     id: "two_hundred_fifty_knockouts",
     code: "two_hundred_fifty_knockouts",
-    name: "Terminator: Платина",
+    name: "Terminator: Алмаз",
     description: "Выбить 250 соперников",
     category: ACHIEVEMENT_CATEGORY.KNOCKOUTS,
     icon: ACHIEVEMENT_ICON.AWARD,
@@ -717,7 +723,7 @@ export const ACHIEVEMENTS_CATALOG = [
   {
     id: "hundred_boss_knockouts",
     code: "hundred_boss_knockouts",
-    name: "Boss Hunter: Платина",
+    name: "Boss Hunter: Алмаз",
     description: "Выбить 100 Boss-соперников",
     category: ACHIEVEMENT_CATEGORY.KNOCKOUTS,
     icon: ACHIEVEMENT_ICON.AWARD,
@@ -789,7 +795,7 @@ export const ACHIEVEMENTS_CATALOG = [
   {
     id: "tournament_streak_platinum",
     code: "tournament_streak_platinum",
-    name: "Tournament Streak: Платина",
+    name: "Tournament Streak: Алмаз",
     description: "Сыграть 20 турниров клуба подряд",
     category: ACHIEVEMENT_CATEGORY.ATTENDANCE,
     icon: ACHIEVEMENT_ICON.PLAY,

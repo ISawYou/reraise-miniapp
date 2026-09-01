@@ -56,12 +56,31 @@ const TIER_ORDER: AchievementTierLevel[] = [
   ACHIEVEMENT_TIER.PLATINUM,
 ];
 
+// Public-facing tier names. Internal tier VALUES (bronze/silver/gold/
+// platinum) never change -- see config/achievement-visuals.ts's doc
+// comment on the artwork rebrand for why `platinum` stays the internal key
+// while its public label is now "Алмаз" (Diamond).
 export const TIER_LABELS: Record<AchievementTierLevel, string> = {
-  bronze: "Bronze",
-  silver: "Silver",
-  gold: "Gold",
-  platinum: "Platinum",
+  bronze: "Бронза",
+  silver: "Серебро",
+  gold: "Золото",
+  platinum: "Алмаз",
 };
+
+// Descending prestige order for surfaces that rank achievements across both
+// axes at once (tiered families AND category=LEGENDARY, which has no
+// `tier` of its own -- see ACHIEVEMENT_TYPE's doc comment in
+// config/achievements.ts). Publicly: Легендарная -> Алмаз -> Золото ->
+// Серебро -> Бронза. Extracted here (from what used to be an inline object
+// literal on the profile page) purely so this ordering is testable in one
+// place -- the numbers themselves are unchanged.
+export const TIER_SORT_PRIORITY: Record<AchievementTierLevel, number> = {
+  bronze: 1,
+  silver: 2,
+  gold: 3,
+  platinum: 4,
+};
+export const LEGENDARY_SORT_PRIORITY = 5;
 
 export function buildAchievementDisplayModel(rows: AchievementProgressRow[]) {
   const progress = new Map(rows.map((row) => [row.achievement_code, row]));
