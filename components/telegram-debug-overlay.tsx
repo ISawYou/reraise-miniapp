@@ -82,6 +82,7 @@ type VisualDebugState = {
   ratioBoxH: string;
   ratioImgW: string;
   ratioImgH: string;
+  visibleAreaRatio: string;
 };
 
 type EventLog = { ts: string; event: string; detail?: string };
@@ -193,17 +194,45 @@ function isVisualEnabled(): boolean {
 // slide of the Home carousel), only translated off-screen -- picking by
 // bounding-box overlap with the viewport finds the one actually on screen
 // without needing to know which page or carousel index rendered it.
-function findVisibleVisualRoot(): HTMLElement | null {
+//
+// The carousel's overflow-hidden track still leaves a sliver of the
+// previous/next card technically intersecting the viewport (e.g. ~16px of
+// the outgoing card during the slide transform). Picking the FIRST root with
+// any intersection at all was picking that sliver over the fully visible
+// active card whenever the outgoing card came first in DOM order -- this
+// picks the root with the LARGEST visible area instead, so a fully visible
+// card always beats a barely-visible neighbor.
+export function visibleIntersectionArea(
+  rect: { left: number; top: number; right: number; bottom: number },
+  viewportWidth: number,
+  viewportHeight: number
+): number {
+  const visibleWidth = Math.max(0, Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0));
+  const visibleHeight = Math.max(0, Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0));
+  return visibleWidth * visibleHeight;
+}
+
+export function findVisibleVisualRoot(): HTMLElement | null {
   if (typeof document === "undefined") return null;
   const roots = Array.from(
     document.querySelectorAll<HTMLElement>("[data-tournament-visual-root]")
   );
-  return (
-    roots.find((el) => {
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 && rect.right > 0 && rect.left < window.innerWidth;
-    }) ?? null
-  );
+
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  let best: HTMLElement | null = null;
+  let bestArea = 0;
+
+  for (const el of roots) {
+    const area = visibleIntersectionArea(el.getBoundingClientRect(), viewportWidth, viewportHeight);
+    if (area > bestArea) {
+      bestArea = area;
+      best = el;
+    }
+  }
+
+  return best;
 }
 
 function readVisualState(): VisualDebugState | null {
@@ -214,10 +243,18 @@ function readVisualState(): VisualDebugState | null {
   const card = root.parentElement;
   if (!box || !img || !card) return null;
 
+  const rootRect = root.getBoundingClientRect();
   const cardRect = card.getBoundingClientRect();
   const boxRect = box.getBoundingClientRect();
   const imgRect = img.getBoundingClientRect();
   const imgStyle = window.getComputedStyle(img);
+
+  // Surfaces exactly what findVisibleVisualRoot() based its pick on, so a
+  // future snapshot can confirm the right carousel card was selected without
+  // having to re-derive the intersection math from raw rects.
+  const rootVisibleArea = visibleIntersectionArea(rootRect, window.innerWidth, window.innerHeight);
+  const rootTotalArea = rootRect.width * rootRect.height;
+  const visibleAreaRatio = rootTotalArea > 0 ? String(rootVisibleArea / rootTotalArea) : "–";
 
   let config: { assetUrl?: unknown; scale?: unknown; offsetX?: unknown; offsetY?: unknown; opacity?: unknown } = {};
   try {
@@ -269,6 +306,7 @@ function readVisualState(): VisualDebugState | null {
     ratioBoxH: ratio(boxRect.height, cardRect.height),
     ratioImgW: ratio(imgRect.width, cardRect.width),
     ratioImgH: ratio(imgRect.height, cardRect.height),
+    visibleAreaRatio,
   };
 }
 
@@ -413,6 +451,7 @@ export function TelegramDebugOverlay() {
                   `devicePixelRatio: ${state.visual.devicePixelRatio}`,
                   `visualViewport w/h/scale: ${state.visual.vvWidth}/${state.visual.vvHeight}/${state.visual.vvScale}`,
                   `tournamentType: ${state.visual.tournamentType}`,
+                  `selected root visibleAreaRatio: ${state.visual.visibleAreaRatio}`,
                   `card rect (w/h/l/t): ${state.visual.cardWidth}/${state.visual.cardHeight}/${state.visual.cardLeft}/${state.visual.cardTop}`,
                   `artworkBox rect (w/h/l/t): ${state.visual.boxWidth}/${state.visual.boxHeight}/${state.visual.boxLeft}/${state.visual.boxTop}`,
                   `img rect (w/h/l/t): ${state.visual.imgWidth}/${state.visual.imgHeight}/${state.visual.imgLeft}/${state.visual.imgTop}`,
@@ -542,6 +581,7 @@ export function TelegramDebugOverlay() {
               {row("inner w/h", `${state.visual.innerWidth}/${state.visual.innerHeight}`)}
               {row("vv w/h/scale", `${state.visual.vvWidth}/${state.visual.vvHeight}/${state.visual.vvScale}`)}
               {row("type", state.visual.tournamentType)}
+              {row("visibleAreaRatio", state.visual.visibleAreaRatio)}
               {row("card w/h", `${state.visual.cardWidth}/${state.visual.cardHeight}`)}
               {row("box w/h", `${state.visual.boxWidth}/${state.visual.boxHeight}`)}
               {row("img rect w/h", `${state.visual.imgWidth}/${state.visual.imgHeight}`)}
