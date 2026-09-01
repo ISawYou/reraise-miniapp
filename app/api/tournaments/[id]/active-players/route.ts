@@ -6,6 +6,9 @@ import { getActiveTournamentPlayersForPublicView } from "@/features/tournaments"
 // the feature layer's already-sanitized PublicActiveTournamentPlayer shape
 // ever reaches the browser -- see
 // features/tournaments.ts's getActiveTournamentPlayersForPublicView.
+// Returns EVERY arrived player (active AND eliminated, each with
+// `eliminated`/`place`) in one payload -- the tab splits it client-side
+// into "В игре" / "Выбыли" off this single poll.
 export const dynamic = "force-dynamic";
 
 export async function GET(

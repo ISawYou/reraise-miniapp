@@ -48,6 +48,7 @@ vi.mock("@/features/club-activity", () => ({
 }));
 
 import {
+  getActiveTournamentPlayersForPublicView,
   getArrivedPlayersForIntegration,
   getDerivedEliminationPlaces,
   getIntegrationTournamentList,
@@ -168,6 +169,7 @@ describe("getArrivedPlayersForIntegration", () => {
         // Default mock: no elimination row at all for this player.
         eliminated: false,
         place: null,
+        eliminatedAt: null,
         // Default mock: no rebuy-state row at all -- raw Re-buy = 0.
         initialStackTaken: false,
         rebuys: 0,
@@ -229,6 +231,7 @@ describe("getArrivedPlayersForIntegration", () => {
         ratingPoints: 20,
         eliminated: false,
         place: null,
+        eliminatedAt: null,
         initialStackTaken: true,
         rebuys: 2,
         addons: 1,
@@ -245,6 +248,7 @@ describe("getArrivedPlayersForIntegration", () => {
         eliminated: true,
         // fieldSize=2 (both players arrived), eliminationIndex=0 -> 2-0=2.
         place: 2,
+        eliminatedAt: "2026-08-25T19:00:00.000Z",
         initialStackTaken: false,
         rebuys: 0,
         addons: 0,
@@ -290,7 +294,7 @@ describe("getArrivedPlayersForIntegration", () => {
     expect(afterUnEliminate[0].eliminated).toBe(false);
   });
 
-  it("response contains no PII beyond id/nickname/avatarUrl/ratingPoints/eliminated/place", async () => {
+  it("response contains no PII beyond id/nickname/avatarUrl/ratingPoints/eliminated/place/eliminatedAt", async () => {
     mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
     mocks.findAttendedPlayersWithDetails.mockResolvedValue([
       {
@@ -311,7 +315,37 @@ describe("getArrivedPlayersForIntegration", () => {
     const [player] = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
 
     expect(Object.keys(player).sort()).toEqual(
-      ["addons", "avatarUrl", "eliminated", "id", "initialStackTaken", "nickname", "place", "ratingPoints", "rebuys"].sort()
+      ["addons", "avatarUrl", "eliminated", "eliminatedAt", "id", "initialStackTaken", "nickname", "place", "ratingPoints", "rebuys"].sort()
+    );
+    const raw = JSON.stringify(player);
+    for (const forbidden of ["telegram_id", "email", "phone", "role", "moderation", "access", "block"]) {
+      expect(raw.toLowerCase()).not.toContain(forbidden);
+    }
+  });
+
+  it("eliminatedAt mirrors the same tournament_player_eliminations row `eliminated` is read from -- null while not eliminated, the stored timestamp once eliminated", async () => {
+    mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+    mocks.findAttendedPlayersWithDetails.mockResolvedValue([
+      {
+        player_id: PLAYER_ID,
+        arrived_at: "2026-08-25T18:00:00.000Z",
+        players: { display_name: "Still In", admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null },
+      },
+      {
+        player_id: "player-busted",
+        arrived_at: "2026-08-25T18:05:00.000Z",
+        players: { display_name: "Busted", admin_display_name: null, custom_avatar_url: null, telegram_avatar_url: null },
+      },
+    ]);
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([["player-busted", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    const players = await getArrivedPlayersForIntegration(TOURNAMENT_ID);
+
+    expect(players.find((p) => p.id === PLAYER_ID)?.eliminatedAt).toBeNull();
+    expect(players.find((p) => p.id === "player-busted")?.eliminatedAt).toBe(
+      "2026-08-25T19:00:00.000Z"
     );
   });
 
@@ -758,5 +792,105 @@ describe("reorderTournamentEliminations -- \"Исправить порядок �
 
     expect(result.ok).toBe(false);
     expect(mocks.upsertElimination).not.toHaveBeenCalled();
+  });
+});
+
+// Player-facing "В игре"/"Выбыли" read model -- same authoritative source
+// as the Poker Clock integration (getArrivedPlayersForIntegration above),
+// sanitized to the browser-safe PublicActiveTournamentPlayer shape. Covers
+// the split's underlying data contract; app/tournaments/[id]/page.tsx does
+// the actual "В игре" vs "Выбыли" filtering/sorting client-side (see
+// lib/__tests__/tournament-helpers.test.ts for those pure sort helpers).
+describe("getActiveTournamentPlayersForPublicView", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.findAttendanceByTournamentId.mockResolvedValue(new Map());
+    mocks.findEliminationsByTournamentId.mockResolvedValue(new Map());
+    mocks.findRebuyStateByTournamentId.mockResolvedValue(new Map());
+    mocks.findRatingPointsBySeasonId.mockResolvedValue([]);
+  });
+
+  function playerRow(id: string, displayName: string) {
+    return {
+      player_id: id,
+      arrived_at: "2026-08-25T18:00:00.000Z",
+      players: {
+        display_name: displayName,
+        admin_display_name: null,
+        custom_avatar_url: null,
+        telegram_avatar_url: null,
+      },
+    };
+  }
+
+  it("includes BOTH active and eliminated arrived players -- the split happens client-side, not here", async () => {
+    mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+    mocks.findAttendedPlayersWithDetails.mockResolvedValue([
+      playerRow("p1", "Still Playing"),
+      playerRow("p2", "Busted Out"),
+    ]);
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([["p2", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    const players = await getActiveTournamentPlayersForPublicView(TOURNAMENT_ID);
+
+    expect(players.find((p) => p.playerId === "p1")).toMatchObject({ eliminated: false, place: null });
+    expect(players.find((p) => p.playerId === "p2")).toMatchObject({ eliminated: true });
+  });
+
+  it("exposes the SAME canonical derived place as the integration endpoint, never recalculated here", async () => {
+    mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+    mocks.findAttendedPlayersWithDetails.mockResolvedValue([
+      playerRow("p1", "Field Player 1"),
+      playerRow("p2", "Busted"),
+    ]);
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([["p2", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    const players = await getActiveTournamentPlayersForPublicView(TOURNAMENT_ID);
+
+    // fieldSize=2, eliminationIndex=0 -> place 2 -- same
+    // computeDerivedEliminationPlaces call getArrivedPlayersForIntegration
+    // makes, not a second one.
+    expect(players.find((p) => p.playerId === "p2")?.place).toBe(2);
+    expect(players.find((p) => p.playerId === "p1")?.place).toBeNull();
+  });
+
+  it("un-elimination (eliminated: true -> false between polls) is naturally reflected on the next call -- no separate participant source of truth", async () => {
+    mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+    mocks.findAttendedPlayersWithDetails.mockResolvedValue([playerRow("p1", "Player")]);
+
+    mocks.findEliminationsByTournamentId.mockResolvedValueOnce(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+    const eliminated = await getActiveTournamentPlayersForPublicView(TOURNAMENT_ID);
+    expect(eliminated[0].eliminated).toBe(true);
+
+    // Admin corrects the elimination -- the very next call reflects it, no
+    // caching/snapshot in between.
+    mocks.findEliminationsByTournamentId.mockResolvedValueOnce(new Map());
+    const restored = await getActiveTournamentPlayersForPublicView(TOURNAMENT_ID);
+    expect(restored[0].eliminated).toBe(false);
+    expect(restored[0].place).toBeNull();
+  });
+
+  it("response contains no PII/admin-only fields -- no rebuys/addons/initialStackTaken/eliminatedAt beyond the public shape", async () => {
+    mocks.findById.mockResolvedValue(baseTournament({ season_id: null }));
+    mocks.findAttendedPlayersWithDetails.mockResolvedValue([playerRow("p1", "Player")]);
+    mocks.findEliminationsByTournamentId.mockResolvedValue(
+      new Map([["p1", { eliminated: true, eliminated_at: "2026-08-25T19:00:00.000Z" }]])
+    );
+
+    const [player] = await getActiveTournamentPlayersForPublicView(TOURNAMENT_ID);
+
+    expect(Object.keys(player).sort()).toEqual(
+      ["avatarUrl", "displayName", "eliminated", "place", "playerId", "rating"].sort()
+    );
+    const raw = JSON.stringify(player);
+    for (const forbidden of ["telegram", "email", "phone", "role", "rebuy", "addon", "initialstack", "moderation", "access"]) {
+      expect(raw.toLowerCase()).not.toContain(forbidden);
+    }
   });
 });

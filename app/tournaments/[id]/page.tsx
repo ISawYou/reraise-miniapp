@@ -23,6 +23,7 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
   sortParticipantsByRating,
+  splitTournamentLiveRoster,
 } from "@/lib/tournament-helpers";
 import { getTelegramUser } from "@/lib/telegram";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
@@ -241,6 +242,58 @@ function ActivePlayerRow({
   );
 }
 
+// "Выбыли" row -- same layout/classes as ActivePlayerRow above (avatar
+// fallback, truncated name, right-aligned trailing value), just visually
+// secondary (muted text/opacity) and showing the canonical derived place
+// instead of rating. `player.place` is read as-is -- never recalculated
+// here, see PublicActiveTournamentPlayer's doc comment. A temporarily null
+// place renders "—", never "null"/"undefined" text.
+function EliminatedPlayerRow({
+  player,
+  index,
+}: {
+  player: PublicActiveTournamentPlayer;
+  index: number;
+}) {
+  const trimmedName = player.displayName.trim();
+  const avatarFallback = trimmedName ? trimmedName[0].toUpperCase() : "?";
+
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-4 last:border-b-0 opacity-70">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex w-6 shrink-0 justify-center text-sm font-semibold text-white/35">
+          {index + 1}
+        </div>
+
+        {player.avatarUrl ? (
+          <img
+            src={player.avatarUrl}
+            alt={player.displayName}
+            className="h-10 w-10 rounded-full border border-white/10 object-cover"
+          />
+        ) : (
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/60">
+            {avatarFallback}
+          </div>
+        )}
+
+        <div className="min-w-0">
+          <Link
+            href={`/players/${player.playerId}`}
+            className="block truncate text-sm font-medium text-white/80"
+          >
+            {player.displayName}
+          </Link>
+        </div>
+      </div>
+
+      <div className="shrink-0 pr-2 text-right text-sm font-semibold tabular-nums text-white/60">
+        {player.place != null ? `${player.place} место` : "—"}
+      </div>
+    </div>
+  );
+}
+
 function renderDescription(text: string) {
   const blocks = text.split(/\n{2,}/).filter((s) => s.trim());
 
@@ -339,9 +392,16 @@ const waitlistParticipants = participants.filter(
         ? `В игре (${attendance.active})`
         : "В игре";
 
-  const activePlayers = useTournamentActivePlayers(
+  // Live roster: every arrived player, active and eliminated alike -- same
+  // one poll, split below into the two "В игре" / "Выбыли" sections.
+  const livePlayers = useTournamentActivePlayers(
     tournamentId ?? null,
     isLive && activeTab === "live"
+  );
+
+  const { active: activeRoster, eliminated: eliminatedRoster } = useMemo(
+    () => splitTournamentLiveRoster(livePlayers),
+    [livePlayers]
   );
 
   function handleBack() {
@@ -745,37 +805,63 @@ const waitlistParticipants = participants.filter(
             )}
           </div>
         ) : activeTab === "live" ? (
-          <div className="mt-6 rounded-3xl border border-white/10 bg-white/[0.05]">
-            {!isLive ? (
-              <div className="px-4 py-6 text-sm text-white/60">
-                Список игроков появится после старта турнира
-              </div>
-            ) : activePlayers.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-white/60">
-                Пока никто не в игре
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/45">
-                  <div className="flex items-center gap-1 pl-9">
-                    <UserIcon />
-                    <span>Игроки</span>
+          !isLive ? (
+            <div className="mt-6 rounded-3xl border border-white/10 bg-white/[0.05] px-4 py-6 text-sm text-white/60">
+              Список игроков появится после старта турнира
+            </div>
+          ) : (
+            <div className="mt-6 space-y-4">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.05]">
+                {activeRoster.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-white/60">
+                    Пока никто не в игре
                   </div>
-                  <div className="flex items-center gap-1 pr-2">
-                    <StarIcon />
-                    <span>Рейтинг</span>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/45">
+                      <div className="flex items-center gap-1 pl-9">
+                        <UserIcon />
+                        <span>В игре</span>
+                      </div>
+                      <div className="flex items-center gap-1 pr-2">
+                        <StarIcon />
+                        <span>Рейтинг</span>
+                      </div>
+                    </div>
+                    {activeRoster.map((activePlayer, index) => (
+                      <ActivePlayerRow
+                        key={activePlayer.playerId}
+                        player={activePlayer}
+                        index={index}
+                      />
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Visually secondary (dimmer background/label), never a
+                  large empty block when nobody has busted out yet -- the
+                  whole section is simply omitted. */}
+              {eliminatedRoster.length > 0 ? (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03]">
+                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-xs uppercase tracking-wide text-white/35">
+                    <div className="flex items-center gap-1 pl-9">
+                      <UserIcon />
+                      <span>Выбыли</span>
+                    </div>
+                    <span className="pr-2">Место</span>
                   </div>
+                  {eliminatedRoster.map((eliminatedPlayer, index) => (
+                    <EliminatedPlayerRow
+                      key={eliminatedPlayer.playerId}
+                      player={eliminatedPlayer}
+                      index={index}
+                    />
+                  ))}
                 </div>
-                {activePlayers.map((activePlayer, index) => (
-                  <ActivePlayerRow
-                    key={activePlayer.playerId}
-                    player={activePlayer}
-                    index={index}
-                  />
-                ))}
-              </>
-            )}
-          </div>
+              ) : null}
+            </div>
+          )
         ) : (
           <div className="mt-6 space-y-4">
           {tournament.status !== "completed" ? (

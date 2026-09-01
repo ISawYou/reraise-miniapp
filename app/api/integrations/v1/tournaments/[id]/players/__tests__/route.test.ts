@@ -185,6 +185,7 @@ describe("GET /api/integrations/v1/tournaments/:id/players", () => {
         ratingPoints: 5,
         eliminated: false,
         place: null,
+        eliminatedAt: null,
         initialStackTaken: false,
         rebuys: 0,
         addons: 0,
@@ -195,12 +196,50 @@ describe("GET /api/integrations/v1/tournaments/:id/players", () => {
     const json = await response.json();
 
     expect(Object.keys(json.players[0]).sort()).toEqual(
-      ["addons", "avatarUrl", "eliminated", "id", "initialStackTaken", "nickname", "place", "ratingPoints", "rebuys"].sort()
+      ["addons", "avatarUrl", "eliminated", "eliminatedAt", "id", "initialStackTaken", "nickname", "place", "ratingPoints", "rebuys"].sort()
     );
     const raw = JSON.stringify(json);
     for (const forbidden of ["email", "telegram", "username", "role", "moderation", "access"]) {
       expect(raw.toLowerCase()).not.toContain(forbidden);
     }
+  });
+
+  it("includes the backwards-compatible `eliminatedAt` field, passed through unchanged like `place`", async () => {
+    mockVerifyIntegrationRequest.mockReturnValue(true);
+    mockGetArrivedPlayersForIntegration.mockResolvedValue([
+      {
+        id: "p1",
+        nickname: "Still Playing",
+        avatarUrl: null,
+        ratingPoints: 5,
+        eliminated: false,
+        place: null,
+        eliminatedAt: null,
+        initialStackTaken: true,
+        rebuys: 0,
+        addons: 0,
+      },
+      {
+        id: "p2",
+        nickname: "Busted 3rd",
+        avatarUrl: null,
+        ratingPoints: 0,
+        eliminated: true,
+        place: 17,
+        eliminatedAt: "2026-08-25T19:00:00.000Z",
+        initialStackTaken: true,
+        rebuys: 1,
+        addons: 0,
+      },
+    ]);
+
+    const response = await GET(request("Bearer real-token"), context());
+    const json = await response.json();
+
+    expect(json.players.find((p: { id: string }) => p.id === "p1").eliminatedAt).toBeNull();
+    expect(json.players.find((p: { id: string }) => p.id === "p2").eliminatedAt).toBe(
+      "2026-08-25T19:00:00.000Z"
+    );
   });
 
   it("backwards-compatible `place` field: eliminated player gets a finishing place, active player gets null -- same algorithm as Google Sheets, computed entirely in the feature layer", async () => {

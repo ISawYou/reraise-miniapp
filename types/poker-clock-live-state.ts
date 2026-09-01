@@ -42,16 +42,26 @@ export type TournamentLiveSummary = {
   lateRegistration: TournamentLateRegistrationStatus | null;
 };
 
-// Public, sanitized read model for "who is currently in the tournament"
-// (arrived AND not eliminated) -- the player-facing counterpart of
-// features/tournaments.ts's IntegrationPlayer, stripped of every
-// admin/integration-only field (rebuys, addons, initial stack, KO counts).
-// Lives here rather than in features/tournaments.ts (a "use server" file)
-// so the client-side polling hook can import the type without pulling in
+// Public, sanitized live-roster read model -- arrived players, active AND
+// eliminated -- the player-facing counterpart of features/tournaments.ts's
+// IntegrationPlayer, stripped of every admin/integration-only field
+// (rebuys, addons, initial stack, KO counts, eliminatedAt). Lives here
+// rather than in features/tournaments.ts (a "use server" file) so the
+// client-side polling hook can import the type without pulling in
 // server-action machinery.
+//
+// `eliminated`/`place` -- added alongside the existing fields, not a new
+// concept: same canonical elimination/derived-place state
+// getActiveTournamentPlayersForPublicView already reads from
+// IntegrationPlayer (see features/tournaments.ts), just passed through
+// instead of being filtered away. The player-facing "В игре" tab splits
+// this one list into "В игре" (eliminated === false) and "Выбыли"
+// (eliminated === true) itself -- see app/tournaments/[id]/page.tsx.
 export type PublicActiveTournamentPlayer = {
   playerId: string;
   displayName: string;
   avatarUrl: string | null;
   rating: number | null;
+  eliminated: boolean;
+  place: number | null;
 };

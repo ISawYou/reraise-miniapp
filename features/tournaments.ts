@@ -1437,6 +1437,12 @@ export type IntegrationPlayer = {
   // game; a finishing place (1..fieldSize) once eliminated. No existing
   // field's semantics change.
   place: number | null;
+  // Backwards-compatible addition: read from the SAME
+  // tournament_player_eliminations row `eliminated` above already comes
+  // from (via getTournamentEliminations/findEliminationsByTournamentId) --
+  // not a second timestamp source. `null` while eliminated is false or the
+  // player has no elimination row at all.
+  eliminatedAt: string | null;
   initialStackTaken: boolean;
   rebuys: number;
   addons: number;
@@ -1519,6 +1525,7 @@ export async function getArrivedPlayersForIntegration(
       // null default false` semantics.
       eliminated: eliminations.get(row.player_id)?.eliminated ?? false,
       place: derivedPlaces.get(row.player_id) ?? null,
+      eliminatedAt: eliminations.get(row.player_id)?.eliminated_at ?? null,
       // Per-player normalization, not the aggregate rating-v2.ts shortcut --
       // see IntegrationPlayer's doc comment above for why.
       initialStackTaken: rawRebuy >= 1,
@@ -1528,27 +1535,30 @@ export async function getArrivedPlayersForIntegration(
   });
 }
 
-// Player-facing "В игре" read model -- reuses the same authoritative
+// Player-facing live-roster read model -- reuses the same authoritative
 // attendance + elimination state as the Poker Clock integration
 // (getArrivedPlayersForIntegration above), but sanitized down to only the
 // fields the browser is allowed to see. No rebuys/addons/initial stack/KO
-// counts, no admin/payment fields, no sheet row numbers -- see
-// PublicActiveTournamentPlayer's doc comment. "In game" means arrived AND
-// not eliminated; getArrivedPlayersForIntegration already only returns
-// arrived players, so this just filters out the eliminated ones on top.
+// counts/eliminatedAt, no admin/payment fields, no sheet row numbers -- see
+// PublicActiveTournamentPlayer's doc comment. Returns EVERY arrived player,
+// active and eliminated alike -- getArrivedPlayersForIntegration already
+// only returns arrived players, so nothing is filtered here; the "В игре" /
+// "Выбыли" split (app/tournaments/[id]/page.tsx) happens client-side on
+// `eliminated`, off this one poll, same as the Poker Clock integration
+// gets both states off its one call.
 export async function getActiveTournamentPlayersForPublicView(
   tournamentId: string
 ): Promise<PublicActiveTournamentPlayer[]> {
   const players = await getArrivedPlayersForIntegration(tournamentId);
 
-  return players
-    .filter((player) => !player.eliminated)
-    .map((player) => ({
-      playerId: player.id,
-      displayName: player.nickname,
-      avatarUrl: player.avatarUrl,
-      rating: player.ratingPoints,
-    }));
+  return players.map((player) => ({
+    playerId: player.id,
+    displayName: player.nickname,
+    avatarUrl: player.avatarUrl,
+    rating: player.ratingPoints,
+    eliminated: player.eliminated,
+    place: player.place,
+  }));
 }
 
 // Tournament list for the Poker Clock "link a tournament" dropdown -- this

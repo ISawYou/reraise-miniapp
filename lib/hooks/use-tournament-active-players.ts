@@ -2,9 +2,13 @@ import { useEffect, useState } from "react";
 import type { PublicActiveTournamentPlayer } from "@/types/poker-clock-live-state";
 
 // Same ~20s polling cadence as use-tournament-live-state.ts, for the same
-// reason: a single tournament's active-player list is cheap enough to poll
-// on an interval rather than push, and 20s keeps this well away from
-// "aggressive polling" territory.
+// reason: a single tournament's live roster is cheap enough to poll on an
+// interval rather than push, and 20s keeps this well away from "aggressive
+// polling" territory. Returns EVERY arrived player (active and eliminated
+// alike, see PublicActiveTournamentPlayer) -- callers split by `eliminated`
+// themselves (app/tournaments/[id]/page.tsx does this for "В игре" /
+// "Выбыли"). Name kept for historical/import-path stability; the payload
+// has covered both states since the "В игре"/"Выбыли" split shipped.
 const POLL_INTERVAL_MS = 20000;
 
 // Only polls while `enabled` -- the caller gates this on "the В игре tab is
