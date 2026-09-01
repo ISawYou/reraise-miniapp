@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "seasons_one_active_key" ON "seasons" USING btree ("is_active") WHERE "seasons"."is_active" = true;
