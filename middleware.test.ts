@@ -161,6 +161,7 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       ["POST", "/api/admin/seasons/resync"],
       ["POST", "/api/admin/seasons/s1/close"],
       ["POST", "/api/admin/seasons/s1/rollover"],
+      ["GET", "/api/admin/seasons/s1/recap"],
       ["POST", "/api/admin/club-activity"],
       // Dealer administration/financial routes stay Super-Admin-only.
       ["POST", "/api/admin/dealers"],

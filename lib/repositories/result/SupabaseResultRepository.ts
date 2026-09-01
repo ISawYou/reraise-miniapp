@@ -11,6 +11,7 @@ import type {
   BossKnockoutsRow,
   ArrivedPlacementRow,
   ResultHistoryRow,
+  SeasonRecapResultRow,
 } from "./ResultRepository";
 
 function flattenEmbedded<T>(value: T | T[] | null | undefined): T | null {
@@ -364,6 +365,67 @@ export class SupabaseResultRepository implements ResultRepository {
         display_name: player?.display_name ?? "Игрок",
         telegram_avatar_url: player?.telegram_avatar_url ?? null,
         custom_avatar_url: player?.custom_avatar_url ?? null,
+      };
+    });
+  }
+
+  async findSeasonRecapRows(seasonId: string): Promise<SeasonRecapResultRow[]> {
+    const supabase = getSupabaseServer();
+    // !inner forces the join to also act as a filter -- lets .eq() below
+    // constrain on the joined tournament's own status column.
+    const { data, error } = await supabase
+      .from("results")
+      .select(
+        `
+        place,
+        reentries,
+        knockouts,
+        boss_knockouts,
+        mystery_bounty_points,
+        rating_points,
+        player_id,
+        players ( display_name ),
+        tournaments!inner ( id, title, start_at, tournament_type, status )
+      `
+      )
+      .eq("season_id", seasonId)
+      .eq("tournaments.status", "completed");
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    type RecapJoinRow = {
+      place: number;
+      reentries: number;
+      knockouts: number;
+      boss_knockouts: number;
+      mystery_bounty_points: number;
+      rating_points: number;
+      player_id: string;
+      players: { display_name: string } | { display_name: string }[] | null;
+      tournaments:
+        | { id: string; title: string; start_at: string; tournament_type: string }
+        | { id: string; title: string; start_at: string; tournament_type: string }[]
+        | null;
+    };
+
+    return ((data ?? []) as RecapJoinRow[]).map((row) => {
+      const player = flattenEmbedded(row.players);
+      const tournament = flattenEmbedded(row.tournaments);
+      return {
+        tournament_id: tournament?.id ?? "",
+        tournament_title: tournament?.title ?? "",
+        tournament_start_at: tournament?.start_at ?? "",
+        tournament_type: tournament?.tournament_type ?? "",
+        player_id: row.player_id,
+        display_name: player?.display_name ?? "Игрок",
+        place: row.place,
+        reentries: row.reentries,
+        knockouts: row.knockouts,
+        boss_knockouts: row.boss_knockouts,
+        mystery_bounty_points: row.mystery_bounty_points,
+        rating_points: row.rating_points,
       };
     });
   }

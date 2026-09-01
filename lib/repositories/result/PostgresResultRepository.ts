@@ -12,6 +12,7 @@ import type {
   BossKnockoutsRow,
   ArrivedPlacementRow,
   ResultHistoryRow,
+  SeasonRecapResultRow,
 } from "./ResultRepository";
 
 function errorMessage(err: unknown): string {
@@ -228,6 +229,34 @@ export class PostgresResultRepository implements ResultRepository {
         custom_avatar_url: player?.custom_avatar_url ?? null,
       };
     });
+  }
+
+  async findSeasonRecapRows(seasonId: string): Promise<SeasonRecapResultRow[]> {
+    const rows = await db
+      .select({
+        tournament_id: tournaments.id,
+        tournament_title: tournaments.title,
+        tournament_start_at: tournaments.startAt,
+        tournament_type: tournaments.tournamentType,
+        player_id: results.playerId,
+        display_name: players.displayName,
+        place: results.place,
+        reentries: results.reentries,
+        knockouts: results.knockouts,
+        boss_knockouts: results.bossKnockouts,
+        mystery_bounty_points: results.mysteryBountyPoints,
+        rating_points: results.ratingPoints,
+      })
+      .from(results)
+      .innerJoin(tournaments, eq(results.tournamentId, tournaments.id))
+      .leftJoin(players, eq(results.playerId, players.id))
+      .where(and(eq(results.seasonId, seasonId), eq(tournaments.status, "completed")));
+
+    return rows.map((row) => ({
+      ...row,
+      tournament_start_at: row.tournament_start_at.toISOString(),
+      display_name: row.display_name ?? "Игрок",
+    }));
   }
 
   async findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]> {

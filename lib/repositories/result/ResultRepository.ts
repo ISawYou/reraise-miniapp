@@ -99,6 +99,21 @@ export type ResultHistoryRow = {
   tournament: TournamentRow | null;
 };
 
+export type SeasonRecapResultRow = {
+  tournament_id: string;
+  tournament_title: string;
+  tournament_start_at: string;
+  tournament_type: string;
+  player_id: string;
+  display_name: string;
+  place: number;
+  reentries: number;
+  knockouts: number;
+  boss_knockouts: number;
+  mystery_bounty_points: number;
+  rating_points: number;
+};
+
 export interface ResultRepository {
   countByPlayerId(playerId: string): Promise<number>;
   // ITM ("in the money") is defined exclusively as itm_points > 0 (see
@@ -157,6 +172,16 @@ export interface ResultRepository {
       custom_avatar_url: string | null;
     }>
   >;
+  // Season Recap (features/season-recap.ts) -- every result row for
+  // COMPLETED tournaments whose PERSISTED results.season_id matches, joined
+  // with just enough tournament/player identity to build the recap. Never
+  // reinterprets a tournament's season by date; never includes a
+  // draft/open/closed tournament. Deliberately omits addons/free_reentries
+  // (see lib/db/schema/results.ts -- both are honest 0 placeholders on
+  // pre-existing rows, not verified historical facts) and every
+  // rating-breakdown/PII column -- this is exactly the allowed-field set
+  // for season records.
+  findSeasonRecapRows(seasonId: string): Promise<SeasonRecapResultRow[]>;
   findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]>;
 
   deleteByTournamentId(tournamentId: string): Promise<void>;

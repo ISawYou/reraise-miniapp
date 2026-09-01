@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useMemo, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
@@ -356,6 +357,14 @@ export default function AdminSeasonsPage() {
                       >
                         Завершить и перейти к следующему
                       </button>
+                    ) : null}
+                    {!season.is_active && statusLabel(season, sortedSeasons) === "Закрытый" ? (
+                      <Link
+                        href={`/admin/seasons/${season.id}/recap`}
+                        className="rounded-lg border border-[#d7b55a]/30 px-3 py-2 text-xs text-[#f0d38a]"
+                      >
+                        Итоги сезона
+                      </Link>
                     ) : null}
                   </div>
 
