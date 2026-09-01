@@ -6,6 +6,7 @@ import {
   tournamentRepository,
 } from "@/lib/repositories";
 import { calculateRatingPlaceStructureForTournament } from "@/features/rating-v2";
+import { PARTICIPATION_POINTS } from "@/features/rating";
 import {
   closeMysteryBountyLateRegistration,
   getMysteryBountySnapshot,
@@ -130,6 +131,17 @@ export async function closeTournamentLateRegistrationOperation(
   return { snapshot, mysteryBountySnapshot };
 }
 
+// `snapshot.rating_places[].points` is deliberately itm_points-only (see
+// calculateRatingPlaceStructureForTournament in features/rating-v2.ts) --
+// that's the shape tournament completion needs, since it re-adds
+// participation/knockout/boss/mystery fresh from live per-player data and
+// would double-count participation if the frozen snapshot already included
+// it (app/api/admin/tournaments/[id]/complete-free/route.ts's `ratingPlaces`
+// option). The live Poker Clock projection has no such merge step, so it
+// must fold the same canonical PARTICIPATION_POINTS constant back in here
+// -- every arrived player earns it regardless of place, so it belongs on
+// every row. `snapshot.rating_places` itself (and what completion reads)
+// stays untouched; only this response copy is adjusted.
 export async function getTournamentStateForIntegration(tournamentId: string) {
   const tournament = await findTournament(tournamentId);
   assertFreeTournament(tournament);
@@ -138,7 +150,12 @@ export async function getTournamentStateForIntegration(tournamentId: string) {
   return snapshot
     ? {
         lateRegistration: { status: "closed" as const, closedAt: snapshot.closed_at },
-        rating: { places: snapshot.rating_places },
+        rating: {
+          places: snapshot.rating_places.map((entry) => ({
+            place: entry.place,
+            points: entry.points + PARTICIPATION_POINTS,
+          })),
+        },
       }
     : {
         lateRegistration: { status: "open" as const, closedAt: null },

@@ -132,7 +132,34 @@ describe("generic Late Registration snapshot", () => {
     });
     await expect(getTournamentStateForIntegration("t1")).resolves.toEqual({
       lateRegistration: { status: "closed", closedAt: "2026-08-25T12:00:00.000Z" },
-      rating: { places: [{ place: 1, points: 70 }] },
+      rating: { places: [{ place: 1, points: 72 }] },
+    });
+  });
+
+  // Symptom under investigation: the live Poker Clock projection was
+  // missing the +2 participation component even though it's flat/constant
+  // for every arrived player. `snapshot.rating_places` itself stores
+  // itm_points ONLY (completion's `ratingPlaces` merge option needs that --
+  // see app/api/admin/tournaments/[id]/complete-free/route.ts -- and would
+  // double-count participation otherwise); getTournamentStateForIntegration
+  // must fold PARTICIPATION_POINTS back in for the live response without
+  // mutating the frozen snapshot.
+  it("live projection includes the +2 participation component on top of each frozen itm place value", async () => {
+    mocks.findSnapshot.mockResolvedValue({
+      closed_at: "2026-08-25T12:00:00.000Z",
+      rating_places: [
+        { place: 1, points: 70 },
+        { place: 2, points: 52 },
+      ],
+    });
+
+    const result = await getTournamentStateForIntegration("t1");
+
+    expect(result.rating).toEqual({
+      places: [
+        { place: 1, points: 72 },
+        { place: 2, points: 54 },
+      ],
     });
   });
 

@@ -3,6 +3,7 @@ import {
   calculateRatingPoints,
   getBasePlacePoints,
   getFieldCoefficient,
+  PARTICIPATION_POINTS,
   type RatingPointsBreakdown,
 } from "@/features/rating";
 import {
@@ -261,7 +262,7 @@ export function calculateRatingPointsV2(
     const knockoutPoints = hasKnockouts ? player.knockouts * 5 : 0;
     const bossKnockoutPoints = hasBossKnockouts ? (player.boss_knockouts ?? 0) * 10 : 0;
     const mysteryPoints = isMystery ? player.mystery_bounty_points ?? 0 : 0;
-    const participationPoints = 2;
+    const participationPoints = PARTICIPATION_POINTS;
 
     // Participation +2 stays flat/unmultiplied for every format, exactly
     // like v1 (spec §19).

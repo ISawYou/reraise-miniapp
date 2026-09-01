@@ -62,6 +62,16 @@ export function getBasePlacePoints(place: number): number {
   return BASE_PLACE_POINTS[place] ?? 5;
 }
 
+// Canonical +2 participation points -- flat, unmultiplied, for every
+// arrived player. Matches the literal `2` calculateRatingPoints (v1/legacy,
+// below) has always used -- that historical function is intentionally left
+// byte-for-byte untouched, so this constant is not wired into it. Exported
+// so features/rating-v2.ts::calculateRatingPointsV2 (the current engine)
+// and the live ReRaise->Poker Clock integration (see
+// features/late-registration.ts::getTournamentStateForIntegration) share
+// one named definition instead of each hardcoding the literal.
+export const PARTICIPATION_POINTS = 2;
+
 export function getFieldCoefficient(fieldSize: number): number {
   if (fieldSize <= 7) return 0.7;
   if (fieldSize <= 11) return 0.85;

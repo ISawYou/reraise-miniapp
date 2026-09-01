@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { calculateRatingPoints } from "@/features/rating";
+import { calculateRatingPoints, PARTICIPATION_POINTS } from "@/features/rating";
 import {
+  calculateRatingPlaceStructureForTournament,
   calculateRatingPointsForTournament,
   calculateRatingPointsV2,
   computeAddonPlacementMultiplier,
@@ -364,6 +365,74 @@ describe("Participation is never multiplied", () => {
       { player_id: "x", place: 1, knockouts: 0, arrived: false, entries: 0, addons: 0 },
     ];
     expect(byId(calculateRatingPointsV2(withAbsent, "classic").results).get("x")).toBe(0);
+  });
+
+  it("every arrived v2 player's participation_points is exactly the canonical PARTICIPATION_POINTS constant", () => {
+    const players = arrivedPlayers(9, 1, 0);
+    const { results } = calculateRatingPointsV2(players, "classic");
+
+    expect(PARTICIPATION_POINTS).toBe(2);
+    for (const r of results) {
+      expect(r.participation_points).toBe(PARTICIPATION_POINTS);
+    }
+  });
+});
+
+// Root cause of "live Poker Clock projection is missing +2": Late
+// Registration close freezes a PER-PLACE table (rating_places) so
+// completion can reuse the exact placement distribution regardless of who
+// ends up finishing where. That table can only ever hold itm_points --
+// participation/knockout/boss/mystery are per-PLAYER, not per-place, and
+// participation specifically would double-count if it were baked in here
+// AND re-added at completion (see the next describe block). This is a
+// contract test on that frozen shape, not a bug -- the actual fix is in
+// features/late-registration.ts::getTournamentStateForIntegration, which
+// must fold PARTICIPATION_POINTS back in for the live response (covered in
+// features/__tests__/late-registration.test.ts).
+describe("O — calculateRatingPlaceStructureForTournament freezes itm_points ONLY (participation excluded by design)", () => {
+  it("a place's frozen points never include the +2 participation component", () => {
+    const entries = arrivedPlayers(9, 1, 0).map(() => ({ entries: 1, addons: 0 }));
+    const places = calculateRatingPlaceStructureForTournament(entries, "classic", "v2");
+
+    // Cross-check against the natural per-player computation for the same
+    // roster: itm_points for place 1 must match exactly, and must NOT have
+    // participation folded in.
+    const natural = calculateRatingPointsV2(arrivedPlayers(9, 1, 0), "classic").results;
+    const place1 = places.find((p) => p.place === 1)!;
+    const naturalPlace1 = natural.find((r) => r.player_id === "p1")!;
+
+    expect(place1.points).toBe(naturalPlace1.itm_points);
+    expect(place1.points).not.toBe(naturalPlace1.rating_points);
+  });
+});
+
+// Verifies the live-display fix actually closes the gap it targets: for a
+// player with no knockout/boss/mystery activity, what the live integration
+// response now shows for their place (frozen itm + PARTICIPATION_POINTS,
+// see features/late-registration.ts) matches what completion's existing,
+// UNCHANGED `ratingPlaces` merge (features/rating-v2.ts,
+// calculateRatingPointsForTournament) already produces for that same place.
+// Does not exercise or assert anything about completion-formula selection
+// (rating_formula_version) -- out of scope for this fix.
+describe("P — live preview total matches completion's existing (unmodified) ratingPlaces merge", () => {
+  it("live preview total (frozen itm + PARTICIPATION_POINTS) equals completion's total for a player with no KO/boss/mystery activity", () => {
+    const ratingPlaces = calculateRatingPlaceStructureForTournament(
+      arrivedPlayers(9, 1, 0).map(() => ({ entries: 1, addons: 0 })),
+      "classic",
+      "v2"
+    );
+
+    // What the live integration response now shows for place 1 (see
+    // features/late-registration.ts).
+    const livePreviewTotal = ratingPlaces.find((p) => p.place === 1)!.points + PARTICIPATION_POINTS;
+
+    // What completion freezes for the player who actually finishes 1st,
+    // assuming no knockouts (classic has none anyway).
+    const players = arrivedPlayers(9, 1, 0);
+    const { results } = calculateRatingPointsForTournament(players, "classic", "v2", { ratingPlaces });
+    const finalTotal = results.find((r) => r.player_id === "p1")!.rating_points;
+
+    expect(livePreviewTotal).toBe(finalTotal);
   });
 });
 
