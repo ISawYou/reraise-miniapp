@@ -62,6 +62,9 @@ type VisualDebugState = {
   boxHeight: string;
   boxLeft: string;
   boxTop: string;
+  stageWidth: string;
+  stageHeight: string;
+  ratioStageCardW: string;
   imgWidth: string;
   imgHeight: string;
   imgLeft: string;
@@ -239,13 +242,15 @@ function readVisualState(): VisualDebugState | null {
   const root = findVisibleVisualRoot();
   if (!root) return null;
   const box = root.querySelector<HTMLElement>("[data-tournament-visual-box]");
+  const stage = root.querySelector<HTMLElement>("[data-tournament-visual-stage]");
   const img = root.querySelector<HTMLImageElement>("[data-tournament-visual-img]");
   const card = root.parentElement;
-  if (!box || !img || !card) return null;
+  if (!box || !stage || !img || !card) return null;
 
   const rootRect = root.getBoundingClientRect();
   const cardRect = card.getBoundingClientRect();
   const boxRect = box.getBoundingClientRect();
+  const stageRect = stage.getBoundingClientRect();
   const imgRect = img.getBoundingClientRect();
   const imgStyle = window.getComputedStyle(img);
 
@@ -286,6 +291,12 @@ function readVisualState(): VisualDebugState | null {
     boxHeight: str(boxRect.height),
     boxLeft: str(boxRect.left),
     boxTop: str(boxRect.top),
+    // The invariant the width-driven fix depends on: this should land on
+    // roughly the same fraction of card width on every device/card size,
+    // unlike the old height-constrained square which didn't.
+    stageWidth: str(stageRect.width),
+    stageHeight: str(stageRect.height),
+    ratioStageCardW: ratio(stageRect.width, cardRect.width),
     imgWidth: str(imgRect.width),
     imgHeight: str(imgRect.height),
     imgLeft: str(imgRect.left),
@@ -454,6 +465,8 @@ export function TelegramDebugOverlay() {
                   `selected root visibleAreaRatio: ${state.visual.visibleAreaRatio}`,
                   `card rect (w/h/l/t): ${state.visual.cardWidth}/${state.visual.cardHeight}/${state.visual.cardLeft}/${state.visual.cardTop}`,
                   `artworkBox rect (w/h/l/t): ${state.visual.boxWidth}/${state.visual.boxHeight}/${state.visual.boxLeft}/${state.visual.boxTop}`,
+                  `artworkStage rect (w/h): ${state.visual.stageWidth}/${state.visual.stageHeight}`,
+                  `ratio stage/card w: ${state.visual.ratioStageCardW}`,
                   `img rect (w/h/l/t): ${state.visual.imgWidth}/${state.visual.imgHeight}/${state.visual.imgLeft}/${state.visual.imgTop}`,
                   `img natural (w/h): ${state.visual.naturalWidth}/${state.visual.naturalHeight}`,
                   `img computed (w/h): ${state.visual.computedWidth}/${state.visual.computedHeight}`,
@@ -584,6 +597,8 @@ export function TelegramDebugOverlay() {
               {row("visibleAreaRatio", state.visual.visibleAreaRatio)}
               {row("card w/h", `${state.visual.cardWidth}/${state.visual.cardHeight}`)}
               {row("box w/h", `${state.visual.boxWidth}/${state.visual.boxHeight}`)}
+              {row("stage w/h", `${state.visual.stageWidth}/${state.visual.stageHeight}`)}
+              {row("ratio stage/card w", state.visual.ratioStageCardW)}
               {row("img rect w/h", `${state.visual.imgWidth}/${state.visual.imgHeight}`)}
               {row("img natural w/h", `${state.visual.naturalWidth}/${state.visual.naturalHeight}`)}
               {row("img computed w/h", `${state.visual.computedWidth}/${state.visual.computedHeight}`)}
