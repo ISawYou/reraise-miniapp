@@ -11,6 +11,7 @@ import {
   getTournamentEliminations,
   getTournamentLiveEntries,
   getTournamentRebuyState,
+  getTournamentResults,
   getTournamentResultsDraft,
 } from "@/features/tournaments";
 import { fetchAdminJson } from "@/lib/client-request";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/tournament-helpers";
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
+import { formatTournamentResultsForCopy } from "@/lib/tournament-results-copy";
 import { isStaff, isSuperAdmin } from "@/lib/roles";
 import { useBodyScrollLock } from "@/lib/hooks/use-body-scroll-lock";
 import type {
@@ -31,6 +33,7 @@ import type {
   Tournament,
   TournamentLateRegistrationSnapshot,
   TournamentLiveEntry,
+  TournamentResult,
 } from "@/types/domain";
 
 type DraftRow = {
@@ -201,6 +204,8 @@ export default function AdminTournamentResultsPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [completionSummary, setCompletionSummary] = useState<TournamentCompletionSummary | null>(null);
+  const [tournamentResults, setTournamentResults] = useState<TournamentResult[]>([]);
+  const [resultsCopied, setResultsCopied] = useState(false);
   const [accessChecked, setAccessChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -640,6 +645,53 @@ export default function AdminTournamentResultsPage() {
       cancelled = true;
     };
   }, [tournamentId, tournament?.status, player?.role]);
+
+  // Canonical persisted results (same data/function the player-facing
+  // Results tab reads -- features/tournaments.ts::getTournamentResults) for
+  // the "Скопировать результаты" button below. Not financial data (unlike
+  // completionSummary above), so gated on isStaff like the rest of this
+  // page, not isSuperAdmin. Only fetched once completed -- no results are
+  // persisted before that.
+  useEffect(() => {
+    if (!tournamentId || tournament?.status !== "completed" || !isStaff(player?.role)) {
+      setTournamentResults([]);
+      return;
+    }
+
+    let cancelled = false;
+    getTournamentResults(tournamentId)
+      .then((data) => {
+        if (!cancelled) setTournamentResults(data);
+      })
+      .catch(() => {
+        // Non-critical -- the copy button simply stays unavailable.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tournamentId, tournament?.status, player?.role]);
+
+  async function handleCopyResults() {
+    if (!tournament || tournamentResults.length === 0) return;
+
+    try {
+      await navigator.clipboard.writeText(
+        formatTournamentResultsForCopy(
+          {
+            title: tournament.title,
+            start_at: tournament.start_at,
+            tournament_type: tournament.tournament_type,
+          },
+          tournamentResults
+        )
+      );
+      setResultsCopied(true);
+      setTimeout(() => setResultsCopied(false), 2000);
+    } catch {
+      setError("Не удалось скопировать результаты");
+    }
+  }
 
   useEffect(() => {
     function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -1691,6 +1743,21 @@ export default function AdminTournamentResultsPage() {
               <span>Дилеры: {completionSummary.dealersCount}</span>
               <span>Дилерам: {formatRub(completionSummary.dealerPayoutRub)}</span>
             </div>
+          </div>
+        ) : null}
+
+        {tournament?.status === "completed" && tournamentResults.length > 0 ? (
+          <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+            <p className="text-xs text-white/60">
+              Скопировать результаты в виде текста — удобно вставить в ChatGPT для поста
+            </p>
+            <button
+              type="button"
+              onClick={handleCopyResults}
+              className="shrink-0 rounded-full border border-[#d7b55a]/30 bg-[#d7b55a]/10 px-3.5 py-2 text-xs font-semibold text-[#f0d38a]"
+            >
+              {resultsCopied ? "Скопировано" : "Скопировать результаты"}
+            </button>
           </div>
         ) : null}
 
