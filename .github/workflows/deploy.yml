@@ -130,6 +130,15 @@ jobs:
       group: production-deploy
       cancel-in-progress: false
     steps:
+      # Gives this job's own runner the exact github.sha content -- needed
+      # below to hand the VPS this commit's docker-compose.yml without the
+      # VPS ever having to talk to GitHub itself (see the "Transfer
+      # production compose config" step). The build job above checks out
+      # separately on its own runner instance; this job gets nothing for
+      # free just because that one ran.
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Configure SSH
         run: |
           set -Eeuo pipefail
@@ -137,6 +146,52 @@ jobs:
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      # Ships this exact commit's docker-compose.yml to the VPS as a
+      # not-yet-canonical file, over the same SSH connection used for
+      # everything else here -- no VPS-side `git fetch`/`pull` of the
+      # GitHub repo required (that dependency is what took production
+      # deploys down when the VPS's stored git credentials stopped
+      # authenticating: "could not read Username for 'https://github.com'").
+      # The runner's checkout above already has the exact github.sha
+      # content; this just moves one file over. Verified by a SHA256
+      # checksum computed here and re-checked on the VPS before the deploy
+      # step ever reads it, so a corrupted/truncated transfer is caught
+      # immediately rather than silently recreating the app container from
+      # a broken compose file.
+      #
+      # Runs before the deploy step's production lock, deliberately: this
+      # temp file isn't referenced by any running container yet and
+      # nothing here mutates Docker state, so there's nothing for a
+      # concurrent deploy/maintenance run to race by it existing early.
+      # Written directly into /opt/reraise (not a subdirectory) so its
+      # `./storage` volume path still resolves to /opt/reraise/storage,
+      # exactly like the canonical file next to it.
+      - name: Transfer production compose config to VPS
+        run: |
+          set -Eeuo pipefail
+          CHECKSUM="$(sha256sum docker-compose.yml | awk '{print $1}')"
+          echo "Local docker-compose.yml SHA256: $CHECKSUM"
+
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            docker-compose.yml \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/reraise/docker-compose.deploy.yml"
+
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s -- "$CHECKSUM" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+          EXPECTED_CHECKSUM="$1"
+          ACTUAL_CHECKSUM="$(sha256sum /opt/reraise/docker-compose.deploy.yml | awk '{print $1}')"
+          echo "Remote docker-compose.deploy.yml SHA256: $ACTUAL_CHECKSUM"
+          if [ "$ACTUAL_CHECKSUM" != "$EXPECTED_CHECKSUM" ]; then
+            echo "Checksum mismatch after transfer -- refusing to use this file." >&2
+            rm -f /opt/reraise/docker-compose.deploy.yml
+            exit 1
+          fi
+          echo "Transfer verified."
+          REMOTE_SCRIPT
 
       # Single SSH session, single strict-mode remote script: pull the
       # already-built image by its immutable SHA tag, recreate only the
@@ -150,6 +205,11 @@ jobs:
       # poker-clock-db, the external network, volumes and the storage bind
       # mount are never touched: only `docker pull` / `up -d --no-deps`
       # run, never `down`, and no other app on the VPS is touched.
+      #
+      # No VPS-side GitHub dependency of any kind: SHA trust comes from the
+      # runner's own `actions/checkout@v4` + the immutable `IMAGE:$EXPECTED_SHA`
+      # tag built by the `build` job, and config trust comes from the
+      # checksum-verified transfer above -- not from a VPS git remote.
       - name: Deploy (pull + recreate + health + rollback) on VPS
         run: |
           set -Eeuo pipefail
@@ -164,23 +224,22 @@ jobs:
           IMAGE="${{ env.IMAGE }}"
           cd /opt/reraise
 
-          echo "== Syncing repo to the commit this workflow ran for (compose/config files only -- the image was already built and pushed by the build job, nothing here compiles anything) =="
-          git fetch origin main
-          git checkout main
-          git pull --ff-only origin main
+          NEW_IMAGE_REF="$IMAGE:$EXPECTED_SHA"
 
-          ACTUAL_SHA="$(git rev-parse HEAD)"
-          echo "Expected SHA: $EXPECTED_SHA"
-          echo "Actual SHA:   $ACTUAL_SHA"
-          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
-            echo "SHA mismatch — main on the VPS does not match the commit this workflow was triggered for. Refusing to deploy." >&2
+          # The checksum-verified upload from the previous step. Used for
+          # the forward deploy only, until it passes health+smoke below --
+          # the canonical docker-compose.yml on disk right now is still
+          # whatever version was live before this run, and stays that way
+          # for the rollback path.
+          DEPLOY_COMPOSE=/opt/reraise/docker-compose.deploy.yml
+          CANONICAL_COMPOSE=/opt/reraise/docker-compose.yml
+          if [ ! -f "$DEPLOY_COMPOSE" ]; then
+            echo "$DEPLOY_COMPOSE not found -- the transfer step should have placed and verified it before this step ran." >&2
             exit 1
           fi
 
-          NEW_IMAGE_REF="$IMAGE:$EXPECTED_SHA"
-
           echo "== Capturing the currently running image as the rollback target =="
-          PREVIOUS_CONTAINER_ID="$(docker compose -f docker-compose.yml ps -q app || true)"
+          PREVIOUS_CONTAINER_ID="$(docker compose -f "$CANONICAL_COMPOSE" ps -q app || true)"
           PREVIOUS_IMAGE_ID=""
           if [ -n "$PREVIOUS_CONTAINER_ID" ]; then
             PREVIOUS_IMAGE_ID="$(docker inspect "$PREVIOUS_CONTAINER_ID" --format '{{.Image}}')"
@@ -202,10 +261,13 @@ jobs:
           #
           # Taken here, immediately before the first Docker state mutation
           # (`docker pull`) -- not any earlier. Everything above this line
-          # (git sync, capturing the previous image) only reads state, so
-          # holding the VPS-wide lock during the `checks`/`build` jobs
-          # (which don't even SSH into the VPS) or during those reads would
-          # only make the lock be held longer than necessary.
+          # (locating the transferred compose file, capturing the previous
+          # image) only reads state, so holding the VPS-wide lock during the
+          # `checks`/`build` jobs (which don't even SSH into the VPS) or
+          # during those reads would only make the lock be held longer than
+          # necessary. Promotion of $DEPLOY_COMPOSE to $CANONICAL_COMPOSE
+          # below, like every other Docker mutation, happens inside this
+          # critical section too.
           #
           # Acquired via flock on an fd opened with `exec` -- not a
           # touch/rm homemade lock file -- so it releases automatically the
@@ -228,18 +290,25 @@ jobs:
           echo "New image ID: $NEW_IMAGE_ID"
 
           # Recreates the app container against $1 (an image reference or
-          # image ID -- both work as a compose `image:` value), waits for
-          # running+healthy, then runs the same public smoke tests the old
-          # pipeline had. Used for both the forward deploy and, on failure,
-          # the rollback -- identical verification either way.
+          # image ID -- both work as a compose `image:` value), using the
+          # compose file $2, waits for running+healthy, then runs the same
+          # public smoke tests the old pipeline had. Used for both the
+          # forward deploy ($DEPLOY_COMPOSE, the transferred exact-SHA
+          # file) and, on failure, the rollback ($CANONICAL_COMPOSE, the
+          # untouched previous version) -- identical verification either
+          # way. Both files live directly in /opt/reraise with no `name:`
+          # key of their own, so they resolve to the same Compose project
+          # and the fixed `container_name: re-raise` in both means either
+          # one recreates the exact same container in place.
           verify_and_smoke() {
             local image_ref="$1"
+            local compose_file="$2"
             export RERAISE_IMAGE="$image_ref"
 
-            docker compose -f docker-compose.yml up -d --no-deps app
+            docker compose -f "$compose_file" up -d --no-deps app
 
             local container_id
-            container_id="$(docker compose -f docker-compose.yml ps -q app)"
+            container_id="$(docker compose -f "$compose_file" ps -q app)"
             if [ -z "$container_id" ]; then
               echo "No 'app' container found after 'docker compose up -d'." >&2
               return 1
@@ -260,15 +329,15 @@ jobs:
 
               if [ "$status" = "exited" ] || [ "$status" = "dead" ]; then
                 echo "Container entered terminal state '$status'." >&2
-                docker compose -f docker-compose.yml ps
-                docker compose -f docker-compose.yml logs --tail 200 app
+                docker compose -f "$compose_file" ps
+                docker compose -f "$compose_file" logs --tail 200 app
                 return 1
               fi
 
               if [ "$health" = "unhealthy" ]; then
                 echo "Container reported unhealthy." >&2
-                docker compose -f docker-compose.yml ps
-                docker compose -f docker-compose.yml logs --tail 200 app
+                docker compose -f "$compose_file" ps
+                docker compose -f "$compose_file" logs --tail 200 app
                 return 1
               fi
 
@@ -279,8 +348,8 @@ jobs:
 
               if [ "$elapsed" -ge "$deploy_timeout" ]; then
                 echo "Timed out after ${deploy_timeout}s waiting for running+healthy (status=$status health=$health)." >&2
-                docker compose -f docker-compose.yml ps
-                docker compose -f docker-compose.yml logs --tail 200 app
+                docker compose -f "$compose_file" ps
+                docker compose -f "$compose_file" logs --tail 200 app
                 return 1
               fi
 
@@ -323,7 +392,7 @@ jobs:
           }
 
           set +e
-          verify_and_smoke "$NEW_IMAGE_REF"
+          verify_and_smoke "$NEW_IMAGE_REF" "$DEPLOY_COMPOSE"
           DEPLOY_RESULT=$?
           set -e
 
@@ -332,20 +401,27 @@ jobs:
 
             if [ -z "$PREVIOUS_IMAGE_ID" ]; then
               echo "No previous image available to roll back to -- re-raise may be down. Manual intervention required." >&2
+              rm -f "$DEPLOY_COMPOSE"
               exit 1
             fi
 
             set +e
-            verify_and_smoke "$PREVIOUS_IMAGE_ID"
+            verify_and_smoke "$PREVIOUS_IMAGE_ID" "$CANONICAL_COMPOSE"
             ROLLBACK_RESULT=$?
             set -e
 
             if [ "$ROLLBACK_RESULT" -ne 0 ]; then
               echo "Rollback to the previous image ALSO failed verification -- manual intervention required immediately." >&2
+              rm -f "$DEPLOY_COMPOSE"
               exit 1
             fi
 
             echo "Rollback succeeded: previous image ($PREVIOUS_IMAGE_ID) restored and healthy."
+            # $CANONICAL_COMPOSE was never touched by this failed attempt,
+            # so the rollback above already put production back exactly as
+            # it was before this run started -- nothing further to restore.
+            # Only the never-promoted temp file needs cleaning up.
+            rm -f "$DEPLOY_COMPOSE"
             # PREVIOUS_IMAGE_ID never becomes the rollback-previous marker
             # here -- this deploy attempt FAILED, so nothing about
             # production's known-good history has changed: it was $IMAGE
@@ -355,6 +431,16 @@ jobs:
             # 1 without updating it is correct, not an oversight.
             exit 1
           fi
+
+          # Only reached when the NEW image passed health+smoke against the
+          # transferred exact-SHA compose file. Promote it to canonical now
+          # -- atomically, via `mv` on the same filesystem -- so
+          # /opt/reraise/docker-compose.yml matches what's actually running
+          # from this point on, and any later run's rollback path (which
+          # always reads $CANONICAL_COMPOSE) targets the right version.
+          # Still inside the lock acquired above.
+          mv -f "$DEPLOY_COMPOSE" "$CANONICAL_COMPOSE"
+          echo "Promoted $DEPLOY_COMPOSE -> $CANONICAL_COMPOSE"
 
           # Only reached when the NEW image passed health+smoke -- this is
           # the one place this deploy is allowed to update the shared
@@ -375,5 +461,5 @@ jobs:
             echo "No previous running image was captured at the start of this deploy (first deploy on this host, or the container didn't exist yet) -- rollback-previous marker left as-is. maintenance's retention.sh fails closed (deletes nothing) for this project until the marker exists."
           fi
 
-          echo "Deploy complete: $ACTUAL_SHA is live and healthy (image $NEW_IMAGE_ID)."
+          echo "Deploy complete: $EXPECTED_SHA is live and healthy (image $NEW_IMAGE_ID)."
           REMOTE_SCRIPT
