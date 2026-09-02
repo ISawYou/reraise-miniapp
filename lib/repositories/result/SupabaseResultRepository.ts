@@ -295,6 +295,7 @@ export class SupabaseResultRepository implements ResultRepository {
       .select(
         `
         player_id,
+        tournament_id,
         rating_points,
         players (
           username,
@@ -312,6 +313,7 @@ export class SupabaseResultRepository implements ResultRepository {
 
     type ResultWithPlayerLeaderboardRow = {
       player_id: string;
+      tournament_id: string;
       rating_points: number | null;
       players: PlayerLeaderboardJoin | PlayerLeaderboardJoin[] | null;
     };
@@ -321,6 +323,7 @@ export class SupabaseResultRepository implements ResultRepository {
 
       return {
         player_id: row.player_id,
+        tournament_id: row.tournament_id,
         rating_points: row.rating_points,
         username: player?.username ?? null,
         display_name: player?.display_name ?? "Игрок",

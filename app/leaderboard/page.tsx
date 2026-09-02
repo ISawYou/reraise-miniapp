@@ -5,14 +5,17 @@ import { BackButton } from "@/components/ui/back-button";
 import { RatingIcon } from "@/components/icons/rating-icon";
 import { useEffect, useState } from "react";
 import {
+  describeRankMovement,
   filterArchivableSeasons,
   getLeaderboardPlaceTone,
   getPodiumOrder,
   resolvePlayerStanding,
+  type RankMovementDisplay,
 } from "@/lib/leaderboard-display";
 import { logEvent } from "@/lib/activity-client";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import type { RankMovement } from "@/features/leaderboard";
 
 type LeaderboardRow = {
   player_id: string;
@@ -21,7 +24,34 @@ type LeaderboardRow = {
   telegram_avatar_url: string | null;
   custom_avatar_url: string | null;
   rating: number;
+  // Current-mode leaderboard rows only -- see
+  // features/leaderboard.ts::getOfficialSeasonLeaderboardWithMovement.
+  // Absent for archive/all-time rows and for "Вне зачёта" rows -- callers
+  // never render movement for either.
+  rankMovement?: RankMovement;
 };
+
+// Compact "↑3 / ↓2 / — / NEW" badge -- secondary to rank/name/points,
+// never rendered at all when there is nothing to show (OOC rows,
+// archive/all-time mode). Same tone-to-color mapping everywhere it appears
+// (RankRow, Podium, YourPositionCard).
+function RankMovementBadge({ movement }: { movement: RankMovement | undefined }) {
+  const display = describeRankMovement(movement);
+  if (!display) return null;
+
+  const toneClass: Record<RankMovementDisplay["tone"], string> = {
+    up: "text-emerald-400",
+    down: "text-red-400/80",
+    same: "text-white/35",
+    new: "text-[#f0d38a]",
+  };
+
+  return (
+    <span className={`text-[11px] font-semibold tabular-nums ${toneClass[display.tone]}`}>
+      {display.label}
+    </span>
+  );
+}
 
 type PublicSeason = { id: string; title: string; isActive: boolean };
 
@@ -111,6 +141,11 @@ function Podium({ topThree, currentPlayerId }: { topThree: LeaderboardRow[]; cur
             <p className={`mt-1 font-bold tabular-nums ${isPrimary ? "text-lg text-[#f0d38a]" : "text-sm text-white/75"}`}>
               {row.rating}
             </p>
+            {row.rankMovement ? (
+              <div className="mt-0.5">
+                <RankMovementBadge movement={row.rankMovement} />
+              </div>
+            ) : null}
           </Link>
         );
       })}
@@ -150,8 +185,15 @@ function RankRow({
         <p className="truncate text-sm font-medium text-white">{row.display_name}</p>
         {isCurrentPlayer ? <p className="mt-0.5 text-xs text-[#f0d38a]">Это вы</p> : null}
       </div>
-      <div className={`shrink-0 text-sm font-semibold tabular-nums ${isCurrentPlayer ? "text-[#f0d38a]" : "text-white/80"}`}>
-        {row.rating}
+      <div className="shrink-0 text-right">
+        <p className={`text-sm font-semibold tabular-nums ${isCurrentPlayer ? "text-[#f0d38a]" : "text-white/80"}`}>
+          {row.rating}
+        </p>
+        {row.rankMovement ? (
+          <div className="mt-0.5">
+            <RankMovementBadge movement={row.rankMovement} />
+          </div>
+        ) : null}
       </div>
     </Link>
   );
@@ -160,17 +202,28 @@ function RankRow({
 function YourPositionCard({
   standing,
   isAllTime = false,
+  rankMovement,
 }: {
   standing: { rank: number | null; points: number; isOutOfCompetition: boolean };
   isAllTime?: boolean;
+  // Current mode only -- reuses the same movement already computed for
+  // this player's leaderboard row (see LeaderboardPage below); never
+  // recalculated here. Omitted entirely for archive/all-time, and for an
+  // OOC player there is simply no row to have carried one.
+  rankMovement?: RankMovement;
 }) {
   return (
     <div className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-[#d7b55a]/25 bg-[#d7b55a]/[0.06] px-4 py-3.5">
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-white/50">Ваша позиция</p>
-        <p className="mt-1 text-lg font-bold text-white">
-          {standing.isOutOfCompetition ? "Вне зачёта" : standing.rank ? `#${standing.rank}` : "Пока без позиции"}
-        </p>
+        <div className="mt-1 flex items-center gap-2">
+          <p className="text-lg font-bold text-white">
+            {standing.isOutOfCompetition ? "Вне зачёта" : standing.rank ? `#${standing.rank}` : "Пока без позиции"}
+          </p>
+          {!isAllTime && !standing.isOutOfCompetition ? (
+            <RankMovementBadge movement={rankMovement} />
+          ) : null}
+        </div>
       </div>
       <div className="text-right">
         <p className="text-xs font-medium uppercase tracking-wide text-white/50">
@@ -386,6 +439,13 @@ export default function LeaderboardPage() {
     [],
     currentPlayerId
   );
+  // Same movement the API already computed for this exact row -- never
+  // recalculated client-side (task: reuse the same movement data already
+  // returned for leaderboard rows). Undefined for an OOC/unranked player,
+  // same as any other row without a rankMovement field.
+  const currentPlayerRankMovement = currentRows.find(
+    (row) => row.player_id === currentPlayerId
+  )?.rankMovement;
 
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
@@ -439,7 +499,9 @@ export default function LeaderboardPage() {
                   showTopNine
                   emptyMessage="Рейтинг сезона начнётся после первого завершённого турнира"
                 />
-                {currentPlayerId ? <YourPositionCard standing={currentStanding} /> : null}
+                {currentPlayerId ? (
+                  <YourPositionCard standing={currentStanding} rankMovement={currentPlayerRankMovement} />
+                ) : null}
               </>
             )}
           </>

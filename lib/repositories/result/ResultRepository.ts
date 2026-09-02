@@ -145,9 +145,18 @@ export interface ResultRepository {
   findArrivedPlacementsByPlayerId(playerId: string): Promise<ArrivedPlacementRow[]>;
 
   findByTournamentIdWithPlayer(tournamentId: string): Promise<TournamentResult[]>;
+  // `tournament_id` -- additive, needed by
+  // features/leaderboard.ts::getOfficialSeasonLeaderboardWithMovement to
+  // reconstruct the season's standing as it stood immediately before the
+  // most recent completed tournament's rows existed (excluding exactly
+  // those rows from the same aggregation, never a second rating
+  // calculation). getSeasonLeaderboard/getOfficialSeasonLeaderboard
+  // themselves never read it -- purely additive, zero behavior change to
+  // either.
   findWithPlayerBySeasonId(seasonId: string): Promise<
     Array<{
       player_id: string;
+      tournament_id: string;
       rating_points: number | null;
       username: string | null;
       display_name: string;

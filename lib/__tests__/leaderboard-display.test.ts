@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  describeRankMovement,
   filterArchivableSeasons,
   getLeaderboardPlaceTone,
   getPodiumOrder,
   LEADERBOARD_GRID_CLASS,
   resolvePlayerStanding,
 } from "@/lib/leaderboard-display";
+import type { RankMovement } from "@/features/leaderboard";
 
 describe("leaderboard display", () => {
   it("marks exactly places 1-9 as podium or finalists", () => {
@@ -88,5 +90,37 @@ describe("resolvePlayerStanding", () => {
     expect(standing.rank).toBeNull();
     expect(standing.points).toBe(1000);
     expect(standing.isOutOfCompetition).toBe(true);
+  });
+});
+
+describe("describeRankMovement", () => {
+  it('formats "up" as ↑N', () => {
+    const movement: RankMovement = { type: "up", places: 3 };
+    expect(describeRankMovement(movement)).toEqual({ label: "↑3", tone: "up" });
+  });
+
+  it('formats "down" as ↓N', () => {
+    const movement: RankMovement = { type: "down", places: 2 };
+    expect(describeRankMovement(movement)).toEqual({ label: "↓2", tone: "down" });
+  });
+
+  it('formats "same" as a neutral —', () => {
+    const movement: RankMovement = { type: "same" };
+    expect(describeRankMovement(movement)).toEqual({ label: "—", tone: "same" });
+  });
+
+  it('formats "new" as NEW', () => {
+    const movement: RankMovement = { type: "new" };
+    expect(describeRankMovement(movement)).toEqual({ label: "NEW", tone: "new" });
+  });
+
+  it('formats "unavailable" the SAME as "same" -- a neutral —, never a fake ↑/↓', () => {
+    const movement: RankMovement = { type: "unavailable" };
+    expect(describeRankMovement(movement)).toEqual({ label: "—", tone: "same" });
+  });
+
+  it("returns null for undefined/null (OOC rows, or archive/all-time mode where movement is never populated)", () => {
+    expect(describeRankMovement(undefined)).toBeNull();
+    expect(describeRankMovement(null)).toBeNull();
   });
 });

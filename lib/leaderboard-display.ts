@@ -1,3 +1,5 @@
+import type { RankMovement } from "@/features/leaderboard";
+
 export const LEADERBOARD_GRID_CLASS =
   "grid-cols-[36px_minmax(0,1fr)_64px] sm:grid-cols-[48px_minmax(0,1fr)_90px]";
 
@@ -61,4 +63,36 @@ export function resolvePlayerStanding(
   }
 
   return { rank: null, points: 0, isOutOfCompetition: false };
+}
+
+export type RankMovementDisplay = {
+  label: string;
+  tone: "up" | "down" | "same" | "new";
+};
+
+// Pure formatting only -- current-mode leaderboard rows/podium/"Ваша
+// позиция" all call this on the SAME rankMovement value the API already
+// computed (features/leaderboard.ts::getOfficialSeasonLeaderboardWithMovement),
+// never recalculating it. `undefined`/`null` covers both "Вне зачёта" (no
+// rankMovement field at all) and archive/all-time mode (never populated) --
+// callers render nothing for those, not a fallback badge.
+export function describeRankMovement(
+  movement: RankMovement | null | undefined
+): RankMovementDisplay | null {
+  if (!movement) return null;
+
+  switch (movement.type) {
+    case "up":
+      return { label: `↑${movement.places}`, tone: "up" };
+    case "down":
+      return { label: `↓${movement.places}`, tone: "down" };
+    case "new":
+      return { label: "NEW", tone: "new" };
+    case "same":
+    case "unavailable":
+      // "unavailable" (an equal-rating tie makes the exact previous/current
+      // sequential position ambiguous) renders identically to "same" -- a
+      // neutral "—", never a fake ↑/↓ built on arbitrary tie order.
+      return { label: "—", tone: "same" };
+  }
 }

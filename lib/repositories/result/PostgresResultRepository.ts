@@ -176,6 +176,7 @@ export class PostgresResultRepository implements ResultRepository {
     const rows = await db
       .select({
         player_id: results.playerId,
+        tournament_id: results.tournamentId,
         rating_points: results.ratingPoints,
         players: {
           id: players.id,
@@ -193,6 +194,7 @@ export class PostgresResultRepository implements ResultRepository {
       const player = row.players;
       return {
         player_id: row.player_id,
+        tournament_id: row.tournament_id,
         rating_points: row.rating_points,
         username: player?.username ?? null,
         display_name: player?.display_name ?? "Игрок",

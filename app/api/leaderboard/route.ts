@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { seasonRepository } from "@/lib/repositories";
-import { getOfficialSeasonLeaderboard } from "@/features/leaderboard";
+import { getOfficialSeasonLeaderboardWithMovement } from "@/features/leaderboard";
 
 // Always run at request time -- never statically generated. `revalidate`
 // used to make Next.js execute this handler during `next build` itself (to
@@ -22,9 +22,14 @@ export async function GET() {
   let outOfCompetition;
   try {
     // Official standings: raw rating totals minus "Вне зачёта" season
-    // exclusions -- see features/leaderboard.ts. Excluded players are
-    // returned separately (outOfCompetition), never with an official rank.
-    ({ leaderboard, outOfCompetition } = await getOfficialSeasonLeaderboard(season.id));
+    // exclusions, PLUS rank movement since the most recent completed
+    // tournament of this season -- see features/leaderboard.ts. Excluded
+    // players are returned separately (outOfCompetition), never with an
+    // official rank, and never with a rankMovement field either -- "Вне
+    // зачёта" rows have no official rank to move from/to. `rankMovement` is
+    // additive on top of the exact same leaderboard entries this route
+    // already returned -- no existing field removed/renamed.
+    ({ leaderboard, outOfCompetition } = await getOfficialSeasonLeaderboardWithMovement(season.id));
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },

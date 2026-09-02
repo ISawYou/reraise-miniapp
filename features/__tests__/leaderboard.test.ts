@@ -4,6 +4,7 @@ const mockFindWithPlayerBySeasonId = vi.fn();
 const mockFindAllTimeWithPlayer = vi.fn();
 const mockListBySeasonId = vi.fn();
 const mockFindActiveSeason = vi.fn();
+const mockListCompleted = vi.fn();
 
 vi.mock("@/lib/repositories", () => ({
   resultRepository: {
@@ -12,23 +13,38 @@ vi.mock("@/lib/repositories", () => ({
   },
   seasonRatingExclusionRepository: { listBySeasonId: mockListBySeasonId },
   seasonRepository: { findActive: mockFindActiveSeason },
+  tournamentRepository: { listCompleted: mockListCompleted },
 }));
 
 const {
   getSeasonLeaderboard,
   getOfficialSeasonLeaderboard,
+  getOfficialSeasonLeaderboardWithMovement,
   getAllTimeLeaderboard,
   getPlayerRatingSummary,
 } = await import("@/features/leaderboard");
 
-function resultRow(playerId: string, ratingPoints: number) {
+function resultRow(playerId: string, ratingPoints: number, tournamentId = "t-default") {
   return {
     player_id: playerId,
+    tournament_id: tournamentId,
     rating_points: ratingPoints,
     username: playerId,
     display_name: playerId,
     telegram_avatar_url: null,
     custom_avatar_url: null,
+  };
+}
+
+function tournament(
+  overrides: Partial<{ id: string; season_id: string | null; start_at: string; status: string }> = {}
+) {
+  return {
+    id: "t-default",
+    season_id: "s1",
+    status: "completed",
+    start_at: "2026-06-01T18:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -48,6 +64,7 @@ beforeEach(() => {
   mockFindAllTimeWithPlayer.mockReset();
   mockListBySeasonId.mockReset();
   mockFindActiveSeason.mockReset();
+  mockListCompleted.mockReset().mockResolvedValue([]);
 });
 
 describe("getSeasonLeaderboard (raw)", () => {
@@ -268,5 +285,384 @@ describe("getPlayerRatingSummary -- profile data contract", () => {
     expect(serialized).not.toContain("end_date");
     expect(summary.currentSeason).not.toHaveProperty("start_date");
     expect(summary.currentSeason).not.toHaveProperty("end_date");
+  });
+});
+
+describe("getOfficialSeasonLeaderboardWithMovement", () => {
+  it("1. the season's first completed tournament -> every ranked player is NEW", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 100, "t1"),
+      resultRow("p2", 80, "t1"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([tournament({ id: "t1", start_at: "2026-06-01T18:00:00.000Z" })]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(leaderboard.map((e) => e.rankMovement)).toEqual([{ type: "new" }, { type: "new" }]);
+  });
+
+  it("2. a player absent before the latest tournament (first tournament of the season for them) -> NEW, even when other players already have an established previous rank", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 100, "t-old"),
+      resultRow("p2", 90, "t-old"),
+      resultRow("p3", 50, "t-new"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T18:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T18:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(leaderboard.find((e) => e.player_id === "p3")?.rankMovement).toEqual({ type: "new" });
+  });
+
+  it("3. #8 -> #5 => up 3", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 800, "t-old"),
+      resultRow("p2", 700, "t-old"),
+      resultRow("p3", 600, "t-old"),
+      resultRow("p4", 500, "t-old"),
+      resultRow("p5", 400, "t-old"),
+      resultRow("p6", 300, "t-old"),
+      resultRow("p7", 200, "t-old"),
+      resultRow("p8", 100, "t-old"),
+      resultRow("p8", 350, "t-new"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T18:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T18:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+    const p8 = leaderboard.find((e) => e.player_id === "p8")!;
+
+    expect(p8.officialRank).toBe(5);
+    expect(p8.rankMovement).toEqual({ type: "up", places: 3 });
+  });
+
+  it("4. #3 -> #5 => down 2", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 1000, "t-old"),
+      resultRow("p2", 900, "t-old"),
+      resultRow("p3", 800, "t-old"),
+      resultRow("p4", 700, "t-old"),
+      resultRow("p5", 600, "t-old"),
+      resultRow("p6", 500, "t-old"),
+      resultRow("p4", 250, "t-new"),
+      resultRow("p5", 250, "t-new"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T18:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T18:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+    const p3 = leaderboard.find((e) => e.player_id === "p3")!;
+
+    expect(p3.officialRank).toBe(5);
+    expect(p3.rankMovement).toEqual({ type: "down", places: 2 });
+  });
+
+  it("5. unchanged official rank => same", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 500, "t-old"),
+      resultRow("p2", 300, "t-old"),
+      resultRow("p1", 50, "t-new"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T18:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T18:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(leaderboard.find((e) => e.player_id === "p1")?.rankMovement).toEqual({ type: "same" });
+    expect(leaderboard.find((e) => e.player_id === "p2")?.rankMovement).toEqual({ type: "same" });
+  });
+
+  it("6. the latest tournament's own rows are excluded from the previous snapshot (not double counted)", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 100, "t-old"),
+      resultRow("p1", 900, "t-new"), // huge boost, ONLY from the latest tournament
+      resultRow("p2", 200, "t-old"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T18:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T18:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+    const p1 = leaderboard.find((e) => e.player_id === "p1")!;
+
+    // If the latest tournament's 900 were wrongly included in "previous"
+    // too, p1's previous total would also be 1000 (rank 1, same as
+    // current) -- this would show "same", not "up". Correctly excluding it
+    // leaves p1's previous total at 100 (rank 2, behind p2's 200).
+    expect(p1.officialRank).toBe(1);
+    expect(p1.rankMovement).toEqual({ type: "up", places: 1 });
+  });
+
+  it("7. older (non-latest) tournaments remain fully included and SUMMED in the previous snapshot", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 100, "t-old-1"),
+      resultRow("p1", 100, "t-old-2"),
+      resultRow("p2", 150, "t-old-1"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old-1", start_at: "2026-04-01T18:00:00.000Z" }),
+      tournament({ id: "t-old-2", start_at: "2026-05-01T18:00:00.000Z" }),
+      // Latest tournament contributes nothing new for either player --
+      // movement should reflect BOTH older tournaments summed for
+      // "previous", not just the most recent of the two older ones.
+      tournament({ id: "t-new", start_at: "2026-06-01T18:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    // p1's previous total is 100+100=200 (rank 1, ahead of p2's 150) --
+    // same as current (no latest-tournament rows exist at all for either
+    // player) -- so both stay "same". If t-old-1 were wrongly dropped, p1's
+    // previous total would be only 100 (rank 2, behind p2), making this
+    // incorrectly report "up" instead of "same".
+    expect(leaderboard.find((e) => e.player_id === "p1")?.rankMovement).toEqual({ type: "same" });
+    expect(leaderboard.find((e) => e.player_id === "p2")?.rankMovement).toEqual({ type: "same" });
+  });
+
+  it("8. movement is derived from the persisted rating_points values exactly as given, never re-derived", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 123, "t-old"),
+      resultRow("p2", 45, "t-old"),
+      resultRow("p1", 7, "t-new"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T18:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T18:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(leaderboard.find((e) => e.player_id === "p1")?.rating).toBe(130);
+  });
+
+  it("9. no rating engine / place / KO / entries input is ever read -- only the persisted rating_points field the mocked rows carry", async () => {
+    // These rows deliberately carry NO place/knockouts/entries/addons
+    // fields at all -- if the implementation tried to read any of them for
+    // a recalculation it would silently get `undefined`, not a thrown
+    // error, so this test's real assertion is that the OUTPUT still
+    // matches a hand-computed rating_points-only sum.
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 42, "t-old"),
+      resultRow("p2", 17, "t-old"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([tournament({ id: "t-old" })]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(leaderboard.map((e) => e.rating)).toEqual([42, 17]);
+  });
+
+  it("10. the latest tournament is chosen by canonical chronology (start_at desc), never by array/insertion order", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 300, "t-early"),
+      resultRow("p1", 100, "t-late"),
+      resultRow("p2", 100, "t-early"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    // Deliberately fed in ASCENDING order (earliest first) -- the opposite
+    // of what listCompleted() normally returns -- to prove the function
+    // sorts by start_at itself rather than trusting array index 0.
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-early", start_at: "2026-01-01T00:00:00.000Z" }),
+      tournament({ id: "t-late", start_at: "2026-06-01T00:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    // p2 has no row in t-late at all. If t-early were wrongly treated as
+    // "latest" (array index 0), t-early's rows would be excluded from
+    // "previous", leaving p2 with NO previous row -> NEW. Correctly
+    // treating t-late as latest keeps t-early (p2's only tournament) in
+    // "previous", so p2's rank is unchanged -> same.
+    expect(leaderboard.find((e) => e.player_id === "p2")?.rankMovement).toEqual({ type: "same" });
+  });
+
+  it("11. a non-completed tournament (draft/open/closed) can never become the comparison tournament, even with a later start_at", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 100, "t-old"),
+      resultRow("p2", 150, "t-old"),
+      resultRow("p1", 200, "t-real-latest"), // p1 pulls ahead: 100 -> 300
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    // A non-completed tournament with a LATER start_at than the real
+    // latest completed one, and (realistically) no result rows of its own
+    // -- listCompleted() itself would never actually return a non-
+    // completed row, but this proves the function's own defense-in-depth
+    // status check, not just reliance on that upstream contract.
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-04-01T00:00:00.000Z", status: "completed" }),
+      tournament({ id: "t-real-latest", start_at: "2026-05-01T00:00:00.000Z", status: "completed" }),
+      tournament({ id: "t-open", start_at: "2026-06-01T00:00:00.000Z", status: "open" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    // Correct: "t-real-latest" is excluded from "previous" -> previous
+    // p1=100 (rank 2), p2=150 (rank 1); current p1=300 (rank 1), p2=150
+    // (rank 2) -> p1 up 1, p2 down 1. If "t-open" (no rows of its own,
+    // later date) were wrongly picked instead, excluding it would be a
+    // no-op -- previous would equal current exactly and BOTH would
+    // incorrectly show "same".
+    expect(leaderboard.find((e) => e.player_id === "p1")?.rankMovement).toEqual({ type: "up", places: 1 });
+    expect(leaderboard.find((e) => e.player_id === "p2")?.rankMovement).toEqual({ type: "down", places: 1 });
+  });
+
+  it("12. a completed tournament from a DIFFERENT season is never chosen, even with a later start_at", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 300, "t-s1-old"),
+      resultRow("p2", 100, "t-s1-old"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-s1-old", season_id: "s1", start_at: "2026-05-01T00:00:00.000Z" }),
+      // A later-dated completed tournament, but a DIFFERENT season --
+      // findWithPlayerBySeasonId("s1") would never return rows tagged with
+      // this id anyway, but this proves the tournament-selection step
+      // itself also ignores it.
+      tournament({ id: "t-s2-new", season_id: "s2", start_at: "2026-07-01T00:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    // t-s1-old is season s1's only tournament -> first tournament of the
+    // season for both players -> NEW, not "same" (which would happen if
+    // t-s2-new were wrongly treated as "the latest" and t-s1-old were
+    // excluded from "previous" instead).
+    expect(leaderboard.map((e) => e.rankMovement)).toEqual([{ type: "new" }, { type: "new" }]);
+  });
+
+  it("13. an OOC (Вне зачёта) player gets no rankMovement at all", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("owner", 900, "t-old"),
+      resultRow("p1", 100, "t-old"),
+      resultRow("owner", 50, "t-new"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([exclusion("owner")]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T00:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T00:00:00.000Z" }),
+    ]);
+
+    const { leaderboard, outOfCompetition } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(leaderboard.every((e) => e.player_id !== "owner")).toBe(true);
+    const ownerRow = outOfCompetition.find((e) => e.player_id === "owner");
+    expect(ownerRow).toBeDefined();
+    expect(ownerRow).not.toHaveProperty("rankMovement");
+  });
+
+  it("14. OOC players never consume an official rank slot in EITHER the current or the previous snapshot", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("owner", 10000, "t-old"), // highest rating by far, but OOC
+      resultRow("p1", 500, "t-old"),
+      resultRow("p2", 400, "t-old"),
+      resultRow("owner", 10, "t-new"),
+      resultRow("p1", 10, "t-new"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([exclusion("owner")]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T00:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T00:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    // p1 must be officialRank 1 in both snapshots (owner never occupies
+    // rank 1 despite having the highest raw rating) -- so p1 stays "same",
+    // not shifted by owner's presence.
+    const p1 = leaderboard.find((e) => e.player_id === "p1")!;
+    expect(p1.officialRank).toBe(1);
+    expect(p1.rankMovement).toEqual({ type: "same" });
+  });
+
+  it("15. equal CURRENT rating among ranked players => movement unavailable for both, rendered neutral", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 100, "t-old"),
+      resultRow("p2", 50, "t-old"),
+      resultRow("p1", 50, "t-new"), // p1: 100 -> 150
+      resultRow("p2", 100, "t-new"), // p2: 50 -> 150, now tied with p1
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T00:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T00:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(leaderboard.find((e) => e.player_id === "p1")?.rankMovement).toEqual({ type: "unavailable" });
+    expect(leaderboard.find((e) => e.player_id === "p2")?.rankMovement).toEqual({ type: "unavailable" });
+  });
+
+  it("16. equal PREVIOUS rating among ranked players => movement unavailable, even though current ratings differ", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 100, "t-old"),
+      resultRow("p2", 100, "t-old"), // tied previously
+      resultRow("p1", 50, "t-new"), // p1 pulls ahead now: 150 vs 100
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([
+      tournament({ id: "t-old", start_at: "2026-05-01T00:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T00:00:00.000Z" }),
+    ]);
+
+    const { leaderboard } = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(leaderboard.find((e) => e.player_id === "p1")?.rankMovement).toEqual({ type: "unavailable" });
+    expect(leaderboard.find((e) => e.player_id === "p2")?.rankMovement).toEqual({ type: "unavailable" });
+  });
+
+  it("17. tie handling never changes the canonical official leaderboard order/ranks -- identical to plain getOfficialSeasonLeaderboard for the same input", async () => {
+    mockFindWithPlayerBySeasonId.mockResolvedValue([
+      resultRow("p1", 100, "t-old"),
+      resultRow("p2", 100, "t-old"),
+      resultRow("p3", 50, "t-old"),
+    ]);
+    mockListBySeasonId.mockResolvedValue([]);
+    mockListCompleted.mockResolvedValue([tournament({ id: "t-old" })]);
+
+    const plain = await getOfficialSeasonLeaderboard("s1");
+    const withMovement = await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(withMovement.leaderboard.map((e) => ({ player_id: e.player_id, officialRank: e.officialRank, rating: e.rating }))).toEqual(
+      plain.leaderboard.map((e) => ({ player_id: e.player_id, officialRank: e.officialRank, rating: e.rating }))
+    );
+  });
+
+  it("does not mutate the rows/exclusions/tournaments arrays it reads", async () => {
+    const rows = [resultRow("p1", 100, "t-old"), resultRow("p1", 50, "t-new")];
+    const rowsSnapshot = rows.map((r) => ({ ...r }));
+    mockFindWithPlayerBySeasonId.mockResolvedValue(rows);
+    mockListBySeasonId.mockResolvedValue([]);
+    const tournaments = [
+      tournament({ id: "t-old", start_at: "2026-05-01T00:00:00.000Z" }),
+      tournament({ id: "t-new", start_at: "2026-06-01T00:00:00.000Z" }),
+    ];
+    const tournamentsSnapshot = tournaments.map((t) => ({ ...t }));
+    mockListCompleted.mockResolvedValue(tournaments);
+
+    await getOfficialSeasonLeaderboardWithMovement("s1");
+
+    expect(rows).toEqual(rowsSnapshot);
+    expect(tournaments).toEqual(tournamentsSnapshot);
   });
 });
