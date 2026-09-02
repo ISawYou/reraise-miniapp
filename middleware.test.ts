@@ -113,6 +113,7 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       ["POST", "/api/admin/tournaments/t1/mystery-bounty/activate"],
       ["POST", "/api/admin/tournaments/t1/complete-free"],
       ["POST", "/api/admin/tournaments/t1/complete-live"],
+      ["POST", "/api/admin/tournaments/t1/poker-clock/finish"],
       ["GET", "/api/admin/nicknames/players"],
       ["GET", "/api/admin/dealers"],
       ["POST", "/api/admin/dealers/shifts"],
@@ -258,6 +259,7 @@ describe("admin middleware -- dealer-only user (dealer is NOT an auth role)", ()
       ["GET", "/api/admin/roles"],
       ["GET", "/api/admin/nicknames/pending"],
       ["PATCH", "/api/admin/nicknames/p1/approve"],
+      ["POST", "/api/admin/tournaments/t1/poker-clock/finish"],
     ] as const) {
       const response = await middleware(requestFor(method, path));
       expect(response.status, `${method} ${path}`).toBe(403);

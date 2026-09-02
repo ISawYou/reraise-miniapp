@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getPokerClockLiveState } from "@/lib/poker-clock-client";
+import { finishPokerClockTournament, getPokerClockLiveState } from "@/lib/poker-clock-client";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -346,5 +346,147 @@ describe("getPokerClockLiveState", () => {
     const result = await getPokerClockLiveState("t1");
     expect(result?.status).toBe("finished");
     expect(result?.isBreak).toBe(false);
+  });
+});
+
+describe("finishPokerClockTournament", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  it("POST 200 -> FINISHED", async () => {
+    const fetchMock = mockFetchOnce({ ok: true, status: 200 });
+
+    const result = await finishPokerClockTournament("t1");
+
+    expect(result).toEqual({ status: "finished" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://poker-clock:3000/api/integrations/v1/tournaments/t1/finish",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("uses POST, not GET/PATCH", async () => {
+    const fetchMock = mockFetchOnce({ ok: true, status: 200 });
+
+    await finishPokerClockTournament("t1");
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.method).toBe("POST");
+  });
+
+  it("sends the SAME existing outbound Bearer credential as getPokerClockLiveState (POKER_CLOCK_LIVE_STATE_TOKEN)", async () => {
+    const fetchMock = mockFetchOnce({ ok: true, status: 200 });
+
+    await finishPokerClockTournament("t1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ headers: { Authorization: "Bearer secret-token" } })
+    );
+  });
+
+  it("URL-encodes the ReRaise tournament id path segment", async () => {
+    const fetchMock = mockFetchOnce({ ok: true, status: 200 });
+
+    await finishPokerClockTournament("weird id/with slash");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://poker-clock:3000/api/integrations/v1/tournaments/weird%20id%2Fwith%20slash/finish",
+      expect.anything()
+    );
+  });
+
+  it("404 (no linked Poker Clock tournament) -> NOT_LINKED, a normal no-op, not logged as an error", async () => {
+    const errorSpy = vi.spyOn(console, "error");
+    mockFetchOnce({ ok: false, status: 404 });
+
+    const result = await finishPokerClockTournament("t1");
+
+    expect(result).toEqual({ status: "not_linked" });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("401 -> FAILED", async () => {
+    mockFetchOnce({ ok: false, status: 401 });
+    const result = await finishPokerClockTournament("t1");
+    expect(result).toEqual({ status: "failed", reason: "unauthorized" });
+  });
+
+  it("403 -> FAILED", async () => {
+    mockFetchOnce({ ok: false, status: 403 });
+    const result = await finishPokerClockTournament("t1");
+    expect(result).toEqual({ status: "failed", reason: "unauthorized" });
+  });
+
+  it("409 (linked Clock tournament still draft -- lifecycle conflict) -> FAILED", async () => {
+    mockFetchOnce({ ok: false, status: 409 });
+    const result = await finishPokerClockTournament("t1");
+    expect(result).toEqual({ status: "failed", reason: "lifecycle_conflict" });
+  });
+
+  it("5xx -> FAILED", async () => {
+    mockFetchOnce({ ok: false, status: 500 });
+    const result = await finishPokerClockTournament("t1");
+    expect(result.status).toBe("failed");
+
+    mockFetchOnce({ ok: false, status: 503 });
+    const result2 = await finishPokerClockTournament("t1");
+    expect(result2.status).toBe("failed");
+  });
+
+  it("network error -> FAILED", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const result = await finishPokerClockTournament("t1");
+    expect(result).toEqual({ status: "failed", reason: "network_error" });
+  });
+
+  it("timeout (AbortError) -> FAILED", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }))
+    );
+    const result = await finishPokerClockTournament("t1");
+    expect(result).toEqual({ status: "failed", reason: "timeout" });
+  });
+
+  it("missing POKER_CLOCK_BASE_URL -> FAILED, never fetches", async () => {
+    setConfig(undefined, "secret-token");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await finishPokerClockTournament("t1");
+
+    expect(result).toEqual({ status: "failed", reason: "not_configured" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("missing POKER_CLOCK_LIVE_STATE_TOKEN -> FAILED, never fetches", async () => {
+    setConfig("http://poker-clock:3000", undefined);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await finishPokerClockTournament("t1");
+
+    expect(result).toEqual({ status: "failed", reason: "not_configured" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never throws, even on an unexpected non-404/401/403/409/5xx status", async () => {
+    mockFetchOnce({ ok: false, status: 418 });
+    const result = await finishPokerClockTournament("t1");
+    expect(result.status).toBe("failed");
+  });
+
+  it("logs safe categorical context (tournamentId + reason label) for a FAILED outcome, never the raw response", async () => {
+    const errorSpy = vi.spyOn(console, "error");
+    mockFetchOnce({ ok: false, status: 500 });
+
+    await finishPokerClockTournament("t1");
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("finish failed"),
+      expect.objectContaining({ tournamentId: "t1", reason: "upstream_error" })
+    );
   });
 });

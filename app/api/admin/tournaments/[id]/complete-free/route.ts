@@ -17,7 +17,21 @@ import {
 } from "@/features/tournament-sheet-sync";
 import type { NormalizedFreeSheetRow } from "@/lib/tournament-sheet-parsing";
 import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
+import { finishPokerClockTournament } from "@/lib/poker-clock-client";
 
+// ReRaise is the authoritative tournament/results system -- everything
+// through the GS sync below is completion as it already worked before
+// Poker Clock existed, unreordered and untouched. Poker Clock finish
+// (product item #8) is a POST-COMPLETION side effect ONLY, attempted after
+// every step above has already fully succeeded: it can never block, delay,
+// or roll back ReRaise's own completion, and its outcome (finished/
+// not_linked/failed) is only ever reported alongside an already-successful
+// response, never as this route's own error. A tournament with no linked
+// Poker Clock tournament resolves to a normal "not_linked" no-op (Poker
+// Clock's canonical generic 404), not a warning. See
+// lib/poker-clock-client.ts::finishPokerClockTournament and
+// app/api/admin/tournaments/[id]/poker-clock/finish/route.ts (the separate,
+// narrow admin retry for when this step itself fails).
 const OPERATION = "complete-free";
 
 export async function POST(
@@ -266,9 +280,20 @@ export async function POST(
       body.bountyPrice ?? 0
     );
 
+    // Poker Clock synchronization is a POST-COMPLETION side effect only --
+    // everything above (reconciliation, rating, saveTournamentResults, the
+    // GS sync) has already fully succeeded by this point, and ReRaise's own
+    // completion is unconditionally final regardless of what happens next.
+    // finishPokerClockTournament never throws, and its result is never
+    // allowed to turn this response into anything but success -- see that
+    // function's doc comment (lib/poker-clock-client.ts) and this route's
+    // own module doc comment above.
+    const pokerClockResult = await finishPokerClockTournament(id);
+
     return NextResponse.json({
       ok: true,
       completedCount: rows.length,
+      pokerClockSync: { status: pokerClockResult.status },
     });
   } catch (error) {
     logCompletionError({ operation: OPERATION, tournamentId: id, error });

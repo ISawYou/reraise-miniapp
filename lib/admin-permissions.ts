@@ -59,6 +59,11 @@ const OPERATOR_ALLOWED_ROUTES: OperatorRoute[] = [
   route("POST", "/api/admin/tournaments/:id/mystery-bounty/recalculate"),
   route("POST", "/api/admin/tournaments/:id/complete-free"),
   route("POST", "/api/admin/tournaments/:id/complete-live"),
+  // Retry ONLY the Poker Clock finish side effect of an already-completed
+  // tournament (see app/api/admin/tournaments/[id]/poker-clock/finish/route.ts)
+  // -- same permission class as completing the tournament itself, since it's
+  // narrower (no rating/results/GS write of any kind), not broader.
+  route("POST", "/api/admin/tournaments/:id/poker-clock/finish"),
 
   // Player directory read -- reused by the tournament-edit "add existing
   // player" search. Read-only, no PII beyond what the tournament-roster

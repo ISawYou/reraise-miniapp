@@ -71,3 +71,24 @@ describe("isAdminRouteAllowedForOperator -- dealer 'Чай' + nickname approval"
     expect(isAdminRouteAllowedForOperator("DELETE", "/api/admin/players/p1")).toBe(false);
   });
 });
+
+// Poker Clock finish retry (product item #8) -- same operator tier as
+// completing the tournament itself (POST .../complete-free), since this
+// route is strictly narrower: it never touches rating/results/GS, only
+// retries the post-completion Poker Clock side effect.
+describe("isAdminRouteAllowedForOperator -- Poker Clock finish retry", () => {
+  it("allows an operator to retry the Poker Clock finish for a tournament, same tier as completing it", () => {
+    expect(
+      isAdminRouteAllowedForOperator("POST", "/api/admin/tournaments/t1/poker-clock/finish")
+    ).toBe(true);
+  });
+
+  it("only accepts POST -- GET/DELETE are not on the allowlist", () => {
+    expect(
+      isAdminRouteAllowedForOperator("GET", "/api/admin/tournaments/t1/poker-clock/finish")
+    ).toBe(false);
+    expect(
+      isAdminRouteAllowedForOperator("DELETE", "/api/admin/tournaments/t1/poker-clock/finish")
+    ).toBe(false);
+  });
+});

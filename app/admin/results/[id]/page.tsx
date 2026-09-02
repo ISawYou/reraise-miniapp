@@ -206,6 +206,14 @@ export default function AdminTournamentResultsPage() {
   const [completionSummary, setCompletionSummary] = useState<TournamentCompletionSummary | null>(null);
   const [tournamentResults, setTournamentResults] = useState<TournamentResult[]>([]);
   const [resultsCopied, setResultsCopied] = useState(false);
+  // Product item #8 -- ReRaise completion is unaffected by any of this;
+  // this is request/UI state only for reporting the Poker Clock
+  // post-completion side effect and offering a retry (see
+  // handleCompleteFreeTournament / handleRetryPokerClockSync below). Not
+  // persisted -- see this file's PAGE_RELOAD_LIMITATION note.
+  const [pokerClockSyncStatus, setPokerClockSyncStatus] =
+    useState<"finished" | "not_linked" | "failed" | null>(null);
+  const [retryingPokerClockSync, setRetryingPokerClockSync] = useState(false);
   const [accessChecked, setAccessChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1260,49 +1268,103 @@ export default function AdminTournamentResultsPage() {
 
     try {
       setCompleting(true);
+      setPokerClockSyncStatus(null);
 
-      await fetchAdminJson<{ ok: true }>(
-        `/api/admin/tournaments/${tournamentId}/complete-free`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            rows: freeRows.map((row) => ({
-              player_id: row.player_id,
-              display_name: row.display_name,
-              arrived: row.arrived,
-              paid: row.paid,
-              payment_type: row.payment_type.trim(),
-              free_reentries: Number(row.free_reentries || 0),
-              rebuys: Number(row.rebuys || 0),
-              addons: Number(row.addons || 0),
-              knockouts: Number(row.knockouts || 0),
-              boss_knockouts: Number(row.boss_knockouts || 0),
-              mystery_bounty_points: Number(row.mystery_bounty_points || 0),
-              place: Number(row.place),
-              eliminated: row.eliminated,
-              eliminated_at: row.eliminated_at,
-            })),
-            entryPrice: Number(entryPrice || 0),
-            addonPrice: Number(addonPrice || 0),
-            bountyPrice: Number(bountyPrice || 0),
-          }),
-        }
-      );
+      const response = await fetchAdminJson<{
+        ok: true;
+        completedCount: number;
+        // Optional: only complete-free's ReRaise-linked points/free flow
+        // reports this. Absent is treated the same as "not_linked" below --
+        // ReRaise completion itself is never in question either way.
+        pokerClockSync?: { status: "finished" | "not_linked" | "failed" };
+      }>(`/api/admin/tournaments/${tournamentId}/complete-free`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          rows: freeRows.map((row) => ({
+            player_id: row.player_id,
+            display_name: row.display_name,
+            arrived: row.arrived,
+            paid: row.paid,
+            payment_type: row.payment_type.trim(),
+            free_reentries: Number(row.free_reentries || 0),
+            rebuys: Number(row.rebuys || 0),
+            addons: Number(row.addons || 0),
+            knockouts: Number(row.knockouts || 0),
+            boss_knockouts: Number(row.boss_knockouts || 0),
+            mystery_bounty_points: Number(row.mystery_bounty_points || 0),
+            place: Number(row.place),
+            eliminated: row.eliminated,
+            eliminated_at: row.eliminated_at,
+          })),
+          entryPrice: Number(entryPrice || 0),
+          addonPrice: Number(addonPrice || 0),
+          bountyPrice: Number(bountyPrice || 0),
+        }),
+      });
 
       setTournament((current) =>
         current ? { ...current, status: "completed" } : current
       );
       setInitialFreeSnapshot(snapshotFreeRows(freeRows));
-      setMessage("Турнир завершен, данные сохранены и обновлены в GS");
+
+      // ReRaise completion succeeded no matter what pokerClockSync says --
+      // only the message (and whether a retry action appears) changes.
+      const syncStatus = response.pokerClockSync?.status ?? "not_linked";
+      setPokerClockSyncStatus(syncStatus);
+
+      if (syncStatus === "finished") {
+        setMessage("Турнир завершён, данные сохранены и обновлены в GS. Poker Clock остановлен.");
+      } else if (syncStatus === "failed") {
+        // Deliberately NOT setError -- this must never read as "завершение
+        // турнира не удалось". ReRaise completion above already succeeded
+        // unconditionally; only the retry card below offers an action.
+        setMessage("Турнир завершён в ReRaise, но Poker Clock не удалось завершить.");
+      } else {
+        setMessage("Турнир завершен, данные сохранены и обновлены в GS");
+      }
     } catch (err) {
       const nextMessage =
         err instanceof Error ? err.message : "Ошибка завершения турнира";
       setError(nextMessage);
     } finally {
       setCompleting(false);
+    }
+  }
+
+  // Narrow retry for ONLY the Poker Clock finish side effect -- never
+  // reruns completion, never recalculates rating, never saves results
+  // again, never re-syncs Google Sheets (see
+  // app/api/admin/tournaments/[id]/poker-clock/finish/route.ts). Safe to
+  // click repeatedly.
+  async function handleRetryPokerClockSync() {
+    if (!tournamentId) return;
+
+    setRetryingPokerClockSync(true);
+    try {
+      const response = await fetchAdminJson<{
+        pokerClockSync: { status: "finished" | "not_linked" | "failed" };
+      }>(`/api/admin/tournaments/${tournamentId}/poker-clock/finish`, {
+        method: "POST",
+      });
+
+      const status = response.pokerClockSync.status;
+      setPokerClockSyncStatus(status);
+
+      if (status === "finished") {
+        setMessage("Poker Clock завершён");
+      }
+      // not_linked: the retry card disappears on its own (only rendered
+      // while pokerClockSyncStatus === "failed") -- no new message needed.
+      // failed: card and status stay exactly as they were, ready for
+      // another retry.
+    } catch {
+      // Network/unexpected failure calling the retry endpoint itself --
+      // keep the existing failed state/card, no crash, still retryable.
+    } finally {
+      setRetryingPokerClockSync(false);
     }
   }
 
@@ -1685,6 +1747,24 @@ export default function AdminTournamentResultsPage() {
         {error ? (
           <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
             {error}
+          </div>
+        ) : null}
+
+        {/* Poker Clock finish failed as a post-completion side effect --
+            ReRaise itself already completed successfully above (see
+            handleCompleteFreeTournament), so this is deliberately amber/
+            warning-styled, never the red error banner. */}
+        {pokerClockSyncStatus === "failed" ? (
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <p className="text-sm text-amber-200">Poker Clock не синхронизирован</p>
+            <button
+              type="button"
+              onClick={handleRetryPokerClockSync}
+              disabled={retryingPokerClockSync}
+              className="shrink-0 rounded-full border border-amber-400/40 bg-amber-400/10 px-3.5 py-2 text-xs font-semibold text-amber-100 disabled:opacity-60"
+            >
+              {retryingPokerClockSync ? "Повторяем..." : "Повторить синхронизацию часов"}
+            </button>
           </div>
         ) : null}
 

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   syncTournamentSheet: vi.fn(),
   readAndParseFreeTournamentSheet: vi.fn(),
   applyLiveFieldsFromSheetSnapshot: vi.fn(),
+  finishPokerClockTournament: vi.fn(),
 }));
 
 vi.mock("@/features/tournaments", () => ({
@@ -38,6 +39,10 @@ vi.mock("@/app/api/admin/tournaments/[id]/export-sheet/route", () => ({
 vi.mock("@/features/tournament-sheet-sync", () => ({
   readAndParseFreeTournamentSheet: mocks.readAndParseFreeTournamentSheet,
   applyLiveFieldsFromSheetSnapshot: mocks.applyLiveFieldsFromSheetSnapshot,
+}));
+
+vi.mock("@/lib/poker-clock-client", () => ({
+  finishPokerClockTournament: mocks.finishPokerClockTournament,
 }));
 
 const { POST } = await import("@/app/api/admin/tournaments/[id]/complete-free/route");
@@ -95,6 +100,7 @@ beforeEach(() => {
     rebuyChanges: 0,
     unEliminatedPlayerIds: [],
   });
+  mocks.finishPokerClockTournament.mockResolvedValue({ status: "not_linked" });
 });
 
 describe("POST /api/admin/tournaments/[id]/complete-free -- live rebuy-state reconciliation", () => {
@@ -393,5 +399,135 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- GS-linked freshness 
       55,
       41,
     ]);
+  });
+});
+
+// Product item #8 -- Poker Clock finish is a POST-COMPLETION side effect
+// only. ReRaise's own completion (reconcile -> rating -> saveTournamentResults
+// -> GS sync) must remain fully authoritative and untouched by whatever
+// finishPokerClockTournament returns.
+describe("POST /api/admin/tournaments/[id]/complete-free -- Poker Clock post-completion sync", () => {
+  it("does NOT call Poker Clock when ReRaise completion fails before persistence (Mystery Bounty pool mismatch)", async () => {
+    mocks.getTournamentById.mockResolvedValue({
+      id: "t1",
+      tournament_type: "mystery_bounty",
+      rating_formula_version: "v2",
+      rating_guarantee: null,
+    });
+    mocks.getMysteryBountySnapshot.mockResolvedValue({ mystery_pool: 100 });
+
+    const response = await POST(
+      request({ rows: [{ ...row(), mystery_bounty_points: 40 }] }),
+      context()
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.saveTournamentResults).not.toHaveBeenCalled();
+    expect(mocks.finishPokerClockTournament).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call Poker Clock when the GS-freshness read fails before persistence", async () => {
+    mocks.getTournamentById.mockResolvedValue({
+      id: "t1",
+      tournament_type: "classic",
+      rating_formula_version: "v2",
+      rating_guarantee: null,
+      google_sheet_tab_name: "Sheet1",
+    });
+    mocks.readAndParseFreeTournamentSheet.mockResolvedValue({
+      ok: false,
+      reason: "Google Sheets read failed",
+    });
+
+    const response = await POST(request({ rows: [row()] }), context());
+
+    expect(response.status).toBe(409);
+    expect(mocks.saveTournamentResults).not.toHaveBeenCalled();
+    expect(mocks.finishPokerClockTournament).not.toHaveBeenCalled();
+  });
+
+  it("calls Poker Clock finish ONLY after saveTournamentResults and syncTournamentSheet have both already succeeded, with the ReRaise tournament id", async () => {
+    mocks.finishPokerClockTournament.mockResolvedValue({ status: "finished" });
+
+    await POST(request({ rows: [row()] }), context("t1"));
+
+    expect(mocks.finishPokerClockTournament).toHaveBeenCalledTimes(1);
+    expect(mocks.finishPokerClockTournament).toHaveBeenCalledWith("t1");
+    const saveOrder = mocks.saveTournamentResults.mock.invocationCallOrder[0];
+    const syncOrder = mocks.syncTournamentSheet.mock.invocationCallOrder[0];
+    const finishOrder = mocks.finishPokerClockTournament.mock.invocationCallOrder[0];
+    expect(saveOrder).toBeLessThan(finishOrder);
+    expect(syncOrder).toBeLessThan(finishOrder);
+  });
+
+  it("Clock FINISHED -> ReRaise completion response remains success, reporting the clock status", async () => {
+    mocks.finishPokerClockTournament.mockResolvedValue({ status: "finished" });
+
+    const response = await POST(request({ rows: [row()] }), context());
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json).toEqual({ ok: true, completedCount: 1, pokerClockSync: { status: "finished" } });
+  });
+
+  it("Clock NOT_LINKED -> ReRaise completion remains a normal success, not a warning", async () => {
+    mocks.finishPokerClockTournament.mockResolvedValue({ status: "not_linked" });
+
+    const response = await POST(request({ rows: [row()] }), context());
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json).toEqual({ ok: true, completedCount: 1, pokerClockSync: { status: "not_linked" } });
+  });
+
+  it("Clock FAILED -> ReRaise completion STILL returns success (never an HTTP error)", async () => {
+    mocks.finishPokerClockTournament.mockResolvedValue({ status: "failed", reason: "lifecycle_conflict" });
+
+    const response = await POST(request({ rows: [row()] }), context());
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json).toEqual({ ok: true, completedCount: 1, pokerClockSync: { status: "failed" } });
+    // The internal `reason` never leaks into the admin-facing response.
+    expect(json.pokerClockSync).not.toHaveProperty("reason");
+  });
+
+  it("Clock failure does not delete/change the persisted results ReRaise already saved", async () => {
+    mocks.finishPokerClockTournament.mockResolvedValue({ status: "failed", reason: "upstream_error" });
+
+    await POST(request({ rows: [row({ place: 1 })] }), context());
+
+    expect(mocks.saveTournamentResults).toHaveBeenCalledTimes(1);
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(results[0]).toMatchObject({ player_id: "p1", place: 1 });
+  });
+
+  it("rating_points is identical no matter what Poker Clock returns -- computed once, before the Poker Clock call, never influenced by its result", async () => {
+    const rows = [row({ player_id: "p1", place: 1, knockouts: 3 })];
+
+    mocks.finishPokerClockTournament.mockResolvedValue({ status: "finished" });
+    await POST(request({ rows }), context());
+    const [, finishedResults] = mocks.saveTournamentResults.mock.calls[0];
+    const finishedRatingPoints = finishedResults[0].rating_points;
+
+    mocks.saveTournamentResults.mockClear();
+    mocks.finishPokerClockTournament.mockResolvedValue({ status: "failed", reason: "timeout" });
+    await POST(request({ rows }), context());
+    const [, failedResults] = mocks.saveTournamentResults.mock.calls[0];
+    const failedRatingPoints = failedResults[0].rating_points;
+
+    expect(failedRatingPoints).toBe(finishedRatingPoints);
+    expect(typeof failedRatingPoints).toBe("number");
+  });
+
+  it("a tournament with no linked Poker Clock binding still completes normally (404 -> not_linked, same as any other tournament)", async () => {
+    mocks.finishPokerClockTournament.mockResolvedValue({ status: "not_linked" });
+
+    const response = await POST(request({ rows: [row()] }), context());
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.pokerClockSync.status).toBe("not_linked");
   });
 });
