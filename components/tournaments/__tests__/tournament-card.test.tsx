@@ -132,9 +132,21 @@ describe("TournamentCard -- Final Month (is_final=true), driven only by tourname
     expect(container.textContent).toMatch(/ТОП-/);
   });
 
-  it("renders the championship wording in place of TOP-N, in the same status/countdown line", async () => {
+  it("before start: renders only the bare countdown, no championship wording, no trophy, no separator", async () => {
     await renderCard({ tournament: tournament({ is_final: true }) });
-    expect(container.textContent).toContain("За звание чемпиона Твери");
+    expect(container.textContent).toContain("Старт через");
+    expect(container.textContent).not.toContain("За звание чемпиона Твери");
+    expect(container.textContent).not.toContain("🏆");
+    expect(container.textContent).not.toContain("•");
+  });
+
+  it("after start: renders only 'Турнир уже начался', no championship wording, no trophy", async () => {
+    await renderCard({
+      tournament: tournament({ is_final: true, start_at: "2020-01-01T00:00:00.000Z" }),
+    });
+    expect(container.textContent).toContain("Турнир уже начался");
+    expect(container.textContent).not.toContain("За звание чемпиона Твери");
+    expect(container.textContent).not.toContain("🏆");
   });
 
   it("applies the burgundy/red card treatment only when is_final", async () => {
@@ -150,6 +162,7 @@ describe("TournamentCard -- Final Month (is_final=true), driven only by tourname
     expect(container.textContent).not.toContain("Только по приглашению");
     expect(container.textContent).not.toContain("Вы в составе финала");
     expect(container.textContent).not.toContain("За звание чемпиона Твери");
+    expect(container.textContent).not.toContain("Старт через");
   });
 });
 

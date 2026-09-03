@@ -7,7 +7,7 @@ import {
   TournamentLiveStatusLines,
 } from "@/components/tournaments/tournament-live-status";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
-import { FINAL_CHAMPIONSHIP_LABEL, getFinalRegistrationLabel } from "@/lib/tournament-final-policy";
+import { getFinalRegistrationLabel } from "@/lib/tournament-final-policy";
 
 function UserIcon() {
   return (
@@ -171,8 +171,8 @@ export function TournamentCard({
             <p className="mt-3 text-sm font-semibold text-white/70">
               {tournament.is_final
                 ? countdownText === "Уже начался"
-                  ? `🏆 ${FINAL_CHAMPIONSHIP_LABEL} • турнир уже начался`
-                  : `🏆 ${FINAL_CHAMPIONSHIP_LABEL} • старт через ${countdownText}`
+                  ? "Турнир уже начался"
+                  : `Старт через ${countdownText}`
                 : countdownText === "Уже начался"
                   ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
                   : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
