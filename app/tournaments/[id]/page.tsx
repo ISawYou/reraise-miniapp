@@ -637,7 +637,10 @@ const waitlistParticipants = participants.filter(
                 <p className="mt-1.5 text-sm font-semibold text-white">
                   {expectedPrizePlaces}
                 </p>
-                {expectedPrizePlaces > 0 ? (
+                {/* Championship, not a rating tournament -- never show
+                    "Рейтинговая зона" for is_final (see
+                    lib/tournament-helpers.ts::isRatingEligibleTournament). */}
+                {expectedPrizePlaces > 0 && !tournament.is_final ? (
                   <p className="mt-0.5 text-[11px] text-white/55">
                     Рейтинговая зона: места 1-{expectedPrizePlaces}
                   </p>
@@ -669,7 +672,7 @@ const waitlistParticipants = participants.filter(
         ) : activeTab === "results" ? (
           <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
             <div className="border-b border-white/10 px-3 py-2.5 text-xs font-medium text-emerald-200/75 sm:px-4">
-              Призовая зона: ТОП-{expectedPrizePlaces}
+              {tournament.is_final ? "Результаты" : `Призовая зона: ТОП-${expectedPrizePlaces}`}
             </div>
             <div className="grid grid-cols-[40px_minmax(0,1fr)_44px_58px] gap-2 border-b border-white/10 px-3 py-3 text-xs uppercase tracking-wide text-white/50 sm:grid-cols-[48px_minmax(0,1fr)_80px_80px] sm:gap-3 sm:px-4">
               <div className="text-center">Место</div>

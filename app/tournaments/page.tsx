@@ -440,9 +440,11 @@ export default function TournamentsPage() {
               </span>
             </div>
 
-            <div className="inline-flex items-center rounded-full border border-[#e1bf6b]/25 bg-[#e1bf6b]/10 px-3 py-1.5 text-sm font-semibold text-[#e1bf6b]">
-              🏆 ТОП-{prizePlaces}
-            </div>
+            {!tournament.is_final ? (
+              <div className="inline-flex items-center rounded-full border border-[#e1bf6b]/25 bg-[#e1bf6b]/10 px-3 py-1.5 text-sm font-semibold text-[#e1bf6b]">
+                🏆 ТОП-{prizePlaces}
+              </div>
+            ) : null}
           </div>
 
           <p className="mt-3 text-sm text-white/54">

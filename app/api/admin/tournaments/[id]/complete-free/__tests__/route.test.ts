@@ -537,3 +537,61 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- Poker Clock post-com
     expect(json.pokerClockSync.status).toBe("not_linked");
   });
 });
+
+describe("POST /api/admin/tournaments/[id]/complete-free -- Final Month (is_final=true) is not a rating tournament", () => {
+  it("every persisted result gets rating_points=0 and every breakdown component zeroed, even with real knockouts/re-entries/add-ons", async () => {
+    mocks.getTournamentById.mockResolvedValue({
+      id: "t1",
+      tournament_type: "classic",
+      rating_formula_version: "v2",
+      rating_guarantee: null,
+      is_final: true,
+    });
+
+    await POST(
+      request({
+        rows: [
+          row({ player_id: "p1", place: 1, rebuys: 3, knockouts: 2 }),
+          row({ player_id: "p2", place: 2, rebuys: 1, knockouts: 0 }),
+        ],
+      }),
+      context()
+    );
+
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    for (const result of results) {
+      expect(result.rating_points).toBe(0);
+      expect(result.participation_points).toBe(0);
+      expect(result.knockout_points).toBe(0);
+      expect(result.boss_bounty_points).toBe(0);
+      expect(result.itm_points).toBe(0);
+    }
+  });
+
+  it("stays zero even when a frozen Late Registration rating_places snapshot exists", async () => {
+    mocks.getTournamentById.mockResolvedValue({
+      id: "t1",
+      tournament_type: "classic",
+      rating_formula_version: "v2",
+      rating_guarantee: null,
+      is_final: true,
+    });
+    mocks.getTournamentLateRegistrationSnapshot.mockResolvedValue({
+      tournament_id: "t1",
+      closed_at: "2026-08-25T12:00:00.000Z",
+      rating_places: [{ place: 1, points: 100 }],
+    });
+
+    await POST(request({ rows: [row({ player_id: "p1", place: 1 })] }), context());
+
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(results[0].rating_points).toBe(0);
+  });
+
+  it("normal (is_final=false) completion is completely unaffected -- still calculates real rating points", async () => {
+    await POST(request({ rows: [row({ player_id: "p1", place: 1, knockouts: 1 })] }), context());
+
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(results[0].rating_points).toBeGreaterThan(0);
+  });
+});

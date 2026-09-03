@@ -5,6 +5,7 @@ import {
   tournamentRepository,
 } from "@/lib/repositories";
 import { resolvePlayerStanding } from "@/lib/leaderboard-display";
+import { isRatingEligibleTournament } from "@/lib/tournament-helpers";
 
 export type LeaderboardEntry = {
   player_id: string;
@@ -229,9 +230,14 @@ export async function getOfficialSeasonLeaderboardWithMovement(
   // defense-in-depth, not a trust issue with that method, so a draft/open/
   // closed tournament (or one from a different season) can never become
   // the comparison tournament even if that contract is ever violated
-  // upstream.
+  // upstream. isRatingEligibleTournament excludes a completed Final Month
+  // (is_final) -- it always persists rating_points=0 for every result, so
+  // treating it as "the most recent tournament" would flatten every
+  // player's movement to a meaningless "—"/"same" the moment it completes.
+  // "Most recent" here means most recent RATING-relevant tournament, not
+  // most recent completed tournament in general.
   const seasonCompleted = completedTournaments.filter(
-    (t) => t.season_id === seasonId && t.status === "completed"
+    (t) => t.season_id === seasonId && t.status === "completed" && isRatingEligibleTournament(t)
   );
   const latest = pickMostRecentCompletedTournament(seasonCompleted);
 

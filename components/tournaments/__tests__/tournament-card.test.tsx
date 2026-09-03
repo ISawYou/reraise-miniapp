@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -115,14 +117,24 @@ describe("TournamentCard -- Final Month (is_final=true), driven only by tourname
     expect(container.textContent).toContain("Вы в составе финала");
   });
 
-  it("shows the ФИНАЛ badge only when is_final", async () => {
+  it("no longer renders a standalone ФИНАЛ badge -- identity comes from color only, not an extra vertical slot (carousel height bug fix)", async () => {
     await renderCard({ tournament: tournament({ is_final: true }) });
-    expect(container.textContent).toContain("ФИНАЛ");
+    expect(container.textContent).not.toContain("ФИНАЛ");
   });
 
-  it("does not show the ФИНАЛ badge for a normal tournament", async () => {
+  it("does not render TOP-N/rating-zone wording for a Final Month tournament", async () => {
+    await renderCard({ tournament: tournament({ is_final: true }) });
+    expect(container.textContent).not.toMatch(/ТОП-/);
+  });
+
+  it("a normal tournament still renders TOP-N", async () => {
     await renderCard({ tournament: tournament({ is_final: false }) });
-    expect(container.textContent).not.toContain("ФИНАЛ");
+    expect(container.textContent).toMatch(/ТОП-/);
+  });
+
+  it("renders the championship wording in place of TOP-N, in the same status/countdown line", async () => {
+    await renderCard({ tournament: tournament({ is_final: true }) });
+    expect(container.textContent).toContain("За звание чемпиона Твери");
   });
 
   it("applies the burgundy/red card treatment only when is_final", async () => {
@@ -137,5 +149,43 @@ describe("TournamentCard -- Final Month (is_final=true), driven only by tourname
     expect(container.querySelector(".border-red-500\\/25")).toBeNull();
     expect(container.textContent).not.toContain("Только по приглашению");
     expect(container.textContent).not.toContain("Вы в составе финала");
+    expect(container.textContent).not.toContain("За звание чемпиона Твери");
+  });
+});
+
+describe("TournamentCard -- identical geometry for final and normal (carousel pagination bug fix)", () => {
+  it("both render exactly the same set of structural/geometry classes on the root card", async () => {
+    await renderCard({ tournament: tournament({ is_final: false }) });
+    const normalRoot = container.firstElementChild as HTMLElement;
+    const normalGeometryClasses = normalRoot.className
+      .split(" ")
+      .filter((cls) => !cls.includes("border-") && !cls.includes("bg-["));
+
+    await renderCard({ tournament: tournament({ is_final: true }) });
+    const finalRoot = container.firstElementChild as HTMLElement;
+    const finalGeometryClasses = finalRoot.className
+      .split(" ")
+      .filter((cls) => !cls.includes("border-") && !cls.includes("bg-["));
+
+    // Same shape (rounded corners, padding, shadow, overflow, position) --
+    // only the color-only classes (filtered out above) may differ.
+    expect(finalGeometryClasses.sort()).toEqual(normalGeometryClasses.sort());
+    expect(normalGeometryClasses).toContain("p-4");
+    expect(normalGeometryClasses).toContain("rounded-[28px]");
+  });
+
+  it("both render the same number of top-level content blocks inside the card (no extra Final-only slot above the title)", async () => {
+    await renderCard({ tournament: tournament({ is_final: false }) });
+    const normalChildCount = container.querySelector(".relative.z-10")?.children.length;
+
+    await renderCard({ tournament: tournament({ is_final: true }) });
+    const finalChildCount = container.querySelector(".relative.z-10")?.children.length;
+
+    expect(finalChildCount).toBe(normalChildCount);
+  });
+
+  it("Home's carousel wrapper (app/page.tsx) has no is_final-conditional logic of its own -- one card geometry drives one carousel, no special-cased pagination offset/index/margin hack", () => {
+    const source = readFileSync(join(process.cwd(), "app/page.tsx"), "utf8");
+    expect(source).not.toContain("is_final");
   });
 });

@@ -7,6 +7,14 @@
 
 export const FINAL_BADGE_LABEL = "ФИНАЛ";
 
+// Replaces the ordinary "🏆 ТОП-N" rating-zone wording in the shared
+// tournament card's status/countdown line for an is_final tournament -- a
+// championship has no rating placement zone (see
+// lib/tournament-helpers.ts::isRatingEligibleTournament), so the copy must
+// never imply one. Same row/position as the normal line, not a second one
+// -- see components/tournaments/tournament-card.tsx.
+export const FINAL_CHAMPIONSHIP_LABEL = "За звание чемпиона Твери";
+
 export const FINAL_PARTICIPANTS_ADMIN_NOTE =
   "Состав финала формируется вручную администратором.";
 

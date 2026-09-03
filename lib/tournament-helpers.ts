@@ -1,5 +1,19 @@
 import type { TournamentKind, TournamentType, TournamentParticipant } from "@/types/domain";
 
+// The ONE canonical rating-eligibility check -- a tournament with
+// is_final=true is a championship ("на звание чемпиона Твери по покеру"),
+// not a rating tournament, regardless of its persisted tournament_type
+// (always "classic" for Final Month, kept only for schema compatibility --
+// see lib/db/schema/tournaments.ts's isFinal comment). Every rating
+// boundary (completion, the Late Registration rating_places snapshot, the
+// Poker Clock integration's rating preview, and rank-movement's "latest
+// tournament" selection) reads this instead of re-deriving is_final logic
+// locally, so there is exactly one place that decides "does this
+// tournament ever produce/represent rating points".
+export function isRatingEligibleTournament(tournament: { is_final: boolean }): boolean {
+  return !tournament.is_final;
+}
+
 export function getTournamentKindLabel(kind: TournamentKind): string {
   if (kind === "paid") return "Платный";
   if (kind === "cash") return "Кэш";

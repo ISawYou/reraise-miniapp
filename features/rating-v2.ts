@@ -372,12 +372,37 @@ export function calculateRatingPointsV2(
 // features/tournaments.ts::completeTournamentFromLiveEntries) -- keeps the
 // legacy/v2 branch in exactly one place rather than duplicated per call
 // site (spec §25's "единый rating engine").
+//
+// `ratingEligible` (default true, so every pre-existing caller keeps
+// behaving exactly as before): pass
+// lib/tournament-helpers.ts::isRatingEligibleTournament(tournament) here at
+// every call site. false short-circuits BEFORE the legacy/v2 branch or the
+// frozen-itm-points override below even run -- a Final Month championship
+// (tournament.is_final) gets a flat zero for every component
+// (participation/knockout/boss/mystery/itm/total), regardless of
+// tournament_type or rating_formula_version, never partially zeroed.
 export function calculateRatingPointsForTournament(
   players: PlayerRatingInputV2[],
   tournamentType: TournamentType,
   ratingFormulaVersion: RatingFormulaVersion,
-  options: CalculateRatingPointsV2Options = {}
+  options: CalculateRatingPointsV2Options = {},
+  ratingEligible = true
 ): { results: RatingPointsV2Result[]; meta: RatingPointsV2Meta | null } {
+  if (!ratingEligible) {
+    return {
+      results: players.map((player) => ({
+        player_id: player.player_id,
+        rating_points: 0,
+        participation_points: 0,
+        knockout_points: 0,
+        boss_bounty_points: 0,
+        mystery_bounty_points: 0,
+        itm_points: 0,
+      })),
+      meta: null,
+    };
+  }
+
   let calculated: { results: RatingPointsV2Result[]; meta: RatingPointsV2Meta | null };
 
   if (ratingFormulaVersion === "legacy") {
@@ -433,11 +458,16 @@ export function calculateRatingPointsForTournament(
 // the exact same dispatcher completion uses. Player identity and final
 // places are irrelevant at Late Registration close; only authoritative
 // field/entry/add-on aggregates and tournament formula settings matter.
+// `ratingEligible` (see calculateRatingPointsForTournament above) -- a
+// Final Month's frozen rating_places snapshot is every place at 0 points,
+// not skipped/omitted, so anything reading the snapshot later sees a real
+// zero rather than having to know to ignore it.
 export function calculateRatingPlaceStructureForTournament(
   entries: Array<{ entries: number; addons: number }>,
   tournamentType: TournamentType,
   ratingFormulaVersion: RatingFormulaVersion,
-  options: CalculateRatingPointsV2Options = {}
+  options: CalculateRatingPointsV2Options = {},
+  ratingEligible = true
 ): RatingPlace[] {
   const players: PlayerRatingInputV2[] = entries.map((entry, index) => ({
     player_id: `rating-place-${index + 1}`,
@@ -453,7 +483,8 @@ export function calculateRatingPlaceStructureForTournament(
     players,
     tournamentType,
     ratingFormulaVersion,
-    { ratingGuarantee: options.ratingGuarantee }
+    { ratingGuarantee: options.ratingGuarantee },
+    ratingEligible
   );
   const ratingPlacesCount = getExpectedPrizePlaces(players.length);
 

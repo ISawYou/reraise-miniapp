@@ -7,7 +7,7 @@ import {
   TournamentLiveStatusLines,
 } from "@/components/tournaments/tournament-live-status";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
-import { FINAL_BADGE_LABEL, getFinalRegistrationLabel } from "@/lib/tournament-final-policy";
+import { FINAL_CHAMPIONSHIP_LABEL, getFinalRegistrationLabel } from "@/lib/tournament-final-policy";
 
 function UserIcon() {
   return (
@@ -143,11 +143,6 @@ export function TournamentCard({
       />
 
       <div className="relative z-10">
-        {tournament.is_final ? (
-          <span className="mb-1.5 inline-flex items-center rounded-full border border-red-500/40 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold tracking-[0.08em] text-red-200">
-            {FINAL_BADGE_LABEL}
-          </span>
-        ) : null}
         <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
           {tournament.title}
         </h3>
@@ -174,9 +169,13 @@ export function TournamentCard({
         ) : showAction ? (
           <>
             <p className="mt-3 text-sm font-semibold text-white/70">
-              {countdownText === "Уже начался"
-                ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
-                : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
+              {tournament.is_final
+                ? countdownText === "Уже начался"
+                  ? `🏆 ${FINAL_CHAMPIONSHIP_LABEL} • турнир уже начался`
+                  : `🏆 ${FINAL_CHAMPIONSHIP_LABEL} • старт через ${countdownText}`
+                : countdownText === "Уже начался"
+                  ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
+                  : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
             </p>
 
             <div className="mt-4">

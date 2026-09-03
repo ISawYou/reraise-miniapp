@@ -444,3 +444,99 @@ describe("computeVolumeMultiplier / computeAddonPlacementMultiplier — pure for
     expect(computeAddonPlacementMultiplier(0.4)).toBeCloseTo(1.5, 10);
   });
 });
+
+// Final Month (tournament.is_final) is a championship, not a rating
+// tournament -- ratingEligible=false (see
+// lib/tournament-helpers.ts::isRatingEligibleTournament) must zero every
+// component of every result, unconditionally, before either the legacy or
+// v2 branch (or the frozen-ratingPlaces override) ever runs. Never a
+// partial zero (e.g. placement zeroed but participation leaking through).
+describe("calculateRatingPointsForTournament — ratingEligible=false (Final Month)", () => {
+  it("zeroes rating_points and every breakdown component for arrived players with knockouts/entries/addons", () => {
+    const players: PlayerRatingInputV2[] = [
+      { player_id: "p1", place: 1, knockouts: 3, boss_knockouts: 1, arrived: true, entries: 2, addons: 1 },
+      { player_id: "p2", place: 2, knockouts: 0, arrived: true, entries: 1, addons: 0 },
+    ];
+
+    const { results, meta } = calculateRatingPointsForTournament(
+      players,
+      "boss_bounty",
+      "v2",
+      {},
+      false
+    );
+
+    expect(meta).toBeNull();
+    for (const result of results) {
+      expect(result).toMatchObject({
+        rating_points: 0,
+        participation_points: 0,
+        knockout_points: 0,
+        boss_bounty_points: 0,
+        mystery_bounty_points: 0,
+        itm_points: 0,
+      });
+    }
+  });
+
+  it("stays zero regardless of rating_formula_version (legacy or v2)", () => {
+    const players = arrivedPlayers(9, 1, 0);
+
+    const legacy = calculateRatingPointsForTournament(players, "classic", "legacy", {}, false);
+    const v2 = calculateRatingPointsForTournament(players, "classic", "v2", {}, false);
+
+    expect(legacy.results.every((r) => r.rating_points === 0)).toBe(true);
+    expect(v2.results.every((r) => r.rating_points === 0)).toBe(true);
+  });
+
+  it("stays zero regardless of tournament_type -- format-specific bonuses never leak through", () => {
+    for (const tournamentType of ["classic", "bounty", "boss_bounty", "mystery_bounty", "phoenix"] as const) {
+      const players = arrivedPlayers(9, 1, 0);
+      const { results } = calculateRatingPointsForTournament(players, tournamentType, "v2", {}, false);
+      expect(results.every((r) => r.rating_points === 0)).toBe(true);
+    }
+  });
+
+  it("ignores a frozen ratingPlaces override entirely -- still zero, not the frozen itm value", () => {
+    const players = arrivedPlayers(3, 1, 0);
+    const ratingPlaces = [
+      { place: 1, points: 100 },
+      { place: 2, points: 75 },
+      { place: 3, points: 55 },
+    ];
+
+    const { results } = calculateRatingPointsForTournament(
+      players,
+      "classic",
+      "v2",
+      { ratingPlaces },
+      false
+    );
+
+    expect(results.every((r) => r.rating_points === 0 && r.itm_points === 0)).toBe(true);
+  });
+
+  it("defaults to ratingEligible=true when the 5th argument is omitted -- every pre-existing call site above is unaffected", () => {
+    const players = arrivedPlayers(9, 1, 0);
+    const withDefault = calculateRatingPointsForTournament(players, "classic", "v2");
+    const explicitTrue = calculateRatingPointsForTournament(players, "classic", "v2", {}, true);
+    expect(withDefault).toEqual(explicitTrue);
+    expect(withDefault.results.some((r) => r.rating_points > 0)).toBe(true);
+  });
+});
+
+describe("calculateRatingPlaceStructureForTournament — ratingEligible=false (Final Month)", () => {
+  it("every place snapshot is 0 points, not skipped/omitted", () => {
+    const entries = Array.from({ length: 9 }, () => ({ entries: 1, addons: 0 }));
+    const ratingPlaces = calculateRatingPlaceStructureForTournament(
+      entries,
+      "classic",
+      "v2",
+      {},
+      false
+    );
+
+    expect(ratingPlaces.length).toBeGreaterThan(0);
+    expect(ratingPlaces.every((p) => p.points === 0)).toBe(true);
+  });
+});

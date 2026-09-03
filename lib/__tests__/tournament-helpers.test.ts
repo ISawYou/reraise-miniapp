@@ -7,6 +7,7 @@ import {
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
   getTournamentTypeMultiplier,
+  isRatingEligibleTournament,
   sortActivePlayersByRating,
   sortEliminatedPlayersByPlace,
   sortParticipantsByRating,
@@ -363,5 +364,15 @@ describe("getExpectedPrizePlaces", () => {
     expect(getExpectedPrizePlaces(2)).toBe(2);
     expect(getExpectedPrizePlaces(10)).toBe(3);
     expect(getExpectedPrizePlaces(11)).toBe(4);
+  });
+});
+
+describe("isRatingEligibleTournament", () => {
+  it("a Final Month tournament (is_final=true) is never rating-eligible, regardless of tournament_type", () => {
+    expect(isRatingEligibleTournament({ is_final: true })).toBe(false);
+  });
+
+  it("an ordinary tournament (is_final=false) is rating-eligible", () => {
+    expect(isRatingEligibleTournament({ is_final: false })).toBe(true);
   });
 });

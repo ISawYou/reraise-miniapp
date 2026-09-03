@@ -7,6 +7,7 @@ import {
 } from "@/lib/repositories";
 import { calculateRatingPlaceStructureForTournament } from "@/features/rating-v2";
 import { PARTICIPATION_POINTS } from "@/features/rating";
+import { isRatingEligibleTournament } from "@/lib/tournament-helpers";
 import {
   closeMysteryBountyLateRegistration,
   getMysteryBountySnapshot,
@@ -83,7 +84,8 @@ export async function closeTournamentLateRegistration(
     rows.map((row) => ({ entries: row.rebuys, addons: row.addons })),
     tournament.tournament_type,
     tournament.rating_formula_version,
-    { ratingGuarantee: tournament.rating_guarantee }
+    { ratingGuarantee: tournament.rating_guarantee },
+    isRatingEligibleTournament(tournament)
   );
 
   const initialStacksCount = rows.filter((row) => row.rebuys >= 1).length;
@@ -146,6 +148,20 @@ export async function getTournamentStateForIntegration(tournamentId: string) {
   const tournament = await findTournament(tournamentId);
   assertFreeTournament(tournament);
   const snapshot = await getTournamentLateRegistrationSnapshot(tournamentId);
+
+  // A championship (is_final) has no rating places or participation reward
+  // to preview, regardless of what the frozen snapshot's rating_places
+  // happen to contain (they're already zeroed by
+  // calculateRatingPlaceStructureForTournament's ratingEligible=false path
+  // above, but +PARTICIPATION_POINTS below is a flat addition outside that
+  // calculator -- it must be gated here explicitly, not just rely on the
+  // snapshot already being zero). lateRegistration status itself is an
+  // operational concept, not a rating one, so it still reports normally.
+  if (!isRatingEligibleTournament(tournament)) {
+    return snapshot
+      ? { lateRegistration: { status: "closed" as const, closedAt: snapshot.closed_at }, rating: null }
+      : { lateRegistration: { status: "open" as const, closedAt: null }, rating: null };
+  }
 
   return snapshot
     ? {

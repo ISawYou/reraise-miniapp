@@ -8,6 +8,7 @@ import {
   saveTournamentResults,
 } from "@/features/tournaments";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
+import { isRatingEligibleTournament } from "@/lib/tournament-helpers";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
 import { getTournamentLateRegistrationSnapshot } from "@/features/late-registration";
 import { syncTournamentSheet } from "@/app/api/admin/tournaments/[id]/export-sheet/route";
@@ -224,7 +225,8 @@ export async function POST(
         // generic snapshot exists, only its placement distribution is used;
         // live KO/Mystery components still come from the engine above.
         ratingPlaces: lateRegistrationSnapshot?.rating_places,
-      }
+      },
+      isRatingEligibleTournament(tournament)
     );
     const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r]));
 

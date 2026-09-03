@@ -13,6 +13,7 @@ import { syncPlayersAchievementsIfEnabled } from "@/features/achievements";
 import { publishTournamentWinnerEvent } from "@/features/club-activity";
 import { resolveSeasonForTournamentDate } from "@/features/seasons";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
+import { isRatingEligibleTournament } from "@/lib/tournament-helpers";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import { computeDerivedEliminationPlaces } from "@/lib/tournament-placement";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
@@ -950,7 +951,8 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     })),
     tournament.tournament_type,
     tournament.rating_formula_version,
-    { ratingGuarantee: tournament.rating_guarantee }
+    { ratingGuarantee: tournament.rating_guarantee },
+    isRatingEligibleTournament(tournament)
   );
   const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r]));
 

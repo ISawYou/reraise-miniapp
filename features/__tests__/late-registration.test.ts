@@ -164,6 +164,44 @@ describe("generic Late Registration snapshot", () => {
     });
   });
 
+  it("Final Month (is_final=true): the frozen snapshot's rating_places is every place at 0, not the real v2 structure", async () => {
+    mocks.findTournament.mockResolvedValue({ ...tournament, is_final: true });
+
+    const snapshot = await closeTournamentLateRegistration("t1");
+
+    expect(snapshot.rating_places.length).toBeGreaterThan(0);
+    expect(snapshot.rating_places.every((p: { points: number }) => p.points === 0)).toBe(true);
+  });
+
+  it("Final Month (is_final=true): getTournamentStateForIntegration always reports rating: null, even with a closed snapshot -- no +2 participation leak, no rating places", async () => {
+    mocks.findTournament.mockResolvedValue({ ...tournament, is_final: true });
+    mocks.findSnapshot.mockResolvedValue({
+      closed_at: "2026-08-25T12:00:00.000Z",
+      rating_places: [{ place: 1, points: 0 }],
+    });
+
+    const result = await getTournamentStateForIntegration("t1");
+
+    // Late Registration status is an operational concept, not a rating
+    // one -- it still reports normally (Poker Clock still needs to know
+    // whether late reg is open/closed for a Final Month tournament).
+    expect(result).toEqual({
+      lateRegistration: { status: "closed", closedAt: "2026-08-25T12:00:00.000Z" },
+      rating: null,
+    });
+  });
+
+  it("Final Month (is_final=true): getTournamentStateForIntegration reports rating: null before close too", async () => {
+    mocks.findTournament.mockResolvedValue({ ...tournament, is_final: true });
+
+    const result = await getTournamentStateForIntegration("t1");
+
+    expect(result).toEqual({
+      lateRegistration: { status: "open", closedAt: null },
+      rating: null,
+    });
+  });
+
   it("composes Mystery-specific and generic close, reusing an existing Mystery pool on retry", async () => {
     const mystery = { tournament_id: "t1", mystery_pool: 100 };
     mocks.findTournament.mockResolvedValue({ ...tournament, tournament_type: "mystery_bounty" });
