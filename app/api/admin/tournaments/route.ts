@@ -52,6 +52,10 @@ export async function POST(request: Request) {
       // tournament_type "phoenix", but not rejected for other types (same
       // "not DB-constrained to it" approach as the schema check).
       rating_guarantee?: number | null;
+      // "Финал месяца" preset (config/tournament-presets.ts) always submits
+      // tournament_type "classic" + is_final true from the admin UI.
+      // Absent is treated as false.
+      is_final?: boolean;
     };
 
     let tournament;
@@ -69,6 +73,7 @@ export async function POST(request: Request) {
         max_players: body.max_players,
         tournament_type: body.tournament_type ?? "classic",
         rating_guarantee: body.rating_guarantee ?? null,
+        is_final: body.is_final ?? false,
       });
     } catch (err) {
       if (err instanceof NoSeasonForDateError || err instanceof AmbiguousSeasonError) {

@@ -13,6 +13,13 @@ import type {
 // queries it now replaces. Duplicated (intentionally) in
 // SupabaseResultRepository for the one results-primary query that embeds
 // a full tournament row — see that file's comment.
+//
+// `row.is_final ?? false`: defensive default only, same as
+// rating_formula_version/rating_guarantee above it -- this repository is
+// legacy/compatibility code, not a live production path (Postgres is the
+// only current provider, selected by DATABASE_PROVIDER -- see
+// lib/repositories/tournament/index.ts), so this isn't covering a real
+// schema gap, just normal null-safety for an unexpectedly missing field.
 export function mapTournamentRow(row: TournamentRow): Tournament {
   return {
     id: row.id,
@@ -29,6 +36,7 @@ export function mapTournamentRow(row: TournamentRow): Tournament {
     created_at: row.created_at,
     rating_formula_version: row.rating_formula_version ?? "legacy",
     rating_guarantee: row.rating_guarantee ?? null,
+    is_final: row.is_final ?? false,
   };
 }
 

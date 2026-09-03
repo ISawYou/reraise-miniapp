@@ -21,11 +21,13 @@ services:
       # Loopback-only by design, not a limitation: nginx on this same VPS
       # terminates TLS for re-raise.ru/www.re-raise.ru and reverse-proxies
       # `location /` straight to 127.0.0.1:3002 (see
-      # /etc/nginx/sites-enabled/re-raise) -- this container IS the real
-      # production backend for the re-raise.ru website. The Telegram Mini
-      # App (opened from the bot's menu button, inside Telegram's WebView)
-      # is a separate deployment on Vercel and is not affected by anything
-      # in this compose file.
+      # /etc/nginx/sites-enabled/re-raise) -- this container IS production,
+      # for both the re-raise.ru website and the Telegram Mini App (opened
+      # from the bot's menu button, inside Telegram's WebView) -- there is
+      # no separate live deployment. Corrected 2026-09: an earlier version
+      # of this comment claimed a second, independent production deployment
+      # on Vercel backed by Supabase; that was stale/incorrect and has been
+      # removed -- see CLAUDE.md's Architecture section.
       - "127.0.0.1:3002:3000"
     volumes:
       # Uploaded avatars — bind mount (not a named volume) so the same host
@@ -52,12 +54,13 @@ services:
       - GOOGLE_CLIENT_EMAIL=${GOOGLE_CLIENT_EMAIL}
       - GOOGLE_PRIVATE_KEY=${GOOGLE_PRIVATE_KEY}
       - GOOGLE_SHEETS_SPREADSHEET_ID=${GOOGLE_SHEETS_SPREADSHEET_ID}
-      # Postgres cutover for the re-raise.ru website (this container) --
-      # the Vercel-hosted Telegram Mini App deployment has its own,
-      # separate DATABASE_PROVIDER (still Supabase) and is untouched by
-      # this file. DATABASE_URL resolves poker-clock-db because of the
-      # `networks:` override below (same external-network pattern
-      # docker-compose.postgres.yml already uses).
+      # Postgres is the only live production database -- DATABASE_PROVIDER
+      # is "postgres" here, and this is the only production deployment
+      # (there is no separate Supabase-backed deployment; SupabaseXxxRepository
+      # implementations remaining in the codebase are legacy/compatibility
+      # code, not a live target). DATABASE_URL resolves poker-clock-db
+      # because of the `networks:` override below (same external-network
+      # pattern docker-compose.postgres.yml already uses).
       - DATABASE_PROVIDER=${DATABASE_PROVIDER}
       - DATABASE_URL=${DATABASE_URL}
       # Poker Clock integration (app/api/integrations/v1/**, lib/integration-auth.ts)

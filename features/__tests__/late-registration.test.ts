@@ -40,6 +40,7 @@ const tournament = {
   tournament_type: "classic",
   rating_formula_version: "v2",
   rating_guarantee: null,
+  is_final: false,
 };
 
 beforeEach(() => {

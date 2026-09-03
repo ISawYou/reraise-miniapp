@@ -21,9 +21,18 @@ import {
   getTournamentTypeLabel,
 } from "@/lib/tournament-helpers";
 import { isStaff } from "@/lib/roles";
-import type { Player, TournamentType } from "@/types/domain";
+import {
+  FINAL_MONTH_LABEL,
+  FINAL_MONTH_PRESET,
+  TOURNAMENT_PRESET_TEMPLATES,
+  presetToTournamentFields,
+  tournamentToPreset,
+  type TournamentPreset,
+} from "@/config/tournament-presets";
+import { FINAL_PARTICIPANTS_ADMIN_NOTE } from "@/lib/tournament-final-policy";
+import type { Player } from "@/types/domain";
 
-const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
+const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }> = [
   { value: "classic", label: "Texas Classic" },
   { value: "phoenix", label: "Phoenix" },
   { value: "deep_stack", label: "Deep Stack" },
@@ -31,6 +40,7 @@ const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> =
   { value: "boss_bounty", label: "Boss Bounty" },
   { value: "win_the_button", label: "Win The Button" },
   { value: "mystery_bounty", label: "Mystery Bounty" },
+  { value: FINAL_MONTH_PRESET, label: FINAL_MONTH_LABEL },
 ];
 
 function toDateTimeLocalValue(value: string): string {
@@ -63,7 +73,12 @@ export default function AdminTournamentEditPage() {
   const [location, setLocation] = useState("");
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
-  const [tournamentType, setTournamentType] = useState<TournamentType>("classic");
+  const [preset, setPreset] = useState<TournamentPreset>("classic");
+  // Derived, not stored separately -- the one real TournamentType behind
+  // whatever preset is selected (final_month always derives to "classic").
+  // Used anywhere real per-type behavior (bonus lines, the type label) is
+  // needed; is_final is the only signal for anything final-specific.
+  const { tournament_type: tournamentType, is_final: isFinal } = presetToTournamentFields(preset);
   const [ratingGuarantee, setRatingGuarantee] = useState("");
   const [resolvedSeason, setResolvedSeason] = useState<{ title: string } | null>(null);
   const [seasonError, setSeasonError] = useState<string | null>(null);
@@ -110,7 +125,7 @@ export default function AdminTournamentEditPage() {
         setLocation(tournament.location ?? "");
         setStartAt(toDateTimeLocalValue(tournament.start_at));
         setMaxPlayers(String(tournament.max_players));
-        setTournamentType(tournament.tournament_type ?? "classic");
+        setPreset(tournamentToPreset(tournament));
         setRatingGuarantee(
           tournament.rating_guarantee != null ? String(tournament.rating_guarantee) : ""
         );
@@ -207,6 +222,7 @@ export default function AdminTournamentEditPage() {
         start_at: new Date(startAt).toISOString(),
         max_players: Number(maxPlayers),
         tournament_type: tournamentType,
+        is_final: isFinal,
         rating_guarantee:
           tournamentType === "phoenix" && ratingGuarantee.trim() !== ""
             ? Number(ratingGuarantee)
@@ -456,8 +472,25 @@ export default function AdminTournamentEditPage() {
 
           <label className="mt-4 block text-sm text-white/80">Тип турнира</label>
           <select
-            value={tournamentType}
-            onChange={(e) => setTournamentType(e.target.value as TournamentType)}
+            value={preset}
+            onChange={(e) => {
+              const nextPreset = e.target.value as TournamentPreset;
+              // Auto-fill only at the Final Month boundary -- entering it,
+              // or leaving it back to a normal type -- exactly like the
+              // create screen's template fill. Any other switch (one normal
+              // type to another) keeps this screen's existing behavior of
+              // never touching title/description, so a manually edited
+              // normal tournament's text is never clobbered by an unrelated
+              // type change.
+              const enteringFinal = nextPreset === FINAL_MONTH_PRESET;
+              const leavingFinal = preset === FINAL_MONTH_PRESET && !enteringFinal;
+              if (enteringFinal || leavingFinal) {
+                const template = TOURNAMENT_PRESET_TEMPLATES[nextPreset];
+                setTitle(template.title);
+                setDescription(template.description);
+              }
+              setPreset(nextPreset);
+            }}
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           >
             {TOURNAMENT_TYPE_OPTIONS.map((option) => (
@@ -467,7 +500,7 @@ export default function AdminTournamentEditPage() {
             ))}
           </select>
 
-          {tournamentType === "phoenix" ? (
+          {preset === "phoenix" ? (
             <>
               <label className="mt-4 block text-sm text-white/80">
                 Rating Guarantee (опционально)
@@ -490,7 +523,7 @@ export default function AdminTournamentEditPage() {
           <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
             <p className="text-xs text-white/50">Тип турнира</p>
             <p className="mt-1 text-sm font-semibold text-white">
-              {getTournamentTypeLabel(tournamentType)}
+              {isFinal ? FINAL_MONTH_LABEL : getTournamentTypeLabel(tournamentType)}
             </p>
             {tournamentTypeBonusLines.length > 0 ? (
               <p className="mt-1 text-xs text-white/60">
@@ -536,6 +569,10 @@ export default function AdminTournamentEditPage() {
               + Добавить
             </button>
           </div>
+
+          {isFinal ? (
+            <p className="mt-3 text-xs text-white/50">{FINAL_PARTICIPANTS_ADMIN_NOTE}</p>
+          ) : null}
 
           {showAddParticipantForm ? (
             <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">

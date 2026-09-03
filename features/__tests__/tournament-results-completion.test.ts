@@ -214,6 +214,7 @@ describe("completeTournamentFromLiveEntries (live completion flow)", () => {
       created_at: new Date().toISOString(),
       rating_formula_version: "legacy",
       rating_guarantee: null,
+      is_final: false,
     });
     mocks.findSeasonIdById.mockResolvedValue({ id: LIVE_TOURNAMENT_ID, season_id: "season-1" });
   });

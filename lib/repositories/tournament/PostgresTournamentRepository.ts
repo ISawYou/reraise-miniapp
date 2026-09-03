@@ -26,6 +26,7 @@ function mapRowToTournament(row: typeof tournaments.$inferSelect): Tournament {
     created_at: row.createdAt.toISOString(),
     rating_formula_version: row.ratingFormulaVersion as Tournament["rating_formula_version"],
     rating_guarantee: row.ratingGuarantee,
+    is_final: row.isFinal,
   };
 }
 
@@ -50,6 +51,7 @@ function toColumnValues(data: TournamentInsert | TournamentPatch): Partial<typeo
   if (data.created_at !== undefined) values.createdAt = new Date(data.created_at);
   if (data.rating_formula_version !== undefined) values.ratingFormulaVersion = data.rating_formula_version;
   if (data.rating_guarantee !== undefined) values.ratingGuarantee = data.rating_guarantee;
+  if (data.is_final !== undefined) values.isFinal = data.is_final;
   return values;
 }
 

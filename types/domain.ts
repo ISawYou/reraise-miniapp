@@ -93,6 +93,11 @@ export type Tournament = {
   // pool (participation + placement). null = no guarantee. Only meaningful
   // for tournament_type = "phoenix".
   rating_guarantee: number | null;
+  // "Финал месяца" preset marker (see config/tournament-presets.ts) --
+  // persisted tournament_type stays "classic" even when this is true.
+  // Drives invite-only registration (features/tournaments.ts) and the
+  // special Home/detail presentation. Never inferred from title/description.
+  is_final: boolean;
 };
 
 export type Registration = {

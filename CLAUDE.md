@@ -1,6 +1,36 @@
 # Project Context
 
-`reraise-miniapp` (Don't Worry Club) — Telegram Mini App для покерного клуба. Стек: Next.js + TypeScript + Supabase/PostgreSQL + Telegram Bot API.
+`reraise-miniapp` (Don't Worry Club) — Telegram Mini App для покерного клуба. Стек: Next.js + TypeScript + PostgreSQL + Telegram Bot API.
+
+## Продакшн-архитектура (источник истины)
+
+**Продакшн:**
+- ReRaise работает на собственном VPS
+- приложение — Docker-контейнер `re-raise`
+- продовая БД — PostgreSQL, `DATABASE_PROVIDER=postgres`
+- деплой: GitHub Actions → immutable-образ в GHCR (по SHA) → VPS
+- продакшн никогда не собирается (build) на самом VPS
+- health-эндпоинт продакшна — `/api/health`
+- это единственный живой деплой: и сайт `re-raise.ru`, и точка входа Telegram
+  Mini App обслуживаются этим же контейнером
+
+**Legacy:**
+- Supabase-код (`Supabase<Domain>Repository` и т.п.) в репозитории может
+  оставаться — это legacy/compatibility technical debt, а не текущий продовый
+  провайдер
+- по нему нельзя делать выводы о топологии продакшна
+- он не должен блокировать разработку продуктовых фич из-за гипотетической
+  необходимости синхронизировать Supabase-схему — Supabase не является живой
+  целью
+
+**Нет текущего Vercel-деплоя:**
+- живого/текущего продового деплоя ReRaise на Vercel не существует
+- нет отдельного живого Vercel/Supabase-деплоя, обслуживающего Telegram
+  пользователей отдельно от VPS
+
+Подробности и историческая эволюция — `docs/architecture.md`.
+`PROJECT_CONTEXT.md` описывает исходный (устаревший) bootstrap проекта на
+Vercel/Supabase — не текущую топологию.
 
 ## Graphify
 

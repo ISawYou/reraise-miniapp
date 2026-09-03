@@ -18,6 +18,10 @@ import { computeDerivedEliminationPlaces } from "@/lib/tournament-placement";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
 import { assertPlayerActive } from "@/features/auth-server";
 import { assertServerActorRole } from "@/lib/admin-auth";
+import {
+  FINAL_CANCELLATION_REJECTED_MESSAGE,
+  FINAL_REGISTRATION_REJECTED_MESSAGE,
+} from "@/lib/tournament-final-policy";
 import type {
   Registration,
   RegistrationStatus,
@@ -90,6 +94,10 @@ function getPreferredPlayerDisplayName(player: {
 // for the two results/registrations queries that embed a full tournament
 // row (getMyTournaments, getMyTournamentHistory). See
 // lib/repositories/result/SupabaseResultRepository.ts's comment.
+// `row.is_final ?? false`: this embed is populated by either the Postgres
+// or the Supabase repository depending on DATABASE_PROVIDER, and the live
+// Supabase tournaments table has no is_final column -- see
+// SupabaseTournamentRepository's mapTournamentRow comment.
 function mapTournamentRow(row: TournamentRow): Tournament {
   return {
     id: row.id,
@@ -106,6 +114,7 @@ function mapTournamentRow(row: TournamentRow): Tournament {
     created_at: row.created_at,
     rating_formula_version: row.rating_formula_version ?? "legacy",
     rating_guarantee: row.rating_guarantee ?? null,
+    is_final: row.is_final ?? false,
   };
 }
 
@@ -275,6 +284,18 @@ export async function registerPlayerForTournament(
   }
 
   const tournament = await getTournamentById(tournamentId);
+
+  // Fail closed, server-side: a "Финал месяца" tournament's composition is
+  // invite-only, set up entirely through the admin manual-participant flow
+  // (addAdminTournamentParticipant / addExistingPlayerToTournament, which
+  // write via registrationRepository directly and never call this
+  // function). Checked before any registered/waitlist entry is
+  // created/reactivated below -- title/description/tournament_type must
+  // never be used to infer this, only tournament.is_final.
+  if (tournament.is_final) {
+    throw new Error(FINAL_REGISTRATION_REJECTED_MESSAGE);
+  }
+
   const counts = await getTournamentRegistrationCounts();
   const registeredCount = counts[tournamentId] ?? 0;
 
@@ -303,6 +324,15 @@ export async function cancelPlayerRegistration(
   // Same direct-call exposure as registerPlayerForTournament above -- only
   // a bare playerId in hand, no session cookie to fall back on.
   await assertPlayerActive(playerId);
+
+  const tournament = await getTournamentById(tournamentId);
+
+  // A manually-added final participant must not be able to self-remove --
+  // only the admin manual-participant flow (removeAdminTournamentParticipant,
+  // a separate code path) can change a final's composition.
+  if (tournament.is_final) {
+    throw new Error(FINAL_CANCELLATION_REJECTED_MESSAGE);
+  }
 
   const currentRegistration =
     await registrationRepository.findActiveOrWaitlistByPlayerAndTournamentOrThrow(
@@ -436,6 +466,10 @@ export async function createTournament(input: {
   max_players: number;
   tournament_type: TournamentType;
   rating_guarantee?: number | null;
+  // Absent/undefined is treated exactly like false -- every pre-existing
+  // caller that doesn't know about "Финал месяца" keeps creating normal,
+  // publicly self-registerable tournaments unchanged.
+  is_final?: boolean;
 }) {
   const season = await resolveSeasonForTournamentDate(input.start_at);
 
@@ -450,6 +484,7 @@ export async function createTournament(input: {
     status: "open",
     season_id: season.id,
     rating_guarantee: input.rating_guarantee ?? null,
+    is_final: input.is_final ?? false,
   });
 }
 
@@ -475,6 +510,8 @@ export async function updateTournament(
     max_players: number;
     tournament_type: TournamentType;
     rating_guarantee?: number | null;
+    // Same absent-means-false contract as createTournament.
+    is_final?: boolean;
   }
 ) {
   await assertServerActorRole(["admin", "operator"]);
@@ -493,6 +530,7 @@ export async function updateTournament(
     max_players: input.max_players,
     tournament_type: input.tournament_type,
     rating_guarantee: input.rating_guarantee ?? null,
+    is_final: input.is_final ?? false,
     ...seasonPatch,
   });
 }

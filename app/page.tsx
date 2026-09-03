@@ -24,6 +24,7 @@ import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
+import { FINAL_BADGE_LABEL, getFinalRegistrationLabel } from "@/lib/tournament-final-policy";
 import { resolveHomeStaffCardKind } from "@/lib/home-staff-card";
 import { fetchAdminJson } from "@/lib/client-request";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
@@ -1190,6 +1191,7 @@ export default function HomePage() {
         : registrationStatus === "waitlist"
           ? "Вы в листе ожидания"
         : "Записаться";
+    const isPlayerInFinal = registrationStatus === "registered" || registrationStatus === "waitlist";
 
     const clock = liveSummary?.clock ?? null;
     const isLive = isTournamentLive(clock);
@@ -1204,7 +1206,11 @@ export default function HomePage() {
       <Link
         href={`/tournaments/${tournament.id}`}
         draggable={false}
-        className="relative block min-w-full shrink-0 overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99]"
+        className={`relative block min-w-full shrink-0 overflow-hidden rounded-[28px] border p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99] ${
+          tournament.is_final
+            ? "border-red-500/25 bg-[radial-gradient(circle_at_top_left,rgba(153,27,27,0.22),transparent_32%),linear-gradient(145deg,#1c0a0c_0%,#0f0708_55%,#050405_100%)]"
+            : "border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)]"
+        }`}
       >
         <TournamentVisual
           tournamentType={tournament.tournament_type}
@@ -1213,6 +1219,11 @@ export default function HomePage() {
         />
 
         <div className="relative z-10">
+          {tournament.is_final ? (
+            <span className="mb-1.5 inline-flex items-center rounded-full border border-red-500/40 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold tracking-[0.08em] text-red-200">
+              {FINAL_BADGE_LABEL}
+            </span>
+          ) : null}
           <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
             {tournament.title}
           </h3>
@@ -1245,9 +1256,21 @@ export default function HomePage() {
               </p>
 
               <div className="mt-4">
-                <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
-                  {actionLabel}
-                </div>
+                {tournament.is_final ? (
+                  <div
+                    className={`inline-flex min-w-[154px] items-center justify-center rounded-xl border px-4 py-2.5 text-center text-sm font-semibold ${
+                      isPlayerInFinal
+                        ? "border-emerald-400/20 bg-emerald-500/14 text-emerald-100"
+                        : "border-white/10 bg-white/[0.06] text-white/65"
+                    }`}
+                  >
+                    {getFinalRegistrationLabel(isPlayerInFinal)}
+                  </div>
+                ) : (
+                  <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
+                    {actionLabel}
+                  </div>
+                )}
               </div>
             </>
           )}

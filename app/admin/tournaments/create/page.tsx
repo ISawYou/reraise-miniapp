@@ -6,9 +6,16 @@ import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import { CLUB_ADDRESS } from "@/config/club";
 import { isStaff } from "@/lib/roles";
-import type { Player, TournamentType } from "@/types/domain";
+import {
+  FINAL_MONTH_LABEL,
+  FINAL_MONTH_PRESET,
+  TOURNAMENT_PRESET_TEMPLATES,
+  presetToTournamentFields,
+  type TournamentPreset,
+} from "@/config/tournament-presets";
+import type { Player } from "@/types/domain";
 
-const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> = [
+const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }> = [
   { value: "classic", label: "Classic" },
   { value: "phoenix", label: "Phoenix" },
   { value: "deep_stack", label: "Deep Stack" },
@@ -16,41 +23,11 @@ const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentType; label: string }> =
   { value: "boss_bounty", label: "Boss Bounty" },
   { value: "win_the_button", label: "Win The Button" },
   { value: "mystery_bounty", label: "Mystery Bounty" },
+  { value: FINAL_MONTH_PRESET, label: FINAL_MONTH_LABEL },
 ];
 
-const TOURNAMENT_TEMPLATES: Record<TournamentType, { title: string; description: string }> = {
-  classic: {
-    title: "CLASSIC",
-    description: "Классический турнир без дополнительных механик. Главная задача - пройти как можно дальше и занять высокое место. Re-entry и Add-on увеличивают общий рейтинговый пул турнира. Стартовый стек — 30 000 фишек. Add-on — 60 000 фишек.",
-  },
-  bounty: {
-    title: "BOUNTY HUNTERS",
-    description: "Турнир, где важны не только итоговое место, но и выбитые соперники. Каждый нокаут приносит +5 рейтинговых очков, поэтому заработать рейтинг можно ещё до финального стола. Стартовый стек — 30 000 фишек. Add-on — 60 000 фишек.",
-  },
-  boss_bounty: {
-    title: "BOSS BOUNTY",
-    description: "Bounty-турнир с дополнительной охотой на Боссов. Обычный нокаут приносит +5 очков, нокаут Босса - +10 очков. Итоговое место также влияет на рейтинг. Стартовый стек — 30 000 фишек. Add-on — 60 000 фишек.",
-  },
-  win_the_button: {
-    title: "WIN THE BUTTON",
-    description: "Турнир с дополнительной борьбой за позицию. Победитель раздачи получает баттон на следующую - выигрывай банки, забирай позицию и используй преимущество за столом. Re-entry и Add-on увеличивают рейтинговый пул. Стартовый стек — 30 000 фишек. Add-on — 60 000 фишек.",
-  },
-  deep_stack: {
-    title: "DEEP STACK",
-    description: "Турнир с увеличенным стартовым стеком и большим пространством для игры. Больше фишек позволяет играть глубже и принимать больше решений без давления короткого стека. Re-entry и Add-on увеличивают рейтинговый пул. Стартовый стек — 50 000 фишек. Add-on — 100 000 фишек.",
-  },
-  mystery_bounty: {
-    title: "MYSTERY BOUNTY",
-    description: "Bounty-формат с неизвестной наградой за нокаут. После окончания поздней регистрации формируется отдельный пул рейтинговых очков и конверты с разными наградами. Выбиваешь соперника - узнаёшь, сколько очков было спрятано в твоём конверте. Стартовый стек — 30 000 фишек. Add-on — 60 000 фишек.",
-  },
-  phoenix: {
-    title: "PHOENIX",
-    description: "Особый рейтинговый формат РЕРЕЙЗ с заранее установленным гарантированным пулом очков. Независимо от количества участников в турнире разыгрывается заявленный рейтинговый пул. Стартовый стек — 30 000 фишек. Add-on — 60 000 фишек.",
-  },
-};
-
-const DEFAULT_TOURNAMENT_TYPE: TournamentType = "classic";
-const DEFAULT_TOURNAMENT_TEMPLATE = TOURNAMENT_TEMPLATES[DEFAULT_TOURNAMENT_TYPE];
+const DEFAULT_TOURNAMENT_TYPE: TournamentPreset = "classic";
+const DEFAULT_TOURNAMENT_TEMPLATE = TOURNAMENT_PRESET_TEMPLATES[DEFAULT_TOURNAMENT_TYPE];
 
 export default function AdminTournamentCreatePage() {
   const [player, setPlayer] = useState<Player | null>(null);
@@ -60,7 +37,7 @@ export default function AdminTournamentCreatePage() {
   const [description, setDescription] = useState(DEFAULT_TOURNAMENT_TEMPLATE.description);
   const [startAt, setStartAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
-  const [tournamentType, setTournamentType] = useState<TournamentType>(DEFAULT_TOURNAMENT_TYPE);
+  const [preset, setPreset] = useState<TournamentPreset>(DEFAULT_TOURNAMENT_TYPE);
   const [ratingGuarantee, setRatingGuarantee] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -144,6 +121,8 @@ export default function AdminTournamentCreatePage() {
       setMessage(null);
       setError(null);
 
+      const { tournament_type, is_final } = presetToTournamentFields(preset);
+
       await fetchAdminJson<{ tournament: unknown }>("/api/admin/tournaments", {
         method: "POST",
         headers: {
@@ -155,9 +134,10 @@ export default function AdminTournamentCreatePage() {
           location: CLUB_ADDRESS,
           start_at: new Date(startAt).toISOString(),
           max_players: Number(maxPlayers),
-          tournament_type: tournamentType,
+          tournament_type,
+          is_final,
           rating_guarantee:
-            tournamentType === "phoenix" && ratingGuarantee.trim() !== ""
+            preset === "phoenix" && ratingGuarantee.trim() !== ""
               ? Number(ratingGuarantee)
               : null,
         }),
@@ -168,7 +148,7 @@ export default function AdminTournamentCreatePage() {
       setDescription(DEFAULT_TOURNAMENT_TEMPLATE.description);
       setStartAt("");
       setMaxPlayers("20");
-      setTournamentType(DEFAULT_TOURNAMENT_TYPE);
+      setPreset(DEFAULT_TOURNAMENT_TYPE);
       setRatingGuarantee("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка создания турнира");
@@ -275,11 +255,11 @@ export default function AdminTournamentCreatePage() {
 
           <label className="mt-4 block text-sm text-white/80">Тип турнира</label>
           <select
-            value={tournamentType}
+            value={preset}
             onChange={(e) => {
-              const nextType = e.target.value as TournamentType;
-              const template = TOURNAMENT_TEMPLATES[nextType];
-              setTournamentType(nextType);
+              const nextPreset = e.target.value as TournamentPreset;
+              const template = TOURNAMENT_PRESET_TEMPLATES[nextPreset];
+              setPreset(nextPreset);
               setTitle(template.title);
               setDescription(template.description);
             }}
@@ -292,7 +272,7 @@ export default function AdminTournamentCreatePage() {
             ))}
           </select>
 
-          {tournamentType === "phoenix" ? (
+          {preset === "phoenix" ? (
             <>
               <label className="mt-4 block text-sm text-white/80">
                 Rating Guarantee (опционально)

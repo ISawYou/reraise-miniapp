@@ -1,28 +1,36 @@
 ﻿# Project Context
 
+> **Исправлено 2026-09.** Разделы ниже описывают исходный bootstrap проекта
+> (Vercel + Supabase) на момент первоначального запуска. С тех пор продакшн
+> перешёл на VPS + PostgreSQL — см. `docs/architecture.md` (актуальная
+> архитектура) и раздел "Продакшн" в `CLAUDE.md`. Живого Vercel/Supabase-деплоя
+> ReRaise сейчас нет; Supabase-код в репозитории — legacy/compatibility, не
+> текущий провайдер.
+
 ## Что это
 
 `РЕРЕЙЗ` — это Telegram Mini App для покерных турниров.
 
-Проект уже развернут в новом окружении:
+Исторически (на момент первого запуска) проект был развёрнут так:
 
-- новый GitHub репозиторий
-- новый Vercel project
-- новый Supabase project
-- новый Telegram bot
-- все env-переменные уже обновлены
+- GitHub репозиторий
+- Vercel project
+- Supabase project
+- Telegram bot
 
-Приложение уже рабочее: деплой есть, база подключена, схема перенесена, Telegram Mini App открывается корректно.
-1
+Актуальную топологию продакшна см. в `docs/architecture.md` и `CLAUDE.md`.
 
-## Архитектура
+## Архитектура (актуально)
 
 - Next.js App Router
 - TypeScript
 - Tailwind CSS
-- Supabase
+- PostgreSQL (`DATABASE_PROVIDER=postgres`) — единственная живая продовая БД
 - Telegram Mini App / Telegram Bot
-- Vercel
+- Хостинг — собственный VPS (контейнер `re-raise`), не Vercel
+
+Supabase-репозитории (`Supabase<Domain>Repository`) остаются в коде как
+legacy/compatibility — подробности в `docs/architecture.md`.
 
 ## Основные сущности
 
@@ -37,7 +45,7 @@
 
 - `app/` — страницы и UI на App Router
 - `app/api/` — API routes и webhook routes
-- `features/` — бизнес-логика и работа с Supabase
+- `features/` — бизнес-логика, обращается к БД через `lib/repositories/` (PostgreSQL в продакшне)
 - `lib/` — инфраструктурные helper-функции и интеграции
 - `types/` — domain/database types
 - `components/` — переиспользуемые UI-компоненты

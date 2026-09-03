@@ -86,6 +86,7 @@ beforeEach(() => {
     tournament_type: "classic",
     rating_formula_version: "v2",
     rating_guarantee: null,
+    is_final: false,
   });
   mocks.getTournamentAttendance.mockResolvedValue(new Map());
   mocks.getTournamentEliminations.mockResolvedValue(new Map());
@@ -170,6 +171,7 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- live rebuy-state rec
       tournament_type: "classic",
       rating_formula_version: "v2",
       rating_guarantee: null,
+      is_final: false,
     });
 
     await POST(
@@ -196,6 +198,7 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- live rebuy-state rec
       tournament_type: "mystery_bounty",
       rating_formula_version: "v2",
       rating_guarantee: null,
+      is_final: false,
     });
     mocks.getMysteryBountySnapshot.mockResolvedValue({ mystery_pool: 100 });
     mocks.getTournamentRebuyState.mockResolvedValue(new Map([["p1", { rebuys: 2, addons: 0 }]]));
@@ -285,6 +288,7 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- GS-linked freshness 
       tournament_type: "classic",
       rating_formula_version: "v2",
       rating_guarantee: null,
+      is_final: false,
       google_sheet_tab_name: "Sheet1",
     });
   }
@@ -413,6 +417,7 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- Poker Clock post-com
       tournament_type: "mystery_bounty",
       rating_formula_version: "v2",
       rating_guarantee: null,
+      is_final: false,
     });
     mocks.getMysteryBountySnapshot.mockResolvedValue({ mystery_pool: 100 });
 
@@ -432,6 +437,7 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- Poker Clock post-com
       tournament_type: "classic",
       rating_formula_version: "v2",
       rating_guarantee: null,
+      is_final: false,
       google_sheet_tab_name: "Sheet1",
     });
     mocks.readAndParseFreeTournamentSheet.mockResolvedValue({

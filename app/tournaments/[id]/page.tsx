@@ -26,6 +26,13 @@ import {
   splitTournamentLiveRoster,
 } from "@/lib/tournament-helpers";
 import { getTelegramUser } from "@/lib/telegram";
+import { FINAL_MONTH_LABEL } from "@/config/tournament-presets";
+import {
+  FINAL_BADGE_LABEL,
+  FINAL_REGISTRATION_EXPLANATION,
+  FINAL_REGISTRATION_TAB_LABEL,
+  getFinalRegistrationLabel,
+} from "@/lib/tournament-final-policy";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
 import { useTournamentActivePlayers } from "@/lib/hooks/use-tournament-active-players";
 import {
@@ -518,6 +525,25 @@ const waitlistParticipants = participants.filter(
   function renderActionButton() {
     if (!tournament || tournament.status === "completed") return null;
 
+    // Invite-only: no self-register/cancel action, ever -- server-side
+    // enforcement lives in registerPlayerForTournament/cancelPlayerRegistration
+    // (features/tournaments.ts). This is purely the informational read-out.
+    if (tournament.is_final) {
+      const isPlayerInFinal = registrationStatus === "registered" || registrationStatus === "waitlist";
+      return (
+        <div
+          className={`flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-center font-semibold ${
+            isPlayerInFinal
+              ? "border-emerald-400/20 bg-emerald-500/14 text-emerald-100"
+              : "border-white/10 bg-white/[0.04] text-white/60"
+          }`}
+        >
+          {isPlayerInFinal ? <CheckIcon /> : null}
+          <span>{getFinalRegistrationLabel(isPlayerInFinal)}</span>
+        </div>
+      );
+    }
+
     if (!registrationStatus) {
       return (
         <button
@@ -600,7 +626,13 @@ const waitlistParticipants = participants.filter(
       <div className="mx-auto max-w-md">
         <BackButton onClick={handleBack} className="mb-4" />
 
-        <div className="relative overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+        <div
+          className={`relative overflow-hidden rounded-[28px] border p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] ${
+            tournament.is_final
+              ? "border-red-500/25 bg-[radial-gradient(circle_at_top_left,rgba(153,27,27,0.22),transparent_32%),linear-gradient(145deg,#1c0a0c_0%,#0f0708_55%,#050405_100%)]"
+              : "border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)]"
+          }`}
+        >
           <TournamentVisual
             tournamentType={tournament.tournament_type}
             configs={tournamentVisuals}
@@ -608,6 +640,11 @@ const waitlistParticipants = participants.filter(
           />
 
           <div className="relative z-10">
+            {tournament.is_final ? (
+              <span className="mb-2 inline-flex items-center rounded-full border border-red-500/40 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold tracking-[0.08em] text-red-200">
+                {FINAL_BADGE_LABEL}
+              </span>
+            ) : null}
             <h1 className="text-[28px] font-black uppercase leading-tight tracking-[0.04em] text-white">
               {tournament.title}
             </h1>
@@ -674,7 +711,9 @@ const waitlistParticipants = participants.filter(
                 : "border-white/10 bg-transparent text-white/70"
             }`}
           >
-            {`Регистрация (${registeredParticipants.length})`}
+            {tournament?.is_final
+              ? `${FINAL_REGISTRATION_TAB_LABEL} (${registeredParticipants.length})`
+              : `Регистрация (${registeredParticipants.length})`}
           </button>
         </div>
 
@@ -736,7 +775,7 @@ const waitlistParticipants = participants.filter(
                   <span>Тип турнира</span>
                 </div>
                 <p className="mt-1.5 text-sm font-semibold text-white">
-                  {getTournamentTypeLabel(tournament.tournament_type)}
+                  {tournament.is_final ? FINAL_MONTH_LABEL : getTournamentTypeLabel(tournament.tournament_type)}
                 </p>
                 {tournamentTypeBonusLines.length > 0 ? (
                   <p className="mt-0.5 text-[11px] text-white/55">
@@ -872,13 +911,15 @@ const waitlistParticipants = participants.filter(
           {tournament.status !== "completed" ? (
             <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
               <p className="text-sm text-white/72">
-                {!registrationStatus
-                  ? registeredCount >= tournament.max_players
-                    ? "Свободные места закончились, но можно встать в список ожидания."
-                    : "Кнопка регистрации закреплена внизу экрана и всегда доступна."
-                  : registrationStatus === "registered"
-                    ? "Вы уже записаны на турнир. Управление записью доступно внизу экрана."
-                    : "Вы в списке ожидания. Управление записью доступно внизу экрана."}
+                {tournament.is_final
+                  ? FINAL_REGISTRATION_EXPLANATION
+                  : !registrationStatus
+                    ? registeredCount >= tournament.max_players
+                      ? "Свободные места закончились, но можно встать в список ожидания."
+                      : "Кнопка регистрации закреплена внизу экрана и всегда доступна."
+                    : registrationStatus === "registered"
+                      ? "Вы уже записаны на турнир. Управление записью доступно внизу экрана."
+                      : "Вы в списке ожидания. Управление записью доступно внизу экрана."}
               </p>
               {message ? (
                 <p className="mt-2 text-xs text-white/60">{message}</p>

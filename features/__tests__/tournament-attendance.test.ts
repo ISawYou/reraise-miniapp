@@ -78,6 +78,7 @@ function baseTournament(overrides: Partial<{ season_id: string | null }> = {}) {
     created_at: new Date().toISOString(),
     rating_formula_version: "v2" as const,
     rating_guarantee: null,
+    is_final: false,
   };
 }
 

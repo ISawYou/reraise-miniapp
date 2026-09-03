@@ -234,6 +234,7 @@ export class PostgresRegistrationRepository implements RegistrationRepository {
           season_id: tournaments.seasonId,
           status: tournaments.status,
           created_at: tournaments.createdAt,
+          is_final: tournaments.isFinal,
         },
       })
       .from(registrations)

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, index, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, boolean, timestamp, index, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { seasons } from "./seasons";
 
@@ -33,6 +33,14 @@ export const tournaments = pgTable("tournaments", {
   ratingGuarantee: integer("rating_guarantee"),
 
   seasonId: uuid("season_id").references(() => seasons.id, { onDelete: "set null" }),
+
+  // "Финал месяца" is a CREATE/EDIT UI preset, not a persisted
+  // TournamentType -- it always writes tournament_type="classic" here,
+  // with this flag as the one true signal for invite-only registration
+  // (features/tournaments.ts) and the special Home/detail presentation.
+  // Added by migration 0021_nifty_ironclad -- this column already exists
+  // in production; this just brings the Drizzle schema in sync with it.
+  isFinal: boolean("is_final").notNull().default(false),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

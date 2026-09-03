@@ -15,6 +15,7 @@ function tournament(id: string, status: TournamentStatus, startAt = "2026-08-01T
     created_at: "2026-01-01T00:00:00.000Z",
     rating_formula_version: "v2",
     rating_guarantee: null,
+    is_final: false,
   };
 }
 

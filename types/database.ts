@@ -46,6 +46,7 @@ export type TournamentRow = {
   created_at: string;
   rating_formula_version: "legacy" | "v2";
   rating_guarantee: number | null;
+  is_final: boolean;
 };
 
 export type RegistrationRow = {
