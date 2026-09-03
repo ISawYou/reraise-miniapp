@@ -15,7 +15,7 @@ import {
 } from "@/features/tournaments";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
-import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+import { LIST_ARTWORK_SIZE_CLASSNAME, TournamentVisual } from "@/components/tournaments/tournament-visual";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { fetchTournamentVisualConfigs } from "@/lib/tournament-visuals-client";
 import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
@@ -378,11 +378,8 @@ export default function TournamentsPage() {
           tournamentType={tournament.tournament_type}
           configs={tournamentVisuals}
           className="z-0"
-          // Smaller than the shared default, and stops above the bottom
-          // occupancy bar (bottom-12) instead of spanning the full card
-          // height -- a tall/portrait artwork (e.g. Boss Bounty) must never
-          // render into that strip.
-          artworkSizeClassName="absolute right-0 top-0 bottom-12 w-[50%] sm:w-[44%]"
+          artworkSizeClassName={LIST_ARTWORK_SIZE_CLASSNAME}
+          variant="list"
         />
 
         <div className="relative z-10">

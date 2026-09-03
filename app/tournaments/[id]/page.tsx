@@ -600,7 +600,7 @@ const waitlistParticipants = participants.filter(
       <div className="mx-auto max-w-md">
         <BackButton onClick={handleBack} className="mb-4" />
 
-        <div className="relative overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+        <div className="relative overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
           <TournamentVisual
             tournamentType={tournament.tournament_type}
             configs={tournamentVisuals}
@@ -608,7 +608,7 @@ const waitlistParticipants = participants.filter(
           />
 
           <div className="relative z-10">
-            <h1 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
+            <h1 className="text-[28px] font-black uppercase leading-tight tracking-[0.04em] text-white">
               {tournament.title}
             </h1>
 
@@ -623,6 +623,11 @@ const waitlistParticipants = participants.filter(
                 <UserIcon />
                 <span>{tournament.status === "completed" ? results.length : registeredCount} / {tournament.max_players}</span>
               </div>
+              {expectedPrizePlaces > 0 ? (
+                <div className="inline-flex items-center rounded-full border border-[#e1bf6b]/25 bg-[#e1bf6b]/10 px-3 py-1.5 text-xs font-semibold text-[#e1bf6b]">
+                  🏆 ТОП-{expectedPrizePlaces}
+                </div>
+              ) : null}
             </div>
 
             {isLive ? (
@@ -675,22 +680,22 @@ const waitlistParticipants = participants.filter(
 
         {activeTab === "about" ? (
           <div className="mt-4 space-y-3">
-            <section className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex items-center gap-1.5 text-xs text-white/50">
+            <section className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/50">
                   <CalendarIcon />
                   <span>Начало</span>
                 </div>
-                <p className="mt-3 text-sm font-semibold text-white">
+                <p className="mt-1.5 text-sm font-semibold text-white">
                   {tournamentDateParts?.date}
                 </p>
-                <p className="mt-1 text-xs text-white/55">
+                <p className="mt-0.5 text-[11px] text-white/55">
                   {tournamentDateParts?.time}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex items-center gap-1.5 text-xs text-white/50">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/50">
                   <PinIcon />
                   <span>Место</span>
                 </div>
@@ -699,42 +704,42 @@ const waitlistParticipants = participants.filter(
                     href={CLUB_MAP_URL}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-3 block text-sm font-semibold text-white underline decoration-white/25 underline-offset-4"
+                    className="mt-1.5 block text-sm font-semibold text-white underline decoration-white/25 underline-offset-4"
                   >
                     {tournament.location}
                   </a>
                 ) : (
-                  <p className="mt-3 text-sm font-semibold text-white">
+                  <p className="mt-1.5 text-sm font-semibold text-white">
                     {tournament.location || "Не указано"}
                   </p>
                 )}
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex items-center gap-1.5 text-xs text-white/50">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/50">
                   <UserIcon />
                   <span>Призовые места</span>
                 </div>
-                <p className="mt-3 text-sm font-semibold text-white">
+                <p className="mt-1.5 text-sm font-semibold text-white">
                   {expectedPrizePlaces}
                 </p>
                 {expectedPrizePlaces > 0 ? (
-                  <p className="mt-1 text-xs text-white/55">
+                  <p className="mt-0.5 text-[11px] text-white/55">
                     Рейтинговая зона: места 1-{expectedPrizePlaces}
                   </p>
                 ) : null}
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="flex items-center gap-1.5 text-xs text-white/50">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/50">
                   <StarIcon />
                   <span>Тип турнира</span>
                 </div>
-                <p className="mt-3 text-sm font-semibold text-white">
+                <p className="mt-1.5 text-sm font-semibold text-white">
                   {getTournamentTypeLabel(tournament.tournament_type)}
                 </p>
                 {tournamentTypeBonusLines.length > 0 ? (
-                  <p className="mt-1 text-xs text-white/55">
+                  <p className="mt-0.5 text-[11px] text-white/55">
                     {tournamentTypeBonusLines.join(" · ")}
                   </p>
                 ) : null}

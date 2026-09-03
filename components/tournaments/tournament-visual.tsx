@@ -13,6 +13,15 @@ import type { TournamentType } from "@/types/domain";
 // admin preview and live rendering in sync everywhere at any device width.
 const DEFAULT_ARTWORK_SIZE_CLASSNAME = "absolute inset-y-0 right-0 w-[68%]";
 
+// The /tournaments list card's own box: smaller than the default, and
+// stops above the bottom occupancy bar (bottom-12) instead of spanning the
+// full card height -- a tall/portrait artwork (e.g. Boss Bounty) must never
+// render into that strip. Exported so the admin visuals editor's list-mode
+// preview uses this exact same box, not a hand-copied duplicate that could
+// drift from the real list card.
+export const LIST_ARTWORK_SIZE_CLASSNAME =
+  "absolute right-0 top-0 bottom-12 w-[50%] sm:w-[44%]";
+
 // The visible artwork used to get its size from object-contain fitting a 1:1
 // image into the box above -- effectively HEIGHT-driven, since that box is
 // almost the full card height and is usually wider than it is tall. Real
@@ -48,6 +57,12 @@ type TournamentVisualProps = {
   // ARTWORK_STAGE_WIDTH_PERCENT_OF_BOX of *this* box, so a narrower override
   // still gets a proportionally smaller artwork, not a differently-shaped one.
   artworkSizeClassName?: string;
+  // "list" reads config.list (scale/offsetX/offsetY/opacity) when present,
+  // falling back to the main geometry when a type has no list override yet
+  // -- so /tournaments renders identically to before until an admin
+  // explicitly tunes it. assetUrl is always the shared main PNG; only
+  // positioning/opacity differ per surface.
+  variant?: "default" | "list";
 };
 
 // Decorative artwork layer shared by the Home tournament card and the admin
@@ -58,12 +73,15 @@ export function TournamentVisual({
   configs,
   className = "",
   artworkSizeClassName = DEFAULT_ARTWORK_SIZE_CLASSNAME,
+  variant = "default",
 }: TournamentVisualProps) {
   const config = configs[tournamentType];
 
   if (!config) {
     return null;
   }
+
+  const geometry = variant === "list" && config.list ? config.list : config;
 
   // The card's own background must stay exactly as it was before artwork
   // existed -- no full-card overlay here. Legibility instead comes from
@@ -77,10 +95,11 @@ export function TournamentVisual({
   // exactly what actually produced the geometry on screen.
   const debugConfig = JSON.stringify({
     assetUrl: config.assetUrl,
-    scale: config.scale,
-    offsetX: config.offsetX,
-    offsetY: config.offsetY,
-    opacity: config.opacity,
+    variant,
+    scale: geometry.scale,
+    offsetX: geometry.offsetX,
+    offsetY: geometry.offsetY,
+    opacity: geometry.opacity,
   });
 
   return (
@@ -95,7 +114,7 @@ export function TournamentVisual({
         data-config={debugConfig}
         className={artworkSizeClassName}
         style={{
-          opacity: config.opacity / 100,
+          opacity: geometry.opacity / 100,
           maskImage,
           WebkitMaskImage: maskImage,
         }}
@@ -108,7 +127,7 @@ export function TournamentVisual({
         <div
           className="absolute inset-0"
           style={{
-            transform: `translate(${config.offsetX}%, ${config.offsetY}%)`,
+            transform: `translate(${geometry.offsetX}%, ${geometry.offsetY}%)`,
           }}
         >
           {/* Width-driven artwork stage: a deterministic square sized off
@@ -122,7 +141,7 @@ export function TournamentVisual({
             className="absolute right-0 top-1/2 aspect-square"
             style={{
               width: `${ARTWORK_STAGE_WIDTH_PERCENT_OF_BOX}%`,
-              transform: `translateY(-50%) scale(${config.scale / 100})`,
+              transform: `translateY(-50%) scale(${geometry.scale / 100})`,
               transformOrigin: "center",
             }}
           >

@@ -609,12 +609,12 @@ export default function PlayerProfilePage() {
             ) : null}
 
             {featuredAchievements.length > 0 || isOwnProfile ? (
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 {featuredAchievements.map((item) => (
-                  <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-11 w-11" />
+                  <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-11 w-11 shrink-0" />
                 ))}
                 {isOwnProfile ? (
-                  <button type="button" onClick={() => { setFeaturedDraft(featuredKeys); setShowFeaturedEditor(true); }} className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs text-white/65">
+                  <button type="button" onClick={() => { setFeaturedDraft(featuredKeys); setShowFeaturedEditor(true); }} className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs text-white/65">
                     Изменить достижения
                   </button>
                 ) : null}
