@@ -47,6 +47,8 @@ import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, Tournament } from "@/types/domain";
 import type { ClubActivityEvent } from "@/types/club-activity";
+import type { RankMovement } from "@/features/leaderboard";
+import { Podium } from "@/components/leaderboard/podium";
 
 type LeaderboardRow = {
   player_id: string;
@@ -55,6 +57,10 @@ type LeaderboardRow = {
   telegram_avatar_url: string | null;
   custom_avatar_url: string | null;
   rating: number;
+  // Current-mode leaderboard rows only -- same server-computed value the
+  // full /leaderboard page displays, never recalculated here. See
+  // features/leaderboard.ts::getOfficialSeasonLeaderboardWithMovement.
+  rankMovement?: RankMovement;
 };
 
 const TELEGRAM_BOT_ID = Number(
@@ -1016,12 +1022,6 @@ export default function HomePage() {
     : undefined;
   const homeStaffCardKind = resolveHomeStaffCardKind(player?.role, isDealer);
 
-  function getLeaderboardMedal(place: number) {
-    if (place === 1) return "🥇";
-    if (place === 2) return "🥈";
-    return "🥉";
-  }
-
   function getCompactLeaderboardSummary() {
     if (currentPlayerLeaderboardRow) {
       if (currentPlayerIsInTopThree) {
@@ -1647,23 +1647,8 @@ export default function HomePage() {
                   Загружаем...
                 </div>
               ) : topThreeRows.length > 0 ? (
-                <div className="mt-3 space-y-1.5">
-                  {topThreeRows.map((row, index) => (
-                    <Link
-                      key={row.player_id}
-                      href={`/players/${row.player_id}`}
-                      className="flex items-center justify-between gap-3 px-0.5 py-0.5 transition active:scale-[0.99]"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-white">
-                          {getLeaderboardMedal(index + 1)} {row.display_name}
-                        </p>
-                      </div>
-                      <p className="shrink-0 text-sm font-semibold text-white/75">
-                        {row.rating}
-                      </p>
-                    </Link>
-                  ))}
+                <div className="mt-3">
+                  <Podium topThree={topThreeRows} currentPlayerId={player?.id ?? null} variant="compact" />
                 </div>
               ) : (
                 <div className="mt-3 text-sm text-white/55">

@@ -94,10 +94,12 @@ function getPreferredPlayerDisplayName(player: {
 // for the two results/registrations queries that embed a full tournament
 // row (getMyTournaments, getMyTournamentHistory). See
 // lib/repositories/result/SupabaseResultRepository.ts's comment.
-// `row.is_final ?? false`: this embed is populated by either the Postgres
-// or the Supabase repository depending on DATABASE_PROVIDER, and the live
-// Supabase tournaments table has no is_final column -- see
-// SupabaseTournamentRepository's mapTournamentRow comment.
+// `row.is_final ?? false`: defensive default only, same as
+// rating_formula_version/rating_guarantee above it -- this embed is
+// populated by either the Postgres or the (legacy/compatibility-only,
+// see SupabaseTournamentRepository's mapTournamentRow comment) Supabase
+// repository depending on DATABASE_PROVIDER, which is "postgres" in
+// production.
 function mapTournamentRow(row: TournamentRow): Tournament {
   return {
     id: row.id,

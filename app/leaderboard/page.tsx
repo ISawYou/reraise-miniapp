@@ -5,16 +5,13 @@ import { BackButton } from "@/components/ui/back-button";
 import { RatingIcon } from "@/components/icons/rating-icon";
 import { useEffect, useState } from "react";
 import {
-  describeRankMovement,
   filterArchivableSeasons,
   getLeaderboardPlaceTone,
-  getPodiumOrder,
   resolvePlayerStanding,
-  type RankMovementDisplay,
 } from "@/lib/leaderboard-display";
 import { logEvent } from "@/lib/activity-client";
 import { resolveCurrentPlayer } from "@/lib/current-player";
-import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import { LeaderboardAvatar, Podium, RankMovementBadge } from "@/components/leaderboard/podium";
 import type { RankMovement } from "@/features/leaderboard";
 
 type LeaderboardRow = {
@@ -31,28 +28,6 @@ type LeaderboardRow = {
   rankMovement?: RankMovement;
 };
 
-// Compact "↑3 / ↓2 / — / NEW" badge -- secondary to rank/name/points,
-// never rendered at all when there is nothing to show (OOC rows,
-// archive/all-time mode). Same tone-to-color mapping everywhere it appears
-// (RankRow, Podium, YourPositionCard).
-function RankMovementBadge({ movement }: { movement: RankMovement | undefined }) {
-  const display = describeRankMovement(movement);
-  if (!display) return null;
-
-  const toneClass: Record<RankMovementDisplay["tone"], string> = {
-    up: "text-emerald-400",
-    down: "text-red-400/80",
-    same: "text-white/35",
-    new: "text-[#f0d38a]",
-  };
-
-  return (
-    <span className={`text-[11px] font-semibold tabular-nums ${toneClass[display.tone]}`}>
-      {display.label}
-    </span>
-  );
-}
-
 type PublicSeason = { id: string; title: string; isActive: boolean };
 
 type Mode = "current" | "archive" | "all-time";
@@ -62,96 +37,6 @@ const MODE_LABEL: Record<Mode, string> = {
   archive: "Архив",
   "all-time": "За всё время",
 };
-
-function Avatar({ row, size }: { row: LeaderboardRow; size: number }) {
-  const url = getPlayerAvatarUrl(row);
-  const style = { width: size, height: size };
-  if (url) {
-    return (
-      <img
-        src={url}
-        alt={row.display_name}
-        style={style}
-        className="shrink-0 rounded-full border border-white/10 object-cover"
-      />
-    );
-  }
-  return (
-    <div
-      style={style}
-      className="flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 font-semibold text-white/80"
-    >
-      {getPlayerAvatarFallback(row)}
-    </div>
-  );
-}
-
-// TOP-3 podium: #2 left, #1 center (strongest emphasis), #3 right -- see
-// lib/leaderboard-display.ts::getPodiumOrder for the pure ordering logic
-// this renders. Works with fewer than 3 entries (empty slots render
-// nothing, never a placeholder for a nonexistent player) and with missing
-// avatars (Avatar's own fallback).
-function Podium({ topThree, currentPlayerId }: { topThree: LeaderboardRow[]; currentPlayerId: string | null }) {
-  const [second, first, third] = getPodiumOrder(topThree);
-  const slots: Array<{ row: LeaderboardRow | null; place: number; emphasis: "primary" | "secondary" }> = [
-    { row: second, place: 2, emphasis: "secondary" },
-    { row: first, place: 1, emphasis: "primary" },
-    { row: third, place: 3, emphasis: "secondary" },
-  ];
-
-  if (slots.every((slot) => slot.row === null)) return null;
-
-  const badgeTone = (place: number) =>
-    place === 1
-      ? "bg-[#f0d38a] text-black"
-      : place === 2
-        ? "bg-slate-200 text-black"
-        : "bg-orange-300 text-black";
-
-  return (
-    <div className="grid grid-cols-3 items-end gap-2">
-      {slots.map(({ row, place, emphasis }) => {
-        if (!row) return <div key={place} />;
-        const isPrimary = emphasis === "primary";
-        const isCurrentPlayer = row.player_id === currentPlayerId;
-        const avatarSize = isPrimary ? 68 : 56;
-        return (
-          <Link
-            key={row.player_id}
-            href={`/players/${row.player_id}`}
-            className={`flex min-w-0 flex-col items-center rounded-2xl border px-2 py-3.5 text-center transition active:scale-[0.98] ${
-              isPrimary
-                ? "border-[#d7b55a]/35 bg-[linear-gradient(180deg,rgba(215,181,90,0.14),rgba(215,181,90,0.02))]"
-                : "border-white/10 bg-white/[0.04]"
-            } ${isCurrentPlayer ? "ring-1 ring-inset ring-[#d7b55a]/40" : ""}`}
-          >
-            <div className="relative">
-              <Avatar row={row} size={avatarSize} />
-              <span
-                className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${badgeTone(place)}`}
-              >
-                {place}
-              </span>
-            </div>
-            <p
-              className={`mt-2.5 w-full truncate text-xs font-semibold ${isPrimary ? "text-white" : "text-white/85"}`}
-            >
-              {row.display_name}
-            </p>
-            <p className={`mt-1 font-bold tabular-nums ${isPrimary ? "text-lg text-[#f0d38a]" : "text-sm text-white/75"}`}>
-              {row.rating}
-            </p>
-            {row.rankMovement ? (
-              <div className="mt-0.5">
-                <RankMovementBadge movement={row.rankMovement} />
-              </div>
-            ) : null}
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
 
 function RankRow({
   row,
@@ -180,7 +65,7 @@ function RankRow({
       <div className="flex h-6 w-6 shrink-0 items-center justify-center text-xs font-bold tabular-nums text-white/55">
         {rank ?? "—"}
       </div>
-      <Avatar row={row} size={36} />
+      <LeaderboardAvatar player={row} size={36} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-white">{row.display_name}</p>
         {isCurrentPlayer ? <p className="mt-0.5 text-xs text-[#f0d38a]">Это вы</p> : null}
@@ -270,7 +155,9 @@ function LeaderboardBody({
 
   return (
     <>
-      {topThree.length > 0 ? <Podium topThree={topThree} currentPlayerId={currentPlayerId} /> : null}
+      {topThree.length > 0 ? (
+        <Podium topThree={topThree} currentPlayerId={currentPlayerId} variant="full" />
+      ) : null}
 
       {showTopNine && rows.length > 0 ? (
         <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-[#8fa8ff]/20 bg-[#667eea]/10 px-3 py-1.5 text-xs font-medium text-[#bdc9ff]">
