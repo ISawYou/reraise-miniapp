@@ -107,12 +107,17 @@ export class SupabasePlayerRepository implements PlayerRepository {
     return mapPlayerRowToDomain(data as PlayerRow);
   }
 
+  // Case-insensitive, mirroring PostgresPlayerRepository's own findByEmail --
+  // same reasoning: a plain .eq() would miss a row whose email isn't
+  // already stored lowercase. ilike's %/_ wildcard chars are escaped first
+  // so this stays an exact (case-insensitive) match, not a pattern search.
   async findByEmail(email: string): Promise<Player | null> {
     const supabase = getSupabaseServer();
+    const escaped = email.replace(/[%_\\]/g, (char) => `\\${char}`);
     const { data, error } = await supabase
       .from("players")
       .select("*")
-      .eq("email", email)
+      .ilike("email", escaped)
       .maybeSingle();
 
     if (error) {
@@ -278,5 +283,12 @@ export class SupabasePlayerRepository implements PlayerRepository {
     if (error) {
       throw new Error(`Ошибка удаления: ${error.message}`);
     }
+  }
+
+  // Account merge (lib/player-merge.ts) is Postgres-only -- the Supabase
+  // schema has no merged_into_player_id column at all, so no row can ever
+  // be a merge source under this provider.
+  async hasMergeSources(_playerId: string): Promise<boolean> {
+    return false;
   }
 }

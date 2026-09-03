@@ -46,6 +46,12 @@ export type Player = {
   referral_count?: number;
   free_reentries_balance?: number;
   yandex_review_bonus_claimed?: boolean;
+  // Account merge (see lib/player-merge.ts) -- set once a player row is
+  // soft-merged into another. Every identity-resolution path must follow
+  // this to the canonical row (lib/canonical-player.ts) rather than acting
+  // on a merged-away player directly.
+  merged_into_player_id?: string | null;
+  merged_at?: string | null;
   created_at: string;
 };
 

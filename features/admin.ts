@@ -69,6 +69,21 @@ export async function deleteManualPlayer(playerId: string): Promise<void> {
     throw new Error("Нельзя удалить сотрудника (администратора или супер-администратора) — сначала снимите роль");
   }
 
+  // Account merge (lib/player-merge.ts) soft-merges a player row into
+  // another rather than deleting it -- deleting a player who is still the
+  // TARGET of a live merged-away source would both destroy every history
+  // row already moved into it (registrations, results, dealer shifts, ...)
+  // and silently "un-merge" the source (players.merged_into_player_id is
+  // ON DELETE SET NULL) into an empty, now-unlinked zombie row. Refused
+  // outright rather than cascading through it -- the safe next step, if
+  // this player really must go, is deleting/reassigning the merged-away
+  // source(s) first, not this route.
+  if (await playerRepository.hasMergeSources(playerId)) {
+    throw new Error(
+      "Нельзя удалить игрока — с ним объединён другой аккаунт. Сначала обратитесь к объединённым аккаунтам."
+    );
+  }
+
   await tournamentLiveStateRepository.deleteLiveEntriesByPlayerId(playerId);
   await achievementRepository.deleteByPlayerId(playerId);
   await resultRepository.deleteByPlayerId(playerId);

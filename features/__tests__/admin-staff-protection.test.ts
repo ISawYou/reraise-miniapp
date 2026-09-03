@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   findById: vi.fn(),
   update: vi.fn(),
+  hasMergeSources: vi.fn(),
   deleteLiveEntriesByPlayerId: vi.fn(),
   deleteAchievementsByPlayerId: vi.fn(),
   deleteResultsByPlayerId: vi.fn(),
@@ -14,6 +15,7 @@ vi.mock("@/lib/repositories", () => ({
   playerRepository: {
     findById: mocks.findById,
     update: mocks.update,
+    hasMergeSources: mocks.hasMergeSources,
     delete: mocks.deletePlayer,
   },
   tournamentLiveStateRepository: {
@@ -43,6 +45,7 @@ beforeEach(() => {
     id,
     ...patch,
   }));
+  mocks.hasMergeSources.mockResolvedValue(false);
 });
 
 describe("staff account safety", () => {
@@ -97,5 +100,19 @@ describe("staff account safety", () => {
 
     await expect(deleteManualPlayer("p1")).rejects.toThrow();
     expect(mocks.deletePlayer).not.toHaveBeenCalled();
+  });
+
+  // Account merge (lib/player-merge.ts) soft-merges into this row rather
+  // than deleting it -- deleting a live merge TARGET would destroy every
+  // history row already moved into it and silently "un-merge" the source
+  // into an orphaned zombie (players.merged_into_player_id is ON DELETE SET
+  // NULL). See features/admin.ts's deleteManualPlayer.
+  it("a player who is the target of a live merged-away source cannot be deleted", async () => {
+    mocks.findById.mockResolvedValue(player("player"));
+    mocks.hasMergeSources.mockResolvedValue(true);
+
+    await expect(deleteManualPlayer("p1")).rejects.toThrow();
+    expect(mocks.deletePlayer).not.toHaveBeenCalled();
+    expect(mocks.deleteLiveEntriesByPlayerId).not.toHaveBeenCalled();
   });
 });

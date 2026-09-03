@@ -17,3 +17,4 @@ export * from "./achievementVisualConfigs";
 export * from "./playerFeaturedAchievements";
 export * from "./dealers";
 export * from "./seasonRatingExclusions";
+export * from "./playerMergeIntents";

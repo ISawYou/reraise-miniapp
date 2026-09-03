@@ -2,6 +2,7 @@ import "server-only";
 
 import { playerRepository } from "@/lib/repositories";
 import { COOKIE_NAME, verifySession } from "@/lib/telegram-web-session";
+import { resolveCanonicalPlayer } from "@/lib/canonical-player";
 import type { Player } from "@/types/domain";
 
 // The one caller-identity resolution mechanism for everything under
@@ -128,7 +129,13 @@ export async function resolveAuthenticatedCaller(
       return null;
     }
 
-    return playerRepository.findByTelegramId(telegramId);
+    // telegram_id is never moved off a merged-away row by executeMerge()
+    // (only email is cleared there) -- if the row this telegram_id still
+    // lives on later itself becomes the source of a *different* merge,
+    // this lookup would otherwise keep resolving to a now-non-canonical
+    // player. See lib/canonical-player.ts.
+    const player = await playerRepository.findByTelegramId(telegramId);
+    return resolveCanonicalPlayer(player);
   }
 
   const sessionCookie = cookies.get(COOKIE_NAME)?.value;
@@ -138,7 +145,15 @@ export async function resolveAuthenticatedCaller(
     return null;
   }
 
-  return playerRepository.findById(playerId);
+  // Same reasoning as the Telegram-id branch above -- a still-validly-signed
+  // old cookie for a player later soft-merged into another one must not
+  // keep resolving to, or letting anyone act as, that now-non-canonical
+  // row (this is the /api/admin/** gate, so acting incorrectly here can
+  // mean acting with stale admin/operator privilege -- resolveCanonicalPlayer
+  // never unions/escalates privilege, it always resolves to the target's
+  // actual, current role).
+  const player = await playerRepository.findById(playerId);
+  return resolveCanonicalPlayer(player);
 }
 
 // Convenience wrapper for Server Actions / Route Handlers, which read the

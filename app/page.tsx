@@ -35,7 +35,7 @@ import {
   type TelegramWebAppUser,
 } from "@/lib/telegram";
 import { loadTelegramLoginWidget } from "@/lib/telegram-login";
-import { resolveCurrentPlayer } from "@/lib/current-player";
+import { resolveCurrentPlayer, invalidateCurrentPlayerCache } from "@/lib/current-player";
 import { openSupportChat } from "@/lib/support";
 import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
 import { TERMS_TEXT } from "@/config/terms";
@@ -195,6 +195,12 @@ export default function HomePage() {
   const [emailLinkLoading, setEmailLinkLoading] = useState(false);
   const [emailLinkError, setEmailLinkError] = useState<string | null>(null);
   const [emailLinkResendCooldown, setEmailLinkResendCooldown] = useState(0);
+  // Set when verify-code discovers the email already belongs to a different,
+  // self-service-mergeable account (409 canMerge: true) -- see
+  // lib/player-merge.ts. Presence of an id switches the modal's "code" step
+  // to a merge-confirmation prompt instead of a plain error dead end.
+  const [mergeIntentId, setMergeIntentId] = useState<string | null>(null);
+  const [mergeLoading, setMergeLoading] = useState(false);
   const [telegramLoginLoading, setTelegramLoginLoading] = useState(false);
   const [activeTournamentIndex, setActiveTournamentIndex] = useState(0);
   const [completedAchievementsCount, setCompletedAchievementsCount] = useState(0);
@@ -246,6 +252,7 @@ export default function HomePage() {
     setEmailLinkError(null);
     setEmailLinkStep("email");
     setEmailLinkResendCooldown(0);
+    setMergeIntentId(null);
     setShowEmailLinkModal(true);
   }
 
@@ -555,6 +562,7 @@ export default function HomePage() {
       window.sessionStorage.setItem("reraise.email.link.dismissed", "1");
     } catch {}
     setShowEmailLinkModal(false);
+    setMergeIntentId(null);
   }
 
   function startEmailLinkResendCooldown(seconds = 60) {
@@ -655,11 +663,20 @@ export default function HomePage() {
       });
 
       const payload = (await response.json().catch(() => null)) as
-        | { error?: string; player?: Player }
+        | { error?: string; detail?: string; player?: Player; canMerge?: boolean; mergeIntentId?: string }
         | null;
 
       if (!response.ok) {
-        setEmailLinkError(payload?.error ?? "Неверный или истёкший код.");
+        if (payload?.canMerge && payload.mergeIntentId) {
+          // Email belongs to a different, self-service-mergeable account --
+          // offer to merge instead of a plain error dead end. See
+          // lib/player-merge.ts.
+          setMergeIntentId(payload.mergeIntentId);
+          setEmailLinkError(payload.detail ?? payload.error ?? null);
+          return;
+        }
+
+        setEmailLinkError(payload?.detail ?? payload?.error ?? "Неверный или истёкший код.");
         return;
       }
 
@@ -673,6 +690,46 @@ export default function HomePage() {
       setEmailLinkError(err instanceof Error ? err.message : "Ошибка привязки email.");
     } finally {
       setEmailLinkLoading(false);
+    }
+  }
+
+  async function handleConfirmMerge() {
+    if (!mergeIntentId) return;
+    setMergeLoading(true);
+    setEmailLinkError(null);
+    try {
+      const response = await fetch("/api/auth/email/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ mergeIntentId }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; detail?: string; player?: Player }
+        | null;
+
+      if (!response.ok) {
+        setEmailLinkError(payload?.detail ?? payload?.error ?? "Не удалось объединить аккаунты.");
+        return;
+      }
+
+      if (payload?.player) {
+        setPlayer(payload.player);
+      }
+
+      // The session's own player row may have changed shape (email,
+      // referral_count, free_reentries_balance) -- resolveCurrentPlayer()'s
+      // module-level cache must not keep serving the pre-merge snapshot.
+      invalidateCurrentPlayerCache();
+
+      logEvent("email_link_merge_completed");
+      setMergeIntentId(null);
+      setShowEmailLinkModal(false);
+    } catch (err) {
+      setEmailLinkError(err instanceof Error ? err.message : "Не удалось объединить аккаунты.");
+    } finally {
+      setMergeLoading(false);
     }
   }
 
@@ -1680,6 +1737,29 @@ export default function HomePage() {
                   {emailLinkLoading ? "Отправляем..." : "Получить код"}
                 </button>
               </form>
+            ) : mergeIntentId ? (
+              <div>
+                <p className="mb-4 text-sm text-white/60">
+                  {emailLinkError ??
+                    "Мы нашли аккаунт, зарегистрированный с этим email. Его можно объединить с текущим аккаунтом — вся игровая история сохранится."}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleConfirmMerge}
+                  disabled={mergeLoading}
+                  className="w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-40"
+                >
+                  {mergeLoading ? "Объединяем..." : "Объединить аккаунты"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMergeIntentId(null); setEmailLinkError(null); }}
+                  disabled={mergeLoading}
+                  className="mt-3 w-full text-sm text-white/40 disabled:opacity-40"
+                >
+                  Отмена
+                </button>
+              </div>
             ) : (
               <form onSubmit={handleEmailLinkVerifyCode}>
                 <p className="mb-4 text-sm text-white/60">

@@ -30,3 +30,4 @@ export * from "./featured-achievement";
 export * from "./tournament-asset-storage";
 export * from "./dealer";
 export * from "./season-rating-exclusion";
+export * from "./player-merge-intent";

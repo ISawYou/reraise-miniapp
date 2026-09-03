@@ -139,6 +139,7 @@ export async function verifyEmailOtpCode(params: {
   return {
     ok: true as const,
     playerId: record.player_id,
+    otpId: record.id,
   };
 }
 

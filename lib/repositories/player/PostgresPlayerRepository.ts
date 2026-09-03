@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { players } from "@/lib/db/schema";
 import type { Player, PlayerRole } from "@/types/domain";
@@ -42,6 +42,8 @@ function mapRowToPlayer(row: typeof players.$inferSelect): Player {
     referral_count: row.referralCount,
     free_reentries_balance: row.freeReentriesBalance,
     yandex_review_bonus_claimed: row.yandexReviewBonusClaimed,
+    merged_into_player_id: row.mergedIntoPlayerId,
+    merged_at: row.mergedAt ? row.mergedAt.toISOString() : null,
     created_at: row.createdAt.toISOString(),
   };
 }
@@ -122,8 +124,21 @@ export class PostgresPlayerRepository implements PlayerRepository {
     return row ? mapRowToPlayer(row) : null;
   }
 
+  // Case-insensitive to match players_email_unique_idx's own semantics
+  // exactly (UNIQUE btree on lower(email)) -- a plain eq() here would miss
+  // any row whose email isn't already stored lowercase (e.g. a row
+  // verbatim-copied by scripts/backfill-postgres.mjs from the old Supabase
+  // schema, which never normalized casing on write). Every current caller
+  // already lowercases its input before calling this (features/auth-server.ts's
+  // normalizeEmail), but this must not depend on that discipline holding at
+  // every call site forever -- the query itself now enforces it, the same
+  // invariant the unique index already enforces at write time.
   async findByEmail(email: string): Promise<Player | null> {
-    const rows = await db.select().from(players).where(eq(players.email, email)).limit(1);
+    const rows = await db
+      .select()
+      .from(players)
+      .where(sql`lower(${players.email}) = lower(${email})`)
+      .limit(1);
     const [row] = rows;
     return row ? mapRowToPlayer(row) : null;
   }
@@ -254,5 +269,14 @@ export class PostgresPlayerRepository implements PlayerRepository {
     } catch (err) {
       throw new Error(`Ошибка удаления: ${errorMessage(err)}`);
     }
+  }
+
+  async hasMergeSources(playerId: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: players.id })
+      .from(players)
+      .where(eq(players.mergedIntoPlayerId, playerId))
+      .limit(1);
+    return rows.length > 0;
   }
 }

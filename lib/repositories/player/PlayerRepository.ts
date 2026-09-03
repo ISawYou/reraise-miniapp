@@ -88,4 +88,17 @@ export interface PlayerRepository {
   create(data: PlayerInsert): Promise<Player>;
   update(playerId: string, patch: PlayerPatch): Promise<Player>;
   delete(playerId: string): Promise<void>;
+
+  // Account merge (lib/player-merge.ts) is Postgres-only, so this can never
+  // be true under the Supabase provider -- SupabasePlayerRepository always
+  // returns false, same precedent as playerMergeIntentRepository having no
+  // Supabase implementation at all. Used by deleteManualPlayer
+  // (features/admin.ts) to refuse deleting a merge TARGET while a merged-
+  // away source still points at it: deleting it would both destroy every
+  // history row already moved into it and silently "un-merge" the source
+  // (players.merged_into_player_id is ON DELETE SET NULL) into an empty,
+  // now-unlinked zombie row -- exactly the "deleted canonical account with
+  // a live secondary pointing to it" case this repository method exists to
+  // prevent.
+  hasMergeSources(playerId: string): Promise<boolean>;
 }

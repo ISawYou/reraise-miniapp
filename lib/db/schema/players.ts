@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, bigint, boolean, integer, timestamp, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, bigint, boolean, integer, timestamp, uniqueIndex, index, check, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 // Target schema per docs/POSTGRES_MIGRATION_AUDIT.md — not a 1:1 copy of the
@@ -45,6 +45,17 @@ export const players = pgTable("players", {
   freeReentriesBalance: integer("free_reentries_balance").notNull().default(0),
   yandexReviewBonusClaimed: boolean("yandex_review_bonus_claimed").notNull().default(false),
 
+  // Account merge (ported from Sterling/spb-poker commit 770ce78d) -- set
+  // once, atomically, by lib/player-merge.ts's executeMerge(). Never
+  // deleted, never cleared: a player row is soft-merged in place, not
+  // removed, so historical FKs elsewhere that still point at this row's id
+  // keep resolving. Every identity-resolution entry point (getSessionPlayer
+  // equivalent in features/auth-server.ts, lib/admin-auth.ts) must follow
+  // this pointer via lib/canonical-player.ts::resolveCanonicalPlayer rather
+  // than trusting a raw lookup -- see that module's doc comment for why.
+  mergedIntoPlayerId: uuid("merged_into_player_id").references((): AnyPgColumn => players.id, { onDelete: "set null" }),
+  mergedAt: timestamp("merged_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   // 'operator' added for the on-site tournament-admin role -- existing
@@ -73,4 +84,10 @@ export const players = pgTable("players", {
 
   index("players_role_idx").on(table.role),
   index("players_nickname_status_idx").on(table.nicknameStatus),
+
+  index("players_merged_into_player_id_idx").on(table.mergedIntoPlayerId),
+  check(
+    "players_merged_into_not_self",
+    sql`${table.mergedIntoPlayerId} IS NULL OR ${table.mergedIntoPlayerId} != ${table.id}`,
+  ),
 ]);

@@ -2,6 +2,7 @@ import "server-only";
 
 import { playerRepository } from "@/lib/repositories";
 import { verifySession } from "@/lib/telegram-web-session";
+import { resolveCanonicalPlayer } from "@/lib/canonical-player";
 import type { Player } from "@/types/domain";
 
 function normalizeEmail(email: string): string {
@@ -33,7 +34,13 @@ export async function getPlayerFromSessionServer(
   if (!sessionValue) return null;
   const playerId = verifySession(sessionValue);
   if (!playerId) return null;
-  const player = await getPlayerByIdServer(playerId);
+  const rawPlayer = await getPlayerByIdServer(playerId);
+  // A player row can be soft-merged into another one without ever being
+  // deleted (lib/player-merge.ts's executeMerge) -- a still-validly-signed
+  // old cookie must not keep resolving to, or letting anyone act as, that
+  // now-non-canonical row. See lib/canonical-player.ts for what "canonical"
+  // means and why this fails closed instead of falling back to the raw row.
+  const player = await resolveCanonicalPlayer(rawPlayer);
   return player && !player.is_blocked ? player : null;
 }
 
@@ -88,15 +95,55 @@ export async function ensurePlayerFromEmailServer(email: string): Promise<Player
   }
 }
 
+// Carries sourcePlayerId so the caller (the verify-code route) can offer a
+// self-service merge instead of a dead end -- see lib/player-merge.ts.
+export class EmailAlreadyLinkedToAnotherPlayerError extends Error {
+  readonly sourcePlayerId: string;
+
+  constructor(sourcePlayerId: string, message = "Этот email уже привязан к другому игроку") {
+    super(message);
+    this.name = "EmailAlreadyLinkedToAnotherPlayerError";
+    this.sourcePlayerId = sourcePlayerId;
+  }
+}
+
+// Domain-level invariant: a player already soft-merged into another one
+// (players.merged_into_player_id -- see lib/player-merge.ts's executeMerge())
+// must never receive new self-service data. linkEmailToPlayerServer()'s one
+// caller (app/api/auth/email/verify-code/route.ts) already derives its
+// playerId from getPlayerFromSessionServer()'s canonical resolution, so this
+// should never actually fire in practice -- it exists so a future caller
+// that forgets to canonical-resolve identity first fails loudly instead of
+// silently linking an email onto a dead row.
+export class PlayerMergedAwayError extends Error {
+  readonly playerId: string;
+
+  constructor(playerId: string) {
+    super("Этот игрок уже объединён с другим аккаунтом");
+    this.name = "PlayerMergedAwayError";
+    this.playerId = playerId;
+  }
+}
+
 export async function linkEmailToPlayerServer(
   playerId: string,
   email: string
 ): Promise<Player> {
   const normalized = normalizeEmail(email);
+
+  // See PlayerMergedAwayError above. A nonexistent playerId falls through
+  // this check (currentPlayer is null) unchanged -- the existing
+  // playerRepository.update() call below still surfaces that case with its
+  // current "no rows returned" error, not a new one.
+  const currentPlayer = await playerRepository.findById(playerId);
+  if (currentPlayer?.merged_into_player_id) {
+    throw new PlayerMergedAwayError(playerId);
+  }
+
   const existing = await getPlayerByEmailServer(normalized);
 
   if (existing && existing.id !== playerId) {
-    throw new Error("Этот email уже привязан к другому игроку");
+    throw new EmailAlreadyLinkedToAnotherPlayerError(existing.id);
   }
 
   try {
