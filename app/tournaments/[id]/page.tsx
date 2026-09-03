@@ -16,7 +16,7 @@ import {
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { logEvent } from "@/lib/activity-client";
 import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
-import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+import { TournamentCard } from "@/components/tournaments/tournament-card";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import {
   getExpectedPrizePlaces,
@@ -28,17 +28,12 @@ import {
 import { getTelegramUser } from "@/lib/telegram";
 import { FINAL_MONTH_LABEL } from "@/config/tournament-presets";
 import {
-  FINAL_BADGE_LABEL,
   FINAL_REGISTRATION_EXPLANATION,
   FINAL_REGISTRATION_TAB_LABEL,
-  getFinalRegistrationLabel,
 } from "@/lib/tournament-final-policy";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
 import { useTournamentActivePlayers } from "@/lib/hooks/use-tournament-active-players";
-import {
-  isTournamentLive,
-  TournamentLiveStatusLines,
-} from "@/components/tournaments/tournament-live-status";
+import { isTournamentLive } from "@/components/tournaments/tournament-live-status";
 import type {
   Player,
   RegistrationStatus,
@@ -120,23 +115,6 @@ function UserIcon() {
     >
       <circle cx="12" cy="8" r="3.25" />
       <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m5 12 4.25 4.25L19 6.5" />
     </svg>
   );
 }
@@ -522,79 +500,17 @@ const waitlistParticipants = participants.filter(
     }
   }
 
-  function renderActionButton() {
-    if (!tournament || tournament.status === "completed") return null;
-
-    // Invite-only: no self-register/cancel action, ever -- server-side
-    // enforcement lives in registerPlayerForTournament/cancelPlayerRegistration
-    // (features/tournaments.ts). This is purely the informational read-out.
-    if (tournament.is_final) {
-      const isPlayerInFinal = registrationStatus === "registered" || registrationStatus === "waitlist";
-      return (
-        <div
-          className={`flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-center font-semibold ${
-            isPlayerInFinal
-              ? "border-emerald-400/20 bg-emerald-500/14 text-emerald-100"
-              : "border-white/10 bg-white/[0.04] text-white/60"
-          }`}
-        >
-          {isPlayerInFinal ? <CheckIcon /> : null}
-          <span>{getFinalRegistrationLabel(isPlayerInFinal)}</span>
-        </div>
-      );
+  // Dispatches to the same handleRegister/handleCancel the page already had
+  // -- the shared TournamentCard owns presentation only (label/tone/is_final
+  // non-interactivity), never which server action to call. It never invokes
+  // this at all for a final tournament, regardless of what's passed here --
+  // see TournamentCard's onAction doc comment.
+  function handleCardAction() {
+    if (registrationStatus) {
+      handleCancel();
+    } else {
+      handleRegister();
     }
-
-    if (!registrationStatus) {
-      return (
-        <button
-          type="button"
-          onClick={handleRegister}
-          disabled={actionLoading}
-          className="w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
-        >
-          {actionLoading
-            ? "Сохраняем..."
-            : registeredCount >= tournament.max_players
-              ? "Встать в список ожидания"
-              : "Записаться на турнир"}
-        </button>
-      );
-    }
-
-    if (registrationStatus === "registered") {
-      return (
-        <button
-          type="button"
-          onClick={handleCancel}
-          disabled={actionLoading}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/14 py-3 font-semibold text-emerald-100 disabled:opacity-60"
-        >
-          {actionLoading ? (
-            "Сохраняем..."
-          ) : (
-            <>
-              <CheckIcon />
-              <span>Вы записаны</span>
-            </>
-          )}
-        </button>
-      );
-    }
-
-    if (registrationStatus === "waitlist") {
-      return (
-        <button
-          type="button"
-          onClick={handleCancel}
-          disabled={actionLoading}
-          className="w-full rounded-xl bg-orange-500 py-3 font-semibold text-white disabled:opacity-60"
-        >
-          {actionLoading ? "Сохраняем..." : "Выйти из списка ожидания"}
-        </button>
-      );
-    }
-
-    return null;
   }
 
   if (loading) {
@@ -622,60 +538,19 @@ const waitlistParticipants = participants.filter(
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 pb-44 text-white">
+    <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-md">
         <BackButton onClick={handleBack} className="mb-4" />
 
-        <div
-          className={`relative overflow-hidden rounded-[28px] border p-5 shadow-[0_18px_50px_rgba(0,0,0,0.35)] ${
-            tournament.is_final
-              ? "border-red-500/25 bg-[radial-gradient(circle_at_top_left,rgba(153,27,27,0.22),transparent_32%),linear-gradient(145deg,#1c0a0c_0%,#0f0708_55%,#050405_100%)]"
-              : "border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)]"
-          }`}
-        >
-          <TournamentVisual
-            tournamentType={tournament.tournament_type}
-            configs={tournamentVisuals}
-            className="z-0"
-          />
-
-          <div className="relative z-10">
-            {tournament.is_final ? (
-              <span className="mb-2 inline-flex items-center rounded-full border border-red-500/40 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold tracking-[0.08em] text-red-200">
-                {FINAL_BADGE_LABEL}
-              </span>
-            ) : null}
-            <h1 className="text-[28px] font-black uppercase leading-tight tracking-[0.04em] text-white">
-              {tournament.title}
-            </h1>
-
-            <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
-              <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-                {tournamentDateParts?.date}
-              </div>
-              <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-                {tournamentDateParts?.time}
-              </div>
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-                <UserIcon />
-                <span>{tournament.status === "completed" ? results.length : registeredCount} / {tournament.max_players}</span>
-              </div>
-              {expectedPrizePlaces > 0 ? (
-                <div className="inline-flex items-center rounded-full border border-[#e1bf6b]/25 bg-[#e1bf6b]/10 px-3 py-1.5 text-xs font-semibold text-[#e1bf6b]">
-                  🏆 ТОП-{expectedPrizePlaces}
-                </div>
-              ) : null}
-            </div>
-
-            {isLive ? (
-              <TournamentLiveStatusLines
-                clock={clock}
-                attendance={attendance}
-                lateRegistration={liveSummary?.lateRegistration ?? null}
-              />
-            ) : null}
-          </div>
-        </div>
+        <TournamentCard
+          tournament={tournament}
+          registeredCount={tournament.status === "completed" ? results.length : registeredCount}
+          liveSummary={liveSummary}
+          configs={tournamentVisuals}
+          registrationStatus={registrationStatus}
+          onAction={handleCardAction}
+          actionLoading={actionLoading}
+        />
 
         <div className="mt-4 grid grid-cols-3 gap-2">
           <button
@@ -990,16 +865,6 @@ const waitlistParticipants = participants.filter(
         </div>
         )}
       </div>
-
-      {tournament.status !== "completed" ? (
-        <div className="pointer-events-none fixed inset-x-0 z-20 bottom-[calc(env(safe-area-inset-bottom)+92px)] px-4">
-          <div className="mx-auto max-w-md">
-            <div className="pointer-events-auto rounded-[22px] border border-white/10 bg-[#0d0f0f]/78 p-3 backdrop-blur-xl">
-              {renderActionButton()}
-            </div>
-          </div>
-        </div>
-      ) : null}
     </main>
   );
 }

@@ -267,16 +267,31 @@ describe("TournamentVisual", () => {
   });
 
   it("is imported by every surface that renders tournament artwork, with no parallel implementation", () => {
-    const consumers = [
-      "app/page.tsx",
+    // app/page.tsx and app/tournaments/[id]/page.tsx no longer import this
+    // directly -- both now render tournament artwork exclusively through
+    // the shared components/tournaments/tournament-card.tsx (Home's
+    // carousel card and the detail page's header are the same component),
+    // which is checked separately below.
+    const directConsumers = [
       "app/tournaments/page.tsx",
-      "app/tournaments/[id]/page.tsx",
       "app/players/[id]/page.tsx",
       "app/admin/tournament-visuals/page.tsx",
+      "components/tournaments/tournament-card.tsx",
     ];
-    for (const relativePath of consumers) {
+    for (const relativePath of directConsumers) {
       const source = readFileSync(join(process.cwd(), relativePath), "utf8");
       expect(source).toContain('from "@/components/tournaments/tournament-visual"');
+    }
+
+    // Home and the tournament detail page render artwork transitively
+    // through the shared TournamentCard -- confirm they get it from there
+    // and do NOT import TournamentVisual (or maintain a second card
+    // implementation) directly.
+    const sharedCardConsumers = ["app/page.tsx", "app/tournaments/[id]/page.tsx"];
+    for (const relativePath of sharedCardConsumers) {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+      expect(source).toContain('from "@/components/tournaments/tournament-card"');
+      expect(source).not.toContain('from "@/components/tournaments/tournament-visual"');
     }
   });
 

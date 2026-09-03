@@ -19,20 +19,14 @@ import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import { RatingIcon } from "@/components/icons/rating-icon";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
-import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+import { TournamentCard } from "@/components/tournaments/tournament-card";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
 import { supabase } from "@/lib/supabase";
-import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
-import { FINAL_BADGE_LABEL, getFinalRegistrationLabel } from "@/lib/tournament-final-policy";
 import { resolveHomeStaffCardKind } from "@/lib/home-staff-card";
 import { fetchAdminJson } from "@/lib/client-request";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
 import type { TournamentLiveSummary } from "@/types/poker-clock-live-state";
-import {
-  isTournamentLive,
-  TournamentLiveStatusLines,
-} from "@/components/tournaments/tournament-live-status";
 import {
   getTelegramUser,
   getTelegramInitData,
@@ -45,7 +39,7 @@ import { resolveCurrentPlayer } from "@/lib/current-player";
 import { openSupportChat } from "@/lib/support";
 import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
 import { TERMS_TEXT } from "@/config/terms";
-import type { Player, Tournament } from "@/types/domain";
+import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 import type { ClubActivityEvent } from "@/types/club-activity";
 import type { RankMovement } from "@/features/leaderboard";
 import { Podium } from "@/components/leaderboard/podium";
@@ -169,58 +163,6 @@ function BriefcaseIcon() {
       <rect x="3" y="7.5" width="18" height="12" rx="2" />
       <path d="M8 7.5V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1.5" />
       <path d="M3 12.5h18" />
-    </svg>
-  );
-}
-
-function formatTournamentShortDate(date: string) {
-  const value = new Date(date);
-  return value.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-  });
-}
-
-function formatTournamentShortTime(date: string) {
-  const value = new Date(date);
-  return value.toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatTournamentCountdown(date: string) {
-  const diffMs = new Date(date).getTime() - Date.now();
-
-  if (diffMs <= 0) {
-    return "Уже начался";
-  }
-
-  const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const days = Math.floor(totalHours / 24);
-  const hours = totalHours % 24;
-
-  if (days <= 0) {
-    return `${hours} ч`;
-  }
-
-  return `${days} д ${hours} ч`;
-}
-
-function UserIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="8" r="3.25" />
-      <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
     </svg>
   );
 }
@@ -1182,99 +1124,25 @@ export default function HomePage() {
     registeredCount: number,
     liveSummary: TournamentLiveSummary | undefined
   ) {
-    const prizePlaces = getExpectedPrizePlaces(registeredCount);
-    const countdownText = formatTournamentCountdown(tournament.start_at);
-    const registrationStatus = registrationsRef.current[tournament.id] ?? null;
-    const actionLabel =
-      registrationStatus === "registered"
-        ? "Вы записаны"
-        : registrationStatus === "waitlist"
-          ? "Вы в листе ожидания"
-        : "Записаться";
-    const isPlayerInFinal = registrationStatus === "registered" || registrationStatus === "waitlist";
-
-    const clock = liveSummary?.clock ?? null;
-    const isLive = isTournamentLive(clock);
-    const attendance = liveSummary?.attendance ?? null;
-    // The player-count chip always shows registered / max, LIVE or not --
-    // a tournament with 12 registrations must never suddenly look like it
-    // only has 4-7 players just because the clock started. The in-game
-    // count gets its own separate "В игре" line below instead.
-    const playerChipLabel = `${registeredCount} / ${tournament.max_players}`;
+    // registrationsRef is a plain Record<string, string> (see its
+    // declaration) -- populated exclusively from Registration.status
+    // (RegistrationStatus) above, just widened at that assignment.
+    const registrationStatus =
+      (registrationsRef.current[tournament.id] as RegistrationStatus | undefined) ?? null;
 
     return (
       <Link
         href={`/tournaments/${tournament.id}`}
         draggable={false}
-        className={`relative block min-w-full shrink-0 overflow-hidden rounded-[28px] border p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] transition active:scale-[0.99] ${
-          tournament.is_final
-            ? "border-red-500/25 bg-[radial-gradient(circle_at_top_left,rgba(153,27,27,0.22),transparent_32%),linear-gradient(145deg,#1c0a0c_0%,#0f0708_55%,#050405_100%)]"
-            : "border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)]"
-        }`}
+        className="block min-w-full shrink-0 transition active:scale-[0.99]"
       >
-        <TournamentVisual
-          tournamentType={tournament.tournament_type}
+        <TournamentCard
+          tournament={tournament}
+          registeredCount={registeredCount}
+          liveSummary={liveSummary}
           configs={tournamentVisuals}
-          className="z-0"
+          registrationStatus={registrationStatus}
         />
-
-        <div className="relative z-10">
-          {tournament.is_final ? (
-            <span className="mb-1.5 inline-flex items-center rounded-full border border-red-500/40 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold tracking-[0.08em] text-red-200">
-              {FINAL_BADGE_LABEL}
-            </span>
-          ) : null}
-          <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
-            {tournament.title}
-          </h3>
-
-          <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
-            <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-              {formatTournamentShortDate(tournament.start_at)}
-            </div>
-            <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-              {formatTournamentShortTime(tournament.start_at)}
-            </div>
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
-              <UserIcon />
-              <span>{playerChipLabel}</span>
-            </div>
-          </div>
-
-          {isLive ? (
-            <TournamentLiveStatusLines
-              clock={clock}
-              attendance={attendance}
-              lateRegistration={liveSummary?.lateRegistration ?? null}
-            />
-          ) : (
-            <>
-              <p className="mt-3 text-sm font-semibold text-white/70">
-                {countdownText === "Уже начался"
-                  ? `🏆 ТОП-${prizePlaces} • турнир уже начался`
-                  : `🏆 ТОП-${prizePlaces} • старт через ${countdownText}`}
-              </p>
-
-              <div className="mt-4">
-                {tournament.is_final ? (
-                  <div
-                    className={`inline-flex min-w-[154px] items-center justify-center rounded-xl border px-4 py-2.5 text-center text-sm font-semibold ${
-                      isPlayerInFinal
-                        ? "border-emerald-400/20 bg-emerald-500/14 text-emerald-100"
-                        : "border-white/10 bg-white/[0.06] text-white/65"
-                    }`}
-                  >
-                    {getFinalRegistrationLabel(isPlayerInFinal)}
-                  </div>
-                ) : (
-                  <div className="inline-flex min-w-[154px] items-center justify-center rounded-xl bg-[#d7b55a] px-4 py-2.5 text-center text-sm font-semibold text-black">
-                    {actionLabel}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
       </Link>
     );
   }
