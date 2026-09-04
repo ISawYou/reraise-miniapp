@@ -83,6 +83,8 @@ export default function PlayerAchievementsPage() {
                         tier={card.currentTier ?? card.nextTier ?? "bronze"}
                         configs={configs}
                         className="mx-auto h-28 w-28"
+                        assetVariant="medium"
+                        loading="lazy"
                       />
                       <h3 className="mt-2 text-base font-semibold">{card.name}</h3>
                       <p className="mt-0.5 min-h-5 text-xs font-medium text-[#d5b867]">
@@ -127,6 +129,8 @@ export default function PlayerAchievementsPage() {
                       locked={card.hidden && !card.earned}
                       dimmed={card.code === "royal_flush" && !card.earned}
                       className="mx-auto h-28 w-28"
+                      assetVariant="medium"
+                      loading="lazy"
                     />
                     <h3 className="mt-2 text-base font-semibold">{card.name}</h3>
                     <p className={`mt-2 text-[11px] font-semibold ${card.earned ? "text-[#d5b867]" : "text-white/30"}`}>
@@ -161,7 +165,7 @@ export default function PlayerAchievementsPage() {
                       const status = tier.earned ? "Получено" : detail.card.currentValue > 0 ? "В процессе" : "Закрыто";
                       return (
                         <article key={tier.tier} className="w-[88%] shrink-0 snap-center rounded-3xl border border-white/10 bg-black/30 p-4">
-                          <AchievementVisual visualKey={detail.card.visualKey} tier={tier.tier} configs={configs} className="mx-auto h-40 w-40" />
+                          <AchievementVisual visualKey={detail.card.visualKey} tier={tier.tier} configs={configs} className="mx-auto h-40 w-40" assetVariant="medium" />
                           <div className="mt-3 flex items-center justify-between gap-3">
                             <h3 className="font-semibold">{detail.card.family === "player_path" ? tier.name : TIER_LABELS[tier.tier]}</h3>
                             <span className={tier.earned ? "text-xs font-semibold text-[#d5b867]" : "text-xs text-white/40"}>{status}</span>
@@ -176,7 +180,7 @@ export default function PlayerAchievementsPage() {
                 </>
               ) : (
                 <div className="mt-5 rounded-3xl border border-white/10 bg-black/30 p-5 text-center">
-                  <AchievementVisual visualKey={detail.card.visualKey} configs={configs} locked={detail.card.hidden && !detail.card.earned} dimmed={detail.card.code === "royal_flush" && !detail.card.earned} className="mx-auto h-44 w-44" />
+                  <AchievementVisual visualKey={detail.card.visualKey} configs={configs} locked={detail.card.hidden && !detail.card.earned} dimmed={detail.card.code === "royal_flush" && !detail.card.earned} className="mx-auto h-44 w-44" assetVariant="medium" />
                   <p className={`mt-3 text-xs font-semibold ${detail.card.earned ? "text-[#d5b867]" : "text-white/35"}`}>{detail.card.earned ? "Получено" : detail.card.code === "royal_flush" ? "Заблокировано" : "Закрыто"}</p>
                   {detail.card.completedAt ? <p className="mt-1 text-xs text-white/40">Получено {new Date(detail.card.completedAt).toLocaleDateString("ru-RU")}</p> : null}
                 </div>

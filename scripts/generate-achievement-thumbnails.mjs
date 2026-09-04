@@ -1,10 +1,14 @@
-// One-time (but re-runnable) thumbnail generator for the built-in
+// One-time (but re-runnable) derivative generator for the built-in
 // achievement/tier-frame artwork listed in config/achievement-visuals.ts's
-// DEFAULT_ACHIEVEMENT_VISUALS. Home renders these at ~36px, but the source
-// PNGs are 1024x1024 (~0.8-1.6MB each) -- this produces 256x256 lossless
-// equivalents under public/achievement-assets/thumb/ for AchievementVisual's
-// "thumbnail" variant to use, without touching or overwriting the originals
-// (still needed at full res on profile/achievements/admin surfaces).
+// DEFAULT_ACHIEVEMENT_VISUALS. The source PNGs are 1024x1024
+// (~0.8-1.6MB each); this produces two smaller lossless equivalents per
+// file, without touching or overwriting the originals (still needed at
+// full res on the admin editor):
+//   public/achievement-assets/thumb/   256x256 -- Home's ~36px featured
+//                                       icons ("thumbnail" variant)
+//   public/achievement-assets/medium/  512x512 -- the full Achievements
+//                                       page's ~112-176px grid/detail
+//                                       artwork ("medium" variant)
 //
 // Uses `sharp`, already present in node_modules as a transitive dependency
 // (Next.js's optional image-optimization lib) -- not a declared project
@@ -26,8 +30,12 @@ import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = path.join(__dirname, "..", "public", "achievement-assets");
-const OUT_DIR = path.join(SRC_DIR, "thumb");
-const THUMB_SIZE = 256;
+
+// [directory name, target square size] -- one pass per derivative.
+const DERIVATIVES = [
+  ["thumb", 256],
+  ["medium", 512],
+];
 
 // Exactly the files referenced by DEFAULT_ACHIEVEMENT_VISUALS in
 // config/achievement-visuals.ts -- kept as a literal list (not a directory
@@ -54,19 +62,22 @@ const FILES = [
   "diamond.png",
 ];
 
-mkdirSync(OUT_DIR, { recursive: true });
+for (const [dirName, size] of DERIVATIVES) {
+  const outDir = path.join(SRC_DIR, dirName);
+  mkdirSync(outDir, { recursive: true });
 
-for (const file of FILES) {
-  const input = path.join(SRC_DIR, file);
-  const output = path.join(OUT_DIR, file);
+  for (const file of FILES) {
+    const input = path.join(SRC_DIR, file);
+    const output = path.join(outDir, file);
 
-  await sharp(input)
-    .resize(THUMB_SIZE, THUMB_SIZE, {
-      fit: "contain",
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .png({ compressionLevel: 9, adaptiveFiltering: true })
-    .toFile(output);
+    await sharp(input)
+      .resize(size, size, {
+        fit: "contain",
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .png({ compressionLevel: 9, adaptiveFiltering: true })
+      .toFile(output);
 
-  console.log(`generated thumb/${file}`);
+    console.log(`generated ${dirName}/${file}`);
+  }
 }

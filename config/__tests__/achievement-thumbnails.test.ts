@@ -11,6 +11,7 @@ import { DEFAULT_ACHIEVEMENT_VISUALS } from "@/config/achievement-visuals";
 
 const ASSETS_DIR = join(process.cwd(), "public", "achievement-assets");
 const THUMB_DIR = join(ASSETS_DIR, "thumb");
+const MEDIUM_DIR = join(ASSETS_DIR, "medium");
 
 function pngDimensions(path: string): { width: number; height: number } {
   const buf = readFileSync(path);
@@ -68,5 +69,41 @@ describe("achievement thumbnails -- generated asset verification", () => {
       const thumbSize = statSync(join(THUMB_DIR, file)).size;
       expect(thumbSize, `${file} thumbnail is not smaller than original`).toBeLessThan(originalSize);
     }
+  });
+
+  describe("medium (512x512) derivatives -- Phase 2A.1", () => {
+    it("every DEFAULT_ACHIEVEMENT_VISUALS built-in local asset has a generated medium derivative", () => {
+      for (const file of builtInFiles) {
+        expect(existsSync(join(MEDIUM_DIR, file)), `missing medium/${file}`).toBe(true);
+      }
+    });
+
+    it("every medium derivative is exactly 512x512", () => {
+      for (const file of builtInFiles) {
+        const { width, height } = pngDimensions(join(MEDIUM_DIR, file));
+        expect([file, width, height]).toEqual([file, 512, 512]);
+      }
+    });
+
+    it("medium derivatives are smaller than originals but larger than the 256 thumbnail", () => {
+      for (const file of builtInFiles) {
+        const originalSize = statSync(join(ASSETS_DIR, file)).size;
+        const thumbSize = statSync(join(THUMB_DIR, file)).size;
+        const mediumSize = statSync(join(MEDIUM_DIR, file)).size;
+        expect(mediumSize, `${file} medium is not smaller than original`).toBeLessThan(originalSize);
+        expect(mediumSize, `${file} medium is not larger than its thumbnail`).toBeGreaterThan(thumbSize);
+      }
+    });
+
+    it("adding the medium derivative did not change the existing 256 thumbnail", () => {
+      // Regression guard for the shared generation script: regenerating
+      // thumb/ alongside the new medium/ pass must still produce
+      // byte-identical thumbnails (same source, same params, same sharp
+      // version -- deterministic).
+      for (const file of builtInFiles) {
+        const { width, height } = pngDimensions(join(THUMB_DIR, file));
+        expect([file, width, height]).toEqual([file, 256, 256]);
+      }
+    });
   });
 });

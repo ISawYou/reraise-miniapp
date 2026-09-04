@@ -88,8 +88,62 @@ describe("AchievementVisual", () => {
       const thumbnail = renderToStaticMarkup(
         <AchievementVisual visualKey="headhunter" configs={scaledConfigs} assetVariant="thumbnail" />,
       );
+      const medium = renderToStaticMarkup(
+        <AchievementVisual visualKey="headhunter" configs={scaledConfigs} assetVariant="medium" />,
+      );
       expect(original).toContain("translate(3%, -2%) scale(0.85)");
       expect(thumbnail).toContain("translate(3%, -2%) scale(0.85)");
+      expect(medium).toContain("translate(3%, -2%) scale(0.85)");
+    });
+
+    it('assetVariant="medium" resolves a known built-in central asset to its medium derivative', () => {
+      const html = renderToStaticMarkup(
+        <AchievementVisual visualKey="headhunter" configs={configs} assetVariant="medium" />,
+      );
+      expect(html).toContain("/achievement-assets/medium/headhunter.png");
+      expect(html).not.toContain('src="/achievement-assets/headhunter.png"');
+      expect(html).not.toContain("/achievement-assets/thumb/");
+    });
+
+    it('assetVariant="medium" resolves a known built-in tier frame to its medium derivative', () => {
+      const html = renderToStaticMarkup(
+        <AchievementVisual visualKey="headhunter" tier="gold" configs={configs} assetVariant="medium" />,
+      );
+      expect(html).toContain("/achievement-assets/medium/gold.png");
+      expect(html).not.toContain('src="/achievement-assets/gold.png"');
+    });
+
+    it("falls back to the original URL for an unknown/custom asset in medium mode too", () => {
+      const customConfigs = {
+        ...configs,
+        headhunter: {
+          ...configs.headhunter,
+          assetUrl: "https://storage.example.com/custom/uploaded-achievement.png",
+        },
+      };
+      const html = renderToStaticMarkup(
+        <AchievementVisual visualKey="headhunter" configs={customConfigs} assetVariant="medium" />,
+      );
+      expect(html).toContain("https://storage.example.com/custom/uploaded-achievement.png");
+      expect(html).not.toContain("/medium/");
+    });
+  });
+
+  describe("loading", () => {
+    it('defaults to "eager" on both central and frame <img> elements', () => {
+      const html = renderToStaticMarkup(
+        <AchievementVisual visualKey="headhunter" tier="gold" configs={configs} />,
+      );
+      expect(html.match(/loading="eager"/g)?.length).toBe(2);
+      expect(html).not.toContain('loading="lazy"');
+    });
+
+    it('propagates loading="lazy" to both central and frame <img> elements', () => {
+      const html = renderToStaticMarkup(
+        <AchievementVisual visualKey="headhunter" tier="gold" configs={configs} loading="lazy" />,
+      );
+      expect(html.match(/loading="lazy"/g)?.length).toBe(2);
+      expect(html).not.toContain('loading="eager"');
     });
   });
 });
