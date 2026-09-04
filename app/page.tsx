@@ -22,7 +22,6 @@ import type { AchievementVisualConfig } from "@/config/achievement-visuals";
 import { TournamentCard } from "@/components/tournaments/tournament-card";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { resolveFeaturedAchievements, type AchievementProgressRow } from "@/lib/achievement-display";
-import { supabase } from "@/lib/supabase";
 import { resolveHomeStaffCardKind } from "@/lib/home-staff-card";
 import { fetchAdminJson } from "@/lib/client-request";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
@@ -988,58 +987,6 @@ export default function HomePage() {
       });
     } catch {}
   }, [bootTimedOut]);
-
-  useEffect(() => {
-    if (!player?.id) return;
-    if (showTerms || showProfileSetup) return;
-
-    const registrationsChannel = supabase
-      .channel(`home-registrations-realtime-${player.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "registrations",
-        },
-        async () => {
-          try {
-            await refreshHomeData(player, {
-              showPromotionToast: true,
-            });
-          } catch (error) {
-            console.error("Home registrations realtime refresh error:", error);
-          }
-        }
-      )
-      .subscribe();
-
-    const tournamentsChannel = supabase
-      .channel(`home-tournaments-realtime-${player.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "tournaments",
-        },
-        async () => {
-          try {
-            await refreshHomeData(player, {
-              showPromotionToast: false,
-            });
-          } catch (error) {
-            console.error("Home tournaments realtime refresh error:", error);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(registrationsChannel);
-      supabase.removeChannel(tournamentsChannel);
-    };
-  }, [player, player?.id, showTerms, showProfileSetup]);
 
   const greetingName = useMemo(() => {
     if (player?.display_name) return player.display_name;
