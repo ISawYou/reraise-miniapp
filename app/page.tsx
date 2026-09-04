@@ -1441,7 +1441,7 @@ export default function HomePage() {
                 {featuredAchievements.length > 0 ? (
                   <div className="flex items-center gap-1">
                     {featuredAchievements.map((item) => (
-                      <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-9 w-9" />
+                      <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-9 w-9" assetVariant="thumbnail" />
                     ))}
                   </div>
                 ) : completedAchievementsCount > 0 ? (
