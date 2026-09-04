@@ -1171,13 +1171,24 @@ export default function HomePage() {
   function renderTournamentCard(
     tournament: Tournament,
     registeredCount: number,
-    liveSummary: TournamentLiveSummary | undefined
+    liveSummary: TournamentLiveSummary | undefined,
+    index: number
   ) {
     // registrationsRef is a plain Record<string, string> (see its
     // declaration) -- populated exclusively from Registration.status
     // (RegistrationStatus) above, just widened at that assignment.
     const registrationStatus =
       (registrationsRef.current[tournament.id] as RegistrationStatus | undefined) ?? null;
+
+    // Every slide is mounted simultaneously (the carousel track shifts via
+    // CSS transform, see the translate3d below -- see the Phase 2B
+    // diagnostic), so an off-screen slide's <img> is just as eligible for
+    // an eager fetch as the visible one unless told otherwise. Only the
+    // currently active slide gets "eager"; every other slide gets "lazy" --
+    // re-evaluated on every render, so swiping/dragging/paginating/
+    // auto-advancing to a new index naturally flips that slide to eager on
+    // its next render with no extra state.
+    const artworkLoading = index === activeTournamentIndex ? "eager" : "lazy";
 
     return (
       <Link
@@ -1191,6 +1202,7 @@ export default function HomePage() {
           liveSummary={liveSummary}
           configs={tournamentVisuals}
           registrationStatus={registrationStatus}
+          artworkLoading={artworkLoading}
         />
       </Link>
     );
@@ -1522,11 +1534,12 @@ export default function HomePage() {
                       className="flex transition-transform duration-500 ease-out"
                       style={{ transform: `translate3d(-${activeTournamentIndex * 100}%, 0, 0)` }}
                     >
-                      {homeTournaments.map((tournament) =>
+                      {homeTournaments.map((tournament, index) =>
                         renderTournamentCard(
                           tournament,
                           registrationCounts[tournament.id] ?? 0,
-                          tournamentLiveState[tournament.id]
+                          tournamentLiveState[tournament.id],
+                          index
                         )
                       )}
                     </div>

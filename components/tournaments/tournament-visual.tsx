@@ -63,6 +63,12 @@ type TournamentVisualProps = {
   // explicitly tunes it. assetUrl is always the shared main PNG; only
   // positioning/opacity differ per surface.
   variant?: "default" | "list";
+  // Native browser `loading` attribute, passed straight through to the
+  // <img>. Default "eager" preserves every existing call site's current
+  // behavior unchanged. Home's carousel is the only caller that ever
+  // passes "lazy" (for off-screen slides) -- see TournamentCard's
+  // artworkLoading prop. No IntersectionObserver, no next/image.
+  loading?: "eager" | "lazy";
 };
 
 // Decorative artwork layer shared by the Home tournament card and the admin
@@ -74,6 +80,7 @@ export function TournamentVisual({
   className = "",
   artworkSizeClassName = DEFAULT_ARTWORK_SIZE_CLASSNAME,
   variant = "default",
+  loading = "eager",
 }: TournamentVisualProps) {
   const config = configs[tournamentType];
 
@@ -156,6 +163,7 @@ export function TournamentVisual({
               data-tournament-visual-img=""
               src={config.assetUrl}
               alt=""
+              loading={loading}
               className="h-full w-full object-contain object-right"
               // A tournament type with no artwork uploaded yet (or a config
               // pointing at a since-deleted file) must fall back to the

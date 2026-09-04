@@ -79,6 +79,12 @@ export type TournamentCardProps = {
   onAction?: () => void;
   actionLoading?: boolean;
   className?: string;
+  // Passed straight through to TournamentVisual's `loading` attribute.
+  // Default "eager" preserves current behavior everywhere -- Detail never
+  // passes this, so its one visible artwork keeps loading eagerly. Only
+  // Home's carousel opts an off-screen slide into "lazy", per-instance,
+  // based on which slide is currently active.
+  artworkLoading?: "eager" | "lazy";
 };
 
 // The ONE tournament-card presentation, shared by Home's carousel and the
@@ -98,6 +104,7 @@ export function TournamentCard({
   onAction,
   actionLoading = false,
   className = "",
+  artworkLoading = "eager",
 }: TournamentCardProps) {
   const prizePlaces = getExpectedPrizePlaces(registeredCount);
   const countdownText = formatTournamentCountdown(tournament.start_at);
@@ -140,6 +147,7 @@ export function TournamentCard({
         tournamentType={tournament.tournament_type}
         configs={configs}
         className="z-0"
+        loading={artworkLoading}
       />
 
       <div className="relative z-10">

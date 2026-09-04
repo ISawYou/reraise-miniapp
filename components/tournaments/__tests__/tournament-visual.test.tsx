@@ -295,6 +295,54 @@ describe("TournamentVisual", () => {
     }
   });
 
+  describe("loading (Phase 2B.1)", () => {
+    it('defaults to loading="eager" when omitted', async () => {
+      await act(async () => {
+        root.render(<TournamentVisual tournamentType="classic" configs={{ classic: config }} />);
+      });
+      const { img } = getParts(container);
+      expect(img?.getAttribute("loading")).toBe("eager");
+    });
+
+    it('passes loading="lazy" straight through to the <img>', async () => {
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: config }} loading="lazy" />,
+        );
+      });
+      const { img } = getParts(container);
+      expect(img?.getAttribute("loading")).toBe("lazy");
+    });
+
+    it("changing loading does not touch src, geometry, scale, offset, opacity, or the error fallback", async () => {
+      const tuned: TournamentVisualConfig = { ...config, scale: 120, offsetX: -15, offsetY: 8, opacity: 60 };
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: tuned }} loading="eager" />,
+        );
+      });
+      const eager = getParts(container);
+
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: tuned }} loading="lazy" />,
+        );
+      });
+      const lazy = getParts(container);
+
+      expect(eager.img?.src).toContain(tuned.assetUrl);
+      expect(lazy.img?.src).toContain(tuned.assetUrl);
+      expect(eager.stage?.style.transform).toBe(lazy.stage?.style.transform);
+      expect(eager.offsetLayer?.style.transform).toBe(lazy.offsetLayer?.style.transform);
+      expect(eager.box?.style.opacity).toBe(lazy.box?.style.opacity);
+      // The onError fallback (hide a broken/missing asset) is unchanged --
+      // simulate a load failure and confirm it still hides the <img>,
+      // regardless of loading mode.
+      lazy.img?.dispatchEvent(new Event("error"));
+      expect(lazy.img?.style.display).toBe("none");
+    });
+  });
+
   it("8) has no Android/platform-specific branch in the shared render path", () => {
     const source = readFileSync(
       join(process.cwd(), "components/tournaments/tournament-visual.tsx"),

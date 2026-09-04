@@ -202,3 +202,28 @@ describe("TournamentCard -- identical geometry for final and normal (carousel pa
     expect(source).not.toContain("is_final");
   });
 });
+
+describe("TournamentCard -- artworkLoading pass-through (Phase 2B.1)", () => {
+  const visualConfigs = {
+    classic: {
+      tournamentType: "classic" as const,
+      assetUrl: "/tournament-assets/classic.png",
+      scale: 100,
+      offsetX: 0,
+      offsetY: 0,
+      opacity: 100,
+    },
+  };
+
+  it('defaults artwork loading to "eager" when artworkLoading is omitted', async () => {
+    await renderCard({ configs: visualConfigs });
+    const img = container.querySelector<HTMLImageElement>("[data-tournament-visual-img]");
+    expect(img?.getAttribute("loading")).toBe("eager");
+  });
+
+  it('passes artworkLoading="lazy" through to TournamentVisual\'s <img>', async () => {
+    await renderCard({ configs: visualConfigs, artworkLoading: "lazy" });
+    const img = container.querySelector<HTMLImageElement>("[data-tournament-visual-img]");
+    expect(img?.getAttribute("loading")).toBe("lazy");
+  });
+});
