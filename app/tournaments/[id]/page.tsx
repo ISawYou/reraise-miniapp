@@ -30,6 +30,7 @@ import { FINAL_MONTH_LABEL } from "@/config/tournament-presets";
 import {
   FINAL_REGISTRATION_EXPLANATION,
   FINAL_REGISTRATION_TAB_LABEL,
+  getFinalRegistrationLabel,
 } from "@/lib/tournament-final-policy";
 import { useTournamentLiveState } from "@/lib/hooks/use-tournament-live-state";
 import { useTournamentActivePlayers } from "@/lib/hooks/use-tournament-active-players";
@@ -115,6 +116,23 @@ function UserIcon() {
     >
       <circle cx="12" cy="8" r="3.25" />
       <path d="M5.5 19a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m5 12 4.25 4.25L19 6.5" />
     </svg>
   );
 }
@@ -513,6 +531,87 @@ const waitlistParticipants = participants.filter(
     }
   }
 
+  // Large fixed CTA above the bottom nav, restored on top of the current
+  // shared-card layout -- deliberately calls the exact same
+  // handleRegister/handleCancel as the small in-card action above (see
+  // handleCardAction), never a second register/cancel path, so both CTAs
+  // always reflect the same registrationStatus after the same refresh. See
+  // the historical reference at commit 6713068:'app/tournaments/[id]/page.tsx'.
+  function renderActionButton() {
+    if (!tournament || tournament.status === "completed") return null;
+
+    // Invite-only: no self-register/cancel action, ever -- server-side
+    // enforcement lives in registerPlayerForTournament/cancelPlayerRegistration
+    // (features/tournaments.ts). This is purely the informational read-out.
+    if (tournament.is_final) {
+      const isPlayerInFinal = registrationStatus === "registered" || registrationStatus === "waitlist";
+      return (
+        <div
+          className={`flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-center font-semibold ${
+            isPlayerInFinal
+              ? "border-emerald-400/20 bg-emerald-500/14 text-emerald-100"
+              : "border-white/10 bg-white/[0.04] text-white/60"
+          }`}
+        >
+          {isPlayerInFinal ? <CheckIcon /> : null}
+          <span>{getFinalRegistrationLabel(isPlayerInFinal)}</span>
+        </div>
+      );
+    }
+
+    if (!registrationStatus) {
+      return (
+        <button
+          type="button"
+          onClick={handleRegister}
+          disabled={actionLoading}
+          className="w-full rounded-xl bg-yellow-500 py-3 font-semibold text-black disabled:opacity-60"
+        >
+          {actionLoading
+            ? "Сохраняем..."
+            : registeredCount >= tournament.max_players
+              ? "Встать в список ожидания"
+              : "Записаться на турнир"}
+        </button>
+      );
+    }
+
+    if (registrationStatus === "registered") {
+      return (
+        <button
+          type="button"
+          onClick={handleCancel}
+          disabled={actionLoading}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/14 py-3 font-semibold text-emerald-100 disabled:opacity-60"
+        >
+          {actionLoading ? (
+            "Сохраняем..."
+          ) : (
+            <>
+              <CheckIcon />
+              <span>Вы записаны</span>
+            </>
+          )}
+        </button>
+      );
+    }
+
+    if (registrationStatus === "waitlist") {
+      return (
+        <button
+          type="button"
+          onClick={handleCancel}
+          disabled={actionLoading}
+          className="w-full rounded-xl bg-orange-500 py-3 font-semibold text-white disabled:opacity-60"
+        >
+          {actionLoading ? "Сохраняем..." : "Выйти из списка ожидания"}
+        </button>
+      );
+    }
+
+    return null;
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
@@ -538,7 +637,7 @@ const waitlistParticipants = participants.filter(
   }
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
+    <main className="min-h-screen bg-black px-4 py-6 pb-44 text-white">
       <div className="mx-auto max-w-md">
         <BackButton onClick={handleBack} className="mb-4" />
 
@@ -868,6 +967,16 @@ const waitlistParticipants = participants.filter(
         </div>
         )}
       </div>
+
+      {tournament.status !== "completed" ? (
+        <div className="pointer-events-none fixed inset-x-0 z-20 bottom-[calc(env(safe-area-inset-bottom)+92px)] px-4">
+          <div className="mx-auto max-w-md">
+            <div className="pointer-events-auto rounded-[22px] border border-white/10 bg-[#0d0f0f]/78 p-3 backdrop-blur-xl">
+              {renderActionButton()}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

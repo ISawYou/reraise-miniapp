@@ -38,6 +38,7 @@ import { loadTelegramLoginWidget } from "@/lib/telegram-login";
 import { resolveCurrentPlayer, invalidateCurrentPlayerCache } from "@/lib/current-player";
 import { openSupportChat } from "@/lib/support";
 import { logEvent, setActivityPlayerId } from "@/lib/activity-client";
+import { BootRecoveryScreen } from "@/components/boot-recovery-screen";
 import { TERMS_TEXT } from "@/config/terms";
 import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 import type { ClubActivityEvent } from "@/types/club-activity";
@@ -74,6 +75,14 @@ const CARD_DRAG_CLICK_SUPPRESS_MS = 400;
 // (so the slide never changed either) -- worst of both, no navigation and no
 // swipe.
 const CARD_DRAG_THRESHOLD_PX = 40;
+
+// Fail-safe only -- see the `initializing`/`bootTimedOut` watchdog effect
+// below. Normal boot (network round trips to /api/auth/telegram/mini-app-session
+// etc.) finishes in well under this; it exists purely so a boot that stalls
+// indefinitely (a hung fetch, a promise that never resolves) shows a
+// recovery screen instead of leaving the user on the "Загружаем..." loader
+// forever.
+const HOME_BOOT_WATCHDOG_MS = 12000;
 
 function InfoIcon() {
   return (
@@ -178,6 +187,7 @@ export default function HomePage() {
   const [homeTournaments, setHomeTournaments] = useState<Tournament[]>([]);
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({});
   const [initializing, setInitializing] = useState(true);
+  const [bootTimedOut, setBootTimedOut] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [termsAcceptedLoading, setTermsAcceptedLoading] = useState(false);
   const termsRef = useRef<HTMLDivElement | null>(null);
@@ -944,6 +954,41 @@ export default function HomePage() {
     };
   }, []);
 
+  // Fail-safe watchdog around ONLY the initial Home boot above -- does not
+  // touch/cancel any of its requests, auth, or storage. If `initializing`
+  // is still true after HOME_BOOT_WATCHDOG_MS (a hung fetch, a Telegram
+  // WebApp SDK promise that never resolves -- see lib/telegram.ts's
+  // getTelegramInitData/getTelegramWebApp), it flips `bootTimedOut` so the
+  // `if (initializing)` render below shows a recovery screen instead of an
+  // infinite "Загружаем..." loader. Re-runs whenever `initializing`
+  // changes: the moment it turns false (normal boot completed), the
+  // cleanup below clears the pending timer, so a fast normal boot never
+  // sets `bootTimedOut` at all.
+  useEffect(() => {
+    if (!initializing) return;
+
+    const timer = window.setTimeout(() => {
+      setBootTimedOut(true);
+    }, HOME_BOOT_WATCHDOG_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [initializing]);
+
+  useEffect(() => {
+    if (!bootTimedOut) return;
+
+    try {
+      logEvent("client_boot_timeout", {
+        metadata: {
+          source: "home_boot_watchdog",
+          phase: "home_initializing",
+        },
+      });
+    } catch {}
+  }, [bootTimedOut]);
+
   useEffect(() => {
     if (!player?.id) return;
     if (showTerms || showProfileSetup) return;
@@ -1205,6 +1250,18 @@ export default function HomePage() {
   }
 
   if (initializing) {
+    if (bootTimedOut) {
+      return (
+        <BootRecoveryScreen
+          title="Не удалось загрузить приложение"
+          description="Загрузка занимает больше времени, чем обычно."
+          primaryLabel="Повторить загрузку"
+          onPrimary={() => window.location.reload()}
+          helperText="Если не помогло — закройте Mini App и перезапустите Telegram."
+        />
+      );
+    }
+
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-md">
