@@ -39,14 +39,37 @@ jobs:
       - name: Validate manual request
         env:
           MODE: ${{ inputs.mode }}
+          EXPECTED_APP_SHA: ${{ inputs.expected_app_sha }}
           CONFIRMATION: ${{ inputs.confirmation }}
           EXPECTED_PLAN_SHA256: ${{ inputs.expected_plan_sha256 }}
         run: |
           set -Eeuo pipefail
+
           case "$MODE" in
             DRY_RUN|APPLY) ;;
             *) echo "mode must be exactly DRY_RUN or APPLY" >&2; exit 1 ;;
           esac
+
+          if ! printf '%s' "$EXPECTED_APP_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "expected_app_sha must be exactly 40 lowercase hex characters (a real commit SHA)." >&2
+            exit 1
+          fi
+
+          # Applies regardless of mode: any non-empty expected_plan_sha256
+          # must already be a well-formed hash, not just "present" -- this
+          # is also the exact same safe-token shape that later crosses SSH.
+          if [ -n "$EXPECTED_PLAN_SHA256" ] && ! printf '%s' "$EXPECTED_PLAN_SHA256" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "expected_plan_sha256, when provided, must be exactly 64 lowercase hex characters." >&2
+            exit 1
+          fi
+
+          # No arbitrary confirmation values should be accepted, in either
+          # mode -- the only safe tokens are "" and exactly "APPLY".
+          if [ -n "$CONFIRMATION" ] && [ "$CONFIRMATION" != "APPLY" ]; then
+            echo "confirmation, when provided, must be exactly APPLY." >&2
+            exit 1
+          fi
+
           if [ "$MODE" = "APPLY" ]; then
             [ "$CONFIRMATION" = "APPLY" ] || { echo "APPLY requires confirmation=APPLY. Production was not contacted." >&2; exit 1; }
             [ -n "$EXPECTED_PLAN_SHA256" ] || { echo "APPLY requires expected_plan_sha256 from the preceding DRY_RUN. Production was not contacted." >&2; exit 1; }
@@ -94,24 +117,67 @@ jobs:
           REMOTE_SCRIPT
 
       - name: Run tournament artwork backfill on VPS
+        env:
+          EXPECTED_APP_SHA_INPUT: ${{ inputs.expected_app_sha }}
+          MODE_INPUT: ${{ inputs.mode }}
+          EXPECTED_PLAN_SHA256_INPUT: ${{ inputs.expected_plan_sha256 }}
+          CONFIRMATION_INPUT: ${{ inputs.confirmation }}
         run: |
           set -Eeuo pipefail
+
+          # SSH does not preserve local argv boundaries -- it rejoins every
+          # trailing argument into a single string that the REMOTE shell
+          # re-splits on whitespace, so adjacent empty-string arguments
+          # (both expected_plan_sha256 and confirmation are legitimately
+          # empty for DRY_RUN) silently disappear instead of surviving as
+          # empty positional parameters. That previously shifted
+          # SCRIPT_PATH from $5 into $3 and made the remote script's
+          # `CONFIRMATION="$4"` read a genuinely unset $4 under `set -u`.
+          # Fix: every value that crosses SSH as a positional argument is
+          # now guaranteed non-empty -- an empty optional input is replaced
+          # with a fixed sentinel token here and decoded back to "" at the
+          # very top of the remote script, before any other logic runs.
+          EMPTY_PLAN_SENTINEL="__RERAISE_EMPTY_PLAN__"
+          EMPTY_CONFIRMATION_SENTINEL="__RERAISE_EMPTY_CONFIRMATION__"
+
+          plan_arg="$EXPECTED_PLAN_SHA256_INPUT"
+          confirmation_arg="$CONFIRMATION_INPUT"
+          [ -n "$plan_arg" ] || plan_arg="$EMPTY_PLAN_SENTINEL"
+          [ -n "$confirmation_arg" ] || confirmation_arg="$EMPTY_CONFIRMATION_SENTINEL"
+
           ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
             -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=6 \
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s -- \
-            "${{ inputs.expected_app_sha }}" \
-            "${{ inputs.mode }}" \
-            "${{ inputs.expected_plan_sha256 }}" \
-            "${{ inputs.confirmation }}" \
-            "${{ env.REMOTE_SCRIPT_PATH }}" <<'REMOTE_SCRIPT'
+            "$EXPECTED_APP_SHA_INPUT" \
+            "$MODE_INPUT" \
+            "$plan_arg" \
+            "$confirmation_arg" \
+            "$REMOTE_SCRIPT_PATH" <<'REMOTE_SCRIPT'
           set -Eeuo pipefail
+
+          EMPTY_PLAN_SENTINEL="__RERAISE_EMPTY_PLAN__"
+          EMPTY_CONFIRMATION_SENTINEL="__RERAISE_EMPTY_CONFIRMATION__"
+
+          [ "$#" -eq 5 ] || { echo "FAIL: expected exactly 5 positional arguments, got $#" >&2; exit 1; }
+
           EXPECTED_APP_SHA="$1"
           MODE="$2"
           EXPECTED_PLAN_SHA256="$3"
           CONFIRMATION="$4"
           SCRIPT_PATH="$5"
+
+          # Decode sentinels back to genuinely empty values BEFORE any
+          # later APPLY/DRY_RUN logic reads them -- the sentinel strings
+          # themselves must never reach BACKFILL_MODE/EXPECTED_PLAN_SHA256/
+          # BACKFILL_CONFIRMATION inside the Node script below.
+          if [ "$EXPECTED_PLAN_SHA256" = "$EMPTY_PLAN_SENTINEL" ]; then
+            EXPECTED_PLAN_SHA256=""
+          fi
+          if [ "$CONFIRMATION" = "$EMPTY_CONFIRMATION_SENTINEL" ]; then
+            CONFIRMATION=""
+          fi
 
           IMAGE="ghcr.io/isawyou/re-raise"
           APP_CONTAINER=re-raise
