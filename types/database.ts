@@ -1,3 +1,5 @@
+import type { TournamentType } from "./domain";
+
 export type PlayerRow = {
   id: string;
   telegram_id: number | null;
@@ -33,14 +35,7 @@ export type TournamentRow = {
   start_at: string;
   max_players: number;
   kind: "free" | "paid" | "cash";
-  tournament_type:
-    | "classic"
-    | "phoenix"
-    | "deep_stack"
-    | "bounty"
-    | "boss_bounty"
-    | "win_the_button"
-    | "mystery_bounty";
+  tournament_type: TournamentType;
   season_id: string | null;
   status: string;
   created_at: string;

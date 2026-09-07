@@ -1,0 +1,2 @@
+ALTER TABLE "tournaments" DROP CONSTRAINT "tournaments_tournament_type_check";--> statement-breakpoint
+ALTER TABLE "tournaments" ADD CONSTRAINT "tournaments_tournament_type_check" CHECK ("tournaments"."tournament_type" IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty', 'crazy_pineapple'));

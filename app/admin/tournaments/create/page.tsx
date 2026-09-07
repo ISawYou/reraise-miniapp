@@ -15,7 +15,7 @@ import {
 } from "@/config/tournament-presets";
 import type { Player } from "@/types/domain";
 
-const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }> = [
+export const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }> = [
   { value: "classic", label: "Classic" },
   { value: "phoenix", label: "Phoenix" },
   { value: "deep_stack", label: "Deep Stack" },
@@ -23,6 +23,7 @@ const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }>
   { value: "boss_bounty", label: "Boss Bounty" },
   { value: "win_the_button", label: "Win The Button" },
   { value: "mystery_bounty", label: "Mystery Bounty" },
+  { value: "crazy_pineapple", label: "Crazy Pineapple" },
   { value: FINAL_MONTH_PRESET, label: FINAL_MONTH_LABEL },
 ];
 

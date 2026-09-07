@@ -6,6 +6,7 @@ import {
 } from "@/features/tournaments";
 import { NoSeasonForDateError, AmbiguousSeasonError } from "@/lib/season-resolver";
 import { tournamentRepository } from "@/lib/repositories";
+import type { TournamentType } from "@/types/domain";
 
 export async function GET(request: Request) {
   try {
@@ -41,13 +42,7 @@ export async function POST(request: Request) {
       location: string;
       start_at: string;
       max_players: number;
-      tournament_type?:
-        | "classic"
-        | "phoenix"
-        | "deep_stack"
-        | "bounty"
-        | "boss_bounty"
-        | "win_the_button";
+      tournament_type?: TournamentType;
       // Phoenix Rating Guarantee (spec §15) -- only meaningful for
       // tournament_type "phoenix", but not rejected for other types (same
       // "not DB-constrained to it" approach as the schema check).

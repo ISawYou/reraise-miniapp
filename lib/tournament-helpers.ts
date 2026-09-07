@@ -47,6 +47,8 @@ export function getTournamentTypeLabel(type: TournamentType): string {
       return "Win The Button";
     case "mystery_bounty":
       return "Mystery Bounty";
+    case "crazy_pineapple":
+      return "Crazy Pineapple";
     case "classic":
     default:
       return "Texas Classic";

@@ -23,6 +23,7 @@ function baseRecap(overrides: Partial<SeasonRecap> = {}): SeasonRecap {
         boss_bounty: 1,
         win_the_button: 1,
         mystery_bounty: 0,
+        crazy_pineapple: 0,
       },
     },
     official: {

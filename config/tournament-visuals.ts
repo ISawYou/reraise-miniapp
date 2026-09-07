@@ -31,6 +31,7 @@ export const DEFAULT_TOURNAMENT_VISUALS = {
   deep_stack: "/tournament-assets/deep-stack.png",
   mystery_bounty: "/tournament-assets/mystery-bounty.png",
   phoenix: "/tournament-assets/phoenix.png",
+  crazy_pineapple: "/tournament-assets/pineapple.png",
 } as const satisfies Record<TournamentType, string>;
 
 export const TOURNAMENT_VISUAL_TYPES = Object.keys(

@@ -21,7 +21,8 @@ export type TournamentType =
   | "bounty"
   | "boss_bounty"
   | "win_the_button"
-  | "mystery_bounty";
+  | "mystery_bounty"
+  | "crazy_pineapple";
 
 export type Player = {
   id: string;

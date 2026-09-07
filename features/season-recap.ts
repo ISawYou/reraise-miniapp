@@ -92,6 +92,7 @@ const TOURNAMENT_TYPES: TournamentType[] = [
   "boss_bounty",
   "win_the_button",
   "mystery_bounty",
+  "crazy_pineapple",
 ];
 
 function ruSort(a: string, b: string): number {

@@ -50,7 +50,7 @@ export const tournaments = pgTable("tournaments", {
   check("tournaments_kind_check", sql`${table.kind} IN ('free', 'paid', 'cash')`),
   check(
     "tournaments_tournament_type_check",
-    sql`${table.tournamentType} IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty')`,
+    sql`${table.tournamentType} IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty', 'crazy_pineapple')`,
   ),
   check(
     "tournaments_rating_formula_version_check",

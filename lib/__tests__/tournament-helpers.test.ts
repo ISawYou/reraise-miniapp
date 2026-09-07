@@ -12,6 +12,7 @@ import {
   sortEliminatedPlayersByPlace,
   sortParticipantsByRating,
   splitTournamentLiveRoster,
+  supportsTournamentBossKnockouts,
   supportsTournamentKnockouts,
 } from "@/lib/tournament-helpers";
 
@@ -78,6 +79,25 @@ describe("tournament type helpers", () => {
       "Нокауты: +5 очков",
       "Boss-нокауты: +10 очков",
     ]);
+  });
+});
+
+describe("crazy_pineapple -- ordinary volume format, no knockout mechanics", () => {
+  it('label is "Crazy Pineapple"', () => {
+    expect(getTournamentTypeLabel("crazy_pineapple")).toBe("Crazy Pineapple");
+  });
+
+  it("multiplier is the ordinary 1x (no special rating bonus)", () => {
+    expect(getTournamentTypeMultiplier("crazy_pineapple")).toBe(1);
+  });
+
+  it("does not support knockouts or boss knockouts", () => {
+    expect(supportsTournamentKnockouts("crazy_pineapple")).toBe(false);
+    expect(supportsTournamentBossKnockouts("crazy_pineapple")).toBe(false);
+  });
+
+  it("has no bonus lines, same as classic", () => {
+    expect(getTournamentTypeBonusLines("crazy_pineapple")).toEqual([]);
   });
 });
 

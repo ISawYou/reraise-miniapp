@@ -191,6 +191,7 @@ const VOLUME_FORMATS = new Set<TournamentType>([
   "deep_stack",
   "win_the_button",
   "phoenix",
+  "crazy_pineapple",
 ]);
 
 export function calculateRatingPointsV2(

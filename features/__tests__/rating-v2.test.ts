@@ -540,3 +540,41 @@ describe("calculateRatingPlaceStructureForTournament — ratingEligible=false (F
     expect(ratingPlaces.every((p) => p.points === 0)).toBe(true);
   });
 });
+
+describe("Q — crazy_pineapple is an ordinary volume format, identical to classic", () => {
+  it("produces the exact same results/meta as classic for identical players/entries/addons/placements", () => {
+    const players = arrivedPlayers(14, 2, 0); // rebuys present, same as Test B above
+    const classic = calculateRatingPointsV2(players, "classic");
+    const crazyPineapple = calculateRatingPointsV2(players, "crazy_pineapple");
+
+    expect(crazyPineapple).toEqual(classic);
+    expect(crazyPineapple.meta.kind).toBe("volume");
+  });
+
+  it("still matches classic with addons and knockouts present (knockouts ignored by both)", () => {
+    const players: PlayerRatingInputV2[] = Array.from({ length: 14 }, (_, i) => ({
+      player_id: `p${i + 1}`,
+      place: i + 1,
+      knockouts: i === 0 ? 3 : 0,
+      arrived: true,
+      entries: 2,
+      addons: i === 0 ? 10 : 0,
+    }));
+
+    const classic = calculateRatingPointsV2(players, "classic");
+    const crazyPineapple = calculateRatingPointsV2(players, "crazy_pineapple");
+
+    expect(crazyPineapple).toEqual(classic);
+  });
+
+  it("has no knockout/boss/mystery points regardless of input knockouts", () => {
+    const players = arrivedPlayers(9, 1, 0).map((p, i) => ({ ...p, knockouts: i === 0 ? 5 : 0 }));
+    const { results } = calculateRatingPointsV2(players, "crazy_pineapple");
+
+    for (const r of results) {
+      expect(r.knockout_points).toBe(0);
+      expect(r.boss_bounty_points).toBe(0);
+      expect(r.mystery_bounty_points).toBe(0);
+    }
+  });
+});
