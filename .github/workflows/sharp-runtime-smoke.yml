@@ -1,0 +1,146 @@
+name: Sharp Runtime Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_app_sha:
+        description: >-
+          The commit SHA the ReRaise production container is currently
+          expected to be running (i.e. the app SHA from the most recent
+          successful Deploy) -- checked against the running container's
+          configured image reference before Sharp is exercised.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sharp-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Serialize with deploy/maintenance/diagnostics -- this only reads
+    # container state and execs a pure in-memory Node script inside it, but
+    # it should never inspect (or exec into) a container mid-recreate.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Configure SSH
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sharp runtime smoke inside the real re-raise container
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=6 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s -- "${{ inputs.expected_app_sha }}" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+          EXPECTED_SHA="$1"
+          IMAGE="ghcr.io/isawyou/re-raise"
+          EXPECTED_IMAGE_REF="${IMAGE}:${EXPECTED_SHA}"
+
+          section() {
+            printf '\n================ %s ================\n' "$1"
+          }
+
+          fail() {
+            echo "FAIL: $*" >&2
+            exit 1
+          }
+
+          section "CONTAINER PRECHECK"
+          docker inspect re-raise >/dev/null 2>&1 || fail "container 're-raise' was not found"
+
+          status="$(docker inspect re-raise --format '{{.State.Status}}')"
+          running="$(docker inspect re-raise --format '{{.State.Running}}')"
+          health="$(docker inspect re-raise --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}}')"
+          container_id="$(docker inspect re-raise --format '{{.Id}}')"
+          configured_image_ref="$(docker inspect re-raise --format '{{.Config.Image}}')"
+          running_image_id="$(docker inspect re-raise --format '{{.Image}}')"
+
+          echo "container_id=$container_id"
+          echo "configured_image_ref=$configured_image_ref"
+          echo "running_image_id=$running_image_id"
+          echo "status=$status"
+          echo "health=$health"
+
+          [ "$running" = "true" ] || fail "container is not running (status=$status)"
+          if [ "$health" != "n/a" ]; then
+            [ "$health" = "healthy" ] || fail "container health is '$health', not healthy"
+          fi
+
+          section "EXPECTED IMAGE CHECK"
+          # Immutable-image-SHA-as-truth: the configured image reference is
+          # what the exact-SHA compose file set at container creation/
+          # recreation time (see deploy.yml) -- not /opt/reraise's git
+          # checkout, which says nothing about which image is actually
+          # running.
+          echo "expected_image_ref=$EXPECTED_IMAGE_REF"
+          [ "$configured_image_ref" = "$EXPECTED_IMAGE_REF" ] \
+            || fail "running container's configured image ($configured_image_ref) does not match expected ($EXPECTED_IMAGE_REF)"
+          echo "OK: running container matches expected app SHA"
+
+          section "SHARP RUNTIME SMOKE (in-memory only)"
+          docker exec re-raise node -e '
+            const sharp = require("sharp");
+
+            function fail(message) {
+              console.error("FAIL:", message);
+              process.exit(1);
+            }
+
+            (async () => {
+              const version = (sharp.versions && sharp.versions.sharp) || "unknown";
+              console.log("sharp version:", version);
+
+              // Same important characteristics as the production tournament
+              // card derivative (lib/tournament-visual-card-derivative.ts):
+              // 512x512, fit:contain, transparent background, same PNG
+              // encode settings. Source is a tiny synthetic 4x4 RGBA image,
+              // entirely in memory -- nothing is read from or written to
+              // disk.
+              const source = await sharp({
+                create: { width: 4, height: 4, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 1 } },
+              }).png().toBuffer();
+
+              const { data, info } = await sharp(source)
+                .resize(512, 512, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+                .png({ compressionLevel: 9, adaptiveFiltering: true })
+                .toBuffer({ resolveWithObject: true });
+
+              if (!data || data.length === 0) fail("output buffer is empty");
+              if (info.format !== "png") fail(`output format is "${info.format}", not png`);
+              if (info.width !== 512) fail(`output width is ${info.width}, not 512`);
+              if (info.height !== 512) fail(`output height is ${info.height}, not 512`);
+
+              const sig = [0x89, 0x50, 0x4e, 0x47];
+              for (let i = 0; i < sig.length; i += 1) {
+                if (data[i] !== sig[i]) fail("output does not begin with the PNG signature");
+              }
+
+              console.log("output dimensions:", `${info.width}x${info.height}`);
+              console.log("output format:", info.format);
+              console.log("output byte length:", data.length);
+              console.log("PASS");
+              process.exit(0);
+            })().catch((err) => fail(err && err.message ? err.message : String(err)));
+          '
+
+          section "PUBLIC HEALTH (read-only)"
+          health_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' https://re-raise.ru/api/health)"
+          health_body="$(curl --silent --show-error https://re-raise.ru/api/health)"
+          echo "https://re-raise.ru/api/health -> $health_status $health_body"
+          [ "$health_status" = "200" ] || fail "public health endpoint returned $health_status"
+          [ "$health_body" = '{"ok":true}' ] || fail "public health endpoint returned unexpected body: $health_body"
+
+          echo ""
+          echo "Sharp runtime smoke completed. No production mutations were made."
+          REMOTE_SCRIPT
