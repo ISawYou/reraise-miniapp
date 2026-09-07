@@ -1,0 +1,307 @@
+name: Tournament Artwork Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: DRY_RUN reads/reports only. APPLY writes derivatives and updates app_settings.
+        required: true
+        type: choice
+        options:
+          - DRY_RUN
+          - APPLY
+        default: DRY_RUN
+      expected_app_sha:
+        description: The currently running immutable ReRaise application SHA (from docker inspect, not any git checkout).
+        required: true
+        type: string
+      expected_plan_sha256:
+        description: Required for APPLY only -- must exactly match the PLAN_SHA256 printed by the immediately preceding DRY_RUN.
+        required: false
+        type: string
+      confirmation:
+        description: For APPLY only, type APPLY exactly. Not required for DRY_RUN.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate manual request
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          EXPECTED_PLAN_SHA256: ${{ inputs.expected_plan_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          case "$MODE" in
+            DRY_RUN|APPLY) ;;
+            *) echo "mode must be exactly DRY_RUN or APPLY" >&2; exit 1 ;;
+          esac
+          if [ "$MODE" = "APPLY" ]; then
+            [ "$CONFIRMATION" = "APPLY" ] || { echo "APPLY requires confirmation=APPLY. Production was not contacted." >&2; exit 1; }
+            [ -n "$EXPECTED_PLAN_SHA256" ] || { echo "APPLY requires expected_plan_sha256 from the preceding DRY_RUN. Production was not contacted." >&2; exit 1; }
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Transfer backfill script to VPS
+        run: |
+          set -Eeuo pipefail
+          REMOTE_PATH="/tmp/tournament-backfill-${{ github.run_id }}-${{ github.run_attempt }}.mjs"
+          echo "REMOTE_SCRIPT_PATH=$REMOTE_PATH" >> "$GITHUB_ENV"
+
+          CHECKSUM="$(sha256sum scripts/backfill-tournament-card-derivatives.mjs | awk '{print $1}')"
+          echo "Local script SHA256: $CHECKSUM"
+
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            scripts/backfill-tournament-card-derivatives.mjs \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${REMOTE_PATH}"
+
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s -- "$REMOTE_PATH" "$CHECKSUM" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+          REMOTE_PATH="$1"
+          EXPECTED_CHECKSUM="$2"
+          ACTUAL_CHECKSUM="$(sha256sum "$REMOTE_PATH" | awk '{print $1}')"
+          echo "Remote script SHA256: $ACTUAL_CHECKSUM"
+          if [ "$ACTUAL_CHECKSUM" != "$EXPECTED_CHECKSUM" ]; then
+            echo "Checksum mismatch after transfer -- refusing to use this file." >&2
+            rm -f "$REMOTE_PATH"
+            exit 1
+          fi
+          echo "Transfer verified."
+          REMOTE_SCRIPT
+
+      - name: Run tournament artwork backfill on VPS
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=6 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" bash -s -- \
+            "${{ inputs.expected_app_sha }}" \
+            "${{ inputs.mode }}" \
+            "${{ inputs.expected_plan_sha256 }}" \
+            "${{ inputs.confirmation }}" \
+            "${{ env.REMOTE_SCRIPT_PATH }}" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+          EXPECTED_APP_SHA="$1"
+          MODE="$2"
+          EXPECTED_PLAN_SHA256="$3"
+          CONFIRMATION="$4"
+          SCRIPT_PATH="$5"
+
+          IMAGE="ghcr.io/isawyou/re-raise"
+          APP_CONTAINER=re-raise
+          DB_CONTAINER=poker-clock-db
+          DB_NAME=reraise
+          DB_USER=reraise
+          BACKUP_ROOT="${HOME}/reraise-backups/postgresql"
+          LOCK_PATH=/var/lock/poker-production.lock
+          LOCK_WAIT_SECONDS=300
+
+          section() {
+            printf '\n================ %s ================\n' "$1"
+          }
+
+          fail() {
+            echo "FAIL: $*" >&2
+            exit 1
+          }
+
+          # Best-effort: the temporary transferred script is host
+          # infrastructure, not application data, but it should never
+          # linger regardless of how this step ends.
+          cleanup() {
+            rm -f "$SCRIPT_PATH"
+          }
+          trap cleanup EXIT
+
+          require_healthy_container() {
+            local container="$1"
+            local status health
+            docker inspect "$container" >/dev/null 2>&1 || fail "Required container '$container' was not found."
+            status="$(docker inspect "$container" --format '{{.State.Status}}')"
+            health="$(docker inspect "$container" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}')"
+            [ "$status" = "running" ] && { [ "$health" = "healthy" ] || [ "$health" = "missing" ]; } \
+              || fail "Container '$container' is not healthy (status=$status, health=$health)."
+          }
+
+          # ============ SHARED VPS PRODUCTION LOCK ============
+          # Same /var/lock/poker-production.lock mutex deploy.yml,
+          # maintenance.yml and production-migrations.yml already use --
+          # GitHub's own concurrency group above is repository-scoped only
+          # and says nothing about the shared VPS itself.
+          echo "Acquiring shared VPS production lock ($LOCK_PATH, waiting up to ${LOCK_WAIT_SECONDS}s)..."
+          exec 9>"$LOCK_PATH"
+          flock -w "$LOCK_WAIT_SECONDS" 9 \
+            || fail "Could not acquire the shared VPS production lock within ${LOCK_WAIT_SECONDS}s -- another deploy/maintenance/migration is running."
+          echo "Lock acquired."
+
+          section "RUNNING APP PRECHECK"
+          [ -f "$SCRIPT_PATH" ] || fail "transferred script not found at $SCRIPT_PATH"
+          docker inspect "$APP_CONTAINER" >/dev/null 2>&1 || fail "container '$APP_CONTAINER' was not found"
+
+          status="$(docker inspect "$APP_CONTAINER" --format '{{.State.Status}}')"
+          running="$(docker inspect "$APP_CONTAINER" --format '{{.State.Running}}')"
+          health="$(docker inspect "$APP_CONTAINER" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}}')"
+          configured_image_ref="$(docker inspect "$APP_CONTAINER" --format '{{.Config.Image}}')"
+          expected_image_ref="${IMAGE}:${EXPECTED_APP_SHA}"
+
+          echo "configured_image_ref=$configured_image_ref"
+          echo "expected_image_ref=$expected_image_ref"
+          echo "status=$status"
+          echo "health=$health"
+
+          [ "$running" = "true" ] || fail "container is not running (status=$status)"
+          [ "$health" = "n/a" ] || [ "$health" = "healthy" ] || fail "container health is '$health', not healthy"
+          # Docker's own immutable image identity is the source of truth
+          # here, never /opt/reraise's git checkout -- see deploy.yml, which
+          # is the only thing that ever sets this container's image.
+          [ "$configured_image_ref" = "$expected_image_ref" ] \
+            || fail "running container's configured image ($configured_image_ref) does not match expected ($expected_image_ref)"
+          echo "OK: running container matches expected app SHA"
+
+          app_id_before="$(docker inspect "$APP_CONTAINER" --format '{{.Id}}')"
+          app_started_before="$(docker inspect "$APP_CONTAINER" --format '{{.State.StartedAt}}')"
+          db_id_before="$(docker inspect "$DB_CONTAINER" --format '{{.Id}}')"
+          db_started_before="$(docker inspect "$DB_CONTAINER" --format '{{.State.StartedAt}}')"
+
+          section "DATABASE PRECHECK"
+          provider="$(docker exec "$APP_CONTAINER" printenv DATABASE_PROVIDER 2>/dev/null | tr -d '\r')"
+          [ "$provider" = "postgres" ] || fail "The running application does not select DATABASE_PROVIDER=postgres."
+
+          database_url="$(docker exec "$APP_CONTAINER" printenv DATABASE_URL 2>/dev/null | tr -d '\r')"
+          [ -n "$database_url" ] || fail "The running application does not define DATABASE_URL."
+          export RERAISE_DATABASE_URL="$database_url"
+          database_target="$(python3 - <<'PY'
+          import os
+          from urllib.parse import unquote, urlparse
+
+          raw = os.environ["RERAISE_DATABASE_URL"].strip()
+          if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+              raw = raw[1:-1]
+          parsed = urlparse(raw)
+          if parsed.scheme not in {"postgres", "postgresql"}:
+              raise SystemExit("DATABASE_URL is not a PostgreSQL URL")
+          print("|".join([
+              unquote(parsed.username or ""),
+              parsed.hostname or "",
+              str(parsed.port or 5432),
+              unquote(parsed.path.lstrip("/")),
+          ]))
+          PY
+          )"
+          unset RERAISE_DATABASE_URL
+          [ "$database_target" = "${DB_USER}|${DB_CONTAINER}|5432|${DB_NAME}" ] \
+            || fail "DATABASE_URL does not target the expected production database."
+          echo "OK: DATABASE_PROVIDER=postgres, DATABASE_URL targets ${DB_USER}@${DB_CONTAINER}/${DB_NAME}"
+
+          if [ "$MODE" = "APPLY" ]; then
+            [ "$CONFIRMATION" = "APPLY" ] || fail "APPLY requires confirmation=APPLY"
+            [ -n "$EXPECTED_PLAN_SHA256" ] || fail "APPLY requires expected_plan_sha256"
+
+            section "BACKUP (APPLY ONLY)"
+            free_bytes="$(df -PB1 "$HOME" | awk 'NR == 2 {print $4}')"
+            case "$free_bytes" in
+              ''|*[!0-9]*) fail "Could not determine free backup disk space." ;;
+            esac
+            database_size="$(docker exec -i "$DB_CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -At <<'SQL'
+          BEGIN TRANSACTION READ ONLY;
+          SELECT pg_database_size(current_database());
+          ROLLBACK;
+          SQL
+          )"
+            case "$database_size" in
+              ''|*[!0-9]*) fail "Could not determine production database size." ;;
+            esac
+            minimum_free_bytes=$((database_size * 2 + 1073741824))
+            [ "$free_bytes" -ge "$minimum_free_bytes" ] \
+              || fail "Insufficient disk space for backup verification (requires 2x DB size plus 1 GiB)."
+
+            mkdir -p "$BACKUP_ROOT"
+            chmod 700 "$BACKUP_ROOT"
+            timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+            backup_file="${BACKUP_ROOT}/reraise-${timestamp}.dump"
+            partial_file="${backup_file}.partial"
+            list_file="${backup_file}.list"
+            [ ! -e "$backup_file" ] && [ ! -e "$partial_file" ] && [ ! -e "$list_file" ] \
+              || fail "Timestamped backup target already exists."
+
+            docker exec "$DB_CONTAINER" pg_dump \
+              --username="$DB_USER" \
+              --dbname="$DB_NAME" \
+              --format=custom \
+              --compress=6 \
+              --no-owner \
+              --no-acl \
+              --serializable-deferrable > "$partial_file"
+            [ -s "$partial_file" ] || fail "pg_dump output is missing or empty."
+            mv "$partial_file" "$backup_file"
+            docker exec -i "$DB_CONTAINER" pg_restore --list < "$backup_file" > "$list_file"
+            [ -s "$list_file" ] || fail "pg_restore --list produced an empty result."
+            grep -Eq 'TABLE DATA +public +app_settings' "$list_file" \
+              || fail "Verified archive does not contain public.app_settings table data metadata."
+            echo "Backup verified: $backup_file ($(stat -c '%s' "$backup_file") bytes)"
+          fi
+
+          section "RUN BACKFILL SCRIPT ($MODE) INSIDE $APP_CONTAINER"
+          cat "$SCRIPT_PATH" | docker exec -i \
+            -e TOURNAMENT_BACKFILL_ENTRY=1 \
+            -e BACKFILL_MODE="$MODE" \
+            -e EXPECTED_APP_SHA="$EXPECTED_APP_SHA" \
+            -e EXPECTED_PLAN_SHA256="$EXPECTED_PLAN_SHA256" \
+            -e BACKFILL_CONFIRMATION="$CONFIRMATION" \
+            "$APP_CONTAINER" node --input-type=module
+
+          section "POST-RUN CONTAINER STABILITY CHECK"
+          require_healthy_container "$APP_CONTAINER"
+          require_healthy_container "$DB_CONTAINER"
+          [ "$(docker inspect "$APP_CONTAINER" --format '{{.Id}}')" = "$app_id_before" ] \
+            && [ "$(docker inspect "$APP_CONTAINER" --format '{{.State.StartedAt}}')" = "$app_started_before" ] \
+            || fail "Application container was replaced or restarted."
+          [ "$(docker inspect "$DB_CONTAINER" --format '{{.Id}}')" = "$db_id_before" ] \
+            && [ "$(docker inspect "$DB_CONTAINER" --format '{{.State.StartedAt}}')" = "$db_started_before" ] \
+            || fail "Database container was replaced or restarted."
+          echo "OK: application and database containers were not restarted or replaced."
+
+          section "PUBLIC HEALTH"
+          health_body="$(curl --fail --silent --show-error https://re-raise.ru/api/health)"
+          [ "$health_body" = '{"ok":true}' ] || fail "Application health endpoint returned an unexpected body."
+
+          echo ""
+          echo "Tournament artwork backfill ($MODE) completed. No container was restarted, recreated, or redeployed."
+          REMOTE_SCRIPT
+
+      - name: Remove temporary script from VPS (best-effort)
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          if [ -n "${{ env.REMOTE_SCRIPT_PATH }}" ]; then
+            ssh -i ~/.ssh/deploy_key -p "${{ secrets.VPS_SSH_PORT || 22 }}" \
+              -o StrictHostKeyChecking=yes \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "rm -f '${{ env.REMOTE_SCRIPT_PATH }}'" || true
+          fi
