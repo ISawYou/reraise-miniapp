@@ -8,6 +8,7 @@ import {
 } from "@/config/tournament-visuals";
 import { getAppSetting, setAppSetting } from "@/lib/app-settings";
 import { tournamentAssetStorageRepository } from "@/lib/repositories";
+import { createTournamentCardDerivative } from "@/lib/tournament-visual-card-derivative";
 import type { TournamentType } from "@/types/domain";
 
 // Persisted as a single app_settings row (generic key-value store) rather
@@ -43,6 +44,10 @@ function isStoredTournamentVisualConfig(value: unknown): value is TournamentVisu
   );
 }
 
+function isValidPublicAssetUrl(value: string): boolean {
+  return !!value && (value.startsWith("/") || /^https:\/\//.test(value));
+}
+
 export async function getTournamentVisualConfigs(): Promise<TournamentVisualConfig[]> {
   const raw = (await getAppSetting(APP_SETTINGS_KEY)) as
     | Partial<Record<TournamentType, TournamentVisualConfig>>
@@ -54,9 +59,29 @@ export async function getTournamentVisualConfigs(): Promise<TournamentVisualConf
       .map((config) => [config.tournamentType, config]),
   );
 
-  return TOURNAMENT_VISUAL_TYPES.map(
-    (tournamentType) => stored.get(tournamentType) ?? getDefaultTournamentVisual(tournamentType),
-  );
+  return TOURNAMENT_VISUAL_TYPES.map((tournamentType) => {
+    const defaultConfig = getDefaultTournamentVisual(tournamentType);
+    const storedConfig = stored.get(tournamentType);
+    if (!storedConfig) {
+      return defaultConfig;
+    }
+    // Compatibility inheritance for a config saved before cardAssetUrl
+    // existed (or before this type had a built-in derivative): if it still
+    // points at the exact untouched built-in original, it's safe to
+    // backfill just the derivative URL without touching any admin-tuned
+    // geometry -- the admin never has to click Reset. Never applies once
+    // assetUrl differs (a custom/replacement upload), which must keep
+    // rendering its own original with no derivative until its own upload
+    // produces one -- no false pairing with a derivative it doesn't own.
+    if (
+      storedConfig.cardAssetUrl === undefined &&
+      defaultConfig.cardAssetUrl !== undefined &&
+      storedConfig.assetUrl === defaultConfig.assetUrl
+    ) {
+      return { ...storedConfig, cardAssetUrl: defaultConfig.cardAssetUrl };
+    }
+    return storedConfig;
+  });
 }
 
 export async function saveTournamentVisualConfig(
@@ -65,12 +90,21 @@ export async function saveTournamentVisualConfig(
   if (!isTournamentVisualType(input.tournamentType)) {
     throw new Error("Неизвестный тип турнира");
   }
+  // A non-string cardAssetUrl (absent, or a malformed `null` from an old/
+  // buggy client) is treated as "not provided" rather than validated --
+  // this field is optional, so its absence is never an error.
+  const cardAssetUrl =
+    typeof input.cardAssetUrl === "string" ? input.cardAssetUrl.trim() : undefined;
   const config: TournamentVisualConfig = {
     ...input,
     assetUrl: input.assetUrl.trim(),
+    ...(cardAssetUrl !== undefined ? { cardAssetUrl } : {}),
   };
-  if (!config.assetUrl || (!config.assetUrl.startsWith("/") && !/^https:\/\//.test(config.assetUrl))) {
+  if (!isValidPublicAssetUrl(config.assetUrl)) {
     throw new Error("Некорректный public asset URL");
+  }
+  if (config.cardAssetUrl !== undefined && !isValidPublicAssetUrl(config.cardAssetUrl)) {
+    throw new Error("Некорректный public asset URL для card-превью");
   }
   validateGeometry(config);
   if (config.list) {
@@ -109,8 +143,16 @@ export async function resetTournamentVisualListOverride(
   const existing =
     (await getTournamentVisualConfigs()).find((config) => config.tournamentType === tournamentType) ??
     getDefaultTournamentVisual(tournamentType);
-  const { tournamentType: type, assetUrl, scale, offsetX, offsetY, opacity } = existing;
-  return saveTournamentVisualConfig({ tournamentType: type, assetUrl, scale, offsetX, offsetY, opacity });
+  const { tournamentType: type, assetUrl, cardAssetUrl, scale, offsetX, offsetY, opacity } = existing;
+  return saveTournamentVisualConfig({
+    tournamentType: type,
+    assetUrl,
+    ...(cardAssetUrl !== undefined ? { cardAssetUrl } : {}),
+    scale,
+    offsetX,
+    offsetY,
+    opacity,
+  });
 }
 
 export async function uploadTournamentVisualPng(
@@ -133,11 +175,27 @@ export async function uploadTournamentVisualPng(
     throw new Error("Файл не является корректным PNG");
   }
 
-  const fileName = `${tournamentType}-${Date.now()}-${randomUUID()}.png`;
-  const assetUrl = await tournamentAssetStorageRepository.upload(fileName, bytes);
+  // One shared identity for the original and its card derivative -- both
+  // filenames are unique per upload (never overwrite a previous upload) and
+  // clearly belong together. The derivative is generated in memory FIRST:
+  // if resizing throws, nothing is written or persisted at all, and the
+  // config in app_settings still points at whatever visual was live before
+  // this call -- same guarantee for each subsequent step below (an upload
+  // failure or a persistence failure never leaves a half-updated config;
+  // an already-written orphan file from a step that succeeded before a
+  // later failure is acceptable here, not cleaned up in this task).
+  const stem = `${tournamentType}-${Date.now()}-${randomUUID()}`;
+  const cardBytes = await createTournamentCardDerivative(bytes);
+
+  const assetUrl = await tournamentAssetStorageRepository.upload(`${stem}.png`, bytes);
+  const cardAssetUrl = await tournamentAssetStorageRepository.upload(
+    `${stem}-card.png`,
+    cardBytes,
+  );
+
   const existing =
     (await getTournamentVisualConfigs()).find((config) => config.tournamentType === tournamentType) ??
     getDefaultTournamentVisual(tournamentType);
 
-  return saveTournamentVisualConfig({ ...existing, assetUrl });
+  return saveTournamentVisualConfig({ ...existing, assetUrl, cardAssetUrl });
 }

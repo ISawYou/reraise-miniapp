@@ -10,9 +10,10 @@ const PUBLIC_BASE_URL = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "
 export class LocalTournamentAssetStorageRepository
   implements TournamentAssetStorageRepository
 {
-  async upload(fileName: string, bytes: ArrayBuffer): Promise<string> {
+  async upload(fileName: string, bytes: ArrayBuffer | Buffer): Promise<string> {
     await mkdir(STORAGE_ROOT, { recursive: true });
-    await writeFile(path.join(STORAGE_ROOT, fileName), Buffer.from(bytes));
+    const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+    await writeFile(path.join(STORAGE_ROOT, fileName), buffer);
     return `${PUBLIC_BASE_URL}/storage/tournament-assets/${fileName}`;
   }
 }

@@ -24,7 +24,8 @@
     "postgres": "^3.4.9",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "resend": "^6.12.4"
+    "resend": "^6.12.4",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

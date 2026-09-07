@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import type { TournamentType } from "@/types/domain";
 
@@ -152,29 +153,72 @@ export function TournamentVisual({
               transformOrigin: "center",
             }}
           >
-            {/* Admin-managed URLs (local storage or absolute) cannot use next/image's static host allow-list. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              // Remounts whenever the asset URL changes (new upload, reset,
-              // or a different tournament type selected) so a stale
-              // `display: none` left behind by a previous failed load never
-              // survives onto an image that would actually load fine now.
-              key={config.assetUrl}
-              data-tournament-visual-img=""
-              src={config.assetUrl}
-              alt=""
+            <TournamentArtworkImage
+              // Keyed here (not on the <img> inside) so the WHOLE component
+              // -- including its derivative->original fallback state --
+              // remounts fresh whenever either URL changes (new upload,
+              // reset, or a different tournament type selected). Keying
+              // only the <img> would remount that DOM node but silently
+              // keep the OLD useOriginal state on the surrounding
+              // component's fiber, since the <img>'s key change alone
+              // doesn't reset its parent's hooks.
+              key={`${config.assetUrl}|${config.cardAssetUrl ?? ""}`}
+              assetUrl={config.assetUrl}
+              cardAssetUrl={config.cardAssetUrl}
               loading={loading}
-              className="h-full w-full object-contain object-right"
-              // A tournament type with no artwork uploaded yet (or a config
-              // pointing at a since-deleted file) must fall back to the
-              // plain card, not a broken-image glyph.
-              onError={(event) => {
-                event.currentTarget.style.display = "none";
-              }}
             />
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+type TournamentArtworkImageProps = {
+  assetUrl: string;
+  cardAssetUrl?: string;
+  loading: "eager" | "lazy";
+};
+
+// Prefers the smaller 512px card derivative (same artwork as assetUrl, see
+// TournamentVisualConfig.cardAssetUrl) and falls back to the full original
+// exactly once if the derivative fails to load. Keyed by BOTH URLs from the
+// parent (see below) so a new original/card pair from a fresh upload always
+// starts this retry state clean -- never inherits a stale fallback from a
+// previous config's failed load.
+function TournamentArtworkImage({ assetUrl, cardAssetUrl, loading }: TournamentArtworkImageProps) {
+  // Nothing to retry into if there's no distinct derivative -- either it
+  // was never generated (old/legacy config) or it happens to equal the
+  // original byte-for-byte (pathological but harmless: treat it as "no
+  // derivative" so a single failure can't trigger a pointless same-URL
+  // retry loop).
+  const hasDistinctCard = !!cardAssetUrl && cardAssetUrl !== assetUrl;
+  const [useOriginal, setUseOriginal] = useState(false);
+  const src = hasDistinctCard && !useOriginal ? cardAssetUrl : assetUrl;
+
+  return (
+    // Admin-managed URLs (local storage or absolute) cannot use next/image's static host allow-list.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      data-tournament-visual-img=""
+      src={src}
+      alt=""
+      loading={loading}
+      className="h-full w-full object-contain object-right"
+      onError={(event) => {
+        if (hasDistinctCard && !useOriginal) {
+          // First failure was the card derivative -- retry once with the
+          // original. If the original then ALSO fails, this handler fires
+          // again, but useOriginal is already true, so the branch below
+          // runs instead of retrying forever.
+          setUseOriginal(true);
+          return;
+        }
+        // Either there was nothing to fall back to, or the fallback
+        // (original) itself just failed -- plain card, no broken-image
+        // glyph, same behavior as before this derivative existed.
+        event.currentTarget.style.display = "none";
+      }}
+    />
   );
 }

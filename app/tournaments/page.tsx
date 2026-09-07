@@ -377,7 +377,7 @@ export default function TournamentsPage() {
     return null;
   }
 
-  function renderOpenTournamentCard(tournament: Tournament) {
+  function renderOpenTournamentCard(tournament: Tournament, index: number) {
     const registeredCount = registrationCounts[tournament.id] ?? 0;
     const prizePlaces = getExpectedPrizePlaces(registeredCount);
     const fillPercent =
@@ -401,6 +401,7 @@ export default function TournamentsPage() {
           className="z-0"
           artworkSizeClassName={LIST_ARTWORK_SIZE_CLASSNAME}
           variant="list"
+          loading={index === 0 ? "eager" : "lazy"}
         />
 
         <div className="relative z-10">
@@ -526,7 +527,7 @@ export default function TournamentsPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {openTournaments.map((tournament) => renderOpenTournamentCard(tournament))}
+              {openTournaments.map((tournament, index) => renderOpenTournamentCard(tournament, index))}
             </div>
           )}
         </section>

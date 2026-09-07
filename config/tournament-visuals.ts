@@ -9,7 +9,18 @@ export type TournamentVisualGeometry = {
 
 export type TournamentVisualConfig = TournamentVisualGeometry & {
   tournamentType: TournamentType;
+  // Canonical original/source PNG -- always present, always the admin
+  // editor's upload target and this config's fallback of last resort.
   assetUrl: string;
+  // Optional 512x512 "card" derivative of the SAME artwork as assetUrl --
+  // not a separate visual identity. Absent on every config written before
+  // this field existed (all seven legacy production assets) and on any
+  // config an admin has not re-saved through the derivative-generating
+  // upload path yet; TournamentVisual falls back to assetUrl whenever this
+  // is missing or fails to load. See features/tournament-visuals.ts's
+  // uploadTournamentVisualPng (generates it) and getTournamentVisualConfigs
+  // (backfills it onto an unmodified built-in default only).
+  cardAssetUrl?: string;
   // Optional per-surface override for the /tournaments list card, whose
   // artwork box has a different aspect ratio than Home's (see
   // artworkSizeClassName in TournamentVisual) -- the same scale/offset that
@@ -42,12 +53,25 @@ export function isTournamentVisualType(value: string): value is TournamentType {
   return (TOURNAMENT_VISUAL_TYPES as string[]).includes(value);
 }
 
+// Deliberately a PARTIAL map, unlike DEFAULT_TOURNAMENT_VISUALS above --
+// only types whose 512px built-in derivative actually exists in the repo
+// belong here. Crazy Pineapple is the only one generated so far (Phase
+// 2B.2); the seven legacy originals are not backfilled by this change (see
+// getTournamentVisualConfigs's stored-default inheritance for why an old
+// config is still safe without an entry here) and must never get a guessed
+// "-card" entry pointing at a file that doesn't exist.
+export const DEFAULT_TOURNAMENT_CARD_VISUALS: Partial<Record<TournamentType, string>> = {
+  crazy_pineapple: "/tournament-assets/pineapple-card.png",
+};
+
 export function getDefaultTournamentVisual(
   tournamentType: TournamentType,
 ): TournamentVisualConfig {
+  const cardAssetUrl = DEFAULT_TOURNAMENT_CARD_VISUALS[tournamentType];
   return {
     tournamentType,
     assetUrl: DEFAULT_TOURNAMENT_VISUALS[tournamentType],
+    ...(cardAssetUrl ? { cardAssetUrl } : {}),
     scale: 100,
     offsetX: 0,
     offsetY: 0,

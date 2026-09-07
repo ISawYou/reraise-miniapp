@@ -343,6 +343,182 @@ describe("TournamentVisual", () => {
     });
   });
 
+  describe("card derivative render preference and fallback (Phase 2B.2)", () => {
+    const withCard: TournamentVisualConfig = {
+      ...config,
+      assetUrl: "/tournament-assets/pineapple.png",
+      cardAssetUrl: "/tournament-assets/pineapple-card.png",
+    };
+
+    it("uses assetUrl when cardAssetUrl is absent", async () => {
+      await act(async () => {
+        root.render(<TournamentVisual tournamentType="classic" configs={{ classic: config }} />);
+      });
+      const { img } = getParts(container);
+      expect(img?.src).toContain(config.assetUrl);
+    });
+
+    it("prefers cardAssetUrl when present", async () => {
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: withCard }} />,
+        );
+      });
+      const { img } = getParts(container);
+      expect(img?.src).toContain(withCard.cardAssetUrl!);
+      expect(img?.src).not.toContain(withCard.assetUrl);
+    });
+
+    it("retries assetUrl once the card derivative fails to load", async () => {
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: withCard }} />,
+        );
+      });
+      let img = getParts(container).img!;
+      expect(img.src).toContain(withCard.cardAssetUrl!);
+
+      await act(async () => {
+        img.dispatchEvent(new Event("error"));
+      });
+
+      img = getParts(container).img!;
+      expect(img.src).toContain(withCard.assetUrl);
+      expect(img.style.display).not.toBe("none");
+    });
+
+    it("hides the artwork if the original ALSO fails after the derivative fallback", async () => {
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: withCard }} />,
+        );
+      });
+      let img = getParts(container).img!;
+
+      await act(async () => {
+        img.dispatchEvent(new Event("error"));
+      });
+      img = getParts(container).img!;
+      expect(img.src).toContain(withCard.assetUrl);
+
+      await act(async () => {
+        img.dispatchEvent(new Event("error"));
+      });
+      img = getParts(container).img!;
+      expect(img.style.display).toBe("none");
+    });
+
+    it("a config with no derivative still hides on original failure, exactly as before", async () => {
+      await act(async () => {
+        root.render(<TournamentVisual tournamentType="classic" configs={{ classic: config }} />);
+      });
+      const { img } = getParts(container);
+      await act(async () => {
+        img?.dispatchEvent(new Event("error"));
+      });
+      expect(getParts(container).img?.style.display).toBe("none");
+    });
+
+    it("cannot retry more than once, even if error fires repeatedly (no infinite loop)", async () => {
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: withCard }} />,
+        );
+      });
+      for (let i = 0; i < 5; i += 1) {
+        const current = getParts(container).img!;
+        await act(async () => {
+          current.dispatchEvent(new Event("error"));
+        });
+      }
+      const finalImg = getParts(container).img!;
+      // After the first two failures (card, then original) it must be
+      // hidden and stay hidden -- src never oscillates back to the card.
+      expect(finalImg.style.display).toBe("none");
+      expect(finalImg.src).toContain(withCard.assetUrl);
+    });
+
+    it("cardAssetUrl identical to assetUrl cannot create a fallback loop -- first failure hides immediately", async () => {
+      const samePair: TournamentVisualConfig = {
+        ...config,
+        cardAssetUrl: config.assetUrl,
+      };
+      await act(async () => {
+        root.render(<TournamentVisual tournamentType="classic" configs={{ classic: samePair }} />);
+      });
+      const { img } = getParts(container);
+      expect(img?.src).toContain(config.assetUrl);
+
+      await act(async () => {
+        img?.dispatchEvent(new Event("error"));
+      });
+      expect(getParts(container).img?.style.display).toBe("none");
+    });
+
+    it("remounts (fresh retry state) when a new original/card pair replaces the old one", async () => {
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: withCard }} />,
+        );
+      });
+      let img = getParts(container).img!;
+      // Exhaust the fallback on the first pair.
+      await act(async () => {
+        img.dispatchEvent(new Event("error"));
+      });
+      await act(async () => {
+        getParts(container).img!.dispatchEvent(new Event("error"));
+      });
+      expect(getParts(container).img?.style.display).toBe("none");
+
+      // A brand-new upload replaces BOTH URLs -- this must remount with a
+      // clean slate, not stay hidden from the old pair's exhausted fallback.
+      const replaced: TournamentVisualConfig = {
+        ...config,
+        assetUrl: "/storage/tournament-assets/classic-2-new.png",
+        cardAssetUrl: "/storage/tournament-assets/classic-2-new-card.png",
+      };
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: replaced }} />,
+        );
+      });
+      img = getParts(container).img!;
+      expect(img.style.display).not.toBe("none");
+      expect(img.src).toContain(replaced.cardAssetUrl!);
+    });
+
+    it("geometry (scale/offset/opacity/mask) is identical whether rendering the derivative or the original", async () => {
+      const tunedWithCard: TournamentVisualConfig = { ...withCard, scale: 120, offsetX: -15, offsetY: 8, opacity: 60 };
+      const tunedNoCard: TournamentVisualConfig = { ...config, scale: 120, offsetX: -15, offsetY: 8, opacity: 60 };
+
+      await act(async () => {
+        root.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: tunedWithCard }} />,
+        );
+      });
+      const withDerivative = getParts(container);
+
+      const containerB = document.createElement("div");
+      document.body.appendChild(containerB);
+      const rootB = createRoot(containerB);
+      await act(async () => {
+        rootB.render(
+          <TournamentVisual tournamentType="classic" configs={{ classic: tunedNoCard }} />,
+        );
+      });
+      const withOriginalOnly = getParts(containerB);
+
+      expect(withDerivative.stage?.style.transform).toBe(withOriginalOnly.stage?.style.transform);
+      expect(withDerivative.offsetLayer?.style.transform).toBe(withOriginalOnly.offsetLayer?.style.transform);
+      expect(withDerivative.box?.style.opacity).toBe(withOriginalOnly.box?.style.opacity);
+      expect(withDerivative.box?.style.maskImage).toBe(withOriginalOnly.box?.style.maskImage);
+
+      await act(async () => rootB.unmount());
+      containerB.remove();
+    });
+  });
+
   it("8) has no Android/platform-specific branch in the shared render path", () => {
     const source = readFileSync(
       join(process.cwd(), "components/tournaments/tournament-visual.tsx"),
