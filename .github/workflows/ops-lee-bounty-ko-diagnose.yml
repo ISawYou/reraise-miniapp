@@ -267,6 +267,11 @@ jobs:
           });
           NODE_EOF
           docker cp /tmp/sheet_check.js "${APP_CONTAINER}:/tmp/sheet_check.js"
+          # umask 077 above makes the host-side file mode 600 before
+          # docker cp; the app container's node process runs as a
+          # non-root user that can't read a root-owned 600 file, so make
+          # it world-readable inside the container before running it.
+          docker exec "$APP_CONTAINER" chmod 644 /tmp/sheet_check.js
           docker exec \
             -e SHEET_TAB_NAME_TO_CHECK="${SHEET_TAB_NAME}" \
             -e PLAYER_ID_TO_FIND="${PLAYER_ID}" \
