@@ -266,12 +266,16 @@ jobs:
             console.log("SHEET_ERROR_MESSAGE=" + (err && err.message ? String(err.message) : "unknown"));
           });
           NODE_EOF
+          # umask 077 above makes this file mode 600; chmod it here on the
+          # HOST, where we own it (trivially succeeds), BEFORE docker cp --
+          # a post-copy chmod INSIDE the container fails with EPERM because
+          # the container's node process runs as a non-root user that does
+          # not own the root-copied file (confirmed: "Operation not
+          # permitted"). 644 (world-readable) survives the copy and lets
+          # that non-root user read it without needing root inside the
+          # container at all.
+          chmod 644 /tmp/sheet_check.js
           docker cp /tmp/sheet_check.js "${APP_CONTAINER}:/tmp/sheet_check.js"
-          # umask 077 above makes the host-side file mode 600 before
-          # docker cp; the app container's node process runs as a
-          # non-root user that can't read a root-owned 600 file, so make
-          # it world-readable inside the container before running it.
-          docker exec "$APP_CONTAINER" chmod 644 /tmp/sheet_check.js
           docker exec \
             -e SHEET_TAB_NAME_TO_CHECK="${SHEET_TAB_NAME}" \
             -e PLAYER_ID_TO_FIND="${PLAYER_ID}" \
