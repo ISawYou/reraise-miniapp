@@ -178,7 +178,28 @@ jobs:
 
           section "G. Google Sheet 'Nok' value for Lee (read-only Sheets API read, via the app container's own service-account credentials)"
           cat > /tmp/sheet_check.js <<'NODE_EOF'
-          const { google } = require("googleapis");
+          // The script file lives at /tmp/sheet_check.js -- require()'s
+          // file-relative resolution never reaches /app/node_modules from
+          // there. Try the default resolution first, then the app's own
+          // node_modules explicitly (confirmed at /app, same root
+          // production-migrations.yml already references).
+          let google;
+          try {
+            google = require("googleapis").google;
+          } catch (defaultResolveError) {
+            try {
+              google = require("/app/node_modules/googleapis").google;
+            } catch (explicitResolveError) {
+              console.log("SHEET_ROW_FOUND=ERROR_MODULE_NOT_FOUND");
+              console.log(
+                "SHEET_ERROR_MESSAGE=" +
+                  defaultResolveError.message +
+                  " | " +
+                  explicitResolveError.message
+              );
+              process.exit(0);
+            }
+          }
 
           const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
           const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
