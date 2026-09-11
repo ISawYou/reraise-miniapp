@@ -21,6 +21,8 @@ import {
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
+  supportsTournamentBossKnockouts,
+  supportsTournamentKnockouts,
 } from "@/lib/tournament-helpers";
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
@@ -378,7 +380,20 @@ export default function AdminTournamentResultsPage() {
           }
         }
 
-        if (nextTournament.kind === "free") {
+        // Once a tournament is completed, `results` is the one frozen,
+        // canonical snapshot -- never re-read the live Google Sheet (or,
+        // for a paid/cash tournament, tournament_live_entries) for result
+        // VALUES again. Either source can keep changing after completion
+        // (an admin editing a cell, a later live-state write) while
+        // `results` stays exactly what was saved at completion time; this
+        // page must show that frozen snapshot, not whatever the live
+        // source currently says. freeRows/liveRows simply stay empty for
+        // a completed tournament -- the render below reads
+        // `tournamentResults` (getTournamentResults, already loaded by
+        // the effect above for the copy-results button) instead.
+        const isCompletedTournament = nextTournament.status === "completed";
+
+        if (nextTournament.kind === "free" && !isCompletedTournament) {
           try {
             const lateRegistrationPayload = await fetchAdminJson<{
               snapshot: TournamentLateRegistrationSnapshot | null;
@@ -490,7 +505,7 @@ export default function AdminTournamentResultsPage() {
 
           setFreeRows(nextRows);
           setInitialFreeSnapshot(snapshotFreeRows(nextRows));
-        } else {
+        } else if (!isCompletedTournament) {
           let entries = await getTournamentLiveEntries(tournamentId);
 
           if (nextTournament.google_sheet_tab_name?.trim()) {
@@ -580,7 +595,15 @@ export default function AdminTournamentResultsPage() {
     return JSON.stringify(liveRows) !== initialLiveSnapshot;
   }, [initialLiveSnapshot, isFreeTournament, liveRows]);
   const hasUnsavedChanges = hasUnsavedFreeChanges || hasUnsavedLiveChanges;
-  const currentEntriesCount = isFreeTournament ? freeRows.length : liveRows.length;
+  // Completed: freeRows/liveRows are never populated (see the loading
+  // effect above) -- the canonical persisted results count is the correct
+  // field size, not 0.
+  const currentEntriesCount =
+    tournament?.status === "completed"
+      ? tournamentResults.length
+      : isFreeTournament
+        ? freeRows.length
+        : liveRows.length;
   const expectedPrizePlaces = getExpectedPrizePlaces(currentEntriesCount);
   const isLegacyFormula = tournament?.rating_formula_version === "legacy";
   // The old "Бонус рейтинга x1.20" line only ever applied under the legacy
@@ -595,7 +618,15 @@ export default function AdminTournamentResultsPage() {
   // server uses at completion time (features/rating-v2.ts), so admins see
   // real numbers while editing, not an approximation.
   const ratingEngineV2Summary = useMemo(() => {
-    if (!tournament || tournament.rating_formula_version !== "v2" || !isFreeTournament) {
+    // Live, in-progress-entry preview only (freeRows) -- once completed,
+    // freeRows is never populated (see the loading effect above) and the
+    // canonical totals belong to completionSummary instead.
+    if (
+      !tournament ||
+      tournament.rating_formula_version !== "v2" ||
+      !isFreeTournament ||
+      tournament.status === "completed"
+    ) {
       return null;
     }
 
@@ -2105,6 +2136,44 @@ export default function AdminTournamentResultsPage() {
           </>
         ) : null}
 
+        {tournament?.status === "completed" ? (
+          <div className="mt-6 space-y-3">
+            <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-center text-xs text-white/60">
+              Показаны зафиксированные результаты турнира
+            </p>
+            {tournamentResults.length === 0 ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                Результаты турнира не найдены.
+              </div>
+            ) : (
+              tournamentResults.map((result) => (
+                <div
+                  key={result.player_id}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-3.5"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="min-w-0 truncate text-base font-semibold text-white">
+                      {result.place}. {result.display_name}
+                    </p>
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-white/80">
+                      {result.rating_points} очков
+                    </p>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-white/60">
+                    <span>Re-buy: {result.reentries}</span>
+                    <span>Addon: {result.addons ?? 0}</span>
+                    {supportsTournamentKnockouts(tournament.tournament_type) ? (
+                      <span>KO: {result.knockouts}</span>
+                    ) : null}
+                    {supportsTournamentBossKnockouts(tournament.tournament_type) ? (
+                      <span>Boss KO: {result.boss_knockouts ?? 0}</span>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
         <div className="mt-6 space-y-3">
           {isFreeTournament ? (
             freeRows.length === 0 ? (
@@ -2583,6 +2652,7 @@ export default function AdminTournamentResultsPage() {
             ))
           )}
         </div>
+        )}
       </div>
 
       {showEliminationCorrection ? (
