@@ -3,14 +3,13 @@ name: "Ops: Lee BOUNTY HUNTERS KO/rating one-row fix"
 # One-time, narrowly-scoped incident correction -- NOT a general tool.
 #
 # Confirmed production state: BOUNTY HUNTERS (2026-09-10), Lee, place=1,
-# knockouts=8, but rating_points is still 132 -- the addon-share bounty
-# formula's output for knockouts=0 (172 is correct for 8). Every in-app
-# write path to `results` was audited and ruled out (see the accompanying
-# investigation) -- this can only be a stale row, not something the running
-# application would reproduce or need to guard against generally. This
-# workflow updates EXACTLY that one row's knockout_points/rating_points and
-# nothing else: no other player, no other tournament, no formula/migration
-# change, no app deploy.
+# persisted results have knockouts=0, knockout_points=0, rating_points=132.
+# The operator manually confirmed the Google Sheet now has knockouts=8; the
+# tournament had already been completed before that KO correction was entered.
+# Correct persisted values are knockouts=8, knockout_points=40,
+# rating_points=172. This workflow updates EXACTLY that one row and nothing
+# else: no other player, no other tournament, no formula/migration change,
+# no app deploy.
 #
 # Delete this workflow file once the correction has been applied and
 # verified -- it exists only to fix this one row.
@@ -195,7 +194,7 @@ jobs:
             || fail "Breakdown does not sum to rating_points before update ($computed_total != $RATING_POINTS)."
           echo "BREAKDOWN_BEFORE_VALID=YES ($PARTICIPATION_POINTS + $KNOCKOUT_POINTS + $BOSS_BOUNTY_POINTS + $MYSTERY_BOUNTY_POINTS + $ITM_POINTS = $RATING_POINTS)"
 
-          if [ "$KNOCKOUTS" = "8" ] && [ "$RATING_POINTS" = "132" ] && [ "$KNOCKOUT_POINTS" = "0" ]; then
+          if [ "$KNOCKOUTS" = "0" ] && [ "$RATING_POINTS" = "132" ] && [ "$PARTICIPATION_POINTS" = "2" ] && [ "$KNOCKOUT_POINTS" = "0" ] && [ "$BOSS_BOUNTY_POINTS" = "0" ] && [ "$MYSTERY_BOUNTY_POINTS" = "0" ] && [ "$ITM_POINTS" = "130" ]; then
             echo "DRY_RUN_MATCHED_EXPECTATION=YES"
           else
             echo "DRY_RUN_MATCHED_EXPECTATION=NO"
@@ -207,8 +206,8 @@ jobs:
           fi
 
           section "APPLY"
-          [ "$KNOCKOUTS" = "8" ] && [ "$RATING_POINTS" = "132" ] && [ "$KNOCKOUT_POINTS" = "0" ] \
-            || fail "Current state does not match the expected bad state (knockouts=8, rating_points=132, knockout_points=0) -- refusing to write."
+          [ "$KNOCKOUTS" = "0" ] && [ "$RATING_POINTS" = "132" ] && [ "$PARTICIPATION_POINTS" = "2" ] && [ "$KNOCKOUT_POINTS" = "0" ] && [ "$BOSS_BOUNTY_POINTS" = "0" ] && [ "$MYSTERY_BOUNTY_POINTS" = "0" ] && [ "$ITM_POINTS" = "130" ] \
+            || fail "Current state does not match the exact expected bad state -- refusing to write."
 
           field_count_before="$(psql_x -At <<SQL
           BEGIN TRANSACTION READ ONLY;
@@ -232,13 +231,18 @@ jobs:
             v_knockouts integer;
           BEGIN
             UPDATE results
-            SET knockout_points = 40,
+            SET knockouts = 8,
+                knockout_points = 40,
                 rating_points = 172
             WHERE tournament_id = '${TOURNAMENT_ID}'
               AND player_id = '${PLAYER_ID}'
               AND place = ${RESULT_PLACE}
-              AND knockouts = 8
+              AND knockouts = 0
+              AND participation_points = 2
               AND knockout_points = 0
+              AND boss_bounty_points = 0
+              AND mystery_bounty_points = 0
+              AND itm_points = 130
               AND rating_points = 132;
 
             GET DIAGNOSTICS v_count = ROW_COUNT;
@@ -253,7 +257,7 @@ jobs:
             WHERE tournament_id = '${TOURNAMENT_ID}' AND player_id = '${PLAYER_ID}';
 
             IF v_knockouts <> 8 THEN
-              RAISE EXCEPTION 'guard failed: knockouts changed to %, expected 8', v_knockouts;
+              RAISE EXCEPTION 'guard failed: knockouts is %, expected 8', v_knockouts;
             END IF;
             IF v_knockout <> 40 THEN
               RAISE EXCEPTION 'guard failed: knockout_points is %, expected 40', v_knockout;
@@ -283,7 +287,7 @@ jobs:
           SQL
           )"
           [ "$field_count_before" = "$field_count_after" ] \
-            || fail "Result row count for this tournament changed ($field_count_before -> $field_count_after) -- this must never happen for a single-field UPDATE."
+            || fail "Result row count for this tournament changed ($field_count_before -> $field_count_after) -- this must never happen for a one-row UPDATE."
 
           echo "AFFECTED_ROWS=1"
           echo "$apply_output"
