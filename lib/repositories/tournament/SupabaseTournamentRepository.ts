@@ -106,6 +106,20 @@ export class SupabaseTournamentRepository implements TournamentRepository {
     return (data ?? []).map((row) => mapTournamentRow(row as TournamentRow));
   }
 
+  async listCompletedInRange(from?: Date, to?: Date): Promise<Tournament[]> {
+    const supabase = getSupabaseServer();
+    let query = supabase.from("tournaments").select("*").eq("status", "completed");
+    if (from) query = query.gte("start_at", from.toISOString());
+    if (to) query = query.lte("start_at", to.toISOString());
+    const { data, error } = await query.order("start_at", { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row) => mapTournamentRow(row as TournamentRow));
+  }
+
   async listExcludingStatus(status: TournamentStatus): Promise<Tournament[]> {
     const supabase = getSupabaseServer();
     const { data, error } = await supabase

@@ -11,6 +11,7 @@ import type {
   KnockoutsRow,
   BossKnockoutsRow,
   ArrivedPlacementRow,
+  ResultAttendanceRow,
   ResultHistoryRow,
   SeasonRecapResultRow,
 } from "./ResultRepository";
@@ -120,6 +121,17 @@ export class PostgresResultRepository implements ResultRepository {
   async findRatingPointsByTournamentId(tournamentId: string): Promise<RatingPointsRow[]> {
     return db
       .select({ player_id: results.playerId, rating_points: results.ratingPoints })
+      .from(results)
+      .where(eq(results.tournamentId, tournamentId));
+  }
+
+  async findAttendanceByTournamentId(tournamentId: string): Promise<ResultAttendanceRow[]> {
+    return db
+      .select({
+        arrived: results.arrived,
+        reentries: results.reentries,
+        addons: results.addons,
+      })
       .from(results)
       .where(eq(results.tournamentId, tournamentId));
   }

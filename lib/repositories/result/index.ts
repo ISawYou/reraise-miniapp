@@ -7,6 +7,7 @@ export type {
   ResultInsert,
   RatingPointsRow,
   KnockoutsRow,
+  ResultAttendanceRow,
   ResultHistoryRow,
 } from "./ResultRepository";
 

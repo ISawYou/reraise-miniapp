@@ -99,6 +99,19 @@ export type ResultHistoryRow = {
   tournament: TournamentRow | null;
 };
 
+// RERAISE Finance export (features/finance-export.ts) -- the minimal, raw
+// per-result fields Finance's attendance/reentry/addon aggregation needs
+// for one tournament. `arrived` stays tri-state on purpose (see
+// isEffectiveArrivedResult above for a DIFFERENT, more lenient convention
+// used elsewhere) -- Finance's own summarizeTournamentAttendance never
+// treats NULL as false, and never reuses isEffectiveArrivedResult's
+// rating-points fallback.
+export type ResultAttendanceRow = {
+  arrived: boolean | null;
+  reentries: number;
+  addons: number;
+};
+
 export type SeasonRecapResultRow = {
   tournament_id: string;
   tournament_title: string;
@@ -130,6 +143,7 @@ export interface ResultRepository {
   findWinIdsByPlayerId(playerId: string): Promise<{ id: string }[]>;
   findRatingPointsByPlayerId(playerId: string): Promise<RatingPointsRow[]>;
   findRatingPointsByTournamentId(tournamentId: string): Promise<RatingPointsRow[]>;
+  findAttendanceByTournamentId(tournamentId: string): Promise<ResultAttendanceRow[]>;
   findRatingPointsBySeasonId(seasonId: string): Promise<RatingPointsRow[]>;
   findKnockoutsByPlayerId(playerId: string): Promise<KnockoutsRow[]>;
   findBossKnockoutsByPlayerId(playerId: string): Promise<BossKnockoutsRow[]>;

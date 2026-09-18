@@ -76,6 +76,15 @@ services:
       # secret as POKER_CLOCK_INTEGRATION_TOKEN (see .env.example).
       - POKER_CLOCK_BASE_URL=${POKER_CLOCK_BASE_URL}
       - POKER_CLOCK_LIVE_STATE_TOKEN=${POKER_CLOCK_LIVE_STATE_TOKEN}
+      # RERAISE Finance sync (app/api/internal/finance/tournaments,
+      # lib/finance-sync-auth.ts) -- read-only, one machine caller (the
+      # separate RERAISE Finance app), same constant-time bearer-compare
+      # shape as POKER_CLOCK_INTEGRATION_TOKEN above but NOT the same
+      # secret -- Finance must never be able to authenticate as Poker
+      # Clock or vice versa. Not set here: actual value lives in the VPS
+      # host's own .env, set by hand. Empty/unset means this endpoint stays
+      # permanently disabled (401 on every request), not open.
+      - FINANCE_SYNC_TOKEN=${FINANCE_SYNC_TOKEN}
     healthcheck:
       test:
         ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]

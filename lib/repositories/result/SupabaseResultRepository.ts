@@ -10,6 +10,7 @@ import type {
   KnockoutsRow,
   BossKnockoutsRow,
   ArrivedPlacementRow,
+  ResultAttendanceRow,
   ResultHistoryRow,
   SeasonRecapResultRow,
 } from "./ResultRepository";
@@ -209,6 +210,20 @@ export class SupabaseResultRepository implements ResultRepository {
     }
 
     return (data ?? []) as RatingPointsRow[];
+  }
+
+  async findAttendanceByTournamentId(tournamentId: string): Promise<ResultAttendanceRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("results")
+      .select("arrived, reentries, addons")
+      .eq("tournament_id", tournamentId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []) as ResultAttendanceRow[];
   }
 
   async findRatingPointsBySeasonId(seasonId: string): Promise<RatingPointsRow[]> {

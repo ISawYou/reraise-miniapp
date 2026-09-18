@@ -1,0 +1,216 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Same mocking shape as tournament-attendance.test.ts / dealers.test.ts:
+// getFinanceTournamentExport only talks to repositories + one other
+// feature (getTournamentDealerPayoutSummary), never Supabase/Postgres
+// directly, so mocking those two barrels is enough.
+const mocks = vi.hoisted(() => ({
+  listCompletedInRange: vi.fn(),
+  findAttendanceByTournamentId: vi.fn(),
+  getTournamentDealerPayoutSummary: vi.fn(),
+}));
+
+vi.mock("@/lib/repositories", () => ({
+  tournamentRepository: {
+    listCompletedInRange: mocks.listCompletedInRange,
+  },
+  resultRepository: {
+    findAttendanceByTournamentId: mocks.findAttendanceByTournamentId,
+  },
+}));
+
+vi.mock("@/features/dealers", () => ({
+  getTournamentDealerPayoutSummary: mocks.getTournamentDealerPayoutSummary,
+}));
+
+const { getFinanceTournamentExport, summarizeTournamentAttendance } = await import(
+  "@/features/finance-export"
+);
+
+function tournament(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "t1",
+    title: "CLASSIC",
+    description: undefined,
+    location: undefined,
+    google_sheet_tab_name: null,
+    start_at: "2026-01-15T20:00:00.000Z",
+    max_players: 30,
+    kind: "free",
+    tournament_type: "classic",
+    season_id: null,
+    status: "completed",
+    created_at: "2026-01-15T18:00:00.000Z",
+    rating_formula_version: "v2",
+    rating_guarantee: null,
+    is_final: false,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  mocks.listCompletedInRange.mockReset();
+  mocks.findAttendanceByTournamentId.mockReset();
+  mocks.getTournamentDealerPayoutSummary.mockReset();
+});
+
+describe("summarizeTournamentAttendance (pure)", () => {
+  it("counts an arrived=true row as one entry", () => {
+    const result = summarizeTournamentAttendance([{ arrived: true, reentries: 1, addons: 0 }]);
+    expect(result.playersCount).toBe(1);
+    expect(result.entryCount).toBe(1);
+  });
+
+  it("excludes an arrived=false row entirely", () => {
+    const result = summarizeTournamentAttendance([{ arrived: false, reentries: 5, addons: 5 }]);
+    expect(result.playersCount).toBe(0);
+    expect(result.reentryCount).toBe(0);
+    expect(result.addonCount).toBe(0);
+    expect(result.attendanceUnknownCount).toBe(0);
+  });
+
+  it("counts an arrived=null row toward attendanceUnknownCount, never as false", () => {
+    const result = summarizeTournamentAttendance([{ arrived: null, reentries: 2, addons: 1 }]);
+    expect(result.playersCount).toBe(0);
+    expect(result.attendanceUnknownCount).toBe(1);
+    // Never silently folded into the counted totals either.
+    expect(result.reentryCount).toBe(0);
+    expect(result.addonCount).toBe(0);
+  });
+
+  it("normalizes raw reentries=1 (no actual re-entry) to a financial reentryCount of 0", () => {
+    const result = summarizeTournamentAttendance([{ arrived: true, reentries: 1, addons: 0 }]);
+    expect(result.reentryCount).toBe(0);
+  });
+
+  it("normalizes raw reentries=3 (two actual re-entries) to a financial reentryCount of 2", () => {
+    const result = summarizeTournamentAttendance([{ arrived: true, reentries: 3, addons: 0 }]);
+    expect(result.reentryCount).toBe(2);
+  });
+
+  it("sums addons only for arrived players", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 1, addons: 2 },
+      { arrived: false, reentries: 1, addons: 10 },
+      { arrived: null, reentries: 1, addons: 10 },
+    ]);
+    expect(result.addonCount).toBe(2);
+  });
+
+  it("is financiallyReliable when every row has known attendance", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 1, addons: 0 },
+      { arrived: false, reentries: 1, addons: 0 },
+    ]);
+    expect(result.attendanceUnknownCount).toBe(0);
+    expect(result.financiallyReliable).toBe(true);
+  });
+
+  it("is NOT financiallyReliable when at least one row has unknown attendance", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 1, addons: 0 },
+      { arrived: null, reentries: 1, addons: 0 },
+    ]);
+    expect(result.attendanceUnknownCount).toBe(1);
+    expect(result.financiallyReliable).toBe(false);
+  });
+
+  it("returns all-zero, reliable totals for an empty tournament", () => {
+    expect(summarizeTournamentAttendance([])).toEqual({
+      playersCount: 0,
+      entryCount: 0,
+      reentryCount: 0,
+      addonCount: 0,
+      attendanceUnknownCount: 0,
+      financiallyReliable: true,
+    });
+  });
+});
+
+describe("getFinanceTournamentExport", () => {
+  it("only ever requests completed tournaments from the repository", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([]);
+
+    await getFinanceTournamentExport({});
+
+    expect(mocks.listCompletedInRange).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes from/to as inclusive UTC day boundaries", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([]);
+
+    await getFinanceTournamentExport({ from: "2026-01-01", to: "2026-01-31" });
+
+    expect(mocks.listCompletedInRange).toHaveBeenCalledWith(
+      new Date("2026-01-01T00:00:00.000Z"),
+      new Date("2026-01-31T23:59:59.999Z")
+    );
+  });
+
+  it("combines attendance and dealer payroll into one export row per tournament", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { arrived: true, reentries: 3, addons: 2 },
+    ]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 1, payoutRub: 6500 });
+
+    const rows = await getFinanceTournamentExport({});
+
+    expect(rows).toEqual([
+      {
+        sourceTournamentId: "t1",
+        title: "CLASSIC",
+        tournamentType: "classic",
+        startAt: "2026-01-15T20:00:00.000Z",
+        playersCount: 1,
+        entryCount: 1,
+        reentryCount: 2,
+        addonCount: 2,
+        dealerPayrollRub: 6500,
+        attendanceUnknownCount: 0,
+        financiallyReliable: true,
+        sourceUpdatedAt: null,
+      },
+    ]);
+    expect(mocks.getTournamentDealerPayoutSummary).toHaveBeenCalledWith("t1");
+  });
+
+  it("surfaces dealer payroll (base + taxi allowance, per getTournamentDealerPayoutSummary) verbatim as dealerPayrollRub", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 2, payoutRub: 2000 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.dealerPayrollRub).toBe(2000);
+  });
+
+  it("still returns a tournament with unknown attendance, flagged as not financially reliable", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { arrived: true, reentries: 1, addons: 0 },
+      { arrived: null, reentries: 1, addons: 0 },
+    ]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.attendanceUnknownCount).toBe(1);
+    expect(row.financiallyReliable).toBe(false);
+    // The tournament is still present, not dropped.
+    expect(row.sourceTournamentId).toBe("t1");
+  });
+
+  it("produces one export row per tournament, never duplicating a tournament", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([
+      tournament({ id: "t1" }),
+      tournament({ id: "t2" }),
+    ]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
+
+    const rows = await getFinanceTournamentExport({});
+
+    expect(rows.map((r) => r.sourceTournamentId)).toEqual(["t1", "t2"]);
+  });
+});

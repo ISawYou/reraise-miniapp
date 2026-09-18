@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tournaments } from "@/lib/db/schema";
 import type { Tournament, TournamentStatus, TournamentType } from "@/types/domain";
@@ -98,6 +98,19 @@ export class PostgresTournamentRepository implements TournamentRepository {
       .select()
       .from(tournaments)
       .where(eq(tournaments.status, "completed"))
+      .orderBy(desc(tournaments.startAt));
+    return rows.map(mapRowToTournament);
+  }
+
+  async listCompletedInRange(from?: Date, to?: Date): Promise<Tournament[]> {
+    const conditions = [eq(tournaments.status, "completed")];
+    if (from) conditions.push(gte(tournaments.startAt, from));
+    if (to) conditions.push(lte(tournaments.startAt, to));
+
+    const rows = await db
+      .select()
+      .from(tournaments)
+      .where(and(...conditions))
       .orderBy(desc(tournaments.startAt));
     return rows.map(mapRowToTournament);
   }

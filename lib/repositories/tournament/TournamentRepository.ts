@@ -17,6 +17,11 @@ export interface TournamentRepository {
 
   listOpen(): Promise<Tournament[]>;
   listCompleted(): Promise<Tournament[]>;
+  // RERAISE Finance export (features/finance-export.ts) -- completed
+  // tournaments only, optionally bounded by start_at on either end (either
+  // bound omitted means unbounded on that side). Never reads live
+  // tournament state.
+  listCompletedInRange(from?: Date, to?: Date): Promise<Tournament[]>;
   listExcludingStatus(status: TournamentStatus): Promise<Tournament[]>;
   listByStatuses(statuses: TournamentStatus[]): Promise<Tournament[]>;
 
