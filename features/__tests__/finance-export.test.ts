@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Same mocking shape as tournament-attendance.test.ts / dealers.test.ts:
-// getFinanceTournamentExport only talks to repositories + one other
-// feature (getTournamentDealerPayoutSummary), never Supabase/Postgres
-// directly, so mocking those two barrels is enough.
+// getFinanceTournamentExport only talks to repositories + two other
+// features (getTournamentDealerPayoutSummary, getTournamentAdminPayoutSummary),
+// never Supabase/Postgres directly, so mocking those barrels is enough.
 const mocks = vi.hoisted(() => ({
   listCompletedInRange: vi.fn(),
   findAttendanceByTournamentId: vi.fn(),
   getTournamentDealerPayoutSummary: vi.fn(),
+  getTournamentAdminPayoutSummary: vi.fn(),
 }));
 
 vi.mock("@/lib/repositories", () => ({
@@ -21,6 +22,10 @@ vi.mock("@/lib/repositories", () => ({
 
 vi.mock("@/features/dealers", () => ({
   getTournamentDealerPayoutSummary: mocks.getTournamentDealerPayoutSummary,
+}));
+
+vi.mock("@/features/admin-shifts", () => ({
+  getTournamentAdminPayoutSummary: mocks.getTournamentAdminPayoutSummary,
 }));
 
 const { getFinanceTournamentExport, summarizeTournamentAttendance } = await import(
@@ -52,6 +57,11 @@ beforeEach(() => {
   mocks.listCompletedInRange.mockReset();
   mocks.findAttendanceByTournamentId.mockReset();
   mocks.getTournamentDealerPayoutSummary.mockReset();
+  // Sensible default so every pre-existing dealer-payroll test (written
+  // before this field existed) doesn't need its own admin-payout stub --
+  // explicit tests below override this where adminPayrollRub itself is
+  // under test.
+  mocks.getTournamentAdminPayoutSummary.mockReset().mockResolvedValue({ adminsCount: 0, payoutRub: 0 });
 });
 
 describe("summarizeTournamentAttendance (pure)", () => {
@@ -230,6 +240,7 @@ describe("getFinanceTournamentExport", () => {
         addonCount: 2,
         freeReentryCount: 1,
         dealerPayrollRub: 6500,
+        adminPayrollRub: 0,
         attendanceUnknownCount: 0,
         financiallyReliable: true,
         sourceUpdatedAt: null,
@@ -322,5 +333,74 @@ describe("getFinanceTournamentExport", () => {
     const rows = await getFinanceTournamentExport({});
 
     expect(rows.map((r) => r.sourceTournamentId)).toEqual(["t1", "t2"]);
+  });
+
+  // H) export row contains adminPayrollRub.
+  it("H: an export row includes adminPayrollRub from getTournamentAdminPayoutSummary", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
+    mocks.getTournamentAdminPayoutSummary.mockResolvedValue({ adminsCount: 2, payoutRub: 8000 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.adminPayrollRub).toBe(8000);
+    expect(mocks.getTournamentAdminPayoutSummary).toHaveBeenCalledWith("t1");
+  });
+
+  it("a tournament with no completed admin shifts exports a legitimate adminPayrollRub of 0", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
+    mocks.getTournamentAdminPayoutSummary.mockResolvedValue({ adminsCount: 0, payoutRub: 0 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.adminPayrollRub).toBe(0);
+  });
+
+  // I) dealerPayrollRub remains unchanged by adminPayrollRub.
+  it("I: dealerPayrollRub is unaffected by adminPayrollRub", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 3, payoutRub: 12000 });
+    mocks.getTournamentAdminPayoutSummary.mockResolvedValue({ adminsCount: 1, payoutRub: 4000 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.dealerPayrollRub).toBe(12000);
+    expect(row.adminPayrollRub).toBe(4000);
+  });
+
+  // J) freeReentryCount remains unchanged.
+  it("J: freeReentryCount is unaffected by adminPayrollRub", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 3 },
+    ]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
+    mocks.getTournamentAdminPayoutSummary.mockResolvedValue({ adminsCount: 1, payoutRub: 4000 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.freeReentryCount).toBe(3);
+    expect(row.adminPayrollRub).toBe(4000);
+  });
+
+  // K) attendanceUnknownCount / financiallyReliable remain unchanged.
+  it("K: financiallyReliable/attendanceUnknownCount behavior is unaffected by adminPayrollRub, including a large one", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 0 },
+      { arrived: null, reentries: 1, addons: 0, free_reentries: 0 },
+    ]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
+    mocks.getTournamentAdminPayoutSummary.mockResolvedValue({ adminsCount: 1, payoutRub: 99000 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.attendanceUnknownCount).toBe(1);
+    expect(row.financiallyReliable).toBe(false);
+    expect(row.adminPayrollRub).toBe(99000);
   });
 });

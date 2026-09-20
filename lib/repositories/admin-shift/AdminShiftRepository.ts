@@ -98,6 +98,12 @@ export interface AdminShiftRepository {
   // limit (same "no pagination needed at this club's volume" assumption as
   // DealerRepository.listRecentCompletedShifts).
   listRecentShifts(limit: number): Promise<AdminShiftRow[]>;
+  // All shifts linked to one tournament (tournament_id = this id) --
+  // NEVER includes "Без турнира" (tournament_id NULL) shifts. Feeds the
+  // RERAISE Finance export's admin-payroll aggregation
+  // (features/admin-shifts.ts::getTournamentAdminPayoutSummary), same
+  // shape/purpose as DealerRepository.listShiftsByTournamentId.
+  listShiftsByTournamentId(tournamentId: string): Promise<AdminShiftRow[]>;
 }
 
 // Thrown by createShift when the DB-level partial unique index rejects a

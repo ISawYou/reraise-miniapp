@@ -543,3 +543,36 @@ export async function listAdminShiftsForManagement(): Promise<AdminShiftSummary[
     ...resolveTournamentInfo(shift.tournament_id, tournamentById),
   }));
 }
+
+export type TournamentAdminPayoutSummary = {
+  adminsCount: number;
+  payoutRub: number;
+};
+
+// RERAISE Finance export's admin-payroll figure (features/finance-export.ts)
+// -- Super-Admin-only aggregate, same shape/purpose as
+// getTournamentDealerPayoutSummary (features/dealers.ts). Reuses
+// listShiftsByTournamentId (indexed by tournament_id) so this never fetches
+// every admin shift in the club just to look at one tournament's. Only
+// COMPLETED shifts contribute (ended_at !== null) -- an open shift's
+// amount_rub is still just the default/current value, not a frozen fact
+// yet, same reasoning the dealer summary already applies. admin_shifts.
+// amount_rub is NOT NULL at the schema level (unlike dealer_shifts', which
+// stays null until closed), so no separate null-check is needed here --
+// only the ended_at gate. A shift with tournament_id NULL ("Без турнира")
+// can never appear here since the query itself is scoped to this exact
+// tournament_id. Live and historical (backfilled) shifts are
+// indistinguishable once completed -- both are plain rows in the same
+// table, summed identically.
+export async function getTournamentAdminPayoutSummary(
+  tournamentId: string
+): Promise<TournamentAdminPayoutSummary> {
+  const shifts = await adminShiftRepository.listShiftsByTournamentId(tournamentId);
+
+  const completedShifts = shifts.filter((shift) => shift.ended_at !== null);
+
+  const adminsCount = new Set(completedShifts.map((shift) => shift.admin_player_id)).size;
+  const payoutRub = completedShifts.reduce((sum, shift) => sum + shift.amount_rub, 0);
+
+  return { adminsCount, payoutRub };
+}

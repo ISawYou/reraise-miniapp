@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   updateCompletedShift: vi.fn(),
   listShiftsByAdminId: vi.fn(),
   listRecentShifts: vi.fn(),
+  listShiftsByTournamentId: vi.fn(),
   findTournamentById: vi.fn(),
   findSummariesByIds: vi.fn(),
   findPlayerById: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("@/lib/repositories", () => ({
     updateCompletedShift: mocks.updateCompletedShift,
     listShiftsByAdminId: mocks.listShiftsByAdminId,
     listRecentShifts: mocks.listRecentShifts,
+    listShiftsByTournamentId: mocks.listShiftsByTournamentId,
   },
   tournamentRepository: {
     findById: mocks.findTournamentById,
@@ -52,6 +54,7 @@ const {
   correctAdminShift,
   getMyAdminShiftSummary,
   listAdminShiftsForManagement,
+  getTournamentAdminPayoutSummary,
   InvalidTournamentIdError,
   InvalidAmountError,
   AdminShiftNotFoundError,
@@ -125,6 +128,7 @@ beforeEach(() => {
   mocks.findTournamentById.mockResolvedValue({ id: "t1", title: "Classic", start_at: "2026-08-27T18:00:00.000Z" });
   mocks.listShiftsByAdminId.mockResolvedValue([]);
   mocks.listRecentShifts.mockResolvedValue([]);
+  mocks.listShiftsByTournamentId.mockResolvedValue([]);
   mocks.findSummariesByIds.mockResolvedValue([{ id: "p1", display_name: "Alice", username: "alice", email: null, role: "operator" }]);
   mocks.findPlayerById.mockResolvedValue({ id: "p1", display_name: "Alice", role: "operator" });
 });
@@ -637,5 +641,114 @@ describe("historical creation does not interfere with the one-open-shift constra
     ]);
     await createHistoricalAdminShift({ ...HISTORICAL_INPUT, amountRub: 4000 });
     expect(mocks.createCompletedShift).toHaveBeenCalled();
+  });
+});
+
+// RERAISE Finance export's admin-payroll aggregation. Same test shape as
+// getTournamentDealerPayoutSummary's own describe block in dealers.test.ts.
+describe("getTournamentAdminPayoutSummary", () => {
+  // A) no shifts -> 0
+  it("A: returns payoutRub 0 when there are no shifts at all for this tournament", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([]);
+    const summary = await getTournamentAdminPayoutSummary("t1");
+    expect(summary).toEqual({ adminsCount: 0, payoutRub: 0 });
+    expect(mocks.listShiftsByTournamentId).toHaveBeenCalledWith("t1");
+  });
+
+  // B) one completed linked shift: 4000 -> 4000
+  it("B: sums a single completed linked shift", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([
+      shiftRow({ id: "s1", admin_player_id: "p1", tournament_id: "t1", ended_at: "2026-01-01T22:00:00.000Z", amount_rub: 4000 }),
+    ]);
+    const summary = await getTournamentAdminPayoutSummary("t1");
+    expect(summary).toEqual({ adminsCount: 1, payoutRub: 4000 });
+  });
+
+  // C) two completed linked shifts: 4000 + 2000 -> 6000
+  it("C: sums multiple completed linked shifts across different admins", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([
+      shiftRow({ id: "s1", admin_player_id: "p1", tournament_id: "t1", ended_at: "2026-01-01T22:00:00.000Z", amount_rub: 4000 }),
+      shiftRow({ id: "s2", admin_player_id: "p2", tournament_id: "t1", ended_at: "2026-01-02T22:00:00.000Z", amount_rub: 2000 }),
+    ]);
+    const summary = await getTournamentAdminPayoutSummary("t1");
+    expect(summary).toEqual({ adminsCount: 2, payoutRub: 6000 });
+  });
+
+  // D) open linked shift -> ignored
+  it("D: excludes a still-open shift (ended_at null) even if linked to this tournament", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([
+      shiftRow({ id: "open", admin_player_id: "p1", tournament_id: "t1", ended_at: null, amount_rub: 4000 }),
+    ]);
+    const summary = await getTournamentAdminPayoutSummary("t1");
+    expect(summary).toEqual({ adminsCount: 0, payoutRub: 0 });
+  });
+
+  // E) completed shift with tournament_id = null -> ignored (structural --
+  // listShiftsByTournamentId itself is the tournament_id filter, so a NULL
+  // row could never be returned by it in the first place; asserted here by
+  // confirming the repository is queried with the exact scope, not
+  // re-filtered client-side).
+  it("E: only ever queries shifts scoped to this exact tournament -- 'Без турнира' shifts are never attributed", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([]);
+    const summary = await getTournamentAdminPayoutSummary("t1");
+    expect(summary).toEqual({ adminsCount: 0, payoutRub: 0 });
+    expect(mocks.listShiftsByTournamentId).toHaveBeenCalledWith("t1");
+  });
+
+  // F) shift from another tournament -> ignored (same structural reasoning
+  // as E: the mock only ever returns what a real query scoped to "t1"
+  // would, so a shift belonging to "t2" is never in the input at all).
+  it("F: never sums a shift belonging to a different tournament", async () => {
+    mocks.listShiftsByTournamentId.mockImplementation(async (tournamentId: string) =>
+      tournamentId === "t1"
+        ? [shiftRow({ id: "s1", tournament_id: "t1", ended_at: "2026-01-01T22:00:00.000Z", amount_rub: 4000 })]
+        : []
+    );
+    const summary = await getTournamentAdminPayoutSummary("t2");
+    expect(summary).toEqual({ adminsCount: 0, payoutRub: 0 });
+  });
+
+  // G) historical completed shift and live completed shift -> summed identically
+  it("G: a historical (backfilled) shift and a live self-service shift sum identically -- no distinction once completed", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([
+      // "Historical" shift: created_by === ended_by (both set by the same
+      // Super Admin action, see createHistoricalAdminShift).
+      shiftRow({
+        id: "historical",
+        admin_player_id: "p1",
+        tournament_id: "t1",
+        ended_at: "2026-01-01T22:00:00.000Z",
+        amount_rub: 4000,
+        created_by_player_id: "superadmin-1",
+        ended_by_player_id: "superadmin-1",
+      }),
+      // "Live" shift: created_by is the admin themselves (self-service).
+      shiftRow({
+        id: "live",
+        admin_player_id: "p2",
+        tournament_id: "t1",
+        ended_at: "2026-01-02T22:00:00.000Z",
+        amount_rub: 4000,
+        created_by_player_id: "p2",
+        ended_by_player_id: "p2",
+      }),
+    ]);
+    const summary = await getTournamentAdminPayoutSummary("t1");
+    expect(summary).toEqual({ adminsCount: 2, payoutRub: 8000 });
+  });
+
+  it("uses the shift's own frozen amount_rub, never a duration/default/role-based inference", async () => {
+    mocks.listShiftsByTournamentId.mockResolvedValue([
+      shiftRow({
+        id: "s1",
+        admin_player_id: "p1",
+        tournament_id: "t1",
+        started_at: "2026-01-01T10:00:00.000Z",
+        ended_at: "2026-01-01T22:00:00.000Z", // 12 hours -- irrelevant to the payout
+        amount_rub: 1500, // deliberately NOT the 4000 default
+      }),
+    ]);
+    const summary = await getTournamentAdminPayoutSummary("t1");
+    expect(summary.payoutRub).toBe(1500);
   });
 });

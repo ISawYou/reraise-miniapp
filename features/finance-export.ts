@@ -1,5 +1,6 @@
 import { tournamentRepository, resultRepository } from "@/lib/repositories";
 import { getTournamentDealerPayoutSummary } from "./dealers";
+import { getTournamentAdminPayoutSummary } from "./admin-shifts";
 import type { Tournament } from "@/types/domain";
 
 // RERAISE Finance data foundation. Exposes completed-tournament operational
@@ -28,6 +29,15 @@ export type FinanceTournamentExportRow = {
   // -- entryCount/reentryCount/addonCount are never reduced by it.
   freeReentryCount: number;
   dealerPayrollRub: number;
+  // SUM(amount_rub) of COMPLETED admin_shifts (ended_at IS NOT NULL)
+  // linked to this tournament -- see
+  // features/admin-shifts.ts::getTournamentAdminPayoutSummary. Live
+  // self-service shifts and historical/backfilled ones are indistinguishable
+  // once completed (same table, no separate concept) -- both count
+  // identically. A shift with no tournament_id, or one still open, never
+  // contributes. Zero is a legitimate value, not a data-quality signal --
+  // never folded into attendanceUnknownCount/financiallyReliable below.
+  adminPayrollRub: number;
   attendanceUnknownCount: number;
   financiallyReliable: boolean;
   // No column on `tournaments` or `results` represents "last meaningfully
@@ -121,9 +131,10 @@ function toRangeEnd(date?: string): Date | undefined {
 }
 
 async function buildExportRow(tournament: Tournament): Promise<FinanceTournamentExportRow> {
-  const [attendanceRows, dealerPayout] = await Promise.all([
+  const [attendanceRows, dealerPayout, adminPayout] = await Promise.all([
     resultRepository.findAttendanceByTournamentId(tournament.id),
     getTournamentDealerPayoutSummary(tournament.id),
+    getTournamentAdminPayoutSummary(tournament.id),
   ]);
 
   const attendance = summarizeTournamentAttendance(attendanceRows);
@@ -139,6 +150,7 @@ async function buildExportRow(tournament: Tournament): Promise<FinanceTournament
     addonCount: attendance.addonCount,
     freeReentryCount: attendance.freeReentryCount,
     dealerPayrollRub: dealerPayout.payoutRub,
+    adminPayrollRub: adminPayout.payoutRub,
     attendanceUnknownCount: attendance.attendanceUnknownCount,
     financiallyReliable: attendance.financiallyReliable,
     sourceUpdatedAt: null,

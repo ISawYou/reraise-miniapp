@@ -164,4 +164,13 @@ export class PostgresAdminShiftRepository implements AdminShiftRepository {
       .limit(limit);
     return rows.map(mapShiftRow);
   }
+
+  async listShiftsByTournamentId(tournamentId: string): Promise<AdminShiftRow[]> {
+    const rows = await db
+      .select()
+      .from(adminShifts)
+      .where(eq(adminShifts.tournamentId, tournamentId))
+      .orderBy(desc(adminShifts.startedAt));
+    return rows.map(mapShiftRow);
+  }
 }

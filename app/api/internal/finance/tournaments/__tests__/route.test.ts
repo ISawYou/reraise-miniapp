@@ -145,4 +145,33 @@ describe("GET /api/internal/finance/tournaments", () => {
     expect(response.status).toBe(200);
     expect(json.tournaments[0].freeReentryCount).toBe(4);
   });
+
+  // M) authenticated export returns adminPayrollRub.
+  it("M: an authenticated export row includes adminPayrollRub, passed through verbatim", async () => {
+    mockVerifyFinanceSyncRequest.mockReturnValue(true);
+    mockGetFinanceTournamentExport.mockResolvedValue([
+      {
+        sourceTournamentId: "t1",
+        title: "CLASSIC",
+        tournamentType: "classic",
+        startAt: "2026-01-15T20:00:00.000Z",
+        playersCount: 20,
+        entryCount: 20,
+        reentryCount: 5,
+        addonCount: 3,
+        freeReentryCount: 0,
+        dealerPayrollRub: 6500,
+        adminPayrollRub: 4000,
+        attendanceUnknownCount: 0,
+        financiallyReliable: true,
+        sourceUpdatedAt: null,
+      },
+    ]);
+
+    const response = await GET(request("Bearer real-token"));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.tournaments[0].adminPayrollRub).toBe(4000);
+  });
 });
