@@ -10,6 +10,8 @@ import {
   type AdminShiftRow,
   type AdminShiftInsert,
   type AdminShiftClosePatch,
+  type AdminShiftCompletedInsert,
+  type AdminShiftCorrectionPatch,
 } from "./AdminShiftRepository";
 
 function mapShiftRow(row: typeof adminShifts.$inferSelect): AdminShiftRow {
@@ -85,6 +87,45 @@ export class PostgresAdminShiftRepository implements AdminShiftRepository {
     const [row] = rows;
     if (!row) {
       throw new Error("Failed to close admin shift: no rows returned");
+    }
+    return mapShiftRow(row);
+  }
+
+  async createCompletedShift(data: AdminShiftCompletedInsert): Promise<AdminShiftRow> {
+    const rows = await db
+      .insert(adminShifts)
+      .values({
+        adminPlayerId: data.admin_player_id,
+        tournamentId: data.tournament_id,
+        startedAt: new Date(data.started_at),
+        endedAt: new Date(data.ended_at),
+        amountRub: data.amount_rub,
+        createdByPlayerId: data.created_by_player_id,
+        endedByPlayerId: data.ended_by_player_id,
+      })
+      .returning();
+    const [row] = rows;
+    if (!row) {
+      throw new Error("Failed to create historical admin shift: no rows returned");
+    }
+    return mapShiftRow(row);
+  }
+
+  async updateCompletedShift(shiftId: string, patch: AdminShiftCorrectionPatch): Promise<AdminShiftRow> {
+    const rows = await db
+      .update(adminShifts)
+      .set({
+        tournamentId: patch.tournament_id,
+        startedAt: new Date(patch.started_at),
+        endedAt: new Date(patch.ended_at),
+        amountRub: patch.amount_rub,
+        updatedByPlayerId: patch.updated_by_player_id,
+      })
+      .where(eq(adminShifts.id, shiftId))
+      .returning();
+    const [row] = rows;
+    if (!row) {
+      throw new Error("Failed to update admin shift: no rows returned");
     }
     return mapShiftRow(row);
   }

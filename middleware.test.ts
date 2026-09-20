@@ -166,10 +166,12 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       // manual-grant/revoke route above is allowed (RELEASE A).
       ["POST", "/api/admin/achievements/resync"],
       ["GET", "/api/admin/achievements/visuals"],
-      // Admin Shifts management (view all / edit amount) stays
-      // Super-Admin-only -- self-service lives outside /api/admin entirely
-      // (/api/admin-shift/me/*, not covered by this middleware at all).
+      // Admin Shifts management (view all / edit amount / historical
+      // backfill / full correction) stays Super-Admin-only -- self-service
+      // lives outside /api/admin entirely (/api/admin-shift/me/*, not
+      // covered by this middleware at all).
       ["GET", "/api/admin/admin-shifts"],
+      ["POST", "/api/admin/admin-shifts"],
       ["PATCH", "/api/admin/admin-shifts/s1"],
       ["GET", "/api/admin/tournament-visuals"],
       ["GET", "/api/admin/settings"],

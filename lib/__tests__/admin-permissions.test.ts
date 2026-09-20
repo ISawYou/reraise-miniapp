@@ -151,4 +151,16 @@ describe("isAdminRouteAllowedForOperator -- admin shifts management stays Super-
   it("denies editing an admin shift's amount", () => {
     expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/admin-shifts/s1")).toBe(false);
   });
+
+  // Historical backfill / full correction (create, and edit
+  // tournament+timestamps+amount together) is a Super Admin-only follow-up
+  // to Release A -- neither the new POST route nor the extended PATCH
+  // route is added to the operator allowlist.
+  it("denies creating a historical admin shift", () => {
+    expect(isAdminRouteAllowedForOperator("POST", "/api/admin/admin-shifts")).toBe(false);
+  });
+
+  it("denies the full correction PATCH the same way as the amount-only PATCH -- the allowlist is method+path based, not body based", () => {
+    expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/admin-shifts/s1")).toBe(false);
+  });
 });
