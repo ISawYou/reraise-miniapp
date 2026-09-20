@@ -19,6 +19,14 @@ export type FinanceTournamentExportRow = {
   entryCount: number;
   reentryCount: number;
   addonCount: number;
+  // Actually-used free payment units (results.free_reentries, summed for
+  // arrived players -- see summarizeTournamentAttendance). NOT
+  // players.free_reentries_balance and NOT the referral/Yandex reward
+  // system -- an unrelated, per-tournament factual count. RERAISE performs
+  // no monetary calculation on this; Finance subtracts it from
+  // entry+reentry+addon itself. Additive alongside the existing raw counts
+  // -- entryCount/reentryCount/addonCount are never reduced by it.
+  freeReentryCount: number;
   dealerPayrollRub: number;
   attendanceUnknownCount: number;
   financiallyReliable: boolean;
@@ -35,6 +43,7 @@ export type TournamentAttendanceSummary = {
   entryCount: number;
   reentryCount: number;
   addonCount: number;
+  freeReentryCount: number;
   attendanceUnknownCount: number;
   financiallyReliable: boolean;
 };
@@ -57,11 +66,17 @@ function normalizeReentryCount(rawReentries: number): number {
 // than isEffectiveArrivedResult (lib/repositories/result/ResultRepository.ts)
 // -- that helper's rating-points fallback is never reused here.
 export function summarizeTournamentAttendance(
-  rows: Array<{ arrived: boolean | null; reentries: number; addons: number }>
+  rows: Array<{
+    arrived: boolean | null;
+    reentries: number;
+    addons: number;
+    free_reentries?: number | null;
+  }>
 ): TournamentAttendanceSummary {
   let playersCount = 0;
   let reentryCount = 0;
   let addonCount = 0;
+  let freeReentryCount = 0;
   let attendanceUnknownCount = 0;
 
   for (const row of rows) {
@@ -69,6 +84,12 @@ export function summarizeTournamentAttendance(
       playersCount += 1;
       reentryCount += normalizeReentryCount(row.reentries);
       addonCount += row.addons;
+      // Same population as reentryCount/addonCount above (arrived players
+      // only) -- a free unit is only ever consumed against a unit this
+      // player actually paid/attended for. Null/undefined (legacy rows,
+      // or the Supabase provider, which has no such column at all --
+      // see SupabaseResultRepository.ts) normalized to 0, never guessed.
+      freeReentryCount += row.free_reentries ?? 0;
     } else if (row.arrived === null) {
       attendanceUnknownCount += 1;
     }
@@ -80,6 +101,7 @@ export function summarizeTournamentAttendance(
     entryCount: playersCount,
     reentryCount,
     addonCount,
+    freeReentryCount,
     attendanceUnknownCount,
     financiallyReliable: attendanceUnknownCount === 0,
   };
@@ -115,6 +137,7 @@ async function buildExportRow(tournament: Tournament): Promise<FinanceTournament
     entryCount: attendance.entryCount,
     reentryCount: attendance.reentryCount,
     addonCount: attendance.addonCount,
+    freeReentryCount: attendance.freeReentryCount,
     dealerPayrollRub: dealerPayout.payoutRub,
     attendanceUnknownCount: attendance.attendanceUnknownCount,
     financiallyReliable: attendance.financiallyReliable,

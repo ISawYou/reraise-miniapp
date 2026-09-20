@@ -121,9 +121,71 @@ describe("summarizeTournamentAttendance (pure)", () => {
       entryCount: 0,
       reentryCount: 0,
       addonCount: 0,
+      freeReentryCount: 0,
       attendanceUnknownCount: 0,
       financiallyReliable: true,
     });
+  });
+});
+
+describe("summarizeTournamentAttendance -- freeReentryCount (RERAISE Finance actually-used free units)", () => {
+  // A) 0 + 0 + 0 => 0
+  it("A: sums to 0 when no row has any free_reentries", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 0 },
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 0 },
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 0 },
+    ]);
+    expect(result.freeReentryCount).toBe(0);
+  });
+
+  // B) 2 + 0 + 1 => 3
+  it("B: sums free_reentries across multiple arrived players", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 2 },
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 0 },
+      { arrived: true, reentries: 1, addons: 1, free_reentries: 1 },
+    ]);
+    expect(result.freeReentryCount).toBe(3);
+  });
+
+  // C) nullable/missing historical values are treated as 0.
+  it("C: treats null and undefined free_reentries as 0, never throwing or producing NaN", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: null },
+      { arrived: true, reentries: 1, addons: 0, free_reentries: undefined },
+      { arrived: true, reentries: 1, addons: 0 },
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 2 },
+    ]);
+    expect(result.freeReentryCount).toBe(2);
+    expect(Number.isNaN(result.freeReentryCount)).toBe(false);
+  });
+
+  // D) freeReentryCount does not alter entryCount/reentryCount/addonCount.
+  it("D: adding free_reentries never changes entryCount, reentryCount, or addonCount", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 3, addons: 2, free_reentries: 4 },
+    ]);
+    expect(result.entryCount).toBe(1);
+    expect(result.reentryCount).toBe(2);
+    expect(result.addonCount).toBe(2);
+    expect(result.freeReentryCount).toBe(4);
+  });
+
+  it("only sums free_reentries for arrived players, same population as reentryCount/addonCount", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 1 },
+      { arrived: false, reentries: 1, addons: 0, free_reentries: 9 },
+      { arrived: null, reentries: 1, addons: 0, free_reentries: 9 },
+    ]);
+    expect(result.freeReentryCount).toBe(1);
+  });
+
+  it("does not clamp freeReentryCount against gross units -- that validation belongs to Finance, not RERAISE", () => {
+    const result = summarizeTournamentAttendance([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 99 },
+    ]);
+    expect(result.freeReentryCount).toBe(99);
   });
 });
 
@@ -150,7 +212,7 @@ describe("getFinanceTournamentExport", () => {
   it("combines attendance and dealer payroll into one export row per tournament", async () => {
     mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
     mocks.findAttendanceByTournamentId.mockResolvedValue([
-      { arrived: true, reentries: 3, addons: 2 },
+      { arrived: true, reentries: 3, addons: 2, free_reentries: 1 },
     ]);
     mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 1, payoutRub: 6500 });
 
@@ -166,6 +228,7 @@ describe("getFinanceTournamentExport", () => {
         entryCount: 1,
         reentryCount: 2,
         addonCount: 2,
+        freeReentryCount: 1,
         dealerPayrollRub: 6500,
         attendanceUnknownCount: 0,
         financiallyReliable: true,
@@ -173,6 +236,53 @@ describe("getFinanceTournamentExport", () => {
       },
     ]);
     expect(mocks.getTournamentDealerPayoutSummary).toHaveBeenCalledWith("t1");
+  });
+
+  // E) existing re-entry normalization remains unchanged.
+  it("E: re-entry normalization (raw reentries - 1) is unaffected by freeReentryCount", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { arrived: true, reentries: 4, addons: 0, free_reentries: 2 },
+    ]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    // raw reentries=4 -> normalized reentryCount=3, exactly as before.
+    expect(row.reentryCount).toBe(3);
+    expect(row.freeReentryCount).toBe(2);
+  });
+
+  // F) dealerPayrollRub remains unchanged by this feature.
+  it("F: dealerPayrollRub is unaffected by freeReentryCount", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 5 },
+    ]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 2, payoutRub: 9000 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.dealerPayrollRub).toBe(9000);
+    expect(row.freeReentryCount).toBe(5);
+  });
+
+  // G) attendanceUnknownCount/financiallyReliable existing behavior is unaffected.
+  it("G: financiallyReliable/attendanceUnknownCount behavior is unaffected by freeReentryCount, including a large one", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { arrived: true, reentries: 1, addons: 0, free_reentries: 1 },
+      { arrived: null, reentries: 1, addons: 0, free_reentries: 999 },
+    ]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.attendanceUnknownCount).toBe(1);
+    expect(row.financiallyReliable).toBe(false);
+    // The unknown-attendance row's free_reentries is never counted either
+    // (same "arrived players only" population as reentryCount/addonCount).
+    expect(row.freeReentryCount).toBe(1);
   });
 
   it("surfaces dealer payroll (base + taxi allowance, per getTournamentDealerPayoutSummary) verbatim as dealerPayrollRub", async () => {

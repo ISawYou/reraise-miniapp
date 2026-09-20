@@ -223,7 +223,14 @@ export class SupabaseResultRepository implements ResultRepository {
       throw new Error(error.message);
     }
 
-    return (data ?? []) as ResultAttendanceRow[];
+    // Free entry persistence is Postgres-only for now -- the Supabase
+    // `results` table has no free_reentries column (see the identical note
+    // on findHistoryWithTournamentByPlayerId below). Always 0 here, an
+    // honest "not tracked on this provider" default, not a guess.
+    return (data ?? []).map((row: Omit<ResultAttendanceRow, "free_reentries">) => ({
+      ...row,
+      free_reentries: 0,
+    }));
   }
 
   async findRatingPointsBySeasonId(seasonId: string): Promise<RatingPointsRow[]> {

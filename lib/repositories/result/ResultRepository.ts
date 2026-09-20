@@ -110,6 +110,16 @@ export type ResultAttendanceRow = {
   arrived: boolean | null;
   reentries: number;
   addons: number;
+  // Actually-used free payment units for this player in this tournament
+  // (despite the historical column name) -- NOT players.free_reentries_balance,
+  // NOT the referral/Yandex reward system. Postgres has this NOT NULL with
+  // a DEFAULT 0 (lib/db/schema/results.ts), so it can never genuinely be
+  // NULL there; typed nullable here only because the Supabase
+  // implementation has no such column at all and reports 0 defensively
+  // (see SupabaseResultRepository.ts) -- summarizeTournamentAttendance
+  // normalizes either case to 0, same convention as every other
+  // legacy-nullable numeric field this row type already carries.
+  free_reentries: number | null;
 };
 
 export type SeasonRecapResultRow = {

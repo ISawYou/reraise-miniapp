@@ -131,6 +131,7 @@ export class PostgresResultRepository implements ResultRepository {
         arrived: results.arrived,
         reentries: results.reentries,
         addons: results.addons,
+        free_reentries: results.freeReentries,
       })
       .from(results)
       .where(eq(results.tournamentId, tournamentId));
