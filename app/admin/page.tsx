@@ -5,7 +5,7 @@ import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
-import { isStaff, isSuperAdmin } from "@/lib/roles";
+import { isOperator, isStaff, isSuperAdmin } from "@/lib/roles";
 import { MyAdminShiftCard } from "@/components/admin/my-admin-shift-card";
 import type { Player } from "@/types/domain";
 
@@ -345,7 +345,12 @@ export default function AdminPage() {
           </Link>
         ) : null}
 
-        <MyAdminShiftCard />
+        {/* Self-service "my shift" widget is a club-Administrator (DB role
+            "operator") concept -- Super Admin is not automatically a club
+            administrator and should not be prompted to clock a personal
+            shift. Super Admin management (Смены администраторов) is
+            unaffected, reached via SYSTEM_SECTION below. */}
+        {isOperator(player?.role) ? <MyAdminShiftCard /> : null}
 
         <div className="mt-6 space-y-6">
           {sections.map((section) => (

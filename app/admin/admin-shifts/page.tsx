@@ -49,6 +49,20 @@ function getPlayerLabel(player: Player) {
   return player.admin_display_name?.trim() || player.display_name;
 }
 
+// Recurring tournaments (e.g. CLASSIC) often share a title, so the title
+// alone is not enough to tell options apart in the historical-backfill
+// selector -- appending the start date disambiguates them. Same
+// toLocaleDateString("ru-RU", ...) convention as this codebase's other
+// tournament date formatters (app/dealer/page.tsx's, app/tournaments/
+// page.tsx's own formatTournamentDate), never manual UTC arithmetic.
+function formatTournamentOptionDate(iso: string) {
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function tournamentOptionLabel(tournament: Tournament) {
+  return `${tournament.title} — ${formatTournamentOptionDate(tournament.start_at)}`;
+}
+
 // Shared bottom-sheet chrome for this page's three sheets (add historical
 // shift / correct a completed shift / close an open shift) -- fixes the
 // "no reliable way to dismiss" issue: an explicit close (×) button in the
@@ -180,7 +194,7 @@ function ShiftFormFields({
         <option value={NO_TOURNAMENT_VALUE}>Выберите турнир</option>
         {tournaments.map((t) => (
           <option key={t.id} value={t.id}>
-            {t.title}
+            {tournamentOptionLabel(t)}
           </option>
         ))}
       </select>
@@ -312,6 +326,27 @@ export default function AdminAdminShiftsPage() {
       amountRub: String(DEFAULT_HISTORICAL_AMOUNT_RUB),
     });
     void ensurePickersLoaded();
+  }
+
+  // Historical backfill only (never edit/close): selecting a tournament
+  // prefills BOTH Начало and Конец with its start time, so the common
+  // case (a shift tied 1:1 to a tournament) takes as few taps as
+  // possible -- the user then only adjusts Конец (and Начало if
+  // historically necessary) before pressing "Сохранить смену". Nothing
+  // is auto-saved here.
+  function handleCreateFieldChange(patch: Partial<ShiftFormValues>) {
+    setCreateValues((prev) => {
+      const next = { ...prev, ...patch };
+      if (patch.tournamentId) {
+        const tournament = tournaments.find((t) => t.id === patch.tournamentId);
+        if (tournament) {
+          const startedAt = toDateTimeLocalValue(tournament.start_at);
+          next.startedAt = startedAt;
+          next.endedAt = startedAt;
+        }
+      }
+      return next;
+    });
   }
 
   async function handleCreate() {
@@ -574,7 +609,7 @@ export default function AdminAdminShiftsPage() {
 
           <ShiftFormFields
             values={createValues}
-            onChange={(patch) => setCreateValues((prev) => ({ ...prev, ...patch }))}
+            onChange={handleCreateFieldChange}
             staffPlayers={staffPlayers}
             tournaments={tournaments}
           />
@@ -643,7 +678,7 @@ export default function AdminAdminShiftsPage() {
             <option value={NO_TOURNAMENT_VALUE}>Без турнира</option>
             {tournaments.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.title}
+                {tournamentOptionLabel(t)}
               </option>
             ))}
           </select>

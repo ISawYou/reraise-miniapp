@@ -235,3 +235,223 @@ describe("Admin Shifts management UI fixes", () => {
     expect(body.tournamentId).toBeNull();
   });
 });
+
+// CLASSIC recurs -- two distinct tournaments with the same title, only
+// distinguishable by date, exactly the real ambiguity this fix addresses.
+const TOURNAMENT_OLD = {
+  id: "t-old",
+  title: "CLASSIC",
+  start_at: "2026-09-16T14:00:00.000Z",
+  status: "completed",
+};
+const TOURNAMENT_NEW = {
+  id: "t-new",
+  title: "CLASSIC",
+  start_at: "2026-09-20T14:00:00.000Z",
+  status: "completed",
+};
+const STAFF_PLAYER = { id: "p9", role: "operator", display_name: "Оператор Иванов" };
+
+function mockPickersWithTournaments() {
+  fetchAdminJson.mockImplementation(async (url: string) => {
+    if (url === "/api/admin/admin-shifts") return { shifts: [OPEN_SHIFT, COMPLETED_SHIFT] };
+    if (url === "/api/admin/nicknames/players") return { players: [STAFF_PLAYER] };
+    if (typeof url === "string" && url.startsWith("/api/admin/tournaments")) {
+      return { tournaments: [TOURNAMENT_OLD, TOURNAMENT_NEW] };
+    }
+    throw new Error(`Unexpected fetchAdminJson call: ${url}`);
+  });
+}
+
+function tournamentSelectIn(dialog: Element | null): HTMLSelectElement {
+  const selects = Array.from(dialog?.querySelectorAll("select") ?? []);
+  const select = selects.find((s) =>
+    Array.from(s.querySelectorAll("option")).some((o) => o.textContent?.includes("CLASSIC"))
+  );
+  if (!select) throw new Error("Tournament select not found");
+  return select as HTMLSelectElement;
+}
+
+function fieldValue(dialog: Element | null, labelText: string): string {
+  const label = Array.from(dialog?.querySelectorAll("label") ?? []).find(
+    (l) => l.textContent === labelText
+  );
+  const input = label?.nextElementSibling as HTMLInputElement | undefined;
+  if (!input) throw new Error(`Field "${labelText}" not found`);
+  return input.value;
+}
+
+function setSelectValue(select: HTMLSelectElement, value: string) {
+  const nativeSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+  nativeSetter.call(select, value);
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+describe("Historical shift form -- tournament labels and date auto-fill (Добавить прошлую смену)", () => {
+  it("each tournament option includes title + date, disambiguating same-titled tournaments", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Добавить прошлую смену");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    const select = tournamentSelectIn(dialog);
+    const optionLabels = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
+    expect(optionLabels).toContain("CLASSIC — 16.09.2026");
+    expect(optionLabels).toContain("CLASSIC — 20.09.2026");
+  });
+
+  it("tournaments stay sorted newest first", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Добавить прошлую смену");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    const select = tournamentSelectIn(dialog);
+    const values = Array.from(select.querySelectorAll("option"))
+      .map((o) => (o as HTMLOptionElement).value)
+      .filter(Boolean);
+    expect(values).toEqual(["t-new", "t-old"]);
+  });
+
+  it("selecting a tournament sets both Начало and Конец to its start time, and the select value stays the tournament id", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Добавить прошлую смену");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    const select = tournamentSelectIn(dialog);
+    await act(async () => {
+      setSelectValue(select, "t-old");
+    });
+
+    expect(select.value).toBe("t-old");
+    // 2026-09-16T14:00:00.000Z rendered as a local datetime-local value.
+    const expected = (() => {
+      const d = new Date("2026-09-16T14:00:00.000Z");
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    })();
+    expect(fieldValue(dialog, "Начало")).toBe(expected);
+    expect(fieldValue(dialog, "Конец")).toBe(expected);
+  });
+
+  it("changing the selected tournament refreshes both timestamps to the newly selected one", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Добавить прошлую смену");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    const select = tournamentSelectIn(dialog);
+    await act(async () => {
+      setSelectValue(select, "t-old");
+    });
+    const afterOld = fieldValue(dialog, "Начало");
+
+    await act(async () => {
+      setSelectValue(select, "t-new");
+    });
+    const afterNew = fieldValue(dialog, "Начало");
+
+    expect(afterNew).not.toBe(afterOld);
+    expect(fieldValue(dialog, "Конец")).toBe(afterNew);
+  });
+
+  it("amount still defaults to 4000 when the sheet opens", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Добавить прошлую смену");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(fieldValue(dialog, "Сумма")).toBe("4000");
+  });
+
+  it("no save occurs automatically -- selecting a tournament never calls the create endpoint", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Добавить прошлую смену");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    const select = tournamentSelectIn(dialog);
+    await act(async () => {
+      setSelectValue(select, "t-old");
+    });
+
+    expect(fetchAdminJson).not.toHaveBeenCalledWith(
+      "/api/admin/admin-shifts",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+});
+
+describe("Regression: edit/close flows are unaffected by the historical-form auto-fill", () => {
+  it("editing a completed shift keeps its stored timestamps (not reset to a tournament's start time)", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Изменить");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute("aria-label")).toBe("Изменить смену");
+    // COMPLETED_SHIFT: startedAt 2026-01-01T10:00, endedAt 2026-01-01T14:00 -- untouched by any tournament auto-fill.
+    const startedD = new Date(COMPLETED_SHIFT.startedAt);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const expectedStarted = `${startedD.getFullYear()}-${pad(startedD.getMonth() + 1)}-${pad(startedD.getDate())}T${pad(startedD.getHours())}:${pad(startedD.getMinutes())}`;
+    expect(fieldValue(dialog, "Начало")).toBe(expectedStarted);
+  });
+
+  it("changing the tournament in the edit flow does not silently reset the timestamps", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Изменить");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    const before = fieldValue(dialog, "Начало");
+    const select = tournamentSelectIn(dialog);
+    await act(async () => {
+      setSelectValue(select, "t-old");
+    });
+
+    expect(fieldValue(dialog, "Начало")).toBe(before);
+  });
+
+  it("the close-open-shift flow is unchanged: selecting a tournament while closing does not overwrite Конец", async () => {
+    mockPickersWithTournaments();
+    await renderPage();
+    await act(async () => {
+      clickButtonWithText("Завершить смену");
+      await Promise.resolve();
+    });
+
+    const dialog = container.querySelector('[role="dialog"]');
+    const before = fieldValue(dialog, "Конец");
+    const select = tournamentSelectIn(dialog);
+    await act(async () => {
+      setSelectValue(select, "t-old");
+    });
+
+    expect(fieldValue(dialog, "Конец")).toBe(before);
+  });
+});
