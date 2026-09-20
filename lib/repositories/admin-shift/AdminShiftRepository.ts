@@ -33,6 +33,22 @@ export type AdminShiftClosePatch = {
   ended_by_player_id: string | null;
 };
 
+// Super Admin closing SOMEONE ELSE's forgotten-open shift -- deliberately
+// a separate patch shape from AdminShiftClosePatch (self-service end,
+// which only ever touches ended_at/ended_by_player_id). This one also
+// lets the tournament/amount be corrected in the same action (a forgotten
+// shift may have been started without a tournament, or need a payout
+// correction), while startedAt is NEVER part of this patch -- if it needs
+// correcting too, that happens afterward via updateCompletedShift, once
+// the shift is already closed. Never touches admin_player_id.
+export type AdminShiftSuperAdminClosePatch = {
+  ended_at: string;
+  ended_by_player_id: string | null;
+  tournament_id: string | null;
+  amount_rub: number;
+  updated_by_player_id: string | null;
+};
+
 // Historical backfill (Super Admin only) -- creates a shift that is
 // ALREADY completed at insert time, never via start-then-end. Because
 // ended_at is set from the first INSERT, the partial unique index
@@ -78,6 +94,9 @@ export interface AdminShiftRepository {
   // that constraint violation to a typed error.
   createShift(row: AdminShiftInsert): Promise<AdminShiftRow>;
   closeShift(shiftId: string, patch: AdminShiftClosePatch): Promise<AdminShiftRow>;
+  // Super Admin closing another admin's forgotten-open shift -- see
+  // AdminShiftSuperAdminClosePatch's doc comment.
+  closeShiftAsSuperAdmin(shiftId: string, patch: AdminShiftSuperAdminClosePatch): Promise<AdminShiftRow>;
   // Historical backfill -- see AdminShiftCompletedInsert's doc comment.
   createCompletedShift(row: AdminShiftCompletedInsert): Promise<AdminShiftRow>;
   // Super Admin correction of tournament/timestamps/amount together on a

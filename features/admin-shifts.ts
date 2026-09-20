@@ -413,6 +413,76 @@ export async function correctAdminShift(
   });
 }
 
+export type SuperAdminCloseAdminShiftInput = {
+  endedAt: string;
+  // undefined = keep the shift's current tournament_id unchanged;
+  // explicit null clears it to "Без турнира" -- same convention as
+  // AdminShiftCorrectionInput. A forgotten-open shift may genuinely have
+  // been started without a tournament, so Super Admin can add one here
+  // while closing, not just correct one that already exists.
+  tournamentId?: string | null;
+  // undefined = keep the shift's current stored amount_rub unchanged
+  // (the real operational default: closing someone else's forgotten
+  // shift must never silently apply today's global default, only ever
+  // the value already frozen on the shift, unless explicitly overridden).
+  amountRub?: number;
+};
+
+// Super Admin closing ANOTHER admin's forgotten-open shift -- the real
+// operational gap correctAdminShift deliberately does not cover (that
+// function is completed-shifts-only, see AdminShiftOpenError). This is a
+// SEPARATE function, not a relaxation of that rule: correctAdminShift
+// still throws for an open shift exactly as before.
+//
+// Never touches admin_player_id (no such input exists at all) and never
+// touches started_at (also no such input) -- if startedAt itself needs
+// correcting too, that happens afterward via correctAdminShift, once this
+// has already closed the shift. Role authorization (Super Admin only) is
+// enforced by the route/middleware layer, not re-checked here, same split
+// as every other function in this file.
+export async function closeAdminShiftAsSuperAdmin(
+  shiftId: string,
+  input: SuperAdminCloseAdminShiftInput,
+  actorPlayerId: string | null
+): Promise<AdminShiftRow> {
+  const shift = await adminShiftRepository.findShiftById(shiftId);
+  if (!shift) {
+    throw new AdminShiftNotFoundError(shiftId);
+  }
+  if (shift.ended_at !== null) {
+    throw new AdminShiftAlreadyClosedError(shiftId);
+  }
+
+  const startedDate = new Date(shift.started_at);
+  const endedDate = new Date(input.endedAt);
+  if (Number.isNaN(endedDate.getTime())) {
+    throw new InvalidShiftRangeError("Некорректное время окончания");
+  }
+  if (endedDate.getTime() < startedDate.getTime()) {
+    throw new InvalidShiftRangeError();
+  }
+
+  const amountRub = input.amountRub !== undefined ? input.amountRub : shift.amount_rub;
+  if (!Number.isInteger(amountRub) || amountRub < 0) {
+    throw new InvalidAmountError();
+  }
+
+  const tournamentId =
+    input.tournamentId !== undefined
+      ? await resolveTournamentIdOrThrow(input.tournamentId)
+      : shift.tournament_id;
+
+  await assertNoShiftConflict(shift.admin_player_id, startedDate, endedDate, shiftId);
+
+  return adminShiftRepository.closeShiftAsSuperAdmin(shiftId, {
+    ended_at: endedDate.toISOString(),
+    ended_by_player_id: actorPlayerId,
+    tournament_id: tournamentId,
+    amount_rub: amountRub,
+    updated_by_player_id: actorPlayerId,
+  });
+}
+
 export type AdminShiftTournamentInfo = {
   tournamentId: string | null;
   tournamentTitle: string | null;

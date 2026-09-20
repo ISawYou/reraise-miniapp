@@ -163,4 +163,12 @@ describe("isAdminRouteAllowedForOperator -- admin shifts management stays Super-
   it("denies the full correction PATCH the same way as the amount-only PATCH -- the allowlist is method+path based, not body based", () => {
     expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/admin-shifts/s1")).toBe(false);
   });
+
+  // Super Admin closing another admin's forgotten-open shift -- a
+  // dedicated route, kept off the allowlist just like the rest of this
+  // management surface (see the "SUPER ADMIN CLOSE" work above
+  // features/admin-shifts.ts's closeAdminShiftAsSuperAdmin).
+  it("denies closing another admin's open shift", () => {
+    expect(isAdminRouteAllowedForOperator("POST", "/api/admin/admin-shifts/s1/close")).toBe(false);
+  });
 });

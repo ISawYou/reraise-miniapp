@@ -173,6 +173,9 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       ["GET", "/api/admin/admin-shifts"],
       ["POST", "/api/admin/admin-shifts"],
       ["PATCH", "/api/admin/admin-shifts/s1"],
+      // Super Admin closing another admin's forgotten-open shift -- also
+      // stays off the operator allowlist.
+      ["POST", "/api/admin/admin-shifts/s1/close"],
       ["GET", "/api/admin/tournament-visuals"],
       ["GET", "/api/admin/settings"],
       // Season management/rollover -- high-impact rating configuration,

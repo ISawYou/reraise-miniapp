@@ -6,6 +6,7 @@ export type {
   AdminShiftRow,
   AdminShiftInsert,
   AdminShiftClosePatch,
+  AdminShiftSuperAdminClosePatch,
   AdminShiftCompletedInsert,
   AdminShiftCorrectionPatch,
 } from "./AdminShiftRepository";

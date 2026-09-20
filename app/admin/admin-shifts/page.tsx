@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { BackButton } from "@/components/ui/back-button";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
@@ -47,6 +47,69 @@ function formatRub(amount: number) {
 
 function getPlayerLabel(player: Player) {
   return player.admin_display_name?.trim() || player.display_name;
+}
+
+// Shared bottom-sheet chrome for this page's three sheets (add historical
+// shift / correct a completed shift / close an open shift) -- fixes the
+// "no reliable way to dismiss" issue: an explicit close (×) button in the
+// header, Escape-to-close, and backdrop-click-to-close (unchanged from
+// before). The small bar at the top stays purely decorative (never wired
+// to a swipe gesture -- no custom gesture system is introduced here), now
+// sitting alongside a real close control rather than implying it's the
+// only way out. Deliberately scoped to this one page, not a new shared
+// modal system used elsewhere.
+function BottomSheet({
+  title,
+  onClose,
+  closeDisabled,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  closeDisabled?: boolean;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !closeDisabled) {
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose, closeDisabled]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-black/70"
+      onClick={() => !closeDisabled && onClose()}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="w-full rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] backdrop-blur-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto max-w-md">
+          <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" aria-hidden="true" />
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">{title}</h2>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={closeDisabled}
+              aria-label="Закрыть"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg leading-none text-white/70 disabled:opacity-40"
+            >
+              ×
+            </button>
+          </div>
+          {children}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 // Newest-first, matching this release's "recently completed tournaments
@@ -181,6 +244,18 @@ export default function AdminAdminShiftsPage() {
     amountRub: "",
   });
   const [saving, setSaving] = useState(false);
+
+  // "Завершить смену" -- Super Admin closing another admin's forgotten-
+  // open shift. Owner and start time are fixed/read-only here (see
+  // closeAdminShiftAsSuperAdmin's doc comment); only tournament, end time,
+  // and amount are editable.
+  const [closingShift, setClosingShift] = useState<AdminShiftSummary | null>(null);
+  const [closeValues, setCloseValues] = useState({
+    tournamentId: NO_TOURNAMENT_VALUE,
+    endedAt: "",
+    amountRub: "",
+  });
+  const [closing, setClosing] = useState(false);
 
   async function load() {
     try {
@@ -323,6 +398,55 @@ export default function AdminAdminShiftsPage() {
     }
   }
 
+  function openClose(shift: AdminShiftSummary) {
+    setClosingShift(shift);
+    setMessage(null);
+    setError(null);
+    // Defaults per this feature's own spec: end time = now, tournament =
+    // whatever is already linked (if any), amount = the shift's current
+    // stored value -- never today's global default.
+    setCloseValues({
+      tournamentId: shift.tournamentId ?? NO_TOURNAMENT_VALUE,
+      endedAt: toDateTimeLocalValue(new Date().toISOString()),
+      amountRub: String(shift.amountRub),
+    });
+    void ensurePickersLoaded();
+  }
+
+  async function handleCloseShift() {
+    if (!closingShift) return;
+    if (!closeValues.endedAt) {
+      setError("Укажите время окончания");
+      return;
+    }
+    const amountRub = Number(closeValues.amountRub);
+    if (!Number.isInteger(amountRub) || amountRub < 0) {
+      setError("Сумма должна быть неотрицательным целым числом");
+      return;
+    }
+
+    setClosing(true);
+    setError(null);
+    try {
+      await fetchAdminJson(`/api/admin/admin-shifts/${closingShift.id}/close`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endedAt: fromDateTimeLocalValue(closeValues.endedAt),
+          tournamentId: closeValues.tournamentId || null,
+          amountRub,
+        }),
+      });
+      setMessage("Смена завершена");
+      setClosingShift(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось завершить смену");
+    } finally {
+      setClosing(false);
+    }
+  }
+
   if (!accessChecked) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
@@ -408,13 +532,26 @@ export default function AdminAdminShiftsPage() {
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-sm font-semibold text-white">{formatRub(shift.amountRub)}</p>
-                      <button
-                        type="button"
-                        onClick={() => openEdit(shift)}
-                        className="mt-1 text-xs font-medium text-yellow-400 underline decoration-yellow-400/30 underline-offset-2"
-                      >
-                        Изменить
-                      </button>
+                      {isOpen ? (
+                        // An open shift is never routed into the
+                        // completed-shift correction flow (which rejects
+                        // it) -- this is the dedicated close action.
+                        <button
+                          type="button"
+                          onClick={() => openClose(shift)}
+                          className="mt-1 text-xs font-medium text-emerald-300 underline decoration-emerald-300/30 underline-offset-2"
+                        >
+                          Завершить смену
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openEdit(shift)}
+                          className="mt-1 text-xs font-medium text-yellow-400 underline decoration-yellow-400/30 underline-offset-2"
+                        >
+                          Изменить
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -426,74 +563,117 @@ export default function AdminAdminShiftsPage() {
 
       {/* Добавить прошлую смену */}
       {showCreate ? (
-        <div
-          className="fixed inset-0 z-50 flex items-end bg-black/70"
-          onClick={() => !creating && setShowCreate(false)}
+        <BottomSheet
+          title="Добавить прошлую смену"
+          onClose={() => setShowCreate(false)}
+          closeDisabled={creating}
         >
-          <section
-            className="w-full rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] backdrop-blur-2xl"
-            onClick={(e) => e.stopPropagation()}
+          <p className="mt-1 text-xs text-white/45">
+            Смена сразу сохраняется завершённой — для восстановления исторических данных.
+          </p>
+
+          <ShiftFormFields
+            values={createValues}
+            onChange={(patch) => setCreateValues((prev) => ({ ...prev, ...patch }))}
+            staffPlayers={staffPlayers}
+            tournaments={tournaments}
+          />
+
+          <button
+            type="button"
+            disabled={creating}
+            onClick={handleCreate}
+            className="mt-5 w-full rounded-xl bg-yellow-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
           >
-            <div className="mx-auto max-w-md">
-              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
-              <h2 className="text-lg font-semibold">Добавить прошлую смену</h2>
-              <p className="mt-1 text-xs text-white/45">
-                Смена сразу сохраняется завершённой — для восстановления исторических данных.
-              </p>
-
-              <ShiftFormFields
-                values={createValues}
-                onChange={(patch) => setCreateValues((prev) => ({ ...prev, ...patch }))}
-                staffPlayers={staffPlayers}
-                tournaments={tournaments}
-              />
-
-              <button
-                type="button"
-                disabled={creating}
-                onClick={handleCreate}
-                className="mt-5 w-full rounded-xl bg-yellow-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
-              >
-                {creating ? "Сохраняем..." : "Сохранить смену"}
-              </button>
-            </div>
-          </section>
-        </div>
+            {creating ? "Сохраняем..." : "Сохранить смену"}
+          </button>
+        </BottomSheet>
       ) : null}
 
-      {/* Изменить смену */}
+      {/* Изменить смену (только завершённые) */}
       {editingShift ? (
-        <div
-          className="fixed inset-0 z-50 flex items-end bg-black/70"
-          onClick={() => !saving && setEditingShift(null)}
+        <BottomSheet
+          title="Изменить смену"
+          onClose={() => setEditingShift(null)}
+          closeDisabled={saving}
         >
-          <section
-            className="w-full rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] backdrop-blur-2xl"
-            onClick={(e) => e.stopPropagation()}
+          <ShiftFormFields
+            values={editValues}
+            onChange={(patch) => setEditValues((prev) => ({ ...prev, ...patch }))}
+            staffPlayers={staffPlayers}
+            tournaments={tournaments}
+            lockAdmin={editingShift.adminDisplayName}
+          />
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleSaveEdit}
+            className="mt-5 w-full rounded-xl bg-yellow-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
           >
-            <div className="mx-auto max-w-md">
-              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
-              <h2 className="text-lg font-semibold">Изменить смену</h2>
+            {saving ? "Сохраняем..." : "Сохранить"}
+          </button>
+        </BottomSheet>
+      ) : null}
 
-              <ShiftFormFields
-                values={editValues}
-                onChange={(patch) => setEditValues((prev) => ({ ...prev, ...patch }))}
-                staffPlayers={staffPlayers}
-                tournaments={tournaments}
-                lockAdmin={editingShift.adminDisplayName}
-              />
+      {/* Завершить смену (только открытые) -- владелец и время начала
+          зафиксированы и показаны только для справки. */}
+      {closingShift ? (
+        <BottomSheet
+          title="Завершить смену"
+          onClose={() => setClosingShift(null)}
+          closeDisabled={closing}
+        >
+          <label className="mt-4 block text-xs text-white/50">Администратор</label>
+          <p className="mt-1.5 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white/70">
+            {closingShift.adminDisplayName}
+          </p>
 
-              <button
-                type="button"
-                disabled={saving}
-                onClick={handleSaveEdit}
-                className="mt-5 w-full rounded-xl bg-yellow-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
-              >
-                {saving ? "Сохраняем..." : "Сохранить"}
-              </button>
-            </div>
-          </section>
-        </div>
+          <label className="mt-3 block text-xs text-white/50">Начало</label>
+          <p className="mt-1.5 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white/70">
+            {formatDateTime(closingShift.startedAt)}
+          </p>
+
+          <label className="mt-3 block text-xs text-white/50">Турнир</label>
+          <select
+            value={closeValues.tournamentId}
+            onChange={(e) => setCloseValues((prev) => ({ ...prev, tournamentId: e.target.value }))}
+            className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none"
+          >
+            <option value={NO_TOURNAMENT_VALUE}>Без турнира</option>
+            {tournaments.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
+          </select>
+
+          <label className="mt-3 block text-xs text-white/50">Конец</label>
+          <input
+            type="datetime-local"
+            value={closeValues.endedAt}
+            onChange={(e) => setCloseValues((prev) => ({ ...prev, endedAt: e.target.value }))}
+            className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none"
+          />
+
+          <label className="mt-3 block text-xs text-white/50">Сумма</label>
+          <input
+            type="number"
+            min="0"
+            value={closeValues.amountRub}
+            onChange={(e) => setCloseValues((prev) => ({ ...prev, amountRub: e.target.value }))}
+            className="mt-1.5 h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-sm outline-none"
+          />
+
+          <button
+            type="button"
+            disabled={closing}
+            onClick={handleCloseShift}
+            className="mt-5 w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
+          >
+            {closing ? "Сохраняем..." : "Завершить смену"}
+          </button>
+        </BottomSheet>
       ) : null}
     </main>
   );

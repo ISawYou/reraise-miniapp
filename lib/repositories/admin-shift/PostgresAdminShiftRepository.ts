@@ -10,6 +10,7 @@ import {
   type AdminShiftRow,
   type AdminShiftInsert,
   type AdminShiftClosePatch,
+  type AdminShiftSuperAdminClosePatch,
   type AdminShiftCompletedInsert,
   type AdminShiftCorrectionPatch,
 } from "./AdminShiftRepository";
@@ -81,6 +82,28 @@ export class PostgresAdminShiftRepository implements AdminShiftRepository {
       .set({
         endedAt: new Date(patch.ended_at),
         endedByPlayerId: patch.ended_by_player_id,
+      })
+      .where(eq(adminShifts.id, shiftId))
+      .returning();
+    const [row] = rows;
+    if (!row) {
+      throw new Error("Failed to close admin shift: no rows returned");
+    }
+    return mapShiftRow(row);
+  }
+
+  async closeShiftAsSuperAdmin(
+    shiftId: string,
+    patch: AdminShiftSuperAdminClosePatch
+  ): Promise<AdminShiftRow> {
+    const rows = await db
+      .update(adminShifts)
+      .set({
+        endedAt: new Date(patch.ended_at),
+        endedByPlayerId: patch.ended_by_player_id,
+        tournamentId: patch.tournament_id,
+        amountRub: patch.amount_rub,
+        updatedByPlayerId: patch.updated_by_player_id,
       })
       .where(eq(adminShifts.id, shiftId))
       .returning();

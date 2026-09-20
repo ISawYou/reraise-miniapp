@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   findShiftById: vi.fn(),
   createShift: vi.fn(),
   closeShift: vi.fn(),
+  closeShiftAsSuperAdmin: vi.fn(),
   setShiftAmount: vi.fn(),
   createCompletedShift: vi.fn(),
   updateCompletedShift: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@/lib/repositories", () => ({
     findShiftById: mocks.findShiftById,
     createShift: mocks.createShift,
     closeShift: mocks.closeShift,
+    closeShiftAsSuperAdmin: mocks.closeShiftAsSuperAdmin,
     setShiftAmount: mocks.setShiftAmount,
     createCompletedShift: mocks.createCompletedShift,
     updateCompletedShift: mocks.updateCompletedShift,
@@ -52,6 +54,7 @@ const {
   setAdminShiftAmount,
   createHistoricalAdminShift,
   correctAdminShift,
+  closeAdminShiftAsSuperAdmin,
   getMyAdminShiftSummary,
   listAdminShiftsForManagement,
   getTournamentAdminPayoutSummary,
@@ -59,6 +62,7 @@ const {
   InvalidAmountError,
   AdminShiftNotFoundError,
   AdminShiftAlreadyOnShiftError,
+  AdminShiftAlreadyClosedError,
   AdminShiftOpenError,
   AdminShiftDuplicateError,
   AdminShiftOverlapError,
@@ -100,6 +104,16 @@ beforeEach(() => {
   );
   mocks.closeShift.mockImplementation(async (id: string, patch: Record<string, unknown>) =>
     shiftRow({ id, ended_at: patch.ended_at, ended_by_player_id: patch.ended_by_player_id })
+  );
+  mocks.closeShiftAsSuperAdmin.mockImplementation(async (id: string, patch: Record<string, unknown>) =>
+    shiftRow({
+      id,
+      ended_at: patch.ended_at,
+      ended_by_player_id: patch.ended_by_player_id,
+      tournament_id: patch.tournament_id ?? null,
+      amount_rub: patch.amount_rub,
+      updated_by_player_id: patch.updated_by_player_id,
+    })
   );
   mocks.setShiftAmount.mockImplementation(async (id: string, amountRub: number, updatedBy: string | null) =>
     shiftRow({ id, amount_rub: amountRub, updated_by_player_id: updatedBy })
@@ -750,5 +764,237 @@ describe("getTournamentAdminPayoutSummary", () => {
     ]);
     const summary = await getTournamentAdminPayoutSummary("t1");
     expect(summary.payoutRub).toBe(1500);
+  });
+});
+
+describe("closeAdminShiftAsSuperAdmin -- closing another admin's forgotten-open shift", () => {
+  function openShift(overrides: Partial<Record<string, unknown>> = {}) {
+    return shiftRow({
+      id: "s1",
+      admin_player_id: "p1",
+      started_at: "2026-01-01T18:00:00.000Z",
+      ended_at: null,
+      amount_rub: 4000,
+      tournament_id: null,
+      ...overrides,
+    });
+  }
+
+  it("Super Admin can close another admin's open shift", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    const shift = await closeAdminShiftAsSuperAdmin(
+      "s1",
+      { endedAt: "2026-01-01T22:00:00.000Z" },
+      "superadmin-1"
+    );
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ ended_at: "2026-01-01T22:00:00.000Z" })
+    );
+    expect(shift.ended_at).toBe("2026-01-01T22:00:00.000Z");
+  });
+
+  // "operator cannot" is enforced at the route/permission-allowlist level
+  // (see lib/__tests__/admin-permissions.test.ts and middleware.test.ts),
+  // not re-checked in this feature function, same split as every other
+  // function in this file.
+
+  it("the closed shift keeps the same id", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ id: "s1" }));
+    const shift = await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1");
+    expect(shift.id).toBe("s1");
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith("s1", expect.anything());
+  });
+
+  it("endedAt is persisted", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T23:30:00.000Z" }, "superadmin-1");
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ ended_at: "2026-01-01T23:30:00.000Z" })
+    );
+  });
+
+  it("endedBy = the Super Admin actor", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-42");
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ ended_by_player_id: "superadmin-42" })
+    );
+  });
+
+  it("updatedBy = the Super Admin actor", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-42");
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ updated_by_player_id: "superadmin-42" })
+    );
+  });
+
+  it("the stored amount is preserved by default when no amount is supplied", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ amount_rub: 3500 }));
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1");
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ amount_rub: 3500 })
+    );
+  });
+
+  it("never applies today's global default amount -- only the shift's own stored value or an explicit override", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ amount_rub: 1234 }));
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1");
+    const patchArg = mocks.closeShiftAsSuperAdmin.mock.calls[0][1];
+    expect(patchArg.amount_rub).toBe(1234);
+    expect(patchArg.amount_rub).not.toBe(DEFAULT_ADMIN_SHIFT_AMOUNT_RUB);
+  });
+
+  it("an explicit amount correction on close is accepted", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ amount_rub: 4000 }));
+    await closeAdminShiftAsSuperAdmin(
+      "s1",
+      { endedAt: "2026-01-01T22:00:00.000Z", amountRub: 2000 },
+      "superadmin-1"
+    );
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ amount_rub: 2000 })
+    );
+  });
+
+  it("a tournament can be added while closing a shift that had none", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ tournament_id: null }));
+    await closeAdminShiftAsSuperAdmin(
+      "s1",
+      { endedAt: "2026-01-01T22:00:00.000Z", tournamentId: "t1" },
+      "superadmin-1"
+    );
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ tournament_id: "t1" })
+    );
+  });
+
+  it("the existing tournament is preserved when tournamentId is not supplied", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ tournament_id: "t1" }));
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1");
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ tournament_id: "t1" })
+    );
+    expect(mocks.findTournamentById).not.toHaveBeenCalled();
+  });
+
+  it("rejects endedAt before startedAt", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ started_at: "2026-01-01T18:00:00.000Z" }));
+    await expect(
+      closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T10:00:00.000Z" }, "superadmin-1")
+    ).rejects.toThrow(InvalidShiftRangeError);
+    expect(mocks.closeShiftAsSuperAdmin).not.toHaveBeenCalled();
+  });
+
+  it("rejects a negative amount", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    await expect(
+      closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z", amountRub: -1 }, "superadmin-1")
+    ).rejects.toThrow(InvalidAmountError);
+    expect(mocks.closeShiftAsSuperAdmin).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-integer amount", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    await expect(
+      closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z", amountRub: 100.5 }, "superadmin-1")
+    ).rejects.toThrow(InvalidAmountError);
+    expect(mocks.closeShiftAsSuperAdmin).not.toHaveBeenCalled();
+  });
+
+  it("rejects an already-completed shift", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ ended_at: "2026-01-01T20:00:00.000Z" }));
+    await expect(
+      closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1")
+    ).rejects.toThrow(AdminShiftAlreadyClosedError);
+    expect(mocks.closeShiftAsSuperAdmin).not.toHaveBeenCalled();
+  });
+
+  it("rejects a nonexistent shift", async () => {
+    mocks.findShiftById.mockResolvedValue(null);
+    await expect(
+      closeAdminShiftAsSuperAdmin("missing", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1")
+    ).rejects.toThrow(AdminShiftNotFoundError);
+  });
+
+  it("rejects an invalid/unknown tournament", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    mocks.findTournamentById.mockRejectedValue(new Error("not found"));
+    await expect(
+      closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z", tournamentId: "bogus" }, "superadmin-1")
+    ).rejects.toThrow(InvalidTournamentIdError);
+    expect(mocks.closeShiftAsSuperAdmin).not.toHaveBeenCalled();
+  });
+
+  it("rejects an interval that overlaps another COMPLETED shift for the same admin", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ id: "s1", admin_player_id: "p1", started_at: "2026-01-01T18:00:00.000Z" }));
+    mocks.listShiftsByAdminId.mockResolvedValue([
+      openShift({ id: "s1", admin_player_id: "p1", started_at: "2026-01-01T18:00:00.000Z" }),
+      shiftRow({
+        id: "s2",
+        admin_player_id: "p1",
+        started_at: "2026-01-01T21:00:00.000Z",
+        ended_at: "2026-01-01T23:00:00.000Z",
+      }),
+    ]);
+    await expect(
+      closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1")
+    ).rejects.toThrow(AdminShiftOverlapError);
+    expect(mocks.closeShiftAsSuperAdmin).not.toHaveBeenCalled();
+  });
+
+  it("another admin's overlapping shift does NOT block closing -- overlap is only ever checked within one admin's own shifts", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ id: "s1", admin_player_id: "p1", started_at: "2026-01-01T18:00:00.000Z" }));
+    mocks.listShiftsByAdminId.mockImplementation(async (adminPlayerId: string) =>
+      adminPlayerId === "p2"
+        ? [
+            shiftRow({
+              id: "other-admin-shift",
+              admin_player_id: "p2",
+              started_at: "2026-01-01T18:00:00.000Z",
+              ended_at: "2026-01-01T23:00:00.000Z",
+            }),
+          ]
+        : []
+    );
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1");
+    expect(mocks.closeShiftAsSuperAdmin).toHaveBeenCalled();
+  });
+
+  it("never accepts/changes the shift owner -- the close input type has no adminPlayerId field at all", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1");
+    const patchArg = mocks.closeShiftAsSuperAdmin.mock.calls[0][1];
+    expect(patchArg).not.toHaveProperty("admin_player_id");
+  });
+
+  it("never touches startedAt -- closing never mutates the shift's start time", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift({ started_at: "2026-01-01T18:00:00.000Z" }));
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1");
+    const patchArg = mocks.closeShiftAsSuperAdmin.mock.calls[0][1];
+    expect(patchArg).not.toHaveProperty("started_at");
+  });
+
+  it("never creates a second shift -- createShift/createCompletedShift are never called", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    await closeAdminShiftAsSuperAdmin("s1", { endedAt: "2026-01-01T22:00:00.000Z" }, "superadmin-1");
+    expect(mocks.createShift).not.toHaveBeenCalled();
+    expect(mocks.createCompletedShift).not.toHaveBeenCalled();
+  });
+
+  it("correctAdminShift still rejects an open shift exactly as before -- this is a separate function, not a relaxation of that rule", async () => {
+    mocks.findShiftById.mockResolvedValue(openShift());
+    await expect(correctAdminShift("s1", { amountRub: 1000 }, "superadmin-1")).rejects.toThrow(
+      AdminShiftOpenError
+    );
+    expect(mocks.updateCompletedShift).not.toHaveBeenCalled();
   });
 });
