@@ -5,13 +5,14 @@ import { BackButton } from "@/components/ui/back-button";
 import { RatingIcon } from "@/components/icons/rating-icon";
 import { useEffect, useState } from "react";
 import {
-  filterArchivableSeasons,
   getLeaderboardPlaceTone,
   resolvePlayerStanding,
 } from "@/lib/leaderboard-display";
 import { logEvent } from "@/lib/activity-client";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { LeaderboardAvatar, Podium, RankMovementBadge } from "@/components/leaderboard/podium";
+import { ClubStatisticsRankedList, type ClubStatisticTopPlayer } from "@/components/leaderboard/club-statistics-list";
+import { CLUB_STATISTIC_METRIC, type ClubStatisticMetric } from "@/lib/club-statistics-metrics";
 import type { RankMovement } from "@/features/leaderboard";
 
 type LeaderboardRow = {
@@ -23,20 +24,37 @@ type LeaderboardRow = {
   rating: number;
   // Current-mode leaderboard rows only -- see
   // features/leaderboard.ts::getOfficialSeasonLeaderboardWithMovement.
-  // Absent for archive/all-time rows and for "Вне зачёта" rows -- callers
-  // never render movement for either.
+  // Absent for all-time rows and for "Вне зачёта" rows -- callers never
+  // render movement for either.
   rankMovement?: RankMovement;
 };
 
-type PublicSeason = { id: string; title: string; isActive: boolean };
-
-type Mode = "current" | "archive" | "all-time";
+// Archive was removed from this player-facing screen only (RELEASE C1) --
+// the season backend (/api/leaderboard/seasons, /api/leaderboard/archive/
+// [seasonId]) and admin season management are untouched and still fully
+// functional; nothing else in the app was found to depend on the player
+// Archive tab specifically.
+type Mode = "current" | "all-time" | "statistics";
 
 const MODE_LABEL: Record<Mode, string> = {
-  current: "Текущий",
-  archive: "Архив",
-  "all-time": "За всё время",
+  current: "Текущий сезон",
+  "all-time": "Всё время",
+  statistics: "Статистика",
 };
+
+// Selector order/labels exactly as specified for RELEASE C1 -- Streak and
+// Bubble Boy are intentionally not in CLUB_STATISTIC_METRIC yet, so they
+// cannot appear here either.
+const STATISTIC_METRIC_OPTIONS: { metric: ClubStatisticMetric; label: string }[] = [
+  { metric: CLUB_STATISTIC_METRIC.TOURNAMENTS_PLAYED, label: "Турниры" },
+  { metric: CLUB_STATISTIC_METRIC.WINS, label: "Победы" },
+  { metric: CLUB_STATISTIC_METRIC.LIFETIME_RATING, label: "Рейтинг за всё время" },
+  { metric: CLUB_STATISTIC_METRIC.ITM, label: "ITM" },
+  { metric: CLUB_STATISTIC_METRIC.REFERRALS, label: "Друзья" },
+  { metric: CLUB_STATISTIC_METRIC.KNOCKOUTS, label: "Нокауты" },
+  { metric: CLUB_STATISTIC_METRIC.BOSS_KNOCKOUTS, label: "Boss KO" },
+  { metric: CLUB_STATISTIC_METRIC.HEADHUNTER, label: "Лучший результат KO" },
+];
 
 function RankRow({
   row,
@@ -93,8 +111,8 @@ function YourPositionCard({
   isAllTime?: boolean;
   // Current mode only -- reuses the same movement already computed for
   // this player's leaderboard row (see LeaderboardPage below); never
-  // recalculated here. Omitted entirely for archive/all-time, and for an
-  // OOC player there is simply no row to have carried one.
+  // recalculated here. Omitted entirely for all-time, and for an OOC
+  // player there is simply no row to have carried one.
   rankMovement?: RankMovement;
 }) {
   return (
@@ -129,9 +147,8 @@ function EmptyState({ title }: { title: string }) {
 }
 
 // Shared body -- TOP-3 podium, remaining ranked rows, OOC section, "Вне
-// зачёта"/ТОП-9 meaning preserved -- reused identically by current,
-// archive, and all-time modes so the ranking visual system never diverges
-// per mode.
+// зачёта"/ТОП-9 meaning preserved -- reused identically by current and
+// all-time modes so the ranking visual system never diverges per mode.
 function LeaderboardBody({
   rows,
   outOfCompetition,
@@ -200,19 +217,22 @@ export default function LeaderboardPage() {
   const [currentLoading, setCurrentLoading] = useState(true);
   const [currentError, setCurrentError] = useState<string | null>(null);
 
-  const [archiveSeasons, setArchiveSeasons] = useState<PublicSeason[] | null>(null);
-  const [archiveSeasonsLoading, setArchiveSeasonsLoading] = useState(false);
-  const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null);
-  const [archiveTitle, setArchiveTitle] = useState("");
-  const [archiveRows, setArchiveRows] = useState<LeaderboardRow[]>([]);
-  const [archiveOOC, setArchiveOOC] = useState<LeaderboardRow[]>([]);
-  const [archiveLoading, setArchiveLoading] = useState(false);
-  const [archiveError, setArchiveError] = useState<string | null>(null);
-
   const [allTimeRows, setAllTimeRows] = useState<LeaderboardRow[]>([]);
   const [allTimeLoading, setAllTimeLoading] = useState(false);
   const [allTimeError, setAllTimeError] = useState<string | null>(null);
   const [allTimeLoaded, setAllTimeLoaded] = useState(false);
+
+  // Statistics -- one metric selected at a time (never all leaderboards at
+  // once), cached per metric so re-selecting an already-fetched metric is
+  // instant and never re-fetches.
+  const [statisticMetric, setStatisticMetric] = useState<ClubStatisticMetric>(
+    CLUB_STATISTIC_METRIC.TOURNAMENTS_PLAYED
+  );
+  const [statisticsCache, setStatisticsCache] = useState<
+    Partial<Record<ClubStatisticMetric, ClubStatisticTopPlayer[]>>
+  >({});
+  const [statisticsLoading, setStatisticsLoading] = useState(false);
+  const [statisticsError, setStatisticsError] = useState<string | null>(null);
 
   useEffect(() => {
     logEvent("rating_opened");
@@ -243,55 +263,6 @@ export default function LeaderboardPage() {
     load();
   }, []);
 
-  // Archive season list -- loaded once, lazily, the first time the mode is
-  // opened. Non-active seasons only: the currently active season is
-  // "Текущий", never an archive option.
-  useEffect(() => {
-    if (mode !== "archive" || archiveSeasons !== null || archiveSeasonsLoading) return;
-    async function load() {
-      setArchiveSeasonsLoading(true);
-      try {
-        const response = await fetch("/api/leaderboard/seasons");
-        if (!response.ok) throw new Error("Ошибка загрузки сезонов");
-        const data = (await response.json()) as { seasons: PublicSeason[] };
-        const nonActive = filterArchivableSeasons(data.seasons ?? []);
-        setArchiveSeasons(nonActive);
-        if (nonActive.length > 0) setSelectedArchiveId(nonActive[0].id);
-      } catch (err) {
-        setArchiveError(err instanceof Error ? err.message : "Ошибка загрузки сезонов");
-        setArchiveSeasons([]);
-      } finally {
-        setArchiveSeasonsLoading(false);
-      }
-    }
-    load();
-  }, [mode, archiveSeasons, archiveSeasonsLoading]);
-
-  useEffect(() => {
-    if (!selectedArchiveId) return;
-    async function load() {
-      setArchiveLoading(true);
-      setArchiveError(null);
-      try {
-        const response = await fetch(`/api/leaderboard/archive/${selectedArchiveId}`);
-        if (!response.ok) throw new Error("Ошибка загрузки архивного сезона");
-        const data = (await response.json()) as {
-          season: { id: string; title: string };
-          leaderboard: LeaderboardRow[];
-          outOfCompetition?: LeaderboardRow[];
-        };
-        setArchiveTitle(data.season?.title?.trim() || "Сезон");
-        setArchiveRows(data.leaderboard ?? []);
-        setArchiveOOC(data.outOfCompetition ?? []);
-      } catch (err) {
-        setArchiveError(err instanceof Error ? err.message : "Ошибка загрузки архивного сезона");
-      } finally {
-        setArchiveLoading(false);
-      }
-    }
-    load();
-  }, [selectedArchiveId]);
-
   useEffect(() => {
     if (mode !== "all-time" || allTimeLoaded || allTimeLoading) return;
     async function load() {
@@ -311,14 +282,28 @@ export default function LeaderboardPage() {
     load();
   }, [mode, allTimeLoaded, allTimeLoading]);
 
+  useEffect(() => {
+    if (mode !== "statistics" || statisticsCache[statisticMetric]) return;
+    async function load() {
+      setStatisticsLoading(true);
+      setStatisticsError(null);
+      try {
+        const response = await fetch(`/api/leaderboard/statistics?metric=${statisticMetric}`);
+        if (!response.ok) throw new Error("Ошибка загрузки статистики");
+        const data = (await response.json()) as { topPlayers: ClubStatisticTopPlayer[] };
+        setStatisticsCache((prev) => ({ ...prev, [statisticMetric]: data.topPlayers ?? [] }));
+      } catch (err) {
+        setStatisticsError(err instanceof Error ? err.message : "Ошибка загрузки статистики");
+      } finally {
+        setStatisticsLoading(false);
+      }
+    }
+    load();
+  }, [mode, statisticMetric, statisticsCache]);
+
   const currentStanding = resolvePlayerStanding(
     currentRows.map((row, index) => ({ player_id: row.player_id, officialRank: index + 1, rating: row.rating })),
     currentOOC,
-    currentPlayerId
-  );
-  const archiveStanding = resolvePlayerStanding(
-    archiveRows.map((row, index) => ({ player_id: row.player_id, officialRank: index + 1, rating: row.rating })),
-    archiveOOC,
     currentPlayerId
   );
   const allTimeStanding = resolvePlayerStanding(
@@ -333,6 +318,8 @@ export default function LeaderboardPage() {
   const currentPlayerRankMovement = currentRows.find(
     (row) => row.player_id === currentPlayerId
   )?.rankMovement;
+
+  const statisticRows = statisticsCache[statisticMetric] ?? [];
 
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
@@ -394,51 +381,6 @@ export default function LeaderboardPage() {
           </>
         ) : null}
 
-        {mode === "archive" ? (
-          <>
-            {archiveSeasonsLoading || archiveSeasons === null ? (
-              <p className="text-sm text-white/60">Загружаем сезоны...</p>
-            ) : archiveSeasons.length === 0 ? (
-              <EmptyState title="Архивных сезонов пока нет" />
-            ) : (
-              <>
-                {archiveSeasons.length > 1 ? (
-                  <select
-                    value={selectedArchiveId ?? ""}
-                    onChange={(e) => setSelectedArchiveId(e.target.value)}
-                    className="mb-3 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-white outline-none"
-                  >
-                    {archiveSeasons.map((season) => (
-                      <option key={season.id} value={season.id}>
-                        {season.title}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="mb-3 text-sm font-medium text-white/70">{archiveTitle || archiveSeasons[0].title}</p>
-                )}
-
-                {archiveError ? (
-                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{archiveError}</div>
-                ) : archiveLoading ? (
-                  <p className="text-sm text-white/60">Загружаем архив...</p>
-                ) : (
-                  <>
-                    <LeaderboardBody
-                      rows={archiveRows}
-                      outOfCompetition={archiveOOC}
-                      currentPlayerId={currentPlayerId}
-                      showTopNine
-                      emptyMessage="В этом сезоне нет данных рейтинга"
-                    />
-                    {currentPlayerId ? <YourPositionCard standing={archiveStanding} /> : null}
-                  </>
-                )}
-              </>
-            )}
-          </>
-        ) : null}
-
         {mode === "all-time" ? (
           <>
             {allTimeError ? (
@@ -456,6 +398,41 @@ export default function LeaderboardPage() {
                 />
                 {currentPlayerId ? <YourPositionCard standing={allTimeStanding} isAllTime /> : null}
               </>
+            )}
+          </>
+        ) : null}
+
+        {mode === "statistics" ? (
+          <>
+            <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+              {STATISTIC_METRIC_OPTIONS.map((option) => (
+                <button
+                  key={option.metric}
+                  type="button"
+                  onClick={() => setStatisticMetric(option.metric)}
+                  className={`shrink-0 rounded-full border px-3 py-2 text-xs font-medium transition ${
+                    statisticMetric === option.metric
+                      ? "border-[#d7b55a] bg-[#d7b55a]/15 text-[#f0d38a]"
+                      : "border-white/10 bg-white/[0.03] text-white/60"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            {statisticsError ? (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+                {statisticsError}
+              </div>
+            ) : statisticsLoading && statisticRows.length === 0 ? (
+              <p className="text-sm text-white/60">Загружаем статистику...</p>
+            ) : (
+              <ClubStatisticsRankedList
+                topPlayers={statisticRows}
+                currentPlayerId={currentPlayerId}
+                emptyMessage="Пока нет данных для этой статистики"
+              />
             )}
           </>
         ) : null}

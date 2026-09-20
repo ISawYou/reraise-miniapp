@@ -13,6 +13,14 @@ import {
   type LegendaryAchievementCard,
   type TieredAchievementCard,
 } from "@/lib/achievement-display";
+import {
+  ClubStatisticsRankedList,
+  AchievementHoldersList,
+  type ClubStatisticTopPlayer,
+  type AchievementHolder,
+} from "@/components/leaderboard/club-statistics-list";
+import type { ClubStatisticMetric } from "@/lib/club-statistics-metrics";
+import { FAMILY_METRIC, LEGENDARY_METRIC, HOLDERS_ONLY_CODES } from "@/lib/achievement-statistics-mapping";
 
 export default function PlayerAchievementsPage() {
   const params = useParams<{ id: string }>();
@@ -53,6 +61,46 @@ export default function PlayerAchievementsPage() {
   const model = buildAchievementDisplayModel(rows);
 
   useBodyScrollLock(detail !== null);
+
+  // Resolved once per open detail sheet -- undefined when this
+  // achievement has neither a covered metric nor a holders-only list
+  // (e.g. Streak, Bubble Boy: left unchanged in C1).
+  const resolvedMetric: ClubStatisticMetric | undefined =
+    detail?.kind === "family"
+      ? FAMILY_METRIC[detail.card.family]
+      : detail?.kind === "legendary"
+        ? LEGENDARY_METRIC[detail.card.code]
+        : undefined;
+  const resolvedHoldersCode: string | undefined =
+    detail?.kind === "legendary" && HOLDERS_ONLY_CODES.has(detail.card.code) ? detail.card.code : undefined;
+
+  const [statisticsCache, setStatisticsCache] = useState<Partial<Record<ClubStatisticMetric, ClubStatisticTopPlayer[]>>>({});
+  const [holdersCache, setHoldersCache] = useState<Record<string, AchievementHolder[]>>({});
+  const [clubStatsLoading, setClubStatsLoading] = useState(false);
+
+  useEffect(() => {
+    if (resolvedMetric && !statisticsCache[resolvedMetric]) {
+      setClubStatsLoading(true);
+      fetch(`/api/leaderboard/statistics?metric=${resolvedMetric}`)
+        .then((response) => response.json())
+        .then((data: { topPlayers: ClubStatisticTopPlayer[] }) => {
+          setStatisticsCache((prev) => ({ ...prev, [resolvedMetric]: data.topPlayers ?? [] }));
+        })
+        .catch(() => {})
+        .finally(() => setClubStatsLoading(false));
+    }
+    if (resolvedHoldersCode && !holdersCache[resolvedHoldersCode]) {
+      setClubStatsLoading(true);
+      fetch(`/api/achievements/holders?code=${resolvedHoldersCode}`)
+        .then((response) => response.json())
+        .then((data: { holders: AchievementHolder[] }) => {
+          setHoldersCache((prev) => ({ ...prev, [resolvedHoldersCode]: data.holders ?? [] }));
+        })
+        .catch(() => {})
+        .finally(() => setClubStatsLoading(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedMetric, resolvedHoldersCode]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#10271e_0,#050706_42%,#000_75%)] px-4 py-6 pb-28 text-white">
@@ -185,6 +233,36 @@ export default function PlayerAchievementsPage() {
                   {detail.card.completedAt ? <p className="mt-1 text-xs text-white/40">Получено {new Date(detail.card.completedAt).toLocaleDateString("ru-RU")}</p> : null}
                 </div>
               )}
+
+              {resolvedMetric ? (
+                <section className="mt-6">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-white/45">
+                    Лучшие результаты клуба
+                  </h3>
+                  <div className="mt-3">
+                    {clubStatsLoading && !statisticsCache[resolvedMetric] ? (
+                      <p className="text-sm text-white/55">Загружаем...</p>
+                    ) : (
+                      <ClubStatisticsRankedList topPlayers={statisticsCache[resolvedMetric] ?? []} />
+                    )}
+                  </div>
+                </section>
+              ) : null}
+
+              {resolvedHoldersCode ? (
+                <section className="mt-6">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-white/45">
+                    Обладатели
+                  </h3>
+                  <div className="mt-3">
+                    {clubStatsLoading && !holdersCache[resolvedHoldersCode] ? (
+                      <p className="text-sm text-white/55">Загружаем...</p>
+                    ) : (
+                      <AchievementHoldersList holders={holdersCache[resolvedHoldersCode] ?? []} />
+                    )}
+                  </div>
+                </section>
+              ) : null}
             </div>
           </section>
         </div>
