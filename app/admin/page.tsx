@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import { isStaff, isSuperAdmin } from "@/lib/roles";
+import { MyAdminShiftCard } from "@/components/admin/my-admin-shift-card";
 import type { Player } from "@/types/domain";
 
 const TOURNAMENT_SECTION = {
@@ -107,6 +108,16 @@ const STAFF_SECTION_SUPER_ADMIN = {
   title: "ПЕРСОНАЛ",
   items: [
     ...STAFF_SECTION.items,
+    {
+      href: "/admin/admin-shifts",
+      title: "Смены администраторов",
+      icon: (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <polyline points="12 7 12 12 16 14" />
+        </svg>
+      ),
+    },
     {
       href: "/admin/dealers/stats",
       title: "Статистика дилеров",
@@ -219,16 +230,39 @@ const SYSTEM_SECTION = {
   ],
 };
 
-// Operator gets ONLY the "Модерация ников" entry from the full PLAYERS
-// section (approve-only, see app/admin/moderation/page.tsx) -- Активность,
-// Реферальная программа, Зачёт рейтинга stay Super-Admin-only, so they're
-// deliberately not included here.
+// Operator gets "Модерация ников" (approve-only, see
+// app/admin/moderation/page.tsx) and, per the referral simplification,
+// "Реферальная программа" too (edit referral_count only -- see
+// app/admin/referral/page.tsx and lib/admin-permissions.ts). Активность and
+// Зачёт рейтинга stay Super-Admin-only, so they're deliberately not
+// included here.
 const PLAYERS_SECTION_OPERATOR = {
   title: PLAYERS_SECTION.title,
-  items: [PLAYERS_SECTION.items.find((item) => item.href === "/admin/moderation")!],
+  items: [
+    PLAYERS_SECTION.items.find((item) => item.href === "/admin/moderation")!,
+    PLAYERS_SECTION.items.find((item) => item.href === "/admin/referral")!,
+  ],
 };
 
-export const OPERATOR_SECTIONS = [TOURNAMENT_SECTION, PLAYERS_SECTION_OPERATOR, STAFF_SECTION];
+// Operator gets exactly the manual-achievement-moderation surface of
+// /admin/achievements (Royal Flush today -- the page itself hides
+// Visuals/Resync for a non-Super-Admin caller, and the server-side
+// assertManualAchievement guard independently rejects any AUTOMATIC code
+// regardless of what this page sends). The rest of SYSTEM_SECTION (news,
+// settings, tournament-visuals, academy, account-merges) stays
+// Super-Admin-only, so this is a standalone section rather than folding
+// into SYSTEM_SECTION.
+const ACHIEVEMENTS_SECTION_OPERATOR = {
+  title: "ДОСТИЖЕНИЯ",
+  items: [SYSTEM_SECTION.items.find((item) => item.href === "/admin/achievements")!],
+};
+
+export const OPERATOR_SECTIONS = [
+  TOURNAMENT_SECTION,
+  PLAYERS_SECTION_OPERATOR,
+  STAFF_SECTION,
+  ACHIEVEMENTS_SECTION_OPERATOR,
+];
 
 const SUPER_ADMIN_SECTIONS = [
   TOURNAMENT_SECTION,
@@ -310,6 +344,8 @@ export default function AdminPage() {
             Моя работа (дилер) →
           </Link>
         ) : null}
+
+        <MyAdminShiftCard />
 
         <div className="mt-6 space-y-6">
           {sections.map((section) => (

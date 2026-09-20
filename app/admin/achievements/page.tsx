@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { BackButton } from "@/components/ui/back-button";
+import { resolveCurrentPlayer } from "@/lib/current-player";
+import { isStaff, isSuperAdmin } from "@/lib/roles";
+import type { Player } from "@/types/domain";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import {
   ACHIEVEMENT_CATEGORY,
@@ -47,6 +51,8 @@ const CENTRAL_ITEMS = [
 ];
 
 export default function AdminAchievementsPage() {
+  const [player, setPlayer] = useState<Player | null>(null);
+  const [accessChecked, setAccessChecked] = useState(false);
   const [configs, setConfigs] = useState<Record<string, AchievementVisualConfig>>({});
   const [selectedKey, setSelectedKey] = useState<AchievementAssetKey>("in_game");
   const [previewTier, setPreviewTier] = useState<AchievementTierLevel>("bronze");
@@ -69,11 +75,41 @@ export default function AdminAchievementsPage() {
   }
 
   useEffect(() => {
-    void loadVisuals().catch((error) => setMessage(String(error)));
-    void fetch("/api/admin/players").then((response) => response.json()).then((data) => setPlayers(data.players ?? []));
+    async function init() {
+      try {
+        const currentPlayer = await resolveCurrentPlayer();
+        setPlayer(currentPlayer);
+
+        if (!isStaff(currentPlayer?.role)) {
+          return;
+        }
+
+        // Operator only ever needs manual-achievement moderation (player
+        // search + grant/revoke), never Visuals/Resync -- and
+        // /api/admin/players is not on the operator allowlist (see
+        // lib/admin-permissions.ts). GET /api/admin/nicknames/players IS
+        // allowlisted for operator (same player-directory-read precedent
+        // used elsewhere) and returns a superset of the fields this page
+        // needs.
+        const isSuperAdminCaller = isSuperAdmin(currentPlayer?.role);
+        const playersEndpoint = isSuperAdminCaller ? "/api/admin/players" : "/api/admin/nicknames/players";
+        void fetch(playersEndpoint)
+          .then((response) => response.json())
+          .then((data) => setPlayers(data.players ?? []));
+
+        if (isSuperAdminCaller) {
+          void loadVisuals().catch((error) => setMessage(String(error)));
+        }
+      } finally {
+        setAccessChecked(true);
+      }
+    }
+    void init();
     // Initial load only; selection updates draft separately below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const isSuperAdminCaller = isSuperAdmin(player?.role);
 
   async function openPlayer(player: PlayerOption) {
     setSelectedPlayer(player);
@@ -164,8 +200,34 @@ export default function AdminAchievementsPage() {
   const isFrame = (FRAME_KEYS as readonly string[]).includes(selectedKey);
   const previewConfigs = { ...configs, [selectedKey]: draft };
   const selectedCentral = CENTRAL_ITEMS.find((item) => item.key === selectedKey);
-  const filteredPlayers = players.filter((player) => `${player.display_name} ${player.username ?? ""}`.toLowerCase().includes(playerSearch.toLowerCase())).slice(0, 12);
+  const filteredPlayers = players.filter((p) => `${p.display_name} ${p.username ?? ""}`.toLowerCase().includes(playerSearch.toLowerCase())).slice(0, 12);
   const selectedPlayerModel = buildAchievementDisplayModel(playerProgress);
+
+  if (!accessChecked) {
+    return (
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
+        <div className="mx-auto max-w-3xl">
+          <p className="text-sm text-white/70">Проверяем доступ...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!isStaff(player?.role)) {
+    return (
+      <main className="min-h-screen bg-black px-4 py-6 text-white">
+        <div className="mx-auto max-w-3xl">
+          <BackButton href="/admin" className="mb-4" />
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <h1 className="text-xl font-semibold">Доступ запрещён</h1>
+            <p className="mt-2 text-sm text-white/70">
+              Эта страница доступна только администратору.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
@@ -176,7 +238,7 @@ export default function AdminAchievementsPage() {
         <section className="mt-7 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
           <h2 className="text-xl font-semibold">Достижения игроков</h2>
           <input value={playerSearch} onChange={(event) => setPlayerSearch(event.target.value)} placeholder="Найти игрока" className="mt-3 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 outline-none" />
-          {playerSearch && !selectedPlayer ? <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-1">{filteredPlayers.map((player) => <button key={player.id} type="button" onClick={() => void openPlayer(player)} className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-white/5">{player.display_name}{player.username ? ` · @${player.username}` : ""}</button>)}</div> : null}
+          {playerSearch && !selectedPlayer ? <div className="mt-2 max-h-56 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-1">{filteredPlayers.map((option) => <button key={option.id} type="button" onClick={() => void openPlayer(option)} className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-white/5">{option.display_name}{option.username ? ` · @${option.username}` : ""}</button>)}</div> : null}
           {selectedPlayer ? (
             <div className="mt-4">
               <div className="flex items-center justify-between"><p className="font-semibold">{selectedPlayer.display_name}</p><button type="button" onClick={() => setSelectedPlayer(null)} className="text-xs text-white/50">Сменить</button></div>
@@ -190,6 +252,7 @@ export default function AdminAchievementsPage() {
           ) : null}
         </section>
 
+        {isSuperAdminCaller ? (
         <section className="mt-5 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
           <h2 className="text-xl font-semibold">Visuals</h2>
           <p className="mt-1 text-sm text-white/45">Единый preview для приложения и редактора</p>
@@ -252,7 +315,9 @@ export default function AdminAchievementsPage() {
             </div>
           </div>
         </section>
+        ) : null}
 
+        {isSuperAdminCaller ? (
         <section className="mt-5 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
           <h2 className="text-xl font-semibold">Полный пересчёт</h2>
           <p className="mt-1 text-sm text-white/45">Dry Run ничего не записывает. Apply не публикует historical events.</p>
@@ -282,6 +347,7 @@ export default function AdminAchievementsPage() {
             </div>
           ) : null}
         </section>
+        ) : null}
       </div>
     </main>
   );

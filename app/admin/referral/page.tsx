@@ -5,26 +5,32 @@ import { useEffect, useMemo, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
+import { isStaff } from "@/lib/roles";
 import type { Player } from "@/types/domain";
 
 function getVisibleName(player: Player) {
   return player.admin_display_name?.trim() || player.display_name;
 }
 
+// Simplified referral model: "Игрок привёл N друзей" -- an ordinary
+// operator may view/increase/decrease/correct referral_count. The old
+// free-reentry balance and Yandex review bonus controls are deliberately
+// removed from this page for everyone (not just operator) -- that business
+// logic is deprecated, not deleted: players.free_reentries_balance and
+// players.yandex_review_bonus_claimed keep their historical values in the
+// database, just unused by this flow. See features/admin.ts's
+// setPlayerReferralCount.
 export default function AdminReferralPage() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [accessChecked, setAccessChecked] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processingKey, setProcessingKey] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function loadPlayers() {
-    const payload = await fetchAdminJson<{ players: Player[] }>(
-      "/api/admin/referral"
-    );
+    const payload = await fetchAdminJson<{ players: Player[] }>("/api/admin/referral");
     setPlayers(payload.players);
   }
 
@@ -34,13 +40,11 @@ export default function AdminReferralPage() {
         const ensuredPlayer = await resolveCurrentPlayer();
         setPlayer(ensuredPlayer);
 
-        if (ensuredPlayer.role === "admin") {
+        if (isStaff(ensuredPlayer?.role)) {
           await loadPlayers();
         }
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Ошибка загрузки реферальных данных"
-        );
+        setError(err instanceof Error ? err.message : "Ошибка загрузки реферальных данных");
       } finally {
         setAccessChecked(true);
         setLoading(false);
@@ -63,33 +67,24 @@ export default function AdminReferralPage() {
     });
   }, [players, searchQuery]);
 
-  async function handleAction(
-    targetPlayer: Player,
-    action: string,
-    value?: boolean
-  ) {
-    const key = `${action}-${targetPlayer.id}`;
+  async function setReferralCount(targetPlayer: Player, nextCount: number) {
+    if (nextCount < 0) return;
+    setProcessingId(targetPlayer.id);
+    setError(null);
     try {
-      setProcessingKey(key);
-      setMessage(null);
-      setError(null);
-
       const payload = await fetchAdminJson<{ player: Player }>(
-        `/api/admin/referral/${targetPlayer.id}`,
+        `/api/admin/referral/${targetPlayer.id}/count`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action, value }),
+          body: JSON.stringify({ referralCount: nextCount }),
         }
       );
-
-      setPlayers((prev) =>
-        prev.map((p) => (p.id === targetPlayer.id ? payload.player : p))
-      );
+      setPlayers((prev) => prev.map((p) => (p.id === targetPlayer.id ? payload.player : p)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка обновления");
     } finally {
-      setProcessingKey(null);
+      setProcessingId(null);
     }
   }
 
@@ -103,7 +98,7 @@ export default function AdminReferralPage() {
     );
   }
 
-  if (player?.role !== "admin") {
+  if (!isStaff(player?.role)) {
     return (
       <main className="min-h-screen bg-black px-4 py-6 text-white">
         <div className="mx-auto max-w-4xl">
@@ -125,15 +120,7 @@ export default function AdminReferralPage() {
         <BackButton href="/admin" className="mb-4" />
 
         <h1 className="text-2xl font-bold">Реферальная программа</h1>
-        <p className="mt-2 text-sm text-white/70">
-          Рефералы, бесплатные re-entry и бонус за отзыв на Яндекс.
-        </p>
-
-        {message ? (
-          <div className="mt-4 rounded-xl border border-green-500/30 bg-green-500/10 p-4 text-sm text-green-200">
-            {message}
-          </div>
-        ) : null}
+        <p className="mt-2 text-sm text-white/70">Игрок привёл N друзей.</p>
 
         {error ? (
           <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
@@ -159,17 +146,14 @@ export default function AdminReferralPage() {
               const avatarUrl = getPlayerAvatarUrl(targetPlayer);
               const avatarFallback = getPlayerAvatarFallback(targetPlayer);
               const referralCount = targetPlayer.referral_count ?? 0;
-              const freeReentries = targetPlayer.free_reentries_balance ?? 0;
-              const yandexClaimed = targetPlayer.yandex_review_bonus_claimed ?? false;
-
-              const isAnyProcessing = processingKey?.endsWith(`-${targetPlayer.id}`) ?? false;
+              const isProcessing = processingId === targetPlayer.id;
 
               return (
                 <div
                   key={targetPlayer.id}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     {avatarUrl ? (
                       <img
                         src={avatarUrl}
@@ -186,91 +170,31 @@ export default function AdminReferralPage() {
                         {getVisibleName(targetPlayer)}
                       </p>
                       {targetPlayer.username ? (
-                        <p className="mt-0.5 text-xs text-white/45">
-                          @{targetPlayer.username}
-                        </p>
+                        <p className="mt-0.5 text-xs text-white/45">@{targetPlayer.username}</p>
                       ) : null}
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-3">
-                    <div className="flex flex-col gap-2">
-                      <p className="text-xs text-white/50">Рефералы</p>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleAction(targetPlayer, "decrement_referral")}
-                          disabled={isAnyProcessing || referralCount === 0}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
-                        >
-                          −
-                        </button>
-                        <span className="min-w-[1.25rem] text-center text-sm font-semibold text-white">
-                          {processingKey === `decrement_referral-${targetPlayer.id}` ||
-                          processingKey === `increment_referral-${targetPlayer.id}`
-                            ? "…"
-                            : referralCount}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleAction(targetPlayer, "increment_referral")}
-                          disabled={isAnyProcessing}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <p className="text-xs text-white/50">re-entry</p>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleAction(targetPlayer, "decrement_free_reentries")}
-                          disabled={isAnyProcessing || freeReentries === 0}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
-                        >
-                          −
-                        </button>
-                        <span className="min-w-[1.25rem] text-center text-sm font-semibold text-white">
-                          {processingKey === `decrement_free_reentries-${targetPlayer.id}` ||
-                          processingKey === `increment_free_reentries-${targetPlayer.id}`
-                            ? "…"
-                            : freeReentries}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleAction(targetPlayer, "increment_free_reentries")}
-                          disabled={isAnyProcessing}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <p className="text-xs text-white/50">Отзыв на Яндекс</p>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={yandexClaimed}
-                        disabled={isAnyProcessing}
-                        onClick={() =>
-                          handleAction(targetPlayer, "set_yandex_review", !yandexClaimed)
-                        }
-                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:opacity-40 ${
-                          yandexClaimed ? "bg-yellow-500" : "bg-white/20"
-                        }`}
-                      >
-                        <span
-                          className={`my-0.5 inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-                            yandexClaimed ? "translate-x-5" : "translate-x-0.5"
-                          }`}
-                        />
-                      </button>
-                    </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setReferralCount(targetPlayer, referralCount - 1)}
+                      disabled={isProcessing || referralCount === 0}
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
+                    >
+                      −
+                    </button>
+                    <span className="min-w-[2rem] text-center text-sm font-semibold text-white">
+                      {isProcessing ? "…" : referralCount}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setReferralCount(targetPlayer, referralCount + 1)}
+                      disabled={isProcessing}
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-sm text-white disabled:opacity-40"
+                    >
+                      +
+                    </button>
                   </div>
                 </div>
               );

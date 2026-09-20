@@ -99,6 +99,32 @@ const OPERATOR_ALLOWED_ROUTES: OperatorRoute[] = [
   // edits, timestamp corrections, dealer reassignment, tournament
   // correction all live there and stay denied).
   route("PATCH", "/api/admin/dealers/shifts/:shiftId/taxi-allowance"),
+
+  // Referral simplification -- "player has brought N friends" is now an
+  // ordinary operator capability. GET lists players to search/select (same
+  // "player directory read, no sensitive financial info" precedent as
+  // GET /api/admin/nicknames/players). The narrow count-only PATCH is
+  // allowlisted; the generic PATCH /api/admin/referral/:id (legacy bundled
+  // actions: free-reentry balance, Yandex review bonus) is deliberately
+  // NOT allowlisted -- operator gets exactly "edit referral_count",
+  // nothing else, same split as dealer taxi-allowance vs the general shift
+  // PATCH above.
+  route("GET", "/api/admin/referral"),
+  route("PATCH", "/api/admin/referral/:id/count"),
+
+  // Manual achievement moderation -- Royal Flush today, any future
+  // type=MANUAL achievement without changes here. The server-side
+  // assertManualAchievement guard (features/achievements.ts) independently
+  // rejects any AUTOMATIC code regardless of what's allowlisted here, so
+  // this can never be used to manually grant a metric-based achievement
+  // (Community/wins/ITM/KO/Boss/Streak/...). The full achievement-admin
+  // page also has visuals editing and a global resync tool -- neither of
+  // those routes (/api/admin/achievements/visuals*,
+  // /api/admin/achievements/resync) is allowlisted here, so operator
+  // access stays scoped to exactly this one manual-grant/revoke surface.
+  route("GET", "/api/admin/achievements/manual"),
+  route("POST", "/api/admin/achievements/manual"),
+  route("DELETE", "/api/admin/achievements/manual"),
 ];
 
 export function isAdminRouteAllowedForOperator(method: string, pathname: string): boolean {

@@ -92,3 +92,63 @@ describe("isAdminRouteAllowedForOperator -- Poker Clock finish retry", () => {
     ).toBe(false);
   });
 });
+
+// RELEASE A -- Admin Operations. Referral simplification: operator may
+// view the player list and edit ONLY referral_count via the narrow
+// count-only route; the generic bundled-action route (free-reentry
+// balance, Yandex review bonus) stays Super-Admin-only.
+describe("isAdminRouteAllowedForOperator -- referral simplification", () => {
+  it("allows an operator to list players for the referral page", () => {
+    expect(isAdminRouteAllowedForOperator("GET", "/api/admin/referral")).toBe(true);
+  });
+
+  it("allows an operator to set a player's referral_count via the narrow route", () => {
+    expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/referral/p1/count")).toBe(true);
+  });
+
+  it("still denies the generic bundled-action referral route -- free-reentry balance and Yandex review bonus stay Super-Admin-only", () => {
+    expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/referral/p1")).toBe(false);
+  });
+});
+
+// RELEASE A -- Royal Flush manual achievement moderation for operator.
+// Only the narrow manual-grant/revoke surface is allowlisted; the global
+// resync tool and visuals editing stay Super-Admin-only.
+describe("isAdminRouteAllowedForOperator -- manual achievement moderation", () => {
+  it("allows an operator to list a player's manual achievements", () => {
+    expect(isAdminRouteAllowedForOperator("GET", "/api/admin/achievements/manual")).toBe(true);
+  });
+
+  it("allows an operator to grant a manual achievement (server-side assertManualAchievement still rejects non-MANUAL codes)", () => {
+    expect(isAdminRouteAllowedForOperator("POST", "/api/admin/achievements/manual")).toBe(true);
+  });
+
+  it("allows an operator to revoke a manual achievement", () => {
+    expect(isAdminRouteAllowedForOperator("DELETE", "/api/admin/achievements/manual")).toBe(true);
+  });
+
+  it("still denies the global achievement resync tool", () => {
+    expect(isAdminRouteAllowedForOperator("POST", "/api/admin/achievements/resync")).toBe(false);
+  });
+
+  it("still denies achievement visuals editing", () => {
+    expect(isAdminRouteAllowedForOperator("GET", "/api/admin/achievements/visuals")).toBe(false);
+    expect(isAdminRouteAllowedForOperator("PUT", "/api/admin/achievements/visuals")).toBe(false);
+  });
+});
+
+// RELEASE A -- Admin Shifts. Self-service start/end/history live OUTSIDE
+// /api/admin/** entirely (/api/admin-shift/me/*, same pattern as
+// /api/dealer/me) so this allowlist does not apply to them at all -- they
+// are gated instead by assertServerActorRole(["admin","operator"]) inside
+// each route. Only the Super-Admin management surface lives under
+// /api/admin/** and must stay off this allowlist.
+describe("isAdminRouteAllowedForOperator -- admin shifts management stays Super-Admin-only", () => {
+  it("denies listing all admin shifts", () => {
+    expect(isAdminRouteAllowedForOperator("GET", "/api/admin/admin-shifts")).toBe(false);
+  });
+
+  it("denies editing an admin shift's amount", () => {
+    expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/admin-shifts/s1")).toBe(false);
+  });
+});

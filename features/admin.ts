@@ -207,3 +207,47 @@ export async function updatePlayerReferralData(
 
   return updated;
 }
+
+// Narrow, idempotent replacement for the bundled updatePlayerReferralData
+// actions above -- product simplification: referral semantics are now just
+// "player has brought N friends", editable by an ordinary operator (see
+// app/api/admin/referral/[id]/count/route.ts, allowlisted in
+// lib/admin-permissions.ts). Deliberately touches ONLY referral_count --
+// never free_reentries_balance or yandex_review_bonus_claimed, which stay
+// deprecated/unused by this new flow (both columns are kept for historical
+// compatibility, never dropped). Accepts the exact desired count rather
+// than an increment/decrement delta, so a retried request is a no-op, not
+// a double-application.
+export async function setPlayerReferralCount(
+  playerId: string,
+  referralCount: number
+): Promise<Player> {
+  if (!Number.isInteger(referralCount) || referralCount < 0) {
+    throw new Error("Количество рефералов должно быть неотрицательным целым числом");
+  }
+
+  const current = await playerRepository.findReferralFieldsById(playerId);
+  if (!current) {
+    throw new Error("Игрок не найден");
+  }
+
+  let updated: Player;
+  try {
+    updated = await playerRepository.update(playerId, { referral_count: referralCount });
+  } catch (err) {
+    throw new Error(`Ошибка обновления: ${errorMessage(err)}`);
+  }
+
+  // Same resync obligation as updatePlayerReferralData above -- referral_count
+  // is the Achievement Engine's canonical "referrals" metric, so any actual
+  // change must resync "Своя тусовка" progress immediately.
+  if (referralCount !== current.referral_count) {
+    try {
+      await syncPlayerAchievements(playerId, { publishActivityEvents: true });
+    } catch (err) {
+      console.error("[setPlayerReferralCount] Achievement sync failed:", err);
+    }
+  }
+
+  return updated;
+}

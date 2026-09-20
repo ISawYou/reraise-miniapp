@@ -124,6 +124,16 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       // Nickname moderation -- approve-only.
       ["GET", "/api/admin/nicknames/pending"],
       ["PATCH", "/api/admin/nicknames/p1/approve"],
+      // RELEASE A: referral simplification -- operator may list players and
+      // edit ONLY referral_count via the narrow count-only route.
+      ["GET", "/api/admin/referral"],
+      ["PATCH", "/api/admin/referral/p1/count"],
+      // RELEASE A: manual achievement moderation (Royal Flush) -- the
+      // server-side assertManualAchievement guard independently rejects any
+      // AUTOMATIC code regardless of this allowlist.
+      ["GET", "/api/admin/achievements/manual"],
+      ["POST", "/api/admin/achievements/manual"],
+      ["DELETE", "/api/admin/achievements/manual"],
     ];
 
     for (const [method, path] of allowed) {
@@ -146,11 +156,21 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       // Reject / edit / set_admin_display_name -- approve is on a separate,
       // narrower route (.../n1/approve) that IS allowed above.
       ["PATCH", "/api/admin/nicknames/n1"],
-      ["GET", "/api/admin/referral"],
+      // The generic bundled-action referral route (free-reentry balance,
+      // Yandex review bonus) stays denied -- only the narrow count-only
+      // route above is allowed (RELEASE A referral simplification).
+      ["PATCH", "/api/admin/referral/p1"],
       ["GET", "/api/admin/activity"],
       ["GET", "/api/admin/academy"],
-      ["POST", "/api/admin/achievements/manual"],
+      // Global resync/visuals editing stay denied -- only the narrow
+      // manual-grant/revoke route above is allowed (RELEASE A).
       ["POST", "/api/admin/achievements/resync"],
+      ["GET", "/api/admin/achievements/visuals"],
+      // Admin Shifts management (view all / edit amount) stays
+      // Super-Admin-only -- self-service lives outside /api/admin entirely
+      // (/api/admin-shift/me/*, not covered by this middleware at all).
+      ["GET", "/api/admin/admin-shifts"],
+      ["PATCH", "/api/admin/admin-shifts/s1"],
       ["GET", "/api/admin/tournament-visuals"],
       ["GET", "/api/admin/settings"],
       // Season management/rollover -- high-impact rating configuration,
