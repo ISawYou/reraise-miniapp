@@ -169,6 +169,13 @@
       "when": 1788781415590,
       "tag": "0023_lazy_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789905800002,
+      "tag": "0024_vengeful_mysterio",
+      "breakpoints": true
     }
   ]
 }
