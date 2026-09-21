@@ -128,6 +128,7 @@ export class PostgresResultRepository implements ResultRepository {
   async findAttendanceByTournamentId(tournamentId: string): Promise<ResultAttendanceRow[]> {
     return db
       .select({
+        player_id: results.playerId,
         arrived: results.arrived,
         reentries: results.reentries,
         addons: results.addons,

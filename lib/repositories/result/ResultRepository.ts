@@ -107,6 +107,11 @@ export type ResultHistoryRow = {
 // treats NULL as false, and never reuses isEffectiveArrivedResult's
 // rating-points fallback.
 export type ResultAttendanceRow = {
+  // Automatic free-re-entry analytical classification (owner/operator/
+  // dealer/promo, see features/finance-export.ts::classifyFreeReentries)
+  // needs to know WHOSE free_reentries these are -- role and per-tournament
+  // dealer-shift lookups are both keyed on this.
+  player_id: string;
   arrived: boolean | null;
   reentries: number;
   addons: number;

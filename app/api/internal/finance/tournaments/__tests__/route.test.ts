@@ -174,4 +174,40 @@ describe("GET /api/internal/finance/tournaments", () => {
     expect(response.status).toBe(200);
     expect(json.tournaments[0].adminPayrollRub).toBe(4000);
   });
+
+  // S) authenticated export contains freeReentryBreakdown (automatic
+  // owner/operator/dealer/promo classification).
+  it("S: an authenticated export row includes freeReentryBreakdown, passed through verbatim", async () => {
+    mockVerifyFinanceSyncRequest.mockReturnValue(true);
+    mockGetFinanceTournamentExport.mockResolvedValue([
+      {
+        sourceTournamentId: "t1",
+        title: "CLASSIC",
+        tournamentType: "classic",
+        startAt: "2026-01-15T20:00:00.000Z",
+        playersCount: 20,
+        entryCount: 20,
+        reentryCount: 5,
+        addonCount: 3,
+        freeReentryCount: 4,
+        freeReentryBreakdown: { ownerFreeCount: 1, operatorFreeCount: 1, dealerFreeCount: 0, promoFreeCount: 2 },
+        dealerPayrollRub: 6500,
+        adminPayrollRub: 4000,
+        attendanceUnknownCount: 0,
+        financiallyReliable: true,
+        sourceUpdatedAt: null,
+      },
+    ]);
+
+    const response = await GET(request("Bearer real-token"));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.tournaments[0].freeReentryBreakdown).toEqual({
+      ownerFreeCount: 1,
+      operatorFreeCount: 1,
+      dealerFreeCount: 0,
+      promoFreeCount: 2,
+    });
+  });
 });

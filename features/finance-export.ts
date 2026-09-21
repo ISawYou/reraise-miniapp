@@ -1,7 +1,8 @@
-import { tournamentRepository, resultRepository } from "@/lib/repositories";
+import { tournamentRepository, resultRepository, dealerRepository, playerRepository } from "@/lib/repositories";
 import { getTournamentDealerPayoutSummary } from "./dealers";
 import { getTournamentAdminPayoutSummary } from "./admin-shifts";
 import type { Tournament } from "@/types/domain";
+import type { ResultAttendanceRow } from "@/lib/repositories/result/ResultRepository";
 
 // RERAISE Finance data foundation. Exposes completed-tournament operational
 // data (frozen `results` + completed `dealer_shifts`) so the separate
@@ -28,6 +29,14 @@ export type FinanceTournamentExportRow = {
   // entry+reentry+addon itself. Additive alongside the existing raw counts
   // -- entryCount/reentryCount/addonCount are never reduced by it.
   freeReentryCount: number;
+  // Automatic analytical classification of freeReentryCount by likely
+  // cause -- purely additive breakdown of the SAME total above, never a
+  // second count. See classifyFreeReentries's doc comment for the
+  // priority rules and lib/roles.ts for what "owner"/"operator" mean at
+  // the DB level. Always present when the tournament was exported at all
+  // (buildExportRow throws rather than exporting an inconsistent one --
+  // see FreeReentryBreakdownInvariantError).
+  freeReentryBreakdown: FreeReentryBreakdown;
   dealerPayrollRub: number;
   // SUM(amount_rub) of COMPLETED admin_shifts (ended_at IS NOT NULL)
   // linked to this tournament -- see
@@ -117,6 +126,81 @@ export function summarizeTournamentAttendance(
   };
 }
 
+// Automatic analytical classification of freeReentryCount -- "why" a free
+// unit was used, as far as it can be inferred from data RERAISE already
+// has. "Промо" (promoFreeCount) is deliberately a single catch-all bucket
+// for every cause this data can't distinguish (girls, referral/friend
+// bonuses, reviews, other promotions, and historically-unknown reasons) --
+// see this feature's task doc comment, never split further here.
+export type FreeReentryBreakdown = {
+  ownerFreeCount: number;
+  operatorFreeCount: number;
+  dealerFreeCount: number;
+  promoFreeCount: number;
+};
+
+// A completed dealer shift's flat payout only ever covers up to 2 free
+// game units per tournament (matches the existing dealer-shift payroll
+// convention of a flat per-shift amount, not a per-unit one) -- any
+// free_reentries beyond that for the same player/tournament falls back to
+// Promo, never silently over-counted as dealer-caused.
+const DEALER_FREE_UNIT_CAP = 2;
+
+export class FreeReentryBreakdownInvariantError extends Error {
+  constructor(tournamentId: string, expected: number, actual: number) {
+    super(
+      `Free re-entry breakdown for tournament ${tournamentId} sums to ${actual}, expected ${expected} (freeReentryCount) -- refusing to export an inconsistent breakdown`
+    );
+    this.name = "FreeReentryBreakdownInvariantError";
+  }
+}
+
+// Classifies the SAME freeReentryCount total already computed by
+// summarizeTournamentAttendance -- never a second/parallel count, purely a
+// per-player breakdown of it. STRICT priority, checked in this order for
+// every arrived player with free_reentries > 0:
+//
+//   A. role === "admin"    (DB "admin" = Super Admin / owner)  -> ownerFreeCount, all of it
+//   B. role === "operator" (DB "operator" = club Administrator) -> operatorFreeCount, all of it
+//   C. worked a COMPLETED dealer shift tied to THIS tournament  -> dealerFreeCount, up to
+//      DEALER_FREE_UNIT_CAP units; any remainder -> promoFreeCount
+//   D. none of the above                                        -> promoFreeCount, all of it
+//
+// Role classification uses the player's CURRENT role (no role-history in
+// this codebase yet) -- see this feature's task doc comment for why that's
+// an accepted, deliberate limitation for historical tournaments, not a bug.
+export function classifyFreeReentries(
+  rows: Pick<ResultAttendanceRow, "player_id" | "arrived" | "free_reentries">[],
+  roleByPlayerId: ReadonlyMap<string, string>,
+  dealerPlayerIdsForTournament: ReadonlySet<string>
+): FreeReentryBreakdown {
+  let ownerFreeCount = 0;
+  let operatorFreeCount = 0;
+  let dealerFreeCount = 0;
+  let promoFreeCount = 0;
+
+  for (const row of rows) {
+    if (row.arrived !== true) continue;
+    const free = row.free_reentries ?? 0;
+    if (free <= 0) continue;
+
+    const role = roleByPlayerId.get(row.player_id);
+    if (role === "admin") {
+      ownerFreeCount += free;
+    } else if (role === "operator") {
+      operatorFreeCount += free;
+    } else if (dealerPlayerIdsForTournament.has(row.player_id)) {
+      const dealerUnits = Math.min(free, DEALER_FREE_UNIT_CAP);
+      dealerFreeCount += dealerUnits;
+      promoFreeCount += free - dealerUnits;
+    } else {
+      promoFreeCount += free;
+    }
+  }
+
+  return { ownerFreeCount, operatorFreeCount, dealerFreeCount, promoFreeCount };
+}
+
 export type FinanceTournamentExportOptions = {
   from?: string;
   to?: string;
@@ -131,13 +215,51 @@ function toRangeEnd(date?: string): Date | undefined {
 }
 
 async function buildExportRow(tournament: Tournament): Promise<FinanceTournamentExportRow> {
-  const [attendanceRows, dealerPayout, adminPayout] = await Promise.all([
+  const [attendanceRows, dealerPayout, adminPayout, dealerShifts] = await Promise.all([
     resultRepository.findAttendanceByTournamentId(tournament.id),
     getTournamentDealerPayoutSummary(tournament.id),
     getTournamentAdminPayoutSummary(tournament.id),
+    dealerRepository.listShiftsByTournamentId(tournament.id),
   ]);
 
   const attendance = summarizeTournamentAttendance(attendanceRows);
+
+  // Only the players who actually need classifying (arrived, free_reentries
+  // > 0) -- one bulk role lookup per tournament, never per-row (see
+  // playerRepository.findSummariesByIds's own doc comment: it already
+  // exists for exactly this kind of bulk id->role lookup).
+  const freeReentryPlayerIds = Array.from(
+    new Set(
+      attendanceRows
+        .filter((row) => row.arrived === true && (row.free_reentries ?? 0) > 0)
+        .map((row) => row.player_id)
+    )
+  );
+  const roleSummaries = freeReentryPlayerIds.length
+    ? await playerRepository.findSummariesByIds(freeReentryPlayerIds)
+    : [];
+  const roleByPlayerId = new Map(roleSummaries.map((player) => [player.id, player.role]));
+
+  // Same "only COMPLETED shifts count" convention as
+  // getTournamentDealerPayoutSummary above -- an open shift never makes a
+  // player count as "worked this tournament" for classification either.
+  const dealerPlayerIdsForTournament = new Set(
+    dealerShifts.filter((shift) => shift.ended_at !== null).map((shift) => shift.dealer_player_id)
+  );
+
+  const freeReentryBreakdown = classifyFreeReentries(
+    attendanceRows,
+    roleByPlayerId,
+    dealerPlayerIdsForTournament
+  );
+  const breakdownSum =
+    freeReentryBreakdown.ownerFreeCount +
+    freeReentryBreakdown.operatorFreeCount +
+    freeReentryBreakdown.dealerFreeCount +
+    freeReentryBreakdown.promoFreeCount;
+  if (breakdownSum !== attendance.freeReentryCount) {
+    throw new FreeReentryBreakdownInvariantError(tournament.id, attendance.freeReentryCount, breakdownSum);
+  }
 
   return {
     sourceTournamentId: tournament.id,
@@ -149,6 +271,7 @@ async function buildExportRow(tournament: Tournament): Promise<FinanceTournament
     reentryCount: attendance.reentryCount,
     addonCount: attendance.addonCount,
     freeReentryCount: attendance.freeReentryCount,
+    freeReentryBreakdown,
     dealerPayrollRub: dealerPayout.payoutRub,
     adminPayrollRub: adminPayout.payoutRub,
     attendanceUnknownCount: attendance.attendanceUnknownCount,

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   findAttendanceByTournamentId: vi.fn(),
   getTournamentDealerPayoutSummary: vi.fn(),
   getTournamentAdminPayoutSummary: vi.fn(),
+  listShiftsByTournamentId: vi.fn(),
+  findSummariesByIds: vi.fn(),
 }));
 
 vi.mock("@/lib/repositories", () => ({
@@ -17,6 +19,12 @@ vi.mock("@/lib/repositories", () => ({
   },
   resultRepository: {
     findAttendanceByTournamentId: mocks.findAttendanceByTournamentId,
+  },
+  dealerRepository: {
+    listShiftsByTournamentId: mocks.listShiftsByTournamentId,
+  },
+  playerRepository: {
+    findSummariesByIds: mocks.findSummariesByIds,
   },
 }));
 
@@ -28,9 +36,12 @@ vi.mock("@/features/admin-shifts", () => ({
   getTournamentAdminPayoutSummary: mocks.getTournamentAdminPayoutSummary,
 }));
 
-const { getFinanceTournamentExport, summarizeTournamentAttendance } = await import(
-  "@/features/finance-export"
-);
+const {
+  getFinanceTournamentExport,
+  summarizeTournamentAttendance,
+  classifyFreeReentries,
+  FreeReentryBreakdownInvariantError,
+} = await import("@/features/finance-export");
 
 function tournament(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -56,12 +67,18 @@ function tournament(overrides: Partial<Record<string, unknown>> = {}) {
 beforeEach(() => {
   mocks.listCompletedInRange.mockReset();
   mocks.findAttendanceByTournamentId.mockReset();
-  mocks.getTournamentDealerPayoutSummary.mockReset();
-  // Sensible default so every pre-existing dealer-payroll test (written
-  // before this field existed) doesn't need its own admin-payout stub --
-  // explicit tests below override this where adminPayrollRub itself is
-  // under test.
+  // Sensible defaults so tests focused on freeReentryBreakdown don't each
+  // need their own dealer/admin-payout stub -- explicit tests elsewhere
+  // override these where dealerPayrollRub/adminPayrollRub itself is under test.
+  mocks.getTournamentDealerPayoutSummary.mockReset().mockResolvedValue({ dealersCount: 0, payoutRub: 0 });
   mocks.getTournamentAdminPayoutSummary.mockReset().mockResolvedValue({ adminsCount: 0, payoutRub: 0 });
+  // Same reasoning: every pre-existing test (written before
+  // freeReentryBreakdown existed) gets an empty roster/no-shifts default,
+  // so free_reentries in those fixtures fall through to promoFreeCount --
+  // explicit tests below override these where the breakdown itself is
+  // under test.
+  mocks.listShiftsByTournamentId.mockReset().mockResolvedValue([]);
+  mocks.findSummariesByIds.mockReset().mockResolvedValue([]);
 });
 
 describe("summarizeTournamentAttendance (pure)", () => {
@@ -239,6 +256,7 @@ describe("getFinanceTournamentExport", () => {
         reentryCount: 2,
         addonCount: 2,
         freeReentryCount: 1,
+        freeReentryBreakdown: { ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 0, promoFreeCount: 1 },
         dealerPayrollRub: 6500,
         adminPayrollRub: 0,
         attendanceUnknownCount: 0,
@@ -402,5 +420,295 @@ describe("getFinanceTournamentExport", () => {
     expect(row.attendanceUnknownCount).toBe(1);
     expect(row.financiallyReliable).toBe(false);
     expect(row.adminPayrollRub).toBe(99000);
+  });
+});
+
+// Automatic owner/operator/dealer/promo classification of freeReentryCount
+// -- pure function tests. dealerPlayerIdsForTournament is always the
+// CALLER's already-per-tournament-scoped set (built by buildExportRow from
+// dealerRepository.listShiftsByTournamentId(tournament.id)), so
+// classifyFreeReentries itself never re-checks "which tournament".
+describe("classifyFreeReentries (pure) -- automatic owner/operator/dealer/promo classification", () => {
+  function row(player_id: string, free_reentries: number, arrived: boolean | null = true) {
+    return { player_id, arrived, free_reentries };
+  }
+
+  // A) owner (DB role "admin" = Super Admin) -- all free units, none shared.
+  it("A: owner role (admin), free=3 -> owner=3, others=0", () => {
+    const result = classifyFreeReentries([row("p1", 3)], new Map([["p1", "admin"]]), new Set());
+    expect(result).toEqual({ ownerFreeCount: 3, operatorFreeCount: 0, dealerFreeCount: 0, promoFreeCount: 0 });
+  });
+
+  // B) operator (DB role "operator" = club Administrator).
+  it("B: operator role, free=2 -> operator=2", () => {
+    const result = classifyFreeReentries([row("p1", 2)], new Map([["p1", "operator"]]), new Set());
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 2, dealerFreeCount: 0, promoFreeCount: 0 });
+  });
+
+  // C) dealer_profile existence alone is irrelevant here -- classifyFreeReentries
+  // only ever consults the caller-supplied per-tournament dealer set.
+  it("C: not in the per-tournament dealer set (no shift on THIS tournament), free=2 -> promo=2", () => {
+    const result = classifyFreeReentries([row("p1", 2)], new Map([["p1", "player"]]), new Set());
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 0, promoFreeCount: 2 });
+  });
+
+  // D-G) worked this tournament (in the dealer set) -- capped at 2 units.
+  it("D: dealer on this tournament, free=1 -> dealer=1", () => {
+    const result = classifyFreeReentries([row("p1", 1)], new Map(), new Set(["p1"]));
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 1, promoFreeCount: 0 });
+  });
+
+  it("E: dealer on this tournament, free=2 -> dealer=2", () => {
+    const result = classifyFreeReentries([row("p1", 2)], new Map(), new Set(["p1"]));
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 2, promoFreeCount: 0 });
+  });
+
+  it("F: dealer on this tournament, free=3 -> dealer=2, promo=1", () => {
+    const result = classifyFreeReentries([row("p1", 3)], new Map(), new Set(["p1"]));
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 2, promoFreeCount: 1 });
+  });
+
+  it("G: dealer on this tournament, free=5 -> dealer=2, promo=3", () => {
+    const result = classifyFreeReentries([row("p1", 5)], new Map(), new Set(["p1"]));
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 2, promoFreeCount: 3 });
+  });
+
+  // H) ordinary player, no role/dealer match.
+  it("H: ordinary player, free=2 -> promo=2", () => {
+    const result = classifyFreeReentries([row("p1", 2)], new Map([["p1", "player"]]), new Set());
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 0, promoFreeCount: 2 });
+  });
+
+  // I) owner/operator priority over dealer status -- STRICT priority order.
+  it("I: owner who ALSO worked this tournament as dealer -- owner wins, dealer=0", () => {
+    const result = classifyFreeReentries([row("p1", 3)], new Map([["p1", "admin"]]), new Set(["p1"]));
+    expect(result).toEqual({ ownerFreeCount: 3, operatorFreeCount: 0, dealerFreeCount: 0, promoFreeCount: 0 });
+  });
+
+  it("I: operator who ALSO worked this tournament as dealer -- operator wins, dealer=0", () => {
+    const result = classifyFreeReentries([row("p1", 2)], new Map([["p1", "operator"]]), new Set(["p1"]));
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 2, dealerFreeCount: 0, promoFreeCount: 0 });
+  });
+
+  // J) a dealer shift on a DIFFERENT tournament never counts here --
+  // enforced by the caller only ever passing in THIS tournament's set.
+  it("J: dealer set scoped to a different tournament -- this player is not counted as dealer here", () => {
+    const result = classifyFreeReentries([row("p1", 2)], new Map(), new Set(["someone-else-entirely"]));
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 0, promoFreeCount: 2 });
+  });
+
+  it("skips non-arrived and zero/negative free_reentries rows entirely", () => {
+    const result = classifyFreeReentries(
+      [row("p1", 5, false), row("p2", 0, true), row("p3", 5, null)],
+      new Map([["p1", "admin"], ["p2", "admin"], ["p3", "admin"]]),
+      new Set()
+    );
+    expect(result).toEqual({ ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 0, promoFreeCount: 0 });
+  });
+
+  it("FreeReentryBreakdownInvariantError carries the tournament id and both sums in its message", () => {
+    const err = new FreeReentryBreakdownInvariantError("t1", 5, 3);
+    expect(err.name).toBe("FreeReentryBreakdownInvariantError");
+    expect(err.message).toContain("t1");
+    expect(err.message).toContain("5");
+    expect(err.message).toContain("3");
+  });
+});
+
+function playerSummary(id: string, role: string) {
+  return { id, role, display_name: id, username: null, email: null };
+}
+
+function dealerShift(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "shift-1",
+    dealer_player_id: "dealer1",
+    started_at: "2026-09-01T18:00:00.000Z",
+    ended_at: "2026-09-01T23:00:00.000Z",
+    hourly_rate_rub: 500,
+    worked_minutes: 300,
+    paid_hours: 5,
+    amount_rub: 2500,
+    taxi_allowance_rub: 0,
+    tournament_id: "t1",
+    created_by_player_id: null,
+    ended_by_player_id: null,
+    ...overrides,
+  };
+}
+
+describe("getFinanceTournamentExport -- freeReentryBreakdown wiring (bulk role + dealer-shift lookups)", () => {
+  it("classifies owner (Super Admin) free_reentries via the player's current role", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "owner1", arrived: true, reentries: 1, addons: 0, free_reentries: 3 },
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([playerSummary("owner1", "admin")]);
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.freeReentryBreakdown).toEqual({
+      ownerFreeCount: 3,
+      operatorFreeCount: 0,
+      dealerFreeCount: 0,
+      promoFreeCount: 0,
+    });
+    expect(mocks.findSummariesByIds).toHaveBeenCalledWith(["owner1"]);
+  });
+
+  it("classifies a dealer's free_reentries only when a COMPLETED shift ties them to THIS tournament", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "dealer1", arrived: true, reentries: 1, addons: 0, free_reentries: 2 },
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([playerSummary("dealer1", "player")]);
+    mocks.listShiftsByTournamentId.mockResolvedValue([dealerShift({ dealer_player_id: "dealer1" })]);
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.freeReentryBreakdown).toEqual({
+      ownerFreeCount: 0,
+      operatorFreeCount: 0,
+      dealerFreeCount: 2,
+      promoFreeCount: 0,
+    });
+    expect(mocks.listShiftsByTournamentId).toHaveBeenCalledWith("t1");
+  });
+
+  // K) confirm current canonical semantics first: an OPEN dealer shift
+  // (ended_at === null) is not a "worked" shift -- same rule
+  // getTournamentDealerPayoutSummary already applies to payroll -- so this
+  // player is NOT classified as dealer, falling back to promo.
+  it("K: an OPEN dealer shift on this tournament does not count as dealer work -- falls back to promo", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "dealer1", arrived: true, reentries: 1, addons: 0, free_reentries: 2 },
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([playerSummary("dealer1", "player")]);
+    mocks.listShiftsByTournamentId.mockResolvedValue([
+      dealerShift({ dealer_player_id: "dealer1", ended_at: null, amount_rub: null, worked_minutes: null, paid_hours: null }),
+    ]);
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.freeReentryBreakdown).toEqual({
+      ownerFreeCount: 0,
+      operatorFreeCount: 0,
+      dealerFreeCount: 0,
+      promoFreeCount: 2,
+    });
+  });
+
+  // L) the control formula: breakdown always sums to freeReentryCount, across a mixed tournament.
+  it("L: owner + operator + dealer(capped) + promo sums exactly to freeReentryCount", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "owner1", arrived: true, reentries: 1, addons: 0, free_reentries: 1 },
+      { player_id: "op1", arrived: true, reentries: 1, addons: 0, free_reentries: 1 },
+      { player_id: "dealer1", arrived: true, reentries: 1, addons: 0, free_reentries: 3 },
+      { player_id: "promo1", arrived: true, reentries: 1, addons: 0, free_reentries: 2 },
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([
+      playerSummary("owner1", "admin"),
+      playerSummary("op1", "operator"),
+      playerSummary("dealer1", "player"),
+      playerSummary("promo1", "player"),
+    ]);
+    mocks.listShiftsByTournamentId.mockResolvedValue([dealerShift({ dealer_player_id: "dealer1" })]);
+
+    const [row] = await getFinanceTournamentExport({});
+
+    const b = row.freeReentryBreakdown;
+    expect(b).toEqual({ ownerFreeCount: 1, operatorFreeCount: 1, dealerFreeCount: 2, promoFreeCount: 3 });
+    expect(b.ownerFreeCount + b.operatorFreeCount + b.dealerFreeCount + b.promoFreeCount).toBe(
+      row.freeReentryCount
+    );
+    expect(row.freeReentryCount).toBe(7);
+  });
+
+  // M) freeReentryCount=0 -> breakdown all zero, and no wasted role lookup.
+  it("M: freeReentryCount 0 -> breakdown is all-zero, and the role lookup is skipped entirely", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "p1", arrived: true, reentries: 1, addons: 0, free_reentries: 0 },
+    ]);
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.freeReentryBreakdown).toEqual({
+      ownerFreeCount: 0,
+      operatorFreeCount: 0,
+      dealerFreeCount: 0,
+      promoFreeCount: 0,
+    });
+    expect(mocks.findSummariesByIds).not.toHaveBeenCalled();
+  });
+
+  // N) existing freeReentryCount logic is untouched by the breakdown addition.
+  it("N: freeReentryCount itself is computed exactly as before, unaffected by breakdown classification", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "p1", arrived: true, reentries: 1, addons: 0, free_reentries: 4 },
+      { player_id: "p2", arrived: false, reentries: 1, addons: 0, free_reentries: 9 },
+      { player_id: "p3", arrived: null, reentries: 1, addons: 0, free_reentries: 9 },
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([playerSummary("p1", "player")]);
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.freeReentryCount).toBe(4);
+  });
+
+  // O) dealerPayrollRub unaffected.
+  it("O: dealerPayrollRub is unaffected by freeReentryBreakdown classification", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "dealer1", arrived: true, reentries: 1, addons: 0, free_reentries: 2 },
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([playerSummary("dealer1", "player")]);
+    mocks.listShiftsByTournamentId.mockResolvedValue([dealerShift({ dealer_player_id: "dealer1" })]);
+    mocks.getTournamentDealerPayoutSummary.mockResolvedValue({ dealersCount: 1, payoutRub: 6500 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.dealerPayrollRub).toBe(6500);
+    expect(row.freeReentryBreakdown.dealerFreeCount).toBe(2);
+  });
+
+  // P) adminPayrollRub unaffected.
+  it("P: adminPayrollRub is unaffected by freeReentryBreakdown classification", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "owner1", arrived: true, reentries: 1, addons: 0, free_reentries: 3 },
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([playerSummary("owner1", "admin")]);
+    mocks.getTournamentAdminPayoutSummary.mockResolvedValue({ adminsCount: 1, payoutRub: 4000 });
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.adminPayrollRub).toBe(4000);
+    expect(row.freeReentryBreakdown.ownerFreeCount).toBe(3);
+  });
+
+  // Q) entry/reentry/addon counts unaffected.
+  it("Q: entryCount/reentryCount/addonCount are unaffected by freeReentryBreakdown classification", async () => {
+    mocks.listCompletedInRange.mockResolvedValue([tournament({ id: "t1" })]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "dealer1", arrived: true, reentries: 4, addons: 2, free_reentries: 5 },
+    ]);
+    mocks.findSummariesByIds.mockResolvedValue([playerSummary("dealer1", "player")]);
+    mocks.listShiftsByTournamentId.mockResolvedValue([dealerShift({ dealer_player_id: "dealer1" })]);
+
+    const [row] = await getFinanceTournamentExport({});
+
+    expect(row.entryCount).toBe(1);
+    expect(row.reentryCount).toBe(3);
+    expect(row.addonCount).toBe(2);
+    expect(row.freeReentryBreakdown).toEqual({
+      ownerFreeCount: 0,
+      operatorFreeCount: 0,
+      dealerFreeCount: 2,
+      promoFreeCount: 3,
+    });
   });
 });

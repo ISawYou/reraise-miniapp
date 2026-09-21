@@ -216,7 +216,7 @@ export class SupabaseResultRepository implements ResultRepository {
     const supabase = getSupabaseServer();
     const { data, error } = await supabase
       .from("results")
-      .select("arrived, reentries, addons")
+      .select("player_id, arrived, reentries, addons")
       .eq("tournament_id", tournamentId);
 
     if (error) {
