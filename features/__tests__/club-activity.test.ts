@@ -237,6 +237,50 @@ describe("Club Activity automatic events", () => {
       idempotency_key: "achievement:player-1:headhunter",
     });
   });
+
+  it("never publishes Bubble Boy (marco_reus) to public activity -- returns null, no repository create", async () => {
+    const repository = new MemoryActivityRepository();
+    const create = vi.spyOn(repository, "createAutomaticIdempotently");
+
+    const result = await publishLegendaryAchievementEvent("player-1", "marco_reus", repository);
+
+    expect(result).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(repository.rows).toHaveLength(0);
+  });
+
+  it("other Legendary achievements still publish exactly as before", async () => {
+    const repository = new MemoryActivityRepository();
+    const create = vi.spyOn(repository, "createAutomaticIdempotently");
+
+    const event = await publishLegendaryAchievementEvent("player-1", "headhunter", repository);
+
+    expect(event).not.toBeNull();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0]).toMatchObject({
+      event_type: "achievement",
+      achievement_code: "headhunter",
+      idempotency_key: "achievement:player-1:headhunter",
+      cta_url: "/players/player-1/achievements",
+    });
+  });
+});
+
+describe("Club Activity public-activity achievement policy", () => {
+  it("marco_reus is the only hidden code; every other Legendary stays publishable", async () => {
+    const { isAchievementPublishableToPublicActivity } = await import("@/lib/club-activity-policy");
+    const { ACHIEVEMENTS_CATALOG, ACHIEVEMENT_CATEGORY } = await import("@/config/achievements");
+
+    expect(isAchievementPublishableToPublicActivity("marco_reus")).toBe(false);
+    const otherLegendary = ACHIEVEMENTS_CATALOG.filter(
+      (definition) =>
+        definition.category === ACHIEVEMENT_CATEGORY.LEGENDARY && definition.code !== "marco_reus"
+    );
+    expect(otherLegendary.length).toBeGreaterThan(0);
+    for (const definition of otherLegendary) {
+      expect(isAchievementPublishableToPublicActivity(definition.code)).toBe(true);
+    }
+  });
 });
 
 describe("Club Activity social", () => {

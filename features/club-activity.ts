@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isAchievementPublishableToPublicActivity } from "@/lib/club-activity-policy";
 import {
   ACHIEVEMENT_CATEGORY,
   getAchievementDefinition,
@@ -311,6 +312,7 @@ export async function publishLegendaryAchievementEvent(
 ): Promise<ClubActivityEvent | null> {
   const definition = getAchievementDefinition(achievementCode);
   if (!definition || !isLegendaryAchievement(definition)) return null;
+  if (!isAchievementPublishableToPublicActivity(definition.code)) return null;
   const player = await playerRepository.findById(playerId);
   if (!player) return null;
   return enrichEvent(await repository.createAutomaticIdempotently({

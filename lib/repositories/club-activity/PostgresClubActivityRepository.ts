@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, count, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   clubActivityComments,
@@ -18,6 +18,7 @@ import type {
   CreateManualClubActivityEvent,
   UpdateManualClubActivityEvent,
 } from "./ClubActivityRepository";
+import { PUBLIC_ACTIVITY_HIDDEN_ACHIEVEMENT_CODES } from "@/lib/club-activity-policy";
 
 const eventSelection = {
   id: clubActivityEvents.id,
@@ -101,6 +102,22 @@ function mapEvent(row: SelectedEvent): ClubActivityEventRecord {
   };
 }
 
+// Every PUBLIC read (feed page, detail, like/comment guards) shares this
+// one WHERE clause, applied in SQL before LIMIT/OFFSET so a hidden row never
+// produces a short page or shifted offset. `achievement_code IS NULL OR …`
+// is required: NOT IN alone is NULL (= filtered out) for the ordinary
+// NULL-code rows (news, tournament winner, …). Admin reads don't use it.
+export function publicClubActivityVisibility(now: Date = new Date()) {
+  return and(
+    eq(clubActivityEvents.status, "published"),
+    lte(clubActivityEvents.publishedAt, now),
+    or(
+      isNull(clubActivityEvents.achievementCode),
+      notInArray(clubActivityEvents.achievementCode, [...PUBLIC_ACTIVITY_HIDDEN_ACHIEVEMENT_CODES]),
+    ),
+  );
+}
+
 function selectEvents() {
   return db
     .select(eventSelection)
@@ -113,8 +130,7 @@ export class PostgresClubActivityRepository implements ClubActivityRepository {
   async listPublished(limit: number, offset: number): Promise<ClubActivityEventRecord[]> {
     const rows = await selectEvents()
       .where(and(
-        eq(clubActivityEvents.status, "published"),
-        lte(clubActivityEvents.publishedAt, new Date()),
+        publicClubActivityVisibility(),
       ))
       .orderBy(desc(clubActivityEvents.publishedAt), desc(clubActivityEvents.createdAt))
       .limit(limit)
@@ -165,8 +181,7 @@ export class PostgresClubActivityRepository implements ClubActivityRepository {
       .leftJoin(players, eq(clubActivityEvents.playerId, players.id))
       .leftJoin(tournaments, eq(clubActivityEvents.tournamentId, tournaments.id))
       .where(and(
-        eq(clubActivityEvents.status, "published"),
-        lte(clubActivityEvents.publishedAt, new Date()),
+        publicClubActivityVisibility(),
       ))
       .orderBy(desc(clubActivityEvents.publishedAt), desc(clubActivityEvents.createdAt))
       .limit(limit)
@@ -183,8 +198,7 @@ export class PostgresClubActivityRepository implements ClubActivityRepository {
   async findPublishedById(eventId: string): Promise<ClubActivityEventRecord | null> {
     const [row] = await selectEvents().where(and(
       eq(clubActivityEvents.id, eventId),
-      eq(clubActivityEvents.status, "published"),
-      lte(clubActivityEvents.publishedAt, new Date()),
+      publicClubActivityVisibility(),
     )).limit(1);
     return row ? mapEvent(row as SelectedEvent) : null;
   }

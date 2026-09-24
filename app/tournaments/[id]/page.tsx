@@ -24,6 +24,7 @@ import {
   getTournamentTypeLabel,
   sortParticipantsByRating,
   splitTournamentLiveRoster,
+  supportsTournamentKnockouts,
 } from "@/lib/tournament-helpers";
 import { getTelegramUser } from "@/lib/telegram";
 import { FINAL_MONTH_LABEL } from "@/config/tournament-presets";
@@ -356,6 +357,15 @@ export default function TournamentDetailsPage() {
   const tournamentTypeBonusLines = tournament
     ? getTournamentTypeBonusLines(tournament.tournament_type)
     : [];
+  // Results tab: KO column only for formats that actually have ordinary
+  // knockouts -- elsewhere it's a column of zeros. Full literal class
+  // strings so Tailwind picks both layouts up.
+  const showKnockouts = tournament
+    ? supportsTournamentKnockouts(tournament.tournament_type)
+    : false;
+  const resultsGridCols = showKnockouts
+    ? "grid-cols-[40px_minmax(0,1fr)_44px_58px] sm:grid-cols-[48px_minmax(0,1fr)_80px_80px]"
+    : "grid-cols-[40px_minmax(0,1fr)_58px] sm:grid-cols-[48px_minmax(0,1fr)_80px]";
   const registeredParticipants = participants.filter(
   (participant) =>
     participant.status === "registered" || participant.status === "attended"
@@ -773,10 +783,10 @@ const waitlistParticipants = participants.filter(
             <div className="border-b border-white/10 px-3 py-2.5 text-xs font-medium text-emerald-200/75 sm:px-4">
               {tournament.is_final ? "Результаты" : `Призовая зона: ТОП-${expectedPrizePlaces}`}
             </div>
-            <div className="grid grid-cols-[40px_minmax(0,1fr)_44px_58px] gap-2 border-b border-white/10 px-3 py-3 text-xs uppercase tracking-wide text-white/50 sm:grid-cols-[48px_minmax(0,1fr)_80px_80px] sm:gap-3 sm:px-4">
+            <div className={`grid ${resultsGridCols} gap-2 border-b border-white/10 px-3 py-3 text-xs uppercase tracking-wide text-white/50 sm:gap-3 sm:px-4`}>
               <div className="text-center">Место</div>
               <div>Игрок</div>
-              <div className="text-right">KO</div>
+              {showKnockouts ? <div className="text-right">KO</div> : null}
               <div className="text-right">Очки</div>
             </div>
 
@@ -798,7 +808,7 @@ const waitlistParticipants = participants.filter(
                   : "border-white/10 bg-white/[0.04] text-white/70";
                 return <div
                   key={`${result.player_id}-${result.place}`}
-                  className={`grid grid-cols-[40px_minmax(0,1fr)_44px_58px] items-center gap-2 border-b px-3 py-4 last:border-b-0 sm:grid-cols-[48px_minmax(0,1fr)_80px_80px] sm:gap-3 sm:px-4 ${rowTone} ${result.place === expectedPrizePlaces ? "border-b-2 border-b-emerald-300/30" : ""}`}
+                  className={`grid ${resultsGridCols} items-center gap-2 border-b px-3 py-4 last:border-b-0 sm:gap-3 sm:px-4 ${rowTone} ${result.place === expectedPrizePlaces ? "border-b-2 border-b-emerald-300/30" : ""}`}
                 >
                   <div className={`flex h-7 min-w-7 items-center justify-center justify-self-center rounded-lg border px-1 text-xs font-bold tabular-nums ${badgeTone}`}>
                     {result.place}
@@ -814,9 +824,11 @@ const waitlistParticipants = participants.filter(
                     {isItm && !isPodium ? <span className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wider text-emerald-200/70">ITM</span> : null}
                   </div>
 
-                  <div className="shrink-0 text-right text-sm font-semibold tabular-nums text-white/80">
-                    {result.knockouts}
-                  </div>
+                  {showKnockouts ? (
+                    <div className="shrink-0 text-right text-sm font-semibold tabular-nums text-white/80">
+                      {result.knockouts}
+                    </div>
+                  ) : null}
 
                   <div className="shrink-0 text-right text-sm font-semibold tabular-nums text-white/80">
                     {result.rating_points}
