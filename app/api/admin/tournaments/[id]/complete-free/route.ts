@@ -154,6 +154,13 @@ export async function POST(
         // setTournamentPlayerElimination derived/preserved server-side.
         eliminated: isEliminated,
         eliminated_at: eliminationState?.eliminated_at ?? row.eliminated_at ?? null,
+        // Оплатил / Нал-карта / Беспл. re-entry have no live Postgres
+        // mirror either -- the fresh sheet snapshot wins so a long-open
+        // admin page can never freeze (results.free_reentries -> Finance)
+        // or write back (syncTournamentSheet below) stale bookkeeping.
+        paid: sheetRow?.paid ?? row.paid ?? false,
+        payment_type: sheetRow?.payment_type ?? row.payment_type ?? "",
+        free_reentries: sheetRow?.free_reentries ?? row.free_reentries ?? 0,
         // KO/Boss KO/Mystery points have no live Postgres mirror -- the
         // fresh sheet snapshot itself is the freshness fix for these,
         // falling back to the submitted value only for a player absent

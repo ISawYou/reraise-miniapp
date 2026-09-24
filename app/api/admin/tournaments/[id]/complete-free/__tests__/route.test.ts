@@ -404,6 +404,100 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- GS-linked freshness 
       41,
     ]);
   });
+
+  describe("fresh Sheet paid / payment_type / free_reentries", () => {
+    function sheetRow(overrides: Record<string, unknown> = {}) {
+      return {
+        player_id: "p1",
+        knockouts: 0,
+        boss_knockouts: 0,
+        mystery_bounty_points: 0,
+        place: 1,
+        eliminated: false,
+        paid: true,
+        payment_type: "карта",
+        free_reentries: 2,
+        ...overrides,
+      };
+    }
+
+    function staleRow() {
+      return { ...row(), paid: false, payment_type: "нал", free_reentries: 0 };
+    }
+
+    it("stale submitted paid/payment_type/free_reentries lose to the fresher Sheet values in results AND the subsequent syncTournamentSheet", async () => {
+      withSheet();
+      mocks.readAndParseFreeTournamentSheet.mockResolvedValue({
+        ok: true,
+        rows: new Map([["p1", sheetRow()]]),
+        dataRowCount: 1,
+      });
+
+      await POST(request({ rows: [staleRow()] }), context());
+
+      const [, results] = mocks.saveTournamentResults.mock.calls[0];
+      expect(results[0].free_reentries).toBe(2);
+
+      const [, syncRows] = mocks.syncTournamentSheet.mock.calls[0];
+      expect(syncRows[0]).toMatchObject({ paid: true, payment_type: "карта", free_reentries: 2 });
+    });
+
+    it("a fresh Sheet value of paid=false / free_reentries=0 still wins over a stale truthy submission", async () => {
+      withSheet();
+      mocks.readAndParseFreeTournamentSheet.mockResolvedValue({
+        ok: true,
+        rows: new Map([["p1", sheetRow({ paid: false, payment_type: "", free_reentries: 0 })]]),
+        dataRowCount: 1,
+      });
+
+      await POST(
+        request({ rows: [{ ...row(), paid: true, payment_type: "нал", free_reentries: 3 }] }),
+        context()
+      );
+
+      const [, results] = mocks.saveTournamentResults.mock.calls[0];
+      expect(results[0].free_reentries).toBe(0);
+      const [, syncRows] = mocks.syncTournamentSheet.mock.calls[0];
+      expect(syncRows[0]).toMatchObject({ paid: false, payment_type: "", free_reentries: 0 });
+    });
+
+    it("a player absent from the Sheet falls back to the submitted values", async () => {
+      withSheet();
+      mocks.readAndParseFreeTournamentSheet.mockResolvedValue({
+        ok: true,
+        rows: new Map(),
+        dataRowCount: 0,
+      });
+
+      await POST(request({ rows: [{ ...staleRow(), free_reentries: 1 }] }), context());
+
+      const [, results] = mocks.saveTournamentResults.mock.calls[0];
+      expect(results[0].free_reentries).toBe(1);
+      const [, syncRows] = mocks.syncTournamentSheet.mock.calls[0];
+      expect(syncRows[0]).toMatchObject({ paid: false, payment_type: "нал", free_reentries: 1 });
+    });
+
+    it("rating_points are identical whether or not the Sheet changes paid/payment_type/free_reentries", async () => {
+      withSheet();
+      const players = ["p1", "p2", "p3"];
+      mocks.readAndParseFreeTournamentSheet.mockResolvedValue({
+        ok: true,
+        rows: new Map(
+          players.map((id, i) => [id, sheetRow({ player_id: id, place: i + 1, free_reentries: 5 })])
+        ),
+        dataRowCount: 3,
+      });
+
+      await POST(
+        request({ rows: players.map((id, i) => ({ ...row({ player_id: id, place: i + 1 }), free_reentries: 0 })) }),
+        context()
+      );
+
+      const [, results] = mocks.saveTournamentResults.mock.calls[0];
+      expect(results.map((r: { rating_points: number }) => r.rating_points)).toEqual([72, 55, 41]);
+      expect(results.map((r: { free_reentries: number }) => r.free_reentries)).toEqual([5, 5, 5]);
+    });
+  });
 });
 
 // Product item #8 -- Poker Clock finish is a POST-COMPLETION side effect

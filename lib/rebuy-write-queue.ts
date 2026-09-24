@@ -41,6 +41,13 @@ export class RebuyWriteQueue<TResult> {
     }
   }
 
+  // True when nothing is in flight or queued for ANY key -- lets a
+  // background refresh avoid overlaying a Postgres read that a pending
+  // write is about to change.
+  isIdle(): boolean {
+    return this.inFlight.size === 0 && this.pending.size === 0;
+  }
+
   waitForIdle(): Promise<void> {
     if (this.inFlight.size === 0 && this.pending.size === 0) {
       if (this.lastError) {
