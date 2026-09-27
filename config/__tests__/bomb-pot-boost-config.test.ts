@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER,
@@ -112,22 +114,45 @@ describe("Boost badge", () => {
   });
 });
 
-describe("visuals fallback", () => {
-  it.each(["bomb_pot", "boost_rating"] as const)(
-    "%s is its own visual key with the built-in fallback artwork + card derivative",
-    (type) => {
-      expect(isTournamentVisualType(type)).toBe(true);
-      expect(DEFAULT_TOURNAMENT_VISUALS[type]).toBe("/tournament-assets/pineapple.png");
-      expect(DEFAULT_TOURNAMENT_CARD_VISUALS[type]).toBe("/tournament-assets/pineapple-card.png");
-      expect(getDefaultTournamentVisual(type)).toMatchObject({
-        tournamentType: type,
-        assetUrl: "/tournament-assets/pineapple.png",
-      });
-    }
-  );
+const ARTWORK = {
+  boost_rating: { original: "boost-rating.png", card: "boost-rating-card.png" },
+  bomb_pot: { original: "bomb-pot.png", card: "bomb-pot-card.png" },
+} as const;
+
+function png(file: string): { width: number; height: number; colorType: number } {
+  const buf = readFileSync(join(process.cwd(), "public/tournament-assets", file));
+  expect(buf.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20), colorType: buf[25] };
+}
+
+describe("built-in artwork", () => {
+  it.each(Object.entries(ARTWORK))("%s has its own original + card derivative", (type, files) => {
+    const t = type as keyof typeof ARTWORK;
+    expect(isTournamentVisualType(t)).toBe(true);
+    expect(DEFAULT_TOURNAMENT_VISUALS[t]).toBe(`/tournament-assets/${files.original}`);
+    expect(DEFAULT_TOURNAMENT_CARD_VISUALS[t]).toBe(`/tournament-assets/${files.card}`);
+    expect(getDefaultTournamentVisual(t)).toMatchObject({
+      tournamentType: t,
+      assetUrl: `/tournament-assets/${files.original}`,
+      cardAssetUrl: `/tournament-assets/${files.card}`,
+      scale: 100,
+      offsetX: 0,
+      offsetY: 0,
+      opacity: 100,
+    });
+    expect(`${DEFAULT_TOURNAMENT_VISUALS[t]}${DEFAULT_TOURNAMENT_CARD_VISUALS[t]}`).not.toContain(
+      "pineapple",
+    );
+  });
+
+  it.each(Object.values(ARTWORK))("originals are the 1254px RGBA sources; cards are 512px RGBA", (files) => {
+    expect(png(files.original)).toEqual({ width: 1254, height: 1254, colorType: 6 });
+    expect(png(files.card)).toEqual({ width: 512, height: 512, colorType: 6 });
+  });
 
   it("existing defaults are untouched", () => {
     expect(DEFAULT_TOURNAMENT_VISUALS.classic).toBe("/tournament-assets/classic.png");
     expect(DEFAULT_TOURNAMENT_VISUALS.crazy_pineapple).toBe("/tournament-assets/pineapple.png");
+    expect(DEFAULT_TOURNAMENT_CARD_VISUALS.crazy_pineapple).toBe("/tournament-assets/pineapple-card.png");
   });
 });

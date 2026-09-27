@@ -5,8 +5,8 @@
 // which the runtime upload path uses -- keep both in sync if these
 // parameters ever change).
 //
-// Only Crazy Pineapple has a committed built-in original
-// (public/tournament-assets/pineapple.png) as of this change. The seven
+// Committed built-in originals: Crazy Pineapple (pineapple.png), Boost
+// Rating (boost-rating.png) and Bomb Pot (bomb-pot.png). The seven
 // legacy tournament types have no source PNG checked into this repo at all
 // (their originals live only in production's uploaded storage) -- this
 // script deliberately does NOT fabricate derivatives for them; that backfill
@@ -26,7 +26,11 @@ const CARD_SIZE = 512;
 
 // [original filename, derivative filename] -- literal list, not a directory
 // scan, so this only ever touches files actually part of the built-in set.
-const FILES = [["pineapple.png", "pineapple-card.png"]];
+const FILES = [
+  ["pineapple.png", "pineapple-card.png"],
+  ["boost-rating.png", "boost-rating-card.png"],
+  ["bomb-pot.png", "bomb-pot-card.png"],
+];
 
 for (const [original, derivative] of FILES) {
   const input = path.join(ASSETS_DIR, original);
