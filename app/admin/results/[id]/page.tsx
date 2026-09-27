@@ -832,6 +832,12 @@ export default function AdminTournamentResultsPage() {
     const totalEntries = arrivedRows.reduce((sum, p) => sum + p.entries, 0);
     const totalAddons = arrivedRows.reduce((sum, p) => sum + p.addons, 0);
     const rebuys = Math.max(0, totalEntries - arrivedRows.length);
+    // Display only -- same meaning as completionSummary.freeEntriesCount /
+    // Finance: free payment units actually used by arrived players. Never
+    // subtracted from Entries/Rebuys/Add-ons, never fed into the engine.
+    const freeReentries = freeRows
+      .filter((row) => row.arrived)
+      .reduce((sum, row) => sum + (Number(row.free_reentries) || 0), 0);
 
     const { meta } = calculateRatingPointsV2(players, tournament.tournament_type, {
       ratingGuarantee: tournament.rating_guarantee,
@@ -842,6 +848,7 @@ export default function AdminTournamentResultsPage() {
       totalEntries,
       rebuys,
       totalAddons,
+      freeReentries,
       meta,
     };
   }, [freeRows, tournament, isFreeTournament]);
@@ -1973,11 +1980,12 @@ export default function AdminTournamentResultsPage() {
         {ratingEngineV2Summary ? (
           <div className="mt-2 rounded-xl border border-white/10 bg-white/5 p-3">
             <p className="text-[11px] font-medium text-white/50">Rating Engine v2</p>
-            <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-white/70 sm:grid-cols-4">
+            <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-white/70 sm:grid-cols-5">
               <span>Players: {ratingEngineV2Summary.players}</span>
               <span>Entries: {ratingEngineV2Summary.totalEntries}</span>
               <span>Rebuys: {ratingEngineV2Summary.rebuys}</span>
               <span>Add-ons: {ratingEngineV2Summary.totalAddons}</span>
+              <span>Free re-entry: {ratingEngineV2Summary.freeReentries}</span>
             </div>
             {formatRatingEngineMetaLines(ratingEngineV2Summary.meta).length > 0 ? (
               <p className="mt-1.5 text-xs text-white/60">

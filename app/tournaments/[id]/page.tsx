@@ -157,9 +157,11 @@ function formatTournamentDateParts(date: string) {
 function ParticipantRow({
   participant,
   index,
+  inGame = false,
 }: {
   participant: TournamentParticipant;
   index: number;
+  inGame?: boolean;
 }) {
   const avatarUrl = getPlayerAvatarUrl(participant);
   const avatarFallback = getPlayerAvatarFallback(participant);
@@ -190,6 +192,9 @@ function ParticipantRow({
           >
             {participant.display_name}
           </Link>
+          {inGame ? (
+            <p className="mt-0.5 text-[11px] text-emerald-400/80">● В игре</p>
+          ) : null}
         </div>
       </div>
 
@@ -406,15 +411,24 @@ const waitlistParticipants = participants.filter(
         : "В игре";
 
   // Live roster: every arrived player, active and eliminated alike -- same
-  // one poll, split below into the two "В игре" / "Выбыли" sections.
+  // one poll, split below into the two "В игре" / "Выбыли" sections. Also
+  // enabled on the Registration tab while live, for the "● В игре" marker.
   const livePlayers = useTournamentActivePlayers(
     tournamentId ?? null,
-    isLive && activeTab === "live"
+    isLive && (activeTab === "live" || activeTab === "registration")
   );
 
   const { active: activeRoster, eliminated: eliminatedRoster } = useMemo(
     () => splitTournamentLiveRoster(livePlayers),
     [livePlayers]
+  );
+
+  // Registration-tab marker: exactly the canonical active roster above (the
+  // same list the "В игре" tab renders) -- never derived from registration
+  // status. Empty unless live, so a stale last poll never leaks a marker.
+  const inGamePlayerIds = useMemo(
+    () => new Set(isLive ? activeRoster.map((player) => player.playerId) : []),
+    [activeRoster, isLive]
   );
 
   function handleBack() {
@@ -954,6 +968,7 @@ const waitlistParticipants = participants.filter(
                   key={participant.registration_id}
                   participant={participant}
                   index={index}
+                  inGame={inGamePlayerIds.has(participant.player_id)}
                 />
               ))
             )}
