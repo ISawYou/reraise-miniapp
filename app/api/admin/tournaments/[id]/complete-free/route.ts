@@ -227,6 +227,9 @@ export async function POST(
       tournament.rating_formula_version,
       {
         ratingGuarantee: tournament.rating_guarantee,
+        // Only used when no snapshot exists (fresh calculation); a frozen
+        // snapshot's rating_places are already boosted and override itm.
+        placementPointsMultiplier: tournament.placement_points_multiplier,
         // Backward compatibility: tournaments completed without ever using
         // the new close operation keep today's fresh calculation. Once a
         // generic snapshot exists, only its placement distribution is used;

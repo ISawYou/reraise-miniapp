@@ -230,3 +230,46 @@ describe("generic Late Registration snapshot", () => {
     );
   });
 });
+
+describe("Boost Rating -- placement multiplier is frozen INTO rating_places at close", () => {
+  it("multiplier 2.0 freezes already-boosted itm points (classic 70/53/39 -> 140/106/78)", async () => {
+    mocks.findTournament.mockResolvedValue({
+      ...tournament,
+      tournament_type: "boost_rating",
+      placement_points_multiplier: 2,
+    });
+
+    const snapshot = await closeTournamentLateRegistration("t1");
+    expect(snapshot.rating_places).toEqual([
+      { place: 1, points: 140 },
+      { place: 2, points: 106 },
+      { place: 3, points: 78 },
+    ]);
+  });
+
+  it("multiplier 1.5 -> roundHalfUp(natural × 1.5)", async () => {
+    mocks.findTournament.mockResolvedValue({
+      ...tournament,
+      tournament_type: "boost_rating",
+      placement_points_multiplier: 1.5,
+    });
+
+    const snapshot = await closeTournamentLateRegistration("t1");
+    expect(snapshot.rating_places).toEqual([
+      { place: 1, points: 105 },
+      { place: 2, points: 80 },
+      { place: 3, points: 59 },
+    ]);
+  });
+
+  it("bomb_pot freezes the ordinary volume structure (same as classic)", async () => {
+    mocks.findTournament.mockResolvedValue({ ...tournament, tournament_type: "bomb_pot" });
+
+    const snapshot = await closeTournamentLateRegistration("t1");
+    expect(snapshot.rating_places).toEqual([
+      { place: 1, points: 70 },
+      { place: 2, points: 53 },
+      { place: 3, points: 39 },
+    ]);
+  });
+});

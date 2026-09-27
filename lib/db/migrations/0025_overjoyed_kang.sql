@@ -1,0 +1,4 @@
+ALTER TABLE "tournaments" DROP CONSTRAINT "tournaments_tournament_type_check";--> statement-breakpoint
+ALTER TABLE "tournaments" ADD COLUMN "placement_points_multiplier" numeric(5, 2) DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "tournaments" ADD CONSTRAINT "tournaments_placement_points_multiplier_check" CHECK ("tournaments"."placement_points_multiplier" > 0);--> statement-breakpoint
+ALTER TABLE "tournaments" ADD CONSTRAINT "tournaments_tournament_type_check" CHECK ("tournaments"."tournament_type" IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty', 'crazy_pineapple', 'bomb_pot', 'boost_rating'));

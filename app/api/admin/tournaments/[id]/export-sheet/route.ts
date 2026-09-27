@@ -5,6 +5,7 @@ import {
 } from "@/features/tournaments";
 import { getMysteryBountySnapshot } from "@/features/mystery-bounty";
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
+import { formatPlacementPointsMultiplier } from "@/lib/tournament-helpers";
 import {
   applyTournamentSheetFormatting,
   appendReportRow,
@@ -88,7 +89,9 @@ function buildRatingEngineHeaderExtra(meta: RatingPointsV2Meta): string[][] {
         [],
         ["Weighted Volume", `${meta.weightedVolume}`, "Extra Volume", `${meta.extraVolume}`],
         ["Volume Share", meta.volumeShare.toFixed(4), "Volume Multiplier", meta.volumeMultiplier.toFixed(4)],
-        [],
+        meta.placementPointsMultiplier !== 1
+          ? ["Boost", `×${formatPlacementPointsMultiplier(meta.placementPointsMultiplier)}`]
+          : [],
         [],
       ];
     case "addon_share":
@@ -164,7 +167,10 @@ function buildFreeSheetValues(
               addons: row.addons,
             })),
             exportData.tournament.tournament_type,
-            { ratingGuarantee: exportData.tournament.rating_guarantee }
+            {
+              ratingGuarantee: exportData.tournament.rating_guarantee,
+              placementPointsMultiplier: exportData.tournament.placement_points_multiplier,
+            }
           ).meta
         )
       : [[], [], [], [], []];

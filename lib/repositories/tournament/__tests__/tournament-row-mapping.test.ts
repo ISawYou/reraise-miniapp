@@ -60,6 +60,7 @@ function baseRow(overrides: Partial<TournamentRow> = {}): TournamentRow {
     created_at: "2026-01-01T00:00:00.000Z",
     rating_formula_version: "v2",
     rating_guarantee: null,
+    placement_points_multiplier: 1,
     is_final: false,
     ...overrides,
   };

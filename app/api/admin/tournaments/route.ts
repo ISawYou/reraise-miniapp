@@ -47,6 +47,9 @@ export async function POST(request: Request) {
       // tournament_type "phoenix", but not rejected for other types (same
       // "not DB-constrained to it" approach as the schema check).
       rating_guarantee?: number | null;
+      // Boost Rating placement multiplier -- kept only for boost_rating
+      // (default 2 when absent), normalized to 1 for every other type.
+      placement_points_multiplier?: number | null;
       // "Финал месяца" preset (config/tournament-presets.ts) always submits
       // tournament_type "classic" + is_final true from the admin UI.
       // Absent is treated as false.
@@ -68,6 +71,7 @@ export async function POST(request: Request) {
         max_players: body.max_players,
         tournament_type: body.tournament_type ?? "classic",
         rating_guarantee: body.rating_guarantee ?? null,
+        placement_points_multiplier: body.placement_points_multiplier ?? null,
         is_final: body.is_final ?? false,
       });
     } catch (err) {

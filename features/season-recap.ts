@@ -93,6 +93,8 @@ const TOURNAMENT_TYPES: TournamentType[] = [
   "win_the_button",
   "mystery_bounty",
   "crazy_pineapple",
+  "bomb_pot",
+  "boost_rating",
 ];
 
 function ruSort(a: string, b: string): number {

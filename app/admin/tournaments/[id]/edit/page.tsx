@@ -27,6 +27,8 @@ import {
   TOURNAMENT_PRESET_TEMPLATES,
   presetToTournamentFields,
   tournamentToPreset,
+  DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER,
+  parsePlacementPointsMultiplierInput,
   type TournamentPreset,
 } from "@/config/tournament-presets";
 import { FINAL_PARTICIPANTS_ADMIN_NOTE } from "@/lib/tournament-final-policy";
@@ -41,6 +43,8 @@ export const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: st
   { value: "win_the_button", label: "Win The Button" },
   { value: "mystery_bounty", label: "Mystery Bounty" },
   { value: "crazy_pineapple", label: "Crazy Pineapple" },
+  { value: "bomb_pot", label: "Bomb Pot" },
+  { value: "boost_rating", label: "Boost Rating" },
   { value: FINAL_MONTH_PRESET, label: FINAL_MONTH_LABEL },
 ];
 
@@ -81,6 +85,11 @@ export default function AdminTournamentEditPage() {
   // needed; is_final is the only signal for anything final-specific.
   const { tournament_type: tournamentType, is_final: isFinal } = presetToTournamentFields(preset);
   const [ratingGuarantee, setRatingGuarantee] = useState("");
+  // Loaded from the stored tournament and submitted back unchanged unless
+  // the admin edits it -- never silently reset to the default.
+  const [placementPointsMultiplier, setPlacementPointsMultiplier] = useState(
+    String(DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER)
+  );
   const [resolvedSeason, setResolvedSeason] = useState<{ title: string } | null>(null);
   const [seasonError, setSeasonError] = useState<string | null>(null);
   const [tournamentStatus, setTournamentStatus] = useState<string | null>(null);
@@ -129,6 +138,16 @@ export default function AdminTournamentEditPage() {
         setPreset(tournamentToPreset(tournament));
         setRatingGuarantee(
           tournament.rating_guarantee != null ? String(tournament.rating_guarantee) : ""
+        );
+        // A stored boost_rating value is authoritative; any other type has
+        // 1 stored, so pre-fill the boost default in case the admin
+        // switches this tournament to Boost Rating.
+        setPlacementPointsMultiplier(
+          String(
+            tournament.tournament_type === "boost_rating"
+              ? tournament.placement_points_multiplier
+              : DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER
+          )
         );
         setTournamentStatus(tournament.status);
         setParticipants(participantsData);
@@ -211,6 +230,15 @@ export default function AdminTournamentEditPage() {
       return;
     }
 
+    const parsedPlacementPointsMultiplier = parsePlacementPointsMultiplierInput(
+      tournamentType,
+      placementPointsMultiplier
+    );
+    if (parsedPlacementPointsMultiplier === null) {
+      setError("Коэффициент буста должен быть положительным числом (не более 2 знаков после запятой)");
+      return;
+    }
+
     try {
       setSaving(true);
       setMessage(null);
@@ -228,6 +256,7 @@ export default function AdminTournamentEditPage() {
           tournamentType === "phoenix" && ratingGuarantee.trim() !== ""
             ? Number(ratingGuarantee)
             : null,
+        placement_points_multiplier: parsedPlacementPointsMultiplier,
       });
 
       setMessage("Турнир обновлен");
@@ -517,6 +546,27 @@ export default function AdminTournamentEditPage() {
               <p className="mt-1 text-xs text-white/50">
                 Гарантированный итоговый рейтинговый пул турнира (участие + места).
                 Если оставить пустым — гарантии нет, начисляется обычный расчётный пул.
+              </p>
+            </>
+          ) : null}
+
+          {preset === "boost_rating" ? (
+            <>
+              <label className="mt-4 block text-sm text-white/80">
+                Коэффициент буста (очки за место)
+              </label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={placementPointsMultiplier}
+                onChange={(e) => setPlacementPointsMultiplier(e.target.value)}
+                placeholder="Например, 2 или 1.5"
+                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
+              />
+              <p className="mt-1 text-xs text-white/50">
+                Умножает только рейтинговые очки за занятое место. +2 за участие не умножаются.
+                Фиксируется в структуре мест при закрытии поздней регистрации.
               </p>
             </>
           ) : null}

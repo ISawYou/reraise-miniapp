@@ -6,7 +6,7 @@ import {
   isTournamentLive,
   TournamentLiveStatusLines,
 } from "@/components/tournaments/tournament-live-status";
-import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
+import { getBoostRatingBadge, getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import { getFinalRegistrationLabel } from "@/lib/tournament-final-policy";
 
 function UserIcon() {
@@ -134,6 +134,7 @@ export function TournamentCard({
           : "Записаться";
 
   const isInteractive = Boolean(onAction) && !tournament.is_final;
+  const boostBadge = getBoostRatingBadge(tournament);
 
   return (
     <div
@@ -154,6 +155,14 @@ export function TournamentCard({
         <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
           {tournament.title}
         </h3>
+        {boostBadge ? (
+          <p
+            data-testid="boost-rating-badge"
+            className="mt-1.5 inline-flex rounded-full border border-[#d7b55a]/40 bg-[#d7b55a]/12 px-2.5 py-1 text-[11px] font-bold tracking-[0.06em] text-[#e8cd7f]"
+          >
+            {boostBadge}
+          </p>
+        ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
           <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">

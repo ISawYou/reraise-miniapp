@@ -43,6 +43,12 @@ export const DEFAULT_TOURNAMENT_VISUALS = {
   mystery_bounty: "/tournament-assets/mystery-bounty.png",
   phoenix: "/tournament-assets/phoenix.png",
   crazy_pineapple: "/tournament-assets/pineapple.png",
+  // No dedicated artwork yet -- fall back to the one built-in asset that
+  // actually ships in the repo. Independent keys, so custom Bomb Pot /
+  // Boost Rating art can be uploaded through the admin visual editor later
+  // without a code change (a stored config always wins over this default).
+  bomb_pot: "/tournament-assets/pineapple.png",
+  boost_rating: "/tournament-assets/pineapple.png",
 } as const satisfies Record<TournamentType, string>;
 
 export const TOURNAMENT_VISUAL_TYPES = Object.keys(
@@ -62,6 +68,10 @@ export function isTournamentVisualType(value: string): value is TournamentType {
 // "-card" entry pointing at a file that doesn't exist.
 export const DEFAULT_TOURNAMENT_CARD_VISUALS: Partial<Record<TournamentType, string>> = {
   crazy_pineapple: "/tournament-assets/pineapple-card.png",
+  // Same fallback artwork as DEFAULT_TOURNAMENT_VISUALS above -> its
+  // existing card derivative.
+  bomb_pot: "/tournament-assets/pineapple-card.png",
+  boost_rating: "/tournament-assets/pineapple-card.png",
 };
 
 export function getDefaultTournamentVisual(

@@ -20,6 +20,7 @@ import { TournamentCard } from "@/components/tournaments/tournament-card";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import {
   getExpectedPrizePlaces,
+  getBoostRatingBadge,
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
   sortParticipantsByRating,
@@ -362,6 +363,7 @@ export default function TournamentDetailsPage() {
   const tournamentTypeBonusLines = tournament
     ? getTournamentTypeBonusLines(tournament.tournament_type)
     : [];
+  const boostBadge = tournament ? getBoostRatingBadge(tournament) : null;
   // Results tab: KO column only for formats that actually have ordinary
   // knockouts -- elsewhere it's a column of zeros. Full literal class
   // strings so Tailwind picks both layouts up.
@@ -778,6 +780,14 @@ const waitlistParticipants = participants.filter(
                 <p className="mt-1.5 text-sm font-semibold text-white">
                   {tournament.is_final ? FINAL_MONTH_LABEL : getTournamentTypeLabel(tournament.tournament_type)}
                 </p>
+                {boostBadge ? (
+                  <p
+                    data-testid="boost-rating-badge"
+                    className="mt-0.5 text-[11px] font-bold tracking-[0.04em] text-[#e8cd7f]"
+                  >
+                    {boostBadge}
+                  </p>
+                ) : null}
                 {tournamentTypeBonusLines.length > 0 ? (
                   <p className="mt-0.5 text-[11px] text-white/55">
                     {tournamentTypeBonusLines.join(" · ")}

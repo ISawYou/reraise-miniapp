@@ -49,10 +49,30 @@ export function getTournamentTypeLabel(type: TournamentType): string {
       return "Mystery Bounty";
     case "crazy_pineapple":
       return "Crazy Pineapple";
+    case "bomb_pot":
+      return "Bomb Pot";
+    case "boost_rating":
+      return "Boost Rating";
     case "classic":
     default:
       return "Texas Classic";
   }
+}
+
+// 2 -> "2", 2.0 -> "2", 1.5 -> "1.5", 1.25 -> "1.25" (numeric(5,2) column).
+export function formatPlacementPointsMultiplier(multiplier: number): string {
+  return String(Math.round(multiplier * 100) / 100);
+}
+
+// Small presentation marker for Boost Rating tournaments
+// ("BOOST RATING ×2"). null for every other type -- the tournament TITLE
+// stays whatever the admin set (e.g. "RERAISE MAIN EVENT").
+export function getBoostRatingBadge(tournament: {
+  tournament_type: TournamentType;
+  placement_points_multiplier?: number | null;
+}): string | null {
+  if (tournament.tournament_type !== "boost_rating") return null;
+  return `BOOST RATING ×${formatPlacementPointsMultiplier(tournament.placement_points_multiplier ?? 1)}`;
 }
 
 export function supportsMysteryBounty(type: TournamentType): boolean {

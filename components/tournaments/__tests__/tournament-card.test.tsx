@@ -36,6 +36,7 @@ function tournament(overrides: Partial<Tournament> = {}): Tournament {
     created_at: "2026-01-01T00:00:00.000Z",
     rating_formula_version: "v2",
     rating_guarantee: null,
+    placement_points_multiplier: 1,
     is_final: false,
     ...overrides,
   };
@@ -225,5 +226,35 @@ describe("TournamentCard -- artworkLoading pass-through (Phase 2B.1)", () => {
     await renderCard({ configs: visualConfigs, artworkLoading: "lazy" });
     const img = container.querySelector<HTMLImageElement>("[data-tournament-visual-img]");
     expect(img?.getAttribute("loading")).toBe("lazy");
+  });
+});
+
+describe("TournamentCard -- Boost Rating badge", () => {
+  it("boost_rating shows 'BOOST RATING ×2' under the unchanged title", async () => {
+    await renderCard({
+      tournament: tournament({
+        title: "RERAISE MAIN EVENT",
+        tournament_type: "boost_rating",
+        placement_points_multiplier: 2,
+      }),
+    });
+    expect(container.querySelector("h3")!.textContent).toBe("RERAISE MAIN EVENT");
+    expect(container.querySelector('[data-testid="boost-rating-badge"]')!.textContent).toBe(
+      "BOOST RATING ×2",
+    );
+  });
+
+  it("formats 1.5 as ×1.5", async () => {
+    await renderCard({
+      tournament: tournament({ tournament_type: "boost_rating", placement_points_multiplier: 1.5 }),
+    });
+    expect(container.querySelector('[data-testid="boost-rating-badge"]')!.textContent).toBe(
+      "BOOST RATING ×1.5",
+    );
+  });
+
+  it.each(["classic", "bomb_pot"] as const)("no badge for %s", async (type) => {
+    await renderCard({ tournament: tournament({ tournament_type: type }) });
+    expect(container.querySelector('[data-testid="boost-rating-badge"]')).toBeNull();
   });
 });

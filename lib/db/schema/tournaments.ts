@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, boolean, timestamp, index, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, boolean, numeric, timestamp, index, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { seasons } from "./seasons";
 
@@ -32,6 +32,20 @@ export const tournaments = pgTable("tournaments", {
   // like every other type-conditional field in this schema.
   ratingGuarantee: integer("rating_guarantee"),
 
+  // Boost Rating: multiplies ONLY placement (itm) points, never
+  // participation. numeric(5,2) so 1.5/2.0 are stored exactly; mode
+  // "number" so the app reads a JS number, not a string. 1 = no boost
+  // (every pre-existing and every non-boost_rating tournament). Applied by
+  // the engine for tournament_type = "boost_rating" only
+  // (features/rating-v2.ts).
+  placementPointsMultiplier: numeric("placement_points_multiplier", {
+    precision: 5,
+    scale: 2,
+    mode: "number",
+  })
+    .notNull()
+    .default(1),
+
   seasonId: uuid("season_id").references(() => seasons.id, { onDelete: "set null" }),
 
   // "Финал месяца" is a CREATE/EDIT UI preset, not a persisted
@@ -50,7 +64,7 @@ export const tournaments = pgTable("tournaments", {
   check("tournaments_kind_check", sql`${table.kind} IN ('free', 'paid', 'cash')`),
   check(
     "tournaments_tournament_type_check",
-    sql`${table.tournamentType} IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty', 'crazy_pineapple')`,
+    sql`${table.tournamentType} IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty', 'crazy_pineapple', 'bomb_pot', 'boost_rating')`,
   ),
   check(
     "tournaments_rating_formula_version_check",
@@ -59,6 +73,10 @@ export const tournaments = pgTable("tournaments", {
   check(
     "tournaments_rating_guarantee_check",
     sql`${table.ratingGuarantee} IS NULL OR ${table.ratingGuarantee} >= 0`,
+  ),
+  check(
+    "tournaments_placement_points_multiplier_check",
+    sql`${table.placementPointsMultiplier} > 0`,
   ),
 
   // One duplicate pair collapsed (idx_tournaments_status / tournaments_status_idx

@@ -41,6 +41,7 @@ export type TournamentRow = {
   created_at: string;
   rating_formula_version: "legacy" | "v2";
   rating_guarantee: number | null;
+  placement_points_multiplier: number;
   is_final: boolean;
 };
 

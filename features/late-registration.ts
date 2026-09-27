@@ -84,7 +84,11 @@ export async function closeTournamentLateRegistration(
     rows.map((row) => ({ entries: row.rebuys, addons: row.addons })),
     tournament.tournament_type,
     tournament.rating_formula_version,
-    { ratingGuarantee: tournament.rating_guarantee },
+    {
+      ratingGuarantee: tournament.rating_guarantee,
+      // Boost is frozen INTO rating_places here; completion never re-boosts.
+      placementPointsMultiplier: tournament.placement_points_multiplier,
+    },
     isRatingEligibleTournament(tournament)
   );
 

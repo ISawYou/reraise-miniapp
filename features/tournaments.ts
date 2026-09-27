@@ -12,7 +12,11 @@ import type { LiveEntryPatch } from "@/lib/repositories";
 import { syncPlayersAchievementsIfEnabled } from "@/features/achievements";
 import { publishTournamentWinnerEvent } from "@/features/club-activity";
 import { resolveSeasonForTournamentDate } from "@/features/seasons";
-import { calculateRatingPointsForTournament } from "@/features/rating-v2";
+import { normalizePlacementPointsMultiplier } from "@/config/tournament-presets";
+import {
+  assertTournamentTypeSupportsFormula,
+  calculateRatingPointsForTournament,
+} from "@/features/rating-v2";
 import { isRatingEligibleTournament } from "@/lib/tournament-helpers";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import { computeDerivedEliminationPlaces } from "@/lib/tournament-placement";
@@ -117,6 +121,11 @@ function mapTournamentRow(row: TournamentRow): Tournament {
     created_at: row.created_at,
     rating_formula_version: row.rating_formula_version ?? "legacy",
     rating_guarantee: row.rating_guarantee ?? null,
+    // Defensive default only (legacy Supabase rows / partial embeds that
+    // predate the column); Postgres reads it from a NOT NULL column. Stored
+    // as numeric -> may arrive as a string from Supabase, hence Number().
+    placement_points_multiplier:
+      row.placement_points_multiplier != null ? Number(row.placement_points_multiplier) : 1,
     is_final: row.is_final ?? false,
   };
 }
@@ -469,6 +478,8 @@ export async function createTournament(input: {
   max_players: number;
   tournament_type: TournamentType;
   rating_guarantee?: number | null;
+  // Only kept for boost_rating; every other type is normalized to 1.
+  placement_points_multiplier?: number | null;
   // Absent/undefined is treated exactly like false -- every pre-existing
   // caller that doesn't know about "Финал месяца" keeps creating normal,
   // publicly self-registerable tournaments unchanged.
@@ -487,6 +498,10 @@ export async function createTournament(input: {
     status: "open",
     season_id: season.id,
     rating_guarantee: input.rating_guarantee ?? null,
+    placement_points_multiplier: normalizePlacementPointsMultiplier(
+      input.tournament_type,
+      input.placement_points_multiplier
+    ),
     is_final: input.is_final ?? false,
   });
 }
@@ -513,6 +528,9 @@ export async function updateTournament(
     max_players: number;
     tournament_type: TournamentType;
     rating_guarantee?: number | null;
+    // Absent/undefined on a boost_rating tournament keeps the STORED value
+    // (never silently reset to a default); non-boost types always get 1.
+    placement_points_multiplier?: number | null;
     // Same absent-means-false contract as createTournament.
     is_final?: boolean;
   }
@@ -520,6 +538,9 @@ export async function updateTournament(
   await assertServerActorRole(["admin", "operator"]);
 
   const current = await tournamentRepository.findById(tournamentId);
+  // Fail closed: a historical legacy-formula tournament must never become a
+  // v2-only format (bomb_pot / boost_rating) and then get legacy math.
+  assertTournamentTypeSupportsFormula(input.tournament_type, current.rating_formula_version);
   const seasonPatch =
     current.status === "completed"
       ? {}
@@ -533,6 +554,11 @@ export async function updateTournament(
     max_players: input.max_players,
     tournament_type: input.tournament_type,
     rating_guarantee: input.rating_guarantee ?? null,
+    placement_points_multiplier: normalizePlacementPointsMultiplier(
+      input.tournament_type,
+      input.placement_points_multiplier ??
+        (current.tournament_type === "boost_rating" ? current.placement_points_multiplier : null)
+    ),
     is_final: input.is_final ?? false,
     ...seasonPatch,
   });
@@ -951,7 +977,10 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     })),
     tournament.tournament_type,
     tournament.rating_formula_version,
-    { ratingGuarantee: tournament.rating_guarantee },
+    {
+      ratingGuarantee: tournament.rating_guarantee,
+      placementPointsMultiplier: tournament.placement_points_multiplier,
+    },
     isRatingEligibleTournament(tournament)
   );
   const ratingMap = new Map(ratingResults.map((r) => [r.player_id, r]));

@@ -18,6 +18,7 @@ import { fetchAdminJson } from "@/lib/client-request";
 import { AttendanceWriteQueue } from "@/lib/attendance-write-queue";
 import { RebuyWriteQueue } from "@/lib/rebuy-write-queue";
 import {
+  formatPlacementPointsMultiplier,
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
@@ -119,7 +120,12 @@ type LiveFormRow = {
 function formatRatingEngineMetaLines(meta: RatingPointsV2Meta): string[] {
   switch (meta.kind) {
     case "volume":
-      return [`Volume Multiplier: ×${meta.volumeMultiplier.toFixed(3)}`];
+      return meta.placementPointsMultiplier !== 1
+        ? [
+            `Volume Multiplier: ×${meta.volumeMultiplier.toFixed(3)}`,
+            `Boost: ×${formatPlacementPointsMultiplier(meta.placementPointsMultiplier)}`,
+          ]
+        : [`Volume Multiplier: ×${meta.volumeMultiplier.toFixed(3)}`];
     case "addon_share":
       return [`Placement Multiplier: ×${meta.placementMultiplier.toFixed(3)}`];
     case "mystery":
@@ -841,6 +847,7 @@ export default function AdminTournamentResultsPage() {
 
     const { meta } = calculateRatingPointsV2(players, tournament.tournament_type, {
       ratingGuarantee: tournament.rating_guarantee,
+      placementPointsMultiplier: tournament.placement_points_multiplier,
     });
 
     return {

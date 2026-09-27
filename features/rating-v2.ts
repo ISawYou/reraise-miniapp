@@ -49,6 +49,15 @@ export type CalculateRatingPointsV2Options = {
   // distribution replaces freshly-computed itm_points. Participation and
   // format-specific bounty components still come from this same engine.
   ratingPlaces?: readonly RatingPlace[];
+  // Tournament-level placement_points_multiplier. Applied ONLY for
+  // tournament_type = "boost_rating" (a stray value on any other type is
+  // ignored -- see effectivePlacementPointsMultiplier) and ONLY to the
+  // placement (itm) points, after the natural volume placement is rounded.
+  // Participation is never multiplied. When `ratingPlaces` is supplied the
+  // frozen snapshot is already boosted (it was built through this same
+  // option at Late Registration close) and is used as-is, never boosted
+  // again.
+  placementPointsMultiplier?: number | null;
 };
 
 export type RatingPointsV2Meta =
@@ -58,6 +67,8 @@ export type RatingPointsV2Meta =
       extraVolume: number;
       volumeShare: number;
       volumeMultiplier: number;
+      // Boost Rating only (1 for every other volume format).
+      placementPointsMultiplier: number;
     }
   | {
       kind: "addon_share";
@@ -186,13 +197,61 @@ export function distributePhoenixTopUp(
   return result;
 }
 
-const VOLUME_FORMATS = new Set<TournamentType>([
+// Canonical v2 volume-format policy: placement = base * fieldCoefficient *
+// volumeMultiplier. bomb_pot is an ordinary volume format; boost_rating is
+// too, with its placement then scaled by the tournament's
+// placement_points_multiplier (applyPlacementPointsMultiplier below).
+export const VOLUME_FORMATS: ReadonlySet<TournamentType> = new Set<TournamentType>([
   "classic",
   "deep_stack",
   "win_the_button",
   "phoenix",
   "crazy_pineapple",
+  "bomb_pot",
+  "boost_rating",
 ]);
+
+// Formats that exist only under Rating Engine v2 -- never valid with
+// rating_formula_version = "legacy" (the legacy formula predates them and
+// would silently compute something meaningless). Enforced fail-closed in
+// calculateRatingPointsForTournament and features/tournaments.ts's
+// updateTournament.
+export const V2_ONLY_TOURNAMENT_TYPES: ReadonlySet<TournamentType> = new Set<TournamentType>([
+  "bomb_pot",
+  "boost_rating",
+]);
+
+export function assertTournamentTypeSupportsFormula(
+  tournamentType: TournamentType,
+  ratingFormulaVersion: RatingFormulaVersion
+): void {
+  if (ratingFormulaVersion === "legacy" && V2_ONLY_TOURNAMENT_TYPES.has(tournamentType)) {
+    throw new Error(
+      `Тип турнира ${tournamentType} поддерживается только Rating Engine v2 (legacy-формула недоступна)`
+    );
+  }
+}
+
+export function effectivePlacementPointsMultiplier(
+  tournamentType: TournamentType,
+  multiplier: number | null | undefined
+): number {
+  if (tournamentType !== "boost_rating") return 1;
+  if (multiplier == null) return 1;
+  if (!Number.isFinite(multiplier) || multiplier <= 0) {
+    throw new Error(`Некорректный placement_points_multiplier: ${multiplier}`);
+  }
+  return multiplier;
+}
+
+// itm = roundHalfUp(naturalItmPoints * multiplier), computed in integer
+// hundredths (the column is numeric(5,2)) so a .5 boundary is never lost
+// to binary floating point (e.g. 1.15 * 30).
+export function applyPlacementPointsMultiplier(naturalItmPoints: number, multiplier: number): number {
+  if (multiplier === 1) return naturalItmPoints;
+  const hundredths = Math.round(multiplier * 100);
+  return Math.floor((naturalItmPoints * hundredths + 50) / 100);
+}
 
 export function calculateRatingPointsV2(
   players: PlayerRatingInputV2[],
@@ -208,6 +267,10 @@ export function calculateRatingPointsV2(
   const isMystery = tournamentType === "mystery_bounty";
   const isKnockoutFormat = tournamentType === "bounty" || tournamentType === "boss_bounty";
   const isVolumeFormat = VOLUME_FORMATS.has(tournamentType);
+  const placementPointsMultiplier = effectivePlacementPointsMultiplier(
+    tournamentType,
+    options.placementPointsMultiplier
+  );
 
   const totalEntries = arrivedPlayers.reduce((sum, p) => sum + Math.max(0, p.entries), 0);
   const totalAddons = arrivedPlayers.reduce((sum, p) => sum + Math.max(0, p.addons), 0);
@@ -233,7 +296,10 @@ export function calculateRatingPointsV2(
     const base = getBasePlacePoints(place);
 
     if (isVolumeFormat) {
-      return roundHalfUp(base * fieldCoefficient * volumeMultiplier);
+      return applyPlacementPointsMultiplier(
+        roundHalfUp(base * fieldCoefficient * volumeMultiplier),
+        placementPointsMultiplier
+      );
     }
 
     if (isKnockoutFormat) {
@@ -288,7 +354,14 @@ export function calculateRatingPointsV2(
       ? { kind: "mystery" }
       : isKnockoutFormat
         ? { kind: "addon_share", weightedVolume, addonShare, placementMultiplier }
-        : { kind: "volume", weightedVolume, extraVolume, volumeShare, volumeMultiplier };
+        : {
+            kind: "volume",
+            weightedVolume,
+            extraVolume,
+            volumeShare,
+            volumeMultiplier,
+            placementPointsMultiplier,
+          };
 
     return {
       results: naturalResults.map((r) => ({
@@ -404,6 +477,8 @@ export function calculateRatingPointsForTournament(
     };
   }
 
+  assertTournamentTypeSupportsFormula(tournamentType, ratingFormulaVersion);
+
   let calculated: { results: RatingPointsV2Result[]; meta: RatingPointsV2Meta | null };
 
   if (ratingFormulaVersion === "legacy") {
@@ -484,7 +559,13 @@ export function calculateRatingPlaceStructureForTournament(
     players,
     tournamentType,
     ratingFormulaVersion,
-    { ratingGuarantee: options.ratingGuarantee },
+    {
+      ratingGuarantee: options.ratingGuarantee,
+      // Boost is folded in HERE, so the frozen rating_places snapshot is
+      // already boosted; completion then uses it verbatim (see
+      // calculateRatingPointsForTournament's ratingPlaces override).
+      placementPointsMultiplier: options.placementPointsMultiplier,
+    },
     ratingEligible
   );
   const ratingPlacesCount = getExpectedPrizePlaces(players.length);

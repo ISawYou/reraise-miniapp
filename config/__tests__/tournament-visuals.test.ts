@@ -17,7 +17,7 @@ function pngDimensions(path: string): { width: number; height: number } {
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
 }
 
-const ALL_8_TOURNAMENT_TYPES = [
+const ALL_TOURNAMENT_TYPES = [
   "classic",
   "phoenix",
   "deep_stack",
@@ -26,12 +26,14 @@ const ALL_8_TOURNAMENT_TYPES = [
   "win_the_button",
   "mystery_bounty",
   "crazy_pineapple",
+  "bomb_pot",
+  "boost_rating",
 ];
 
-describe("8 tournament visual types (Phase 2B.2)", () => {
-  it("recognizes exactly the 8 current TournamentType visual entries", () => {
-    expect(TOURNAMENT_VISUAL_TYPES.slice().sort()).toEqual(ALL_8_TOURNAMENT_TYPES.slice().sort());
-    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(8);
+describe("10 tournament visual types", () => {
+  it("recognizes exactly the 10 current TournamentType visual entries", () => {
+    expect(TOURNAMENT_VISUAL_TYPES.slice().sort()).toEqual(ALL_TOURNAMENT_TYPES.slice().sort());
+    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(10);
   });
 
   it("crazy_pineapple remains recognized as a valid tournament visual type", () => {

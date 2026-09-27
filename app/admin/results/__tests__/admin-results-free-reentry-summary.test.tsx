@@ -9,7 +9,7 @@ import type { Player, Tournament } from "@/types/domain";
 
 const TOURNAMENT_ID = "t-live-1";
 
-function tournament(): Tournament {
+function tournament(overrides: Partial<Tournament> = {}): Tournament {
   return {
     id: TOURNAMENT_ID,
     title: "LIVE FREE",
@@ -24,6 +24,7 @@ function tournament(): Tournament {
     rating_formula_version: "v2",
     rating_guarantee: null,
     is_final: false,
+    ...overrides,
   } as Tournament;
 }
 
@@ -207,5 +208,42 @@ describe("admin results — Rating Engine v2 live summary: Free re-entry", () =>
       expect.arrayContaining(["Players: 2", "Entries: 4", "Rebuys: 2", "Add-ons: 1"])
     );
     expect(summaryCard().textContent!.replace(/Free re-entry: \d+/, "")).toBe(withoutFree);
+  });
+});
+
+describe("admin results — Rating Engine v2 live preview: Boost Rating", () => {
+  function metaLine(): string {
+    return summaryCard().querySelector("p.mt-1\\.5")?.textContent ?? "";
+  }
+
+  it("passes the tournament multiplier into the engine and shows 'Boost: ×2'", async () => {
+    mocks.getTournamentById.mockResolvedValue(
+      tournament({ tournament_type: "boost_rating", placement_points_multiplier: 2 })
+    );
+    sheetRows = [
+      sheetRow({ player_id: "p1", display_name: "A", rebuys: 2 }),
+      sheetRow({ player_id: "p2", display_name: "B", rebuys: 1 }),
+    ];
+    await renderPage();
+
+    expect(metaLine()).toMatch(/^Volume Multiplier: ×\d\.\d{3} · Boost: ×2$/);
+  });
+
+  it("×1.5 formatting", async () => {
+    mocks.getTournamentById.mockResolvedValue(
+      tournament({ tournament_type: "boost_rating", placement_points_multiplier: 1.5 })
+    );
+    sheetRows = [sheetRow()];
+    await renderPage();
+
+    expect(metaLine()).toContain("Boost: ×1.5");
+  });
+
+  it("no Boost line for an ordinary volume tournament", async () => {
+    sheetRows = [sheetRow()];
+    await renderPage();
+
+    expect(metaLine()).toMatch(/^Volume Multiplier: ×/);
+    expect(metaLine()).not.toContain("Boost");
   });
 });

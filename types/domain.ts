@@ -22,7 +22,9 @@ export type TournamentType =
   | "boss_bounty"
   | "win_the_button"
   | "mystery_bounty"
-  | "crazy_pineapple";
+  | "crazy_pineapple"
+  | "bomb_pot"
+  | "boost_rating";
 
 export type Player = {
   id: string;
@@ -100,6 +102,11 @@ export type Tournament = {
   // pool (participation + placement). null = no guarantee. Only meaningful
   // for tournament_type = "phoenix".
   rating_guarantee: number | null;
+  // Boost Rating placement multiplier -- multiplies ONLY itm (placement)
+  // points, never participation. 1 for every non-boost_rating tournament
+  // (column default, and create/update normalize it). See
+  // features/rating-v2.ts::applyPlacementPointsMultiplier.
+  placement_points_multiplier: number;
   // "Финал месяца" preset marker (see config/tournament-presets.ts) --
   // persisted tournament_type stays "classic" even when this is true.
   // Drives invite-only registration (features/tournaments.ts) and the

@@ -689,3 +689,54 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- Final Month (is_fina
     expect(results[0].rating_points).toBeGreaterThan(0);
   });
 });
+
+describe("POST /api/admin/tournaments/[id]/complete-free -- Boost Rating", () => {
+  const boostTournament = {
+    id: "t1",
+    tournament_type: "boost_rating",
+    rating_formula_version: "v2",
+    rating_guarantee: null,
+    placement_points_multiplier: 2,
+    is_final: false,
+  };
+  const rows = [
+    row({ player_id: "p1", place: 1 }),
+    row({ player_id: "p2", place: 2 }),
+    row({ player_id: "p3", place: 3 }),
+  ];
+
+  it("frozen (already boosted) rating_places are used verbatim -- never boosted twice", async () => {
+    mocks.getTournamentById.mockResolvedValue(boostTournament);
+    mocks.getTournamentLateRegistrationSnapshot.mockResolvedValue({
+      rating_places: [
+        { place: 1, points: 140 },
+        { place: 2, points: 106 },
+        { place: 3, points: 78 },
+      ],
+    });
+
+    await POST(request({ rows }), context());
+
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(
+      results.map((r: { rating_points: number; itm_points: number; participation_points: number }) => ({
+        rating_points: r.rating_points,
+        itm_points: r.itm_points,
+        participation_points: r.participation_points,
+      }))
+    ).toEqual([
+      { rating_points: 142, itm_points: 140, participation_points: 2 },
+      { rating_points: 108, itm_points: 106, participation_points: 2 },
+      { rating_points: 80, itm_points: 78, participation_points: 2 },
+    ]);
+  });
+
+  it("without a snapshot the tournament's multiplier is applied exactly once", async () => {
+    mocks.getTournamentById.mockResolvedValue(boostTournament);
+
+    await POST(request({ rows }), context());
+
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(results.map((r: { rating_points: number }) => r.rating_points)).toEqual([142, 108, 80]);
+  });
+});

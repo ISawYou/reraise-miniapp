@@ -36,6 +36,11 @@ export function mapTournamentRow(row: TournamentRow): Tournament {
     created_at: row.created_at,
     rating_formula_version: row.rating_formula_version ?? "legacy",
     rating_guarantee: row.rating_guarantee ?? null,
+    // Defensive default only (legacy Supabase rows / partial embeds that
+    // predate the column); Postgres reads it from a NOT NULL column. Stored
+    // as numeric -> may arrive as a string from Supabase, hence Number().
+    placement_points_multiplier:
+      row.placement_points_multiplier != null ? Number(row.placement_points_multiplier) : 1,
     is_final: row.is_final ?? false,
   };
 }
