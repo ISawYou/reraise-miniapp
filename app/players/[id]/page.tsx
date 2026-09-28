@@ -263,6 +263,13 @@ export default function PlayerProfilePage() {
   const [featuredSaving, setFeaturedSaving] = useState(false);
   const [dealerCard, setDealerCard] = useState<PersonalDealerCardSummary | null>(null);
   const [teamBadge, setTeamBadge] = useState<{ team_id: string; name: string; emblem: string; rank: number | null } | null>(null);
+  const [teamInvites, setTeamInvites] = useState<
+    Array<{ invitation_id: string; team_id: string; team_name: string; team_emblem: string; invited_by: { display_name: string } }>
+  >([]);
+  const [teamOutgoingRequests, setTeamOutgoingRequests] = useState<
+    Array<{ request_id: string; team_id: string; team_name: string; team_emblem: string }>
+  >([]);
+  const [teamStatusBusy, setTeamStatusBusy] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -367,6 +374,54 @@ export default function PlayerProfilePage() {
   }, [playerId]);
 
   const isOwnProfile = viewerId === player?.id;
+
+  // Own profile's Teams status block (Part 11) -- pending invitations +
+  // outgoing join requests, only ever fetched for the viewer's OWN profile
+  // (same "/api/teams/me" the Teams page badge/tab already use, so this is
+  // no new query shape, just another reader of it), and only rendered when
+  // the player doesn't already belong to a team (teamBadge is null).
+  async function refreshMyTeamStatus() {
+    if (!isOwnProfile) return;
+    try {
+      const data = await fetchAdminJson<{
+        pending_invitations: typeof teamInvites;
+        pending_outgoing_join_requests: typeof teamOutgoingRequests;
+      }>("/api/teams/me");
+      setTeamInvites(data.pending_invitations ?? []);
+      setTeamOutgoingRequests(data.pending_outgoing_join_requests ?? []);
+    } catch {
+      setTeamInvites([]);
+      setTeamOutgoingRequests([]);
+    }
+  }
+
+  useEffect(() => {
+    if (isOwnProfile) {
+      void refreshMyTeamStatus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOwnProfile]);
+
+  async function handleProfileAcceptInvitation(invitationId: string) {
+    try {
+      setTeamStatusBusy(true);
+      await fetchAdminJson(`/api/teams/invitations/${invitationId}/accept`, { method: "POST" });
+      await refreshMyTeamStatus();
+    } finally {
+      setTeamStatusBusy(false);
+    }
+  }
+
+  async function handleProfileDeclineInvitation(invitationId: string) {
+    try {
+      setTeamStatusBusy(true);
+      await fetchAdminJson(`/api/teams/invitations/${invitationId}/decline`, { method: "POST" });
+      await refreshMyTeamStatus();
+    } finally {
+      setTeamStatusBusy(false);
+    }
+  }
+
   const avatarFallback = getPlayerAvatarFallback(player);
   const avatarUrl = getPlayerAvatarUrl(player);
   const totalKnockouts = history.reduce(
@@ -723,6 +778,62 @@ export default function PlayerProfilePage() {
                 <p className="mt-0.5 text-xs text-white/50">
                   {teamBadge.rank != null ? `#${teamBadge.rank} в командном рейтинге` : "Командный рейтинг"}
                 </p>
+              </div>
+              <ArrowRightIcon />
+            </Link>
+          ) : isOwnProfile && teamInvites.length > 0 ? (
+            // A pending invitation is a stronger, more actionable signal
+            // than a generic "no team" prompt -- shown directly on the
+            // profile with accept/decline, per the Teams v1 invitation
+            // visibility spec. Several invitations show as a compact list,
+            // not just the first one.
+            <div className="rounded-3xl border border-[#d5b867]/30 bg-[#d5b867]/[0.06] p-4">
+              <p className="text-sm font-semibold text-white/85">
+                {teamInvites.length > 1 ? "Приглашения в команду" : "Приглашение в команду"}
+              </p>
+              <div className="mt-3 space-y-3">
+                {teamInvites.map((invite) => (
+                  <div key={invite.invitation_id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-lg">
+                      {invite.team_emblem}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-white">{invite.team_name}</p>
+                      <p className="truncate text-xs text-white/50">от {invite.invited_by.display_name}</p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        disabled={teamStatusBusy}
+                        onClick={() => handleProfileAcceptInvitation(invite.invitation_id)}
+                        className="rounded-full bg-[#d7b55a] px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50"
+                      >
+                        Принять
+                      </button>
+                      <button
+                        type="button"
+                        disabled={teamStatusBusy}
+                        onClick={() => handleProfileDeclineInvitation(invite.invitation_id)}
+                        className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70 disabled:opacity-50"
+                      >
+                        Отклонить
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {teamOutgoingRequests.length > 0 ? (
+                <p className="mt-3 text-xs text-white/45">Мои заявки: {teamOutgoingRequests.length}</p>
+              ) : null}
+            </div>
+          ) : isOwnProfile && teamOutgoingRequests.length > 0 ? (
+            <Link
+              href="/teams?tab=my-team"
+              className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4"
+            >
+              <div>
+                <p className="text-sm font-semibold text-white">Команды</p>
+                <p className="mt-0.5 text-xs text-white/50">Мои заявки: {teamOutgoingRequests.length}</p>
               </div>
               <ArrowRightIcon />
             </Link>

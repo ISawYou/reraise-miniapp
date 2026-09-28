@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dealerShifts, dealerProfiles, teams, teamMemberships, teamInvitations } from "@/lib/db/schema";
+import { dealerShifts, dealerProfiles, teams, teamMemberships, teamInvitations, teamJoinRequests } from "@/lib/db/schema";
 
 // Only executeMerge() uses the module-level default `db` (via
 // db.transaction() -- checkMergeEligibility/computeTournamentOverlap always
@@ -628,14 +628,18 @@ describe("executeMerge -- Teams v1 compatibility", () => {
 
   // Mirrors happyPathSelects/selectsWithDealerState's shared prefix (no
   // open dealer shifts, no dealer profiles -- Teams compatibility is
-  // orthogonal to the dealer check, which always runs first), with the two
+  // orthogonal to the dealer check, which always runs first), with the
   // Teams-specific slots parameterized: the FULL (not just active)
   // membership-history overlap check, and (only when there's something to
-  // move) the pending-invitation collision lookup.
+  // move) the pending-invitation and pending-join-request collision
+  // lookups -- team_join_requests is reassigned right after
+  // team_invitations, same collision-handling shape, one extra select pair.
   function selectsWithTeamState(params: {
     allTeamMembershipRows?: unknown[];
     sourcePendingInvitationRows?: unknown[];
     targetPendingTeamIdRows?: unknown[];
+    sourcePendingJoinRequestRows?: unknown[];
+    targetPendingRequestTeamIdRows?: unknown[];
   }) {
     const base = [
       [intentRow()],
@@ -649,11 +653,15 @@ describe("executeMerge -- Teams v1 compatibility", () => {
       [], // no dealer profiles
       params.allTeamMembershipRows ?? [],
     ];
-    const pending = params.sourcePendingInvitationRows ?? [];
-    if (pending.length > 0) {
-      return [...base, pending, params.targetPendingTeamIdRows ?? []];
-    }
-    return [...base, pending];
+
+    const pendingInvites = params.sourcePendingInvitationRows ?? [];
+    const withInvites =
+      pendingInvites.length > 0 ? [...base, pendingInvites, params.targetPendingTeamIdRows ?? []] : [...base, pendingInvites];
+
+    const pendingRequests = params.sourcePendingJoinRequestRows ?? [];
+    return pendingRequests.length > 0
+      ? [...withInvites, pendingRequests, params.targetPendingRequestTeamIdRows ?? []]
+      : [...withInvites, pendingRequests];
   }
 
   it("18. neither side has ANY team membership history: merge proceeds, and team_memberships/team_invitations/teams ownership moves unconditionally (a no-op update if source held nothing)", async () => {
@@ -892,5 +900,63 @@ describe("executeMerge -- Teams v1 compatibility", () => {
     expect(result).toEqual({ merged: true });
     expect(updateCalls.some((c) => c.table === teamInvitations && c.values.invitedPlayerId === TARGET_ID)).toBe(true);
     expect(updateCalls.some((c) => c.table === teamInvitations && c.values.status === "cancelled")).toBe(false);
+  });
+
+  it("16. team_join_requests: no collision -- source's pending request to a DIFFERENT team than target's own pending one is MOVED onto target", async () => {
+    const { executor, updateCalls } = makeFakeExecutor(
+      selectsWithTeamState({
+        sourcePendingJoinRequestRows: [{ id: "req-source", teamId: "team-y" }],
+        targetPendingRequestTeamIdRows: [],
+      })
+    );
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+    expect(updateCalls.some((c) => c.table === teamJoinRequests && c.values.playerId === TARGET_ID)).toBe(true);
+    expect(updateCalls.some((c) => c.table === teamJoinRequests && c.values.status === "cancelled")).toBe(false);
+  });
+
+  it("16. team_join_requests: COLLISION -- both sides had a pending request to the SAME team -- source's is cancelled, never reassigned onto a second pending row for target", async () => {
+    const { executor, updateCalls } = makeFakeExecutor(
+      selectsWithTeamState({
+        sourcePendingJoinRequestRows: [{ id: "req-source", teamId: "team-x" }],
+        targetPendingRequestTeamIdRows: [{ teamId: "team-x" }],
+      })
+    );
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+    const cancelledRequestUpdates = updateCalls.filter(
+      (c) => c.table === teamJoinRequests && c.values.status === "cancelled"
+    );
+    expect(cancelledRequestUpdates).toHaveLength(1);
+    // Never reassigned onto targetId -- that would create a second pending
+    // row for the same (team, target) pair, violating
+    // team_join_requests_one_pending_per_team_player_idx.
+    expect(updateCalls.some((c) => c.table === teamJoinRequests && c.values.playerId === TARGET_ID)).toBe(false);
+  });
+
+  it("historical join-request rows (accepted/declined/cancelled) remain auditable -- merge never deletes anything, and this reassignment never touches the membership-history overlap blocker", async () => {
+    // Both sides have a CLOSED (non-pending) historical request -- these
+    // aren't even selected by the pending-only collision query, so they
+    // simply stay on their original row untouched (still auditable by
+    // their original id; only the LIVE pending state ever needs to move).
+    const { executor, updateCalls } = makeFakeExecutor(selectsWithTeamState({}));
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+    // No team_join_requests update at all when neither side has anything
+    // pending -- historical (already-resolved) rows are left exactly as
+    // they are, never touched, never deleted.
+    expect(updateCalls.some((c) => c.table === teamJoinRequests)).toBe(false);
   });
 });

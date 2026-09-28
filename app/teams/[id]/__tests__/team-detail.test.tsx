@@ -243,3 +243,155 @@ describe("public team detail -- captain-only invite slot (Part E)", () => {
     expect(container.textContent).not.toContain("Пригласить");
   });
 });
+
+function mockFetchWithViewerState(team: Record<string, unknown>, viewerState: Record<string, unknown> | null) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.includes("/viewer-state")) {
+      if (viewerState === null) return { ok: false, json: async () => ({ error: "unauthorized" }) } as Response;
+      return { ok: true, json: async () => viewerState } as Response;
+    }
+    return { ok: true, json: async () => ({ team }) } as Response;
+  });
+}
+
+describe("public team detail -- join-request CTA (Part 5)", () => {
+  it("28. an eligible teamless viewer sees 'Подать заявку'", async () => {
+    mocks.viewer = { id: "eligible-1", role: "player", display_name: "Eligible" } as Player;
+    vi.stubGlobal(
+      "fetch",
+      mockFetchWithViewerState(teamDetail(), {
+        is_member: false,
+        is_captain: false,
+        has_other_active_team: false,
+        pending_request_id: null,
+        pending_invitation_id: null,
+      })
+    );
+
+    await render();
+    expect(container.textContent).toContain("Подать заявку");
+  });
+
+  it("29. a viewer with a pending request sees 'Заявка отправлена' and can cancel it", async () => {
+    mocks.viewer = { id: "eligible-1", role: "player", display_name: "Eligible" } as Player;
+    vi.stubGlobal(
+      "fetch",
+      mockFetchWithViewerState(teamDetail(), {
+        is_member: false,
+        is_captain: false,
+        has_other_active_team: false,
+        pending_request_id: "req-1",
+        pending_invitation_id: null,
+      })
+    );
+
+    await render();
+    expect(container.textContent).toContain("Заявка отправлена");
+    expect(container.textContent).not.toContain("Подать заявку");
+    expect(container.textContent).toContain("Отменить заявку");
+  });
+
+  it("30. a full team (5/5) hides the request CTA even for an eligible viewer", async () => {
+    mocks.viewer = { id: "eligible-1", role: "player", display_name: "Eligible" } as Player;
+    const fullRoster = Array.from({ length: 5 }, (_, i) => ({
+      player_id: i === 0 ? "captain-1" : `member-${i}`,
+      display_name: i === 0 ? "Captain" : `Member ${i}`,
+      username: null,
+      telegram_avatar_url: null,
+      custom_avatar_url: null,
+      is_captain: i === 0,
+      joined_at: new Date().toISOString(),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      mockFetchWithViewerState(teamDetail({ roster: fullRoster }), {
+        is_member: false,
+        is_captain: false,
+        has_other_active_team: false,
+        pending_request_id: null,
+        pending_invitation_id: null,
+      })
+    );
+
+    await render();
+    expect(container.textContent).not.toContain("Подать заявку");
+    expect(container.textContent).not.toContain("Заявка отправлена");
+  });
+
+  it("31. a viewer who already has an active team elsewhere never sees the request CTA", async () => {
+    mocks.viewer = { id: "elsewhere-1", role: "player", display_name: "Elsewhere" } as Player;
+    vi.stubGlobal(
+      "fetch",
+      mockFetchWithViewerState(teamDetail(), {
+        is_member: false,
+        is_captain: false,
+        has_other_active_team: true,
+        pending_request_id: null,
+        pending_invitation_id: null,
+      })
+    );
+
+    await render();
+    expect(container.textContent).not.toContain("Подать заявку");
+    expect(container.textContent).not.toContain("Заявка отправлена");
+  });
+
+  it("a logged-out (public) viewer never sees the request CTA or 'Заявка отправлена'", async () => {
+    mocks.viewer = null;
+    vi.stubGlobal("fetch", mockFetchWithViewerState(teamDetail(), null));
+
+    await render();
+    expect(container.textContent).not.toContain("Подать заявку");
+    expect(container.textContent).not.toContain("Заявка отправлена");
+  });
+});
+
+describe("public team detail -- captain incoming join requests", () => {
+  it("32. the captain of this team sees 'Заявки в команду · N' with Принять/Отклонить", async () => {
+    mocks.viewer = { id: "captain-1", role: "player", display_name: "Captain" } as Player;
+    vi.stubGlobal("fetch", mockFetchWithViewerState(teamDetail(), null));
+    mocks.fetchAdminJson.mockImplementation(async (url: string) => {
+      if (url === "/api/teams/me") {
+        return {
+          pending_incoming_join_requests: [
+            {
+              request_id: "req-1",
+              applicant: { id: "applicant-1", display_name: "Applicant One" },
+              created_at: new Date().toISOString(),
+            },
+          ],
+        };
+      }
+      return { players: [] };
+    });
+
+    await render();
+    expect(container.textContent).toContain("Заявки в команду · 1");
+    expect(container.textContent).toContain("Applicant One");
+    expect(container.textContent).toContain("Принять");
+    expect(container.textContent).toContain("Отклонить");
+  });
+
+  it("33. a non-captain viewer never sees the incoming-requests section", async () => {
+    mocks.viewer = { id: "member-1", role: "player", display_name: "Member" } as Player;
+    vi.stubGlobal("fetch", mockFetchWithViewerState(teamDetail(), null));
+    mocks.fetchAdminJson.mockImplementation(async (url: string) => {
+      if (url === "/api/teams/me") {
+        return {
+          pending_incoming_join_requests: [
+            {
+              request_id: "req-1",
+              applicant: { id: "applicant-1", display_name: "Applicant One" },
+              created_at: new Date().toISOString(),
+            },
+          ],
+        };
+      }
+      return { players: [] };
+    });
+
+    await render();
+    expect(container.textContent).not.toContain("Заявки в команду");
+  });
+});

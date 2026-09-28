@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { fetchAdminJson } from "@/lib/client-request";
 import { resolveCurrentPlayer } from "@/lib/current-player";
@@ -48,9 +49,26 @@ type PendingInvitationView = {
   created_at: string;
 };
 
+type OutgoingJoinRequestView = {
+  request_id: string;
+  team_id: string;
+  team_name: string;
+  team_emblem: string;
+  created_at: string;
+};
+
+type IncomingJoinRequestView = {
+  request_id: string;
+  team_id: string;
+  applicant: PlayerSafeView;
+  created_at: string;
+};
+
 type MyTeamState = {
   team: TeamDetailView | null;
   pending_invitations: PendingInvitationView[];
+  pending_outgoing_join_requests: OutgoingJoinRequestView[];
+  pending_incoming_join_requests: IncomingJoinRequestView[];
   is_captain: boolean;
 };
 
@@ -95,8 +113,13 @@ function StandingCard({ row }: { row: TeamStandingRow }) {
 }
 
 export default function TeamsPage() {
+  const searchParams = useSearchParams();
   const [player, setPlayer] = useState<Player | null>(null);
-  const [topTab, setTopTab] = useState<TopTab>("rating");
+  // Deep-linked from the Telegram bot's "Открыть приглашение"/"Открыть
+  // заявки" inline buttons (see lib/telegram-bot-notify.ts) as
+  // /teams?tab=my-team -- opens straight into the tab that badge/card
+  // refers to, instead of dumping the player onto Рейтинг first.
+  const [topTab, setTopTab] = useState<TopTab>(searchParams?.get("tab") === "my-team" ? "my-team" : "rating");
 
   const [ratingMode, setRatingMode] = useState<RatingMode>("current");
   const [seasons, setSeasons] = useState<PublicSeason[]>([]);
@@ -162,11 +185,20 @@ export default function TeamsPage() {
     }
   }
 
+  // Loaded as soon as the player is known, regardless of which tab is
+  // active -- the "Моя команда" badge must be visible from the Рейтинг
+  // tab too (see the button below), so this can't wait for the tab switch.
+  // One request, reused by both the badge and the tab's own content --
+  // never a second poll.
   useEffect(() => {
-    if (topTab === "my-team" && player) {
+    if (player) {
       void loadMyTeamState();
     }
-  }, [topTab, player]);
+  }, [player]);
+
+  const pendingBadgeCount =
+    (myTeamState?.pending_invitations.length ?? 0) +
+    (myTeamState?.is_captain ? (myTeamState.pending_incoming_join_requests.length ?? 0) : 0);
 
   async function handleCreateTeam() {
     try {
@@ -206,6 +238,33 @@ export default function TeamsPage() {
     }
   }
 
+  async function handleCancelJoinRequest(requestId: string) {
+    try {
+      await fetchAdminJson(`/api/teams/join-requests/${requestId}/cancel`, { method: "POST" });
+      await loadMyTeamState();
+    } catch (err) {
+      setMyTeamError(err instanceof Error ? err.message : "Не удалось отменить заявку");
+    }
+  }
+
+  async function handleAcceptJoinRequest(requestId: string) {
+    try {
+      await fetchAdminJson(`/api/teams/join-requests/${requestId}/accept`, { method: "POST" });
+      await loadMyTeamState();
+    } catch (err) {
+      setMyTeamError(err instanceof Error ? err.message : "Не удалось принять заявку");
+    }
+  }
+
+  async function handleDeclineJoinRequest(requestId: string) {
+    try {
+      await fetchAdminJson(`/api/teams/join-requests/${requestId}/decline`, { method: "POST" });
+      await loadMyTeamState();
+    } catch (err) {
+      setMyTeamError(err instanceof Error ? err.message : "Не удалось отклонить заявку");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-md">
@@ -226,11 +285,19 @@ export default function TeamsPage() {
           <button
             type="button"
             onClick={() => setTopTab("my-team")}
-            className={`rounded-full border px-3 py-2.5 text-center text-sm font-medium ${
+            className={`relative flex items-center justify-center gap-1.5 rounded-full border px-3 py-2.5 text-center text-sm font-medium ${
               topTab === "my-team" ? "border-white/20 bg-white/10 text-white" : "border-white/10 text-white/55"
             }`}
           >
             Моя команда
+            {pendingBadgeCount > 0 ? (
+              <span
+                data-testid="my-team-badge"
+                className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-[#d7b55a] px-1.5 py-0.5 text-[11px] font-bold leading-none text-black"
+              >
+                {pendingBadgeCount}
+              </span>
+            ) : null}
           </button>
         </div>
 
@@ -301,15 +368,25 @@ export default function TeamsPage() {
             ) : myTeamError ? (
               <p className="text-sm text-red-300">{myTeamError}</p>
             ) : myTeamState?.team ? (
-              <MyTeamCard state={myTeamState} onChanged={loadMyTeamState} />
+              <MyTeamCard
+                state={myTeamState}
+                onChanged={loadMyTeamState}
+                onAcceptJoinRequest={handleAcceptJoinRequest}
+                onDeclineJoinRequest={handleDeclineJoinRequest}
+              />
             ) : (
               <div className="space-y-4">
+                {/* Pending invitations are the durable in-app source of
+                    truth -- stay visible until accepted/declined/cancelled,
+                    and made the most visually prominent section here since
+                    an incoming invitation matters more than the player's
+                    own outgoing requests. */}
                 {myTeamState && myTeamState.pending_invitations.length > 0 ? (
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-                    <p className="text-sm font-semibold text-white/80">Приглашения</p>
+                  <div className="rounded-3xl border border-[#d5b867]/30 bg-[#d5b867]/[0.06] p-4">
+                    <p className="text-sm font-semibold text-white/85">Приглашение в команду</p>
                     <div className="mt-3 space-y-3">
                       {myTeamState.pending_invitations.map((invite) => (
-                        <div key={invite.invitation_id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                        <div key={invite.invitation_id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3">
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-lg">
                             {invite.team_emblem}
                           </div>
@@ -333,6 +410,32 @@ export default function TeamsPage() {
                               Отклонить
                             </button>
                           </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {myTeamState && myTeamState.pending_outgoing_join_requests.length > 0 ? (
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
+                    <p className="text-sm font-semibold text-white/80">Мои заявки</p>
+                    <div className="mt-3 space-y-3">
+                      {myTeamState.pending_outgoing_join_requests.map((request) => (
+                        <div key={request.request_id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-lg">
+                            {request.team_emblem}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-white">{request.team_name}</p>
+                            <p className="text-xs text-white/50">Заявка отправлена</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelJoinRequest(request.request_id)}
+                            className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70"
+                          >
+                            Отменить заявку
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -408,9 +511,13 @@ export default function TeamsPage() {
 function MyTeamCard({
   state,
   onChanged,
+  onAcceptJoinRequest,
+  onDeclineJoinRequest,
 }: {
   state: MyTeamState;
   onChanged: () => void | Promise<void>;
+  onAcceptJoinRequest: (requestId: string) => void | Promise<void>;
+  onDeclineJoinRequest: (requestId: string) => void | Promise<void>;
 }) {
   const team = state.team!;
   const isCaptain = state.is_captain;
@@ -688,6 +795,43 @@ function MyTeamCard({
             >
               Отмена
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isCaptain && state.pending_incoming_join_requests.length > 0 ? (
+        <div className="rounded-3xl border border-[#d5b867]/30 bg-[#d5b867]/[0.06] p-4">
+          <p className="text-sm font-semibold text-white/85">
+            Заявки в команду · {state.pending_incoming_join_requests.length}
+          </p>
+          <div className="mt-3 space-y-3">
+            {state.pending_incoming_join_requests.map((request) => (
+              <div
+                key={request.request_id}
+                className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3"
+              >
+                <Avatar player={request.applicant} className="h-9 w-9" />
+                <p className="min-w-0 flex-1 truncate text-sm font-medium text-white">
+                  {request.applicant.display_name}
+                </p>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onAcceptJoinRequest(request.request_id)}
+                    className="rounded-full bg-[#d7b55a] px-3 py-1.5 text-xs font-semibold text-black"
+                  >
+                    Принять
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeclineJoinRequest(request.request_id)}
+                    className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70"
+                  >
+                    Отклонить
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       ) : null}

@@ -2,11 +2,12 @@ import "server-only";
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { teams, teamMemberships, teamInvitations } from "@/lib/db/schema";
+import { teams, teamMemberships, teamInvitations, teamJoinRequests } from "@/lib/db/schema";
 import { extractPostgresError } from "@/lib/db/postgres-error";
 import { playerRepository, resultRepository, seasonRepository } from "@/lib/repositories";
 import { resolveCanonicalPlayer } from "@/lib/canonical-player";
 import { isTeamEmblem, DEFAULT_TEAM_EMBLEM, type TeamEmblem } from "@/config/team-emblems";
+import { sendTeamsTelegramNotification } from "@/lib/telegram-bot-notify";
 import {
   attributeResultsToTeams,
   aggregateTeamTotals,
@@ -146,6 +147,47 @@ export class PlayerNotFoundError extends Error {
   }
 }
 
+export class JoinRequestNotFoundError extends Error {
+  constructor() {
+    super("Заявка не найдена");
+    this.name = "JoinRequestNotFoundError";
+  }
+}
+
+export class JoinRequestNotPendingError extends Error {
+  constructor() {
+    super("Эта заявка уже обработана");
+    this.name = "JoinRequestNotPendingError";
+  }
+}
+
+export class JoinRequestForbiddenError extends Error {
+  constructor() {
+    super("Эта заявка подана другим игроком");
+    this.name = "JoinRequestForbiddenError";
+  }
+}
+
+export class AlreadyRequestedError extends Error {
+  constructor() {
+    super("Вы уже подали заявку в эту команду");
+    this.name = "AlreadyRequestedError";
+  }
+}
+
+// team_invitations = captain -> player; team_join_requests = player ->
+// captain -- deliberately never overloaded onto one table (see
+// lib/db/schema/teams.ts's teamJoinRequests doc comment). If the player
+// already holds a pending INVITATION from this exact team, a join request
+// would be a redundant, confusing second channel to the same outcome --
+// this error steers them back to the invitation flow instead.
+export class AlreadyInvitedByTeamError extends Error {
+  constructor() {
+    super("Эта команда уже пригласила вас — примите приглашение");
+    this.name = "AlreadyInvitedByTeamError";
+  }
+}
+
 // ---------------------------------------------------------------------
 // Player-safe view types -- never expose telegram_id/email/admin fields.
 // ---------------------------------------------------------------------
@@ -219,13 +261,49 @@ export type PendingInvitationView = {
   created_at: string;
 };
 
+export type OutgoingJoinRequestView = {
+  request_id: string;
+  team_id: string;
+  team_name: string;
+  team_emblem: string;
+  created_at: string;
+};
+
+export type IncomingJoinRequestView = {
+  request_id: string;
+  team_id: string;
+  applicant: PlayerSafeView;
+  created_at: string;
+};
+
 export type MyTeamState = {
   team: TeamDetailView | null;
   pending_invitations: PendingInvitationView[];
+  // This player's own outgoing requests to join OTHER teams -- always
+  // empty once they belong to a team (accepting anything cancels the rest,
+  // see acceptInvitation/acceptJoinRequest).
+  pending_outgoing_join_requests: OutgoingJoinRequestView[];
+  // Incoming requests TO the player's own team -- only ever populated when
+  // is_captain is true; a plain member never sees another applicant's
+  // request here.
+  pending_incoming_join_requests: IncomingJoinRequestView[];
   // True only when the caller is the current team's captain -- drives which
   // management controls the client renders. Meaningless (false) if team is
   // null.
   is_captain: boolean;
+};
+
+// Public /teams/[id]'s per-VIEWER request/invite CTA state -- deliberately
+// separate from the team's own public TeamDetailView (which has no
+// per-viewer fields and stays the same for everyone, including anonymous
+// visitors). Only ever requested for the currently authenticated caller,
+// never for an arbitrary playerId.
+export type TeamViewerState = {
+  is_member: boolean;
+  is_captain: boolean;
+  has_other_active_team: boolean;
+  pending_request_id: string | null;
+  pending_invitation_id: string | null;
 };
 
 export type TeamScopeInput =
@@ -269,6 +347,20 @@ async function resolveEligiblePlayer(playerId: string): Promise<Player> {
     throw new InviteTargetUnavailableError("Этот игрок заблокирован");
   }
   return canonical;
+}
+
+// Defense in depth on top of lib/telegram-bot-notify.ts's own internal
+// try/catch: every call site below fires this AFTER its transaction has
+// already committed, and a Telegram failure must NEVER surface as a
+// failure of the mutation that already succeeded -- even if the notifier
+// module itself somehow threw (a bug there, a mocked-out throw in a test,
+// etc.), the outer create/accept/invite call must still resolve normally.
+async function notifyBestEffort(send: () => Promise<unknown>): Promise<void> {
+  try {
+    await send();
+  } catch (error) {
+    console.warn("[teams] notification call threw unexpectedly (non-fatal):", error instanceof Error ? error.message : error);
+  }
 }
 
 function isUniqueViolation(error: unknown, constraintNameFragment: string): boolean {
@@ -514,10 +606,13 @@ export async function getPlayerActiveTeamSummary(playerId: string): Promise<Play
   return { team_id: team.id, name: team.name, emblem: team.emblem, rank: standing?.rank ?? null };
 }
 
-// "Моя команда" -- the caller's own team (if any) plus every pending
-// invitation addressed to them, visible even with no team at all.
+// "Моя команда" -- the caller's own team (if any), every pending
+// invitation addressed to them, their own outgoing join requests, and (if
+// they are a captain) incoming requests to their team -- all visible even
+// with no team at all. Every list below is ONE bulk query plus ONE bulk
+// team/player hydration, never a per-row lookup.
 export async function getMyTeamState(actorId: string): Promise<MyTeamState> {
-  const [activeMembership, pendingInvitationRows] = await Promise.all([
+  const [activeMembership, pendingInvitationRows, outgoingRequestRows] = await Promise.all([
     db
       .select()
       .from(teamMemberships)
@@ -527,48 +622,133 @@ export async function getMyTeamState(actorId: string): Promise<MyTeamState> {
       .select()
       .from(teamInvitations)
       .where(and(eq(teamInvitations.invitedPlayerId, actorId), eq(teamInvitations.status, "pending"))),
+    db
+      .select()
+      .from(teamJoinRequests)
+      .where(and(eq(teamJoinRequests.playerId, actorId), eq(teamJoinRequests.status, "pending"))),
   ]);
 
   let team: TeamDetailView | null = null;
   let isCaptain = false;
+  let incomingRequestRows: (typeof teamJoinRequests.$inferSelect)[] = [];
 
   if (activeMembership[0]) {
     const [teamRow] = await db.select().from(teams).where(eq(teams.id, activeMembership[0].teamId)).limit(1);
     if (teamRow) {
       team = await buildTeamDetailView(teamRow, { kind: "current" });
       isCaptain = teamRow.captainPlayerId === actorId;
+      if (isCaptain) {
+        incomingRequestRows = await db
+          .select()
+          .from(teamJoinRequests)
+          .where(and(eq(teamJoinRequests.teamId, teamRow.id), eq(teamJoinRequests.status, "pending")));
+      }
     }
   }
 
-  let pendingInvitations: PendingInvitationView[] = [];
-  if (pendingInvitationRows.length > 0) {
-    const teamIds = Array.from(new Set(pendingInvitationRows.map((row) => row.teamId)));
-    const inviterIds = Array.from(new Set(pendingInvitationRows.map((row) => row.invitedByPlayerId)));
-    const [teamRows, inviterRows] = await Promise.all([
-      db.select().from(teams).where(inArray(teams.id, teamIds)),
-      playerRepository.findByIds(inviterIds),
-    ]);
-    const teamById = new Map(teamRows.map((t) => [t.id, t]));
-    const inviterById = new Map(inviterRows.map((p) => [p.id, p]));
+  // One bulk hydration covering every team/player id referenced by ANY of
+  // the three lists above.
+  const teamIds = Array.from(
+    new Set([...pendingInvitationRows.map((r) => r.teamId), ...outgoingRequestRows.map((r) => r.teamId)])
+  );
+  const playerIds = Array.from(
+    new Set([...pendingInvitationRows.map((r) => r.invitedByPlayerId), ...incomingRequestRows.map((r) => r.playerId)])
+  );
+  const [teamRows, playerRows] = await Promise.all([
+    teamIds.length > 0 ? db.select().from(teams).where(inArray(teams.id, teamIds)) : Promise.resolve([]),
+    playerRepository.findByIds(playerIds),
+  ]);
+  const teamById = new Map(teamRows.map((t) => [t.id, t]));
+  const playerById = new Map(playerRows.map((p) => [p.id, p]));
 
-    pendingInvitations = pendingInvitationRows
-      .map((row) => {
-        const inviteTeam = teamById.get(row.teamId);
-        const inviter = inviterById.get(row.invitedByPlayerId);
-        if (!inviteTeam || !inviter) return null;
-        return {
-          invitation_id: row.id,
-          team_id: inviteTeam.id,
-          team_name: inviteTeam.name,
-          team_emblem: inviteTeam.emblem,
-          invited_by: toPlayerSafeView(inviter),
-          created_at: row.createdAt.toISOString(),
-        };
-      })
-      .filter((row): row is PendingInvitationView => row !== null);
-  }
+  const pendingInvitations: PendingInvitationView[] = pendingInvitationRows
+    .map((row) => {
+      const inviteTeam = teamById.get(row.teamId);
+      const inviter = playerById.get(row.invitedByPlayerId);
+      if (!inviteTeam || !inviter) return null;
+      return {
+        invitation_id: row.id,
+        team_id: inviteTeam.id,
+        team_name: inviteTeam.name,
+        team_emblem: inviteTeam.emblem,
+        invited_by: toPlayerSafeView(inviter),
+        created_at: row.createdAt.toISOString(),
+      };
+    })
+    .filter((row): row is PendingInvitationView => row !== null);
 
-  return { team, pending_invitations: pendingInvitations, is_captain: isCaptain };
+  const pendingOutgoingJoinRequests: OutgoingJoinRequestView[] = outgoingRequestRows
+    .map((row) => {
+      const requestTeam = teamById.get(row.teamId);
+      if (!requestTeam) return null;
+      return {
+        request_id: row.id,
+        team_id: requestTeam.id,
+        team_name: requestTeam.name,
+        team_emblem: requestTeam.emblem,
+        created_at: row.createdAt.toISOString(),
+      };
+    })
+    .filter((row): row is OutgoingJoinRequestView => row !== null);
+
+  const pendingIncomingJoinRequests: IncomingJoinRequestView[] = incomingRequestRows
+    .map((row) => {
+      const applicant = playerById.get(row.playerId);
+      if (!applicant) return null;
+      return {
+        request_id: row.id,
+        team_id: row.teamId,
+        applicant: toPlayerSafeView(applicant),
+        created_at: row.createdAt.toISOString(),
+      };
+    })
+    .filter((row): row is IncomingJoinRequestView => row !== null);
+
+  return {
+    team,
+    pending_invitations: pendingInvitations,
+    pending_outgoing_join_requests: pendingOutgoingJoinRequests,
+    pending_incoming_join_requests: pendingIncomingJoinRequests,
+    is_captain: isCaptain,
+  };
+}
+
+// Public /teams/[id]'s per-viewer CTA state -- see TeamViewerState's doc
+// comment. Plain reads only (no lock): the actual mutation (requestToJoinTeam)
+// re-validates everything itself under a real transaction, so this never
+// needs to be more than "what should the button say right now".
+export async function getTeamViewerState(teamId: string, actorId: string): Promise<TeamViewerState> {
+  const [team] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
+  if (!team) throw new TeamNotFoundError();
+
+  const [activeMembershipRows, pendingRequestRows, pendingInvitationRows] = await Promise.all([
+    db
+      .select()
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.playerId, actorId), isNull(teamMemberships.leftAt)))
+      .limit(1),
+    db
+      .select()
+      .from(teamJoinRequests)
+      .where(and(eq(teamJoinRequests.teamId, teamId), eq(teamJoinRequests.playerId, actorId), eq(teamJoinRequests.status, "pending")))
+      .limit(1),
+    db
+      .select()
+      .from(teamInvitations)
+      .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.invitedPlayerId, actorId), eq(teamInvitations.status, "pending")))
+      .limit(1),
+  ]);
+
+  const activeMembership = activeMembershipRows[0] ?? null;
+  const isMember = activeMembership?.teamId === teamId;
+
+  return {
+    is_member: isMember,
+    is_captain: isMember && team.captainPlayerId === actorId,
+    has_other_active_team: Boolean(activeMembership) && !isMember,
+    pending_request_id: pendingRequestRows[0]?.id ?? null,
+    pending_invitation_id: pendingInvitationRows[0]?.id ?? null,
+  };
 }
 
 // Player-safe search for the captain's invite picker -- display_name/
@@ -724,7 +904,7 @@ export async function updateTeamIdentity(
 export async function inviteToTeam(actorId: string, teamId: string, invitedPlayerId: string): Promise<void> {
   const invitee = await resolveEligiblePlayer(invitedPlayerId);
 
-  await db.transaction(async (tx) => {
+  const teamName = await db.transaction(async (tx) => {
     const [team] = await tx.select().from(teams).where(eq(teams.id, teamId)).for("update");
     if (!team) throw new TeamNotFoundError();
     if (team.status === "disbanded") throw new TeamDisbandedError();
@@ -779,7 +959,24 @@ export async function inviteToTeam(actorId: string, teamId: string, invitedPlaye
       }
       throw error;
     }
+
+    return team.name;
   });
+
+  // Best-effort ONLY, fired after the transaction above has already
+  // committed -- see lib/telegram-bot-notify.ts's doc comment. A Telegram
+  // failure here can never roll back or invalidate the invitation that
+  // already succeeded.
+  if (invitee.telegram_id) {
+    await notifyBestEffort(() =>
+      sendTeamsTelegramNotification({
+        telegramId: invitee.telegram_id!,
+        text: `👥 Вас пригласили в команду «${teamName}» в RERAISE.\n\nОткройте приложение, чтобы принять или отклонить приглашение.`,
+        buttonText: "Открыть приглашение",
+        path: "/teams?tab=my-team",
+      })
+    );
+  }
 }
 
 export async function cancelInvitation(actorId: string, invitationId: string): Promise<void> {
@@ -814,7 +1011,7 @@ export async function cancelInvitation(actorId: string, invitationId: string): P
 // invitation accepted, and cancel every OTHER pending invitation for this
 // player (atomically, same transaction).
 export async function acceptInvitation(actorId: string, invitationId: string): Promise<TeamDetailView> {
-  const teamId = await db.transaction(async (tx) => {
+  const { teamId, captainPlayerId, teamName } = await db.transaction(async (tx) => {
     const [invitation] = await tx
       .select()
       .from(teamInvitations)
@@ -872,11 +1069,29 @@ export async function acceptInvitation(actorId: string, invitationId: string): P
         )
       );
 
-    return team.id;
+    return { teamId: team.id, captainPlayerId: team.captainPlayerId, teamName: team.name };
   });
 
   const detail = await getTeamDetail(teamId, { kind: "current" });
   if (!detail) throw new TeamNotFoundError();
+
+  // Best-effort ONLY, after commit -- notify the captain their invitation
+  // was accepted. See lib/telegram-bot-notify.ts's doc comment.
+  const [accepter, captain] = await Promise.all([
+    playerRepository.findById(actorId),
+    playerRepository.findById(captainPlayerId),
+  ]);
+  if (accepter && captain?.telegram_id) {
+    await notifyBestEffort(() =>
+      sendTeamsTelegramNotification({
+        telegramId: captain.telegram_id!,
+        text: `✅ ${accepter.display_name} принял приглашение и вступил в «${teamName}».`,
+        buttonText: "Открыть команду",
+        path: "/teams?tab=my-team",
+      })
+    );
+  }
+
   return detail;
 }
 
@@ -1009,4 +1224,257 @@ export async function disbandTeam(actorId: string, teamId: string): Promise<void
       .set({ status: "cancelled", respondedAt: now })
       .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, "pending")));
   });
+}
+
+// ---------------------------------------------------------------------
+// Join requests (player -> captain) -- the mirror direction of the
+// invitations above. See lib/db/schema/teams.ts's teamJoinRequests doc
+// comment for why this is a separate table/flow rather than an overload of
+// team_invitations. Same "one transaction, row-lock the team, DB unique
+// index as the final backstop" discipline as every mutation above.
+// ---------------------------------------------------------------------
+
+// The player's own action. Join requests deliberately do NOT reserve a
+// seat (see MAX_ACTIVE_MEMBERS' doc comments on invitations) -- eligibility
+// only checks the team's CURRENT active member count, never pending
+// invitations. Capacity that actually matters (including invitation
+// reservations) is re-checked at acceptJoinRequest time instead.
+export async function requestToJoinTeam(actorId: string, teamId: string): Promise<void> {
+  const teamName = await db.transaction(async (tx) => {
+    const [team] = await tx.select().from(teams).where(eq(teams.id, teamId)).for("update");
+    if (!team) throw new TeamNotFoundError();
+    if (team.status === "disbanded") throw new TeamDisbandedError();
+
+    const [existingActive] = await tx
+      .select()
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.playerId, actorId), isNull(teamMemberships.leftAt)))
+      .limit(1);
+    if (existingActive) throw new AlreadyOnActiveTeamError();
+
+    // Already invited by this exact team -- steer back to the invitation
+    // flow instead of creating a redundant second channel to the same
+    // outcome.
+    const [existingInvitation] = await tx
+      .select()
+      .from(teamInvitations)
+      .where(
+        and(
+          eq(teamInvitations.teamId, teamId),
+          eq(teamInvitations.invitedPlayerId, actorId),
+          eq(teamInvitations.status, "pending")
+        )
+      )
+      .limit(1);
+    if (existingInvitation) throw new AlreadyInvitedByTeamError();
+
+    const [existingRequest] = await tx
+      .select()
+      .from(teamJoinRequests)
+      .where(
+        and(
+          eq(teamJoinRequests.teamId, teamId),
+          eq(teamJoinRequests.playerId, actorId),
+          eq(teamJoinRequests.status, "pending")
+        )
+      )
+      .limit(1);
+    if (existingRequest) throw new AlreadyRequestedError();
+
+    const [{ activeCount }] = await tx
+      .select({ activeCount: sql<number>`count(*)::int` })
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.teamId, teamId), isNull(teamMemberships.leftAt)));
+    if (activeCount >= MAX_ACTIVE_MEMBERS) throw new TeamFullError();
+
+    try {
+      await tx.insert(teamJoinRequests).values({ teamId, playerId: actorId });
+    } catch (error) {
+      if (isUniqueViolation(error, "team_join_requests_one_pending")) {
+        throw new AlreadyRequestedError();
+      }
+      throw error;
+    }
+
+    return team.name;
+  });
+
+  // Best-effort ONLY, after commit -- notify the captain of the new
+  // applicant.
+  const [applicant, team] = await Promise.all([
+    playerRepository.findById(actorId),
+    db.select().from(teams).where(eq(teams.id, teamId)).limit(1).then((rows) => rows[0] ?? null),
+  ]);
+  if (applicant && team) {
+    const captain = await playerRepository.findById(team.captainPlayerId);
+    if (captain?.telegram_id) {
+      await notifyBestEffort(() =>
+        sendTeamsTelegramNotification({
+          telegramId: captain.telegram_id!,
+          text: `👥 ${applicant.display_name} хочет вступить в команду «${teamName}».\n\nОткройте RERAISE, чтобы принять или отклонить заявку.`,
+          buttonText: "Открыть заявки",
+          path: "/teams?tab=my-team",
+        })
+      );
+    }
+  }
+}
+
+export async function cancelJoinRequest(actorId: string, requestId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [request] = await tx
+      .select()
+      .from(teamJoinRequests)
+      .where(eq(teamJoinRequests.id, requestId))
+      .for("update");
+    if (!request) throw new JoinRequestNotFoundError();
+    if (request.playerId !== actorId) throw new JoinRequestForbiddenError();
+    if (request.status !== "pending") throw new JoinRequestNotPendingError();
+
+    await tx
+      .update(teamJoinRequests)
+      .set({ status: "cancelled", respondedAt: new Date() })
+      .where(eq(teamJoinRequests.id, requestId));
+  });
+}
+
+export async function declineJoinRequest(actorId: string, requestId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [request] = await tx
+      .select()
+      .from(teamJoinRequests)
+      .where(eq(teamJoinRequests.id, requestId))
+      .for("update");
+    if (!request) throw new JoinRequestNotFoundError();
+
+    const [team] = await tx.select().from(teams).where(eq(teams.id, request.teamId)).limit(1);
+    if (!team) throw new TeamNotFoundError();
+    if (team.captainPlayerId !== actorId) throw new NotCaptainError();
+    if (request.status !== "pending") throw new JoinRequestNotPendingError();
+
+    await tx
+      .update(teamJoinRequests)
+      .set({ status: "declined", respondedAt: new Date() })
+      .where(eq(teamJoinRequests.id, requestId));
+  });
+}
+
+// Captain-only. Full transactional re-check under lock -- request still
+// pending, team still active, actor still captain, requesting player still
+// canonical/not-blocked/teamless, and (the CAPACITY RULE) active members +
+// pending OUTGOING INVITATIONS still < 5, since a captain's own pending
+// invitations reserve seats that a join request must never steal. On
+// success: create the membership, mark this request accepted, cancel every
+// OTHER pending join request AND every pending invitation for that player
+// (any team), and -- if this acceptance just filled the team to 5/5 --
+// auto-cancel any other requests still pending against this same team,
+// since it can no longer accept them. Never deletes a historical row.
+export async function acceptJoinRequest(actorId: string, requestId: string): Promise<TeamDetailView> {
+  const canonicalApplicant = await (async () => {
+    const [request] = await db.select().from(teamJoinRequests).where(eq(teamJoinRequests.id, requestId)).limit(1);
+    if (!request) throw new JoinRequestNotFoundError();
+    return resolveEligiblePlayer(request.playerId);
+  })();
+
+  const { teamId, teamName } = await db.transaction(async (tx) => {
+    const [request] = await tx
+      .select()
+      .from(teamJoinRequests)
+      .where(eq(teamJoinRequests.id, requestId))
+      .for("update");
+    if (!request) throw new JoinRequestNotFoundError();
+    if (request.status !== "pending") throw new JoinRequestNotPendingError();
+
+    const [team] = await tx.select().from(teams).where(eq(teams.id, request.teamId)).for("update");
+    if (!team) throw new TeamNotFoundError();
+    if (team.status === "disbanded") throw new TeamDisbandedError();
+    if (team.captainPlayerId !== actorId) throw new NotCaptainError();
+
+    const [existingActive] = await tx
+      .select()
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.playerId, canonicalApplicant.id), isNull(teamMemberships.leftAt)))
+      .for("update");
+    if (existingActive) throw new AlreadyOnActiveTeamError();
+
+    // Capacity rule: pending CAPTAIN INVITATIONS reserve seats -- a join
+    // request must never steal one of them.
+    const [{ activeCount }] = await tx
+      .select({ activeCount: sql<number>`count(*)::int` })
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.teamId, team.id), isNull(teamMemberships.leftAt)));
+    const [{ pendingInviteCount }] = await tx
+      .select({ pendingInviteCount: sql<number>`count(*)::int` })
+      .from(teamInvitations)
+      .where(and(eq(teamInvitations.teamId, team.id), eq(teamInvitations.status, "pending")));
+    if (activeCount + pendingInviteCount >= MAX_ACTIVE_MEMBERS) {
+      throw new TeamFullError();
+    }
+
+    try {
+      await tx.insert(teamMemberships).values({ teamId: team.id, playerId: canonicalApplicant.id });
+    } catch (error) {
+      if (isUniqueViolation(error, "team_memberships_one_active_per_player")) {
+        throw new AlreadyOnActiveTeamError();
+      }
+      throw error;
+    }
+
+    const now = new Date();
+    await tx
+      .update(teamJoinRequests)
+      .set({ status: "accepted", respondedAt: now })
+      .where(eq(teamJoinRequests.id, requestId));
+
+    // Every OTHER pending join request this player had open (any team) is
+    // cancelled atomically -- accepting one always resolves the rest.
+    await tx
+      .update(teamJoinRequests)
+      .set({ status: "cancelled", respondedAt: now })
+      .where(
+        and(
+          eq(teamJoinRequests.playerId, canonicalApplicant.id),
+          eq(teamJoinRequests.status, "pending"),
+          sql`${teamJoinRequests.id} != ${requestId}`
+        )
+      );
+
+    // Every pending INVITATION this player was holding (any team) is
+    // cancelled too -- they just joined a team, so no other captain's
+    // invitation can still be accepted.
+    await tx
+      .update(teamInvitations)
+      .set({ status: "cancelled", respondedAt: now })
+      .where(and(eq(teamInvitations.invitedPlayerId, canonicalApplicant.id), eq(teamInvitations.status, "pending")));
+
+    // If this acceptance just filled the team to 5/5, any OTHER pending
+    // request still targeting this same team can no longer be honored --
+    // auto-cancel it rather than leave a request pending forever against a
+    // team that structurally cannot accept it.
+    if (activeCount + 1 >= MAX_ACTIVE_MEMBERS) {
+      await tx
+        .update(teamJoinRequests)
+        .set({ status: "cancelled", respondedAt: now })
+        .where(and(eq(teamJoinRequests.teamId, team.id), eq(teamJoinRequests.status, "pending")));
+    }
+
+    return { teamId: team.id, teamName: team.name };
+  });
+
+  const detail = await getTeamDetail(teamId, { kind: "current" });
+  if (!detail) throw new TeamNotFoundError();
+
+  // Best-effort ONLY, after commit -- notify the newly-accepted player.
+  if (canonicalApplicant.telegram_id) {
+    await notifyBestEffort(() =>
+      sendTeamsTelegramNotification({
+        telegramId: canonicalApplicant.telegram_id!,
+        text: `✅ Вас приняли в команду «${teamName}».`,
+        buttonText: "Открыть команду",
+        path: "/teams?tab=my-team",
+      })
+    );
+  }
+
+  return detail;
 }

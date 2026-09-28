@@ -36,3 +36,4 @@ export * from "./player-merge-intent";
 export * from "./team";
 export * from "./team-membership";
 export * from "./team-invitation";
+export * from "./team-join-request";

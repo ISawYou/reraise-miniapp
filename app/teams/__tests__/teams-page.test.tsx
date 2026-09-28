@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({ fetchAdminJson: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ back: vi.fn(), push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/lib/current-player", () => ({
@@ -47,6 +48,8 @@ function myTeamState(overrides: Record<string, unknown> = {}) {
   return {
     team: null,
     pending_invitations: [],
+    pending_outgoing_join_requests: [],
+    pending_incoming_join_requests: [],
     is_captain: false,
     ...overrides,
   };
@@ -86,9 +89,50 @@ async function render() {
 }
 
 function click(text: string) {
-  const el = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.trim() === text)!;
+  // Strips a trailing numeric pending-count badge (e.g. "Моя команда" +
+  // "2" rendered as a nested <span>) so tab-button lookups by label still
+  // match regardless of whether a badge is currently showing.
+  const el = Array.from(container.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim() === text || b.textContent?.trim().replace(/\d+$/, "") === text
+  )!;
   return act(async () => el.click());
 }
+
+describe("Teams -- invitation badge (visible from ANY tab)", () => {
+  it("25. shows the pending-count badge on 'Моя команда' while the Рейтинг tab is active -- never waits for the tab switch", async () => {
+    mocks.fetchAdminJson.mockImplementation((url: string) => {
+      if (url === "/api/leaderboard/seasons") return Promise.resolve({ seasons: [] });
+      if (url.startsWith("/api/teams?")) return Promise.resolve({ standings: [] });
+      if (url === "/api/teams/me")
+        return Promise.resolve(
+          myTeamState({
+            pending_invitations: [
+              {
+                invitation_id: "inv-1",
+                team_id: "team-1",
+                team_name: "Sharks",
+                team_emblem: "🦈",
+                invited_by: { player_id: "cap-1", display_name: "Captain", username: null, telegram_avatar_url: null, custom_avatar_url: null },
+                created_at: new Date().toISOString(),
+              },
+            ],
+          })
+        );
+      return Promise.reject(new Error(`unexpected: ${url}`));
+    });
+
+    await render();
+    // Still on Рейтинг (default tab) -- the badge must already be visible.
+    const badge = container.querySelector('[data-testid="my-team-badge"]');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe("1");
+  });
+
+  it("no badge when there is nothing pending", async () => {
+    await render();
+    expect(container.querySelector('[data-testid="my-team-badge"]')).toBeNull();
+  });
+});
 
 describe("Teams -- Рейтинг tab", () => {
   it("renders empty state when no team has points", async () => {
@@ -273,13 +317,18 @@ describe("Teams -- Моя команда tab, has a team", () => {
     };
   }
 
-  function withTeam(isCaptain: boolean, roster?: unknown[]) {
+  function withTeam(isCaptain: boolean, roster?: unknown[], incomingRequests: unknown[] = []) {
     mocks.fetchAdminJson.mockImplementation((url: string) => {
       if (url === "/api/leaderboard/seasons") return Promise.resolve({ seasons: [] });
       if (url.startsWith("/api/teams?")) return Promise.resolve({ standings: [] });
       if (url === "/api/teams/me")
         return Promise.resolve(
-          myTeamState({ team: teamDetail(roster ? { roster } : {}), is_captain: isCaptain, pending_invitations: [] })
+          myTeamState({
+            team: teamDetail(roster ? { roster } : {}),
+            is_captain: isCaptain,
+            pending_invitations: [],
+            pending_incoming_join_requests: isCaptain ? incomingRequests : [],
+          })
         );
       return Promise.resolve({ ok: true });
     });
@@ -335,5 +384,37 @@ describe("Teams -- Моя команда tab, has a team", () => {
 
     expect(container.textContent).toContain("5 / 5");
     expect(container.textContent).not.toContain("Пригласить");
+  });
+
+  it("32. captain sees incoming join requests with Принять/Отклонить", async () => {
+    withTeam(true, undefined, [
+      {
+        request_id: "req-1",
+        team_id: "team-1",
+        applicant: { player_id: "applicant-1", display_name: "Applicant", username: null, telegram_avatar_url: null, custom_avatar_url: null },
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    await render();
+    await click("Моя команда");
+    await flush();
+
+    expect(container.textContent).toContain("Заявки в команду");
+    expect(container.textContent).toContain("Applicant");
+
+    await click("Принять");
+    await flush();
+    expect(
+      mocks.fetchAdminJson.mock.calls.some((call: unknown[]) => call[0] === "/api/teams/join-requests/req-1/accept")
+    ).toBe(true);
+  });
+
+  it("33. a non-captain member never sees the incoming-requests section or its controls", async () => {
+    withTeam(false);
+    await render();
+    await click("Моя команда");
+    await flush();
+
+    expect(container.textContent).not.toContain("Заявки в команду");
   });
 });

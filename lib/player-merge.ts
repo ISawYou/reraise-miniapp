@@ -17,6 +17,7 @@ import {
   teams,
   teamMemberships,
   teamInvitations,
+  teamJoinRequests,
 } from "@/lib/db/schema";
 import { syncPlayerAchievements } from "@/features/achievements";
 import { intervalsOverlap } from "@/lib/team-scoring";
@@ -509,6 +510,48 @@ export async function executeMerge(params: {
             .update(teamInvitations)
             .set({ invitedPlayerId: targetId })
             .where(inArray(teamInvitations.id, movableIds));
+        }
+      }
+
+      // team_join_requests -- the mirror direction of team_invitations
+      // above (player -> captain instead of captain -> player), same
+      // reassignment + same pending-collision handling. Never creates a
+      // team membership here (join requests never do, merge or otherwise)
+      // and never touches the membership-history overlap blocker above --
+      // that check only ever concerns team_memberships, not requests.
+      const sourcePendingJoinRequests = await tx
+        .select({ id: teamJoinRequests.id, teamId: teamJoinRequests.teamId })
+        .from(teamJoinRequests)
+        .where(and(eq(teamJoinRequests.playerId, sourceId), eq(teamJoinRequests.status, "pending")));
+
+      if (sourcePendingJoinRequests.length > 0) {
+        const targetPendingRequestTeamIds = new Set(
+          (
+            await tx
+              .select({ teamId: teamJoinRequests.teamId })
+              .from(teamJoinRequests)
+              .where(and(eq(teamJoinRequests.playerId, targetId), eq(teamJoinRequests.status, "pending")))
+          ).map((row) => row.teamId)
+        );
+
+        const collidingRequestIds = sourcePendingJoinRequests
+          .filter((row) => targetPendingRequestTeamIds.has(row.teamId))
+          .map((row) => row.id);
+        const movableRequestIds = sourcePendingJoinRequests
+          .filter((row) => !targetPendingRequestTeamIds.has(row.teamId))
+          .map((row) => row.id);
+
+        if (collidingRequestIds.length > 0) {
+          await tx
+            .update(teamJoinRequests)
+            .set({ status: "cancelled", respondedAt: new Date() })
+            .where(inArray(teamJoinRequests.id, collidingRequestIds));
+        }
+        if (movableRequestIds.length > 0) {
+          await tx
+            .update(teamJoinRequests)
+            .set({ playerId: targetId })
+            .where(inArray(teamJoinRequests.id, movableRequestIds));
         }
       }
 

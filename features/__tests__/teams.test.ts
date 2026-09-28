@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { teams, teamMemberships, teamInvitations } from "@/lib/db/schema";
+import { teams, teamMemberships, teamInvitations, teamJoinRequests } from "@/lib/db/schema";
 
 // This suite exercises the REAL transactional business logic in
 // features/teams.ts against a hand-built fake `tx` that mimics Drizzle's
@@ -13,17 +13,26 @@ import { teams, teamMemberships, teamInvitations } from "@/lib/db/schema";
 // the fake simulates it -- both are standard, well-understood Postgres
 // behavior this codebase already relies on elsewhere (see dealer_shifts'
 // own one-open-shift constraint), not something worth a live-DB test here.
-const { currentTx, mockResolveCanonicalPlayer, mockPlayerRepo, mockResultRepo, mockSeasonRepo } = vi.hoisted(() => ({
-  currentTx: { current: null as unknown },
-  mockResolveCanonicalPlayer: vi.fn(),
-  mockPlayerRepo: {
-    findById: vi.fn(),
-    findByIds: vi.fn().mockResolvedValue([]),
-    listOrderedByDisplayName: vi.fn().mockResolvedValue([]),
-  },
-  mockResultRepo: { findAllForTeamScoring: vi.fn().mockResolvedValue([]) },
-  mockSeasonRepo: { findActive: vi.fn().mockResolvedValue(null) },
-}));
+const { currentTx, mockResolveCanonicalPlayer, mockPlayerRepo, mockResultRepo, mockSeasonRepo, mockSendNotification } =
+  vi.hoisted(() => ({
+    currentTx: { current: null as unknown },
+    mockResolveCanonicalPlayer: vi.fn(),
+    mockPlayerRepo: {
+      findById: vi.fn(),
+      findByIds: vi.fn().mockResolvedValue([]),
+      listOrderedByDisplayName: vi.fn().mockResolvedValue([]),
+    },
+    mockResultRepo: { findAllForTeamScoring: vi.fn().mockResolvedValue([]) },
+    mockSeasonRepo: { findActive: vi.fn().mockResolvedValue(null) },
+    mockSendNotification: vi.fn().mockResolvedValue(true),
+  }));
+
+// Outside-tx fixture for a single team_join_requests row -- only
+// acceptJoinRequest's pre-transaction resolveEligiblePlayer lookup reads
+// this table outside a transaction (to resolve the applicant's canonical
+// identity before locking); every test that exercises acceptJoinRequest
+// sets this to the request row it wants resolved.
+let outsideTxJoinRequestRow: unknown = null;
 
 // The plain (non-transactional) db.select(...) calls the post-mutation
 // read-back (getTeamDetail/getTeamLeaderboard) makes -- this suite asserts
@@ -45,7 +54,11 @@ function outsideTxChain(table: unknown): OutsideTxChain {
   const rows =
     table === teams
       ? [{ id: "team-1", name: "Sharks", emblem: "🦈", captainPlayerId: "captain-1", status: "active", createdAt: new Date(), updatedAt: new Date(), disbandedAt: null }]
-      : [];
+      : table === teamJoinRequests
+        ? outsideTxJoinRequestRow
+          ? [outsideTxJoinRequestRow]
+          : []
+        : [];
   const promise = Promise.resolve(rows) as OutsideTxChain;
   promise.from = () => promise;
   promise.where = () => promise;
@@ -72,6 +85,10 @@ vi.mock("@/lib/repositories", () => ({
   seasonRepository: mockSeasonRepo,
 }));
 
+vi.mock("@/lib/telegram-bot-notify", () => ({
+  sendTeamsTelegramNotification: mockSendNotification,
+}));
+
 function uniqueViolation(constraint: string): Error {
   return new Error("duplicate key value violates unique constraint", {
     cause: { code: "23505", constraint_name: constraint },
@@ -82,6 +99,7 @@ type TxConfig = {
   teams?: unknown[][];
   teamMemberships?: unknown[][];
   teamInvitations?: unknown[][];
+  teamJoinRequests?: unknown[][];
   throwUniqueOn?: { table: unknown; constraint: string }[];
 };
 
@@ -90,6 +108,7 @@ function makeFakeTx(config: TxConfig) {
     [teams, [...(config.teams ?? [])]],
     [teamMemberships, [...(config.teamMemberships ?? [])]],
     [teamInvitations, [...(config.teamInvitations ?? [])]],
+    [teamJoinRequests, [...(config.teamJoinRequests ?? [])]],
   ]);
   const throwUniqueOn = new Map((config.throwUniqueOn ?? []).map((c) => [c.table, c.constraint]));
 
@@ -201,6 +220,8 @@ beforeEach(() => {
   mockPlayerRepo.listOrderedByDisplayName.mockResolvedValue([]);
   mockResultRepo.findAllForTeamScoring.mockResolvedValue([]);
   mockSeasonRepo.findActive.mockResolvedValue(null);
+  mockSendNotification.mockReset().mockResolvedValue(true);
+  outsideTxJoinRequestRow = null;
 });
 
 afterEach(() => {
@@ -570,5 +591,325 @@ describe("invite target eligibility -- account-merge / blocked-player compatibil
 
     const { inviteToTeam, InviteTargetUnavailableError } = await import("@/features/teams");
     await expect(inviteToTeam("captain-1", "team-1", "invitee-1")).rejects.toThrow(InviteTargetUnavailableError);
+  });
+});
+
+function joinRequestRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "request-1",
+    teamId: "team-1",
+    playerId: "applicant-1",
+    status: "pending",
+    createdAt: new Date(),
+    respondedAt: null,
+    ...overrides,
+  };
+}
+
+describe("requestToJoinTeam", () => {
+  it("1. a teamless player can request an active, non-full team", async () => {
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1", captainPlayerId: "captain-1" })]],
+      teamMemberships: [[], [{ activeCount: 2 }]],
+      teamInvitations: [[]],
+      teamJoinRequests: [[]],
+    });
+    currentTx.current = tx;
+
+    const { requestToJoinTeam } = await import("@/features/teams");
+    await requestToJoinTeam("applicant-1", "team-1");
+
+    expect(insertCalls).toHaveLength(1);
+    expect(insertCalls[0]).toMatchObject({ table: teamJoinRequests, values: { teamId: "team-1", playerId: "applicant-1" } });
+  });
+
+  it("2. cannot request the same team twice", async () => {
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1" })]],
+      teamMemberships: [[]],
+      teamInvitations: [[]],
+      teamJoinRequests: [[joinRequestRow({ playerId: "applicant-1" })]],
+    });
+    currentTx.current = tx;
+
+    const { requestToJoinTeam, AlreadyRequestedError } = await import("@/features/teams");
+    await expect(requestToJoinTeam("applicant-1", "team-1")).rejects.toThrow(AlreadyRequestedError);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("3. cannot request while already on a team", async () => {
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1" })]],
+      teamMemberships: [[membershipRow({ playerId: "applicant-1", teamId: "other-team" })]],
+    });
+    currentTx.current = tx;
+
+    const { requestToJoinTeam, AlreadyOnActiveTeamError } = await import("@/features/teams");
+    await expect(requestToJoinTeam("applicant-1", "team-1")).rejects.toThrow(AlreadyOnActiveTeamError);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("4. cannot request a disbanded team", async () => {
+    const { tx, insertCalls } = makeFakeTx({ teams: [[teamRow({ id: "team-1", status: "disbanded" })]] });
+    currentTx.current = tx;
+
+    const { requestToJoinTeam, TeamDisbandedError } = await import("@/features/teams");
+    await expect(requestToJoinTeam("applicant-1", "team-1")).rejects.toThrow(TeamDisbandedError);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("5. cannot request a full (5/5) team", async () => {
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1" })]],
+      teamMemberships: [[], [{ activeCount: 5 }]],
+      teamInvitations: [[]],
+      teamJoinRequests: [[]],
+    });
+    currentTx.current = tx;
+
+    const { requestToJoinTeam, TeamFullError } = await import("@/features/teams");
+    await expect(requestToJoinTeam("applicant-1", "team-1")).rejects.toThrow(TeamFullError);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("6. an existing pending INVITATION from the same team blocks a redundant request", async () => {
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1" })]],
+      teamMemberships: [[]],
+      teamInvitations: [[{ id: "inv-1", teamId: "team-1", invitedPlayerId: "applicant-1", status: "pending" }]],
+    });
+    currentTx.current = tx;
+
+    const { requestToJoinTeam, AlreadyInvitedByTeamError } = await import("@/features/teams");
+    await expect(requestToJoinTeam("applicant-1", "team-1")).rejects.toThrow(AlreadyInvitedByTeamError);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("7. join requests do not reserve seats -- eligibility only checks CURRENT active members, ignoring pending invitations", async () => {
+    // 4 active + (hypothetically) pending invitations elsewhere never
+    // enters this eligibility check at all -- only activeCount is read.
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1" })]],
+      teamMemberships: [[], [{ activeCount: 4 }]],
+      teamInvitations: [[]],
+      teamJoinRequests: [[]],
+    });
+    currentTx.current = tx;
+
+    const { requestToJoinTeam } = await import("@/features/teams");
+    await requestToJoinTeam("applicant-1", "team-1");
+    expect(insertCalls).toHaveLength(1);
+  });
+
+  it("19. notifies the team's CAPTAIN (not the applicant) with the correct telegram_id", async () => {
+    const { tx } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1", captainPlayerId: "captain-1" })]],
+      teamMemberships: [[], [{ activeCount: 1 }]],
+      teamInvitations: [[]],
+      teamJoinRequests: [[]],
+    });
+    currentTx.current = tx;
+    mockPlayerRepo.findById.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === "applicant-1"
+          ? playerDomain({ id: "applicant-1", display_name: "Applicant" })
+          : playerDomain({ id: "captain-1", telegram_id: 999 })
+      )
+    );
+
+    const { requestToJoinTeam } = await import("@/features/teams");
+    await requestToJoinTeam("applicant-1", "team-1");
+
+    expect(mockSendNotification).toHaveBeenCalledWith(expect.objectContaining({ telegramId: 999 }));
+  });
+
+  it("18/24. a join request still succeeds even when Telegram notification fails or TELEGRAM_BOT_TOKEN is absent", async () => {
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1", captainPlayerId: "captain-1" })]],
+      teamMemberships: [[], [{ activeCount: 1 }]],
+      teamInvitations: [[]],
+      teamJoinRequests: [[]],
+    });
+    currentTx.current = tx;
+    mockPlayerRepo.findById.mockResolvedValue(playerDomain({ telegram_id: 999 }));
+    mockSendNotification.mockRejectedValue(new Error("network down"));
+
+    const { requestToJoinTeam } = await import("@/features/teams");
+    // The DB write already committed by the time notification runs; even
+    // if the (mocked) notifier somehow rejected, requestToJoinTeam's own
+    // return must not surface that as a failure of the request itself.
+    await expect(requestToJoinTeam("applicant-1", "team-1")).resolves.toBeUndefined();
+    expect(insertCalls).toHaveLength(1);
+  });
+
+  it("23. no telegram_id on the captain -- request still succeeds, no notification attempted", async () => {
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ id: "team-1", captainPlayerId: "captain-1" })]],
+      teamMemberships: [[], [{ activeCount: 1 }]],
+      teamInvitations: [[]],
+      teamJoinRequests: [[]],
+    });
+    currentTx.current = tx;
+    mockPlayerRepo.findById.mockResolvedValue(playerDomain({ telegram_id: null }));
+
+    const { requestToJoinTeam } = await import("@/features/teams");
+    await requestToJoinTeam("applicant-1", "team-1");
+
+    expect(insertCalls).toHaveLength(1);
+    expect(mockSendNotification).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancelJoinRequest / declineJoinRequest", () => {
+  it("14. a player can cancel their own pending request", async () => {
+    const { tx, updateCalls } = makeFakeTx({ teamJoinRequests: [[joinRequestRow({ playerId: "applicant-1" })]] });
+    currentTx.current = tx;
+
+    const { cancelJoinRequest } = await import("@/features/teams");
+    await cancelJoinRequest("applicant-1", "request-1");
+
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toMatchObject({ table: teamJoinRequests, values: { status: "cancelled" } });
+  });
+
+  it("rejects cancelling someone else's request", async () => {
+    const { tx, updateCalls } = makeFakeTx({ teamJoinRequests: [[joinRequestRow({ playerId: "someone-else" })]] });
+    currentTx.current = tx;
+
+    const { cancelJoinRequest, JoinRequestForbiddenError } = await import("@/features/teams");
+    await expect(cancelJoinRequest("applicant-1", "request-1")).rejects.toThrow(JoinRequestForbiddenError);
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("15. the captain can decline a pending request", async () => {
+    const { tx, updateCalls } = makeFakeTx({
+      teamJoinRequests: [[joinRequestRow({ teamId: "team-1" })]],
+      teams: [[teamRow({ id: "team-1", captainPlayerId: "captain-1" })]],
+    });
+    currentTx.current = tx;
+
+    const { declineJoinRequest } = await import("@/features/teams");
+    await declineJoinRequest("captain-1", "request-1");
+
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toMatchObject({ table: teamJoinRequests, values: { status: "declined" } });
+  });
+
+  it("8. non-captain cannot decline", async () => {
+    const { tx, updateCalls } = makeFakeTx({
+      teamJoinRequests: [[joinRequestRow({ teamId: "team-1" })]],
+      teams: [[teamRow({ id: "team-1", captainPlayerId: "captain-1" })]],
+    });
+    currentTx.current = tx;
+
+    const { declineJoinRequest, NotCaptainError } = await import("@/features/teams");
+    await expect(declineJoinRequest("not-the-captain", "request-1")).rejects.toThrow(NotCaptainError);
+    expect(updateCalls).toHaveLength(0);
+  });
+});
+
+describe("acceptJoinRequest", () => {
+  function setupAccept(overrides: {
+    teamOverrides?: Record<string, unknown>;
+    activeCount?: number;
+    pendingInviteCount?: number;
+    existingActiveMembership?: unknown[];
+  } = {}) {
+    outsideTxJoinRequestRow = joinRequestRow({ playerId: "applicant-1", teamId: "team-1" });
+    mockPlayerRepo.findById.mockResolvedValue(playerDomain({ id: "applicant-1", display_name: "Applicant", telegram_id: 555 }));
+    mockResolveCanonicalPlayer.mockResolvedValue(playerDomain({ id: "applicant-1", display_name: "Applicant", telegram_id: 555 }));
+
+    const { tx, insertCalls, updateCalls } = makeFakeTx({
+      teamJoinRequests: [[joinRequestRow({ id: "request-1", playerId: "applicant-1", teamId: "team-1" })]],
+      teams: [[teamRow({ id: "team-1", captainPlayerId: "captain-1", ...overrides.teamOverrides })]],
+      teamMemberships: [
+        overrides.existingActiveMembership ?? [],
+        [{ activeCount: overrides.activeCount ?? 1 }],
+      ],
+      teamInvitations: [[{ pendingInviteCount: overrides.pendingInviteCount ?? 0 }]],
+    });
+    currentTx.current = tx;
+    return { insertCalls, updateCalls };
+  }
+
+  it("9/10. captain can accept -- creates exactly one membership", async () => {
+    const { insertCalls } = setupAccept();
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await acceptJoinRequest("captain-1", "request-1");
+
+    const membershipInserts = insertCalls.filter((c) => c.table === teamMemberships);
+    expect(membershipInserts).toHaveLength(1);
+    expect(membershipInserts[0].values).toMatchObject({ teamId: "team-1", playerId: "applicant-1" });
+  });
+
+  it("8. non-captain cannot accept", async () => {
+    const { insertCalls } = setupAccept();
+
+    const { acceptJoinRequest, NotCaptainError } = await import("@/features/teams");
+    await expect(acceptJoinRequest("not-the-captain", "request-1")).rejects.toThrow(NotCaptainError);
+    expect(insertCalls.filter((c) => c.table === teamMemberships)).toHaveLength(0);
+  });
+
+  it("11. respects pending-invitation reserved capacity: active(3) + pending invites(2) >= 5 blocks acceptance", async () => {
+    const { insertCalls } = setupAccept({ activeCount: 3, pendingInviteCount: 2 });
+
+    const { acceptJoinRequest, TeamFullError } = await import("@/features/teams");
+    await expect(acceptJoinRequest("captain-1", "request-1")).rejects.toThrow(TeamFullError);
+    expect(insertCalls.filter((c) => c.table === teamMemberships)).toHaveLength(0);
+  });
+
+  it("12. accepting cancels the applicant's OTHER pending join requests", async () => {
+    const { updateCalls } = setupAccept();
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await acceptJoinRequest("captain-1", "request-1");
+
+    const cancelledRequestUpdates = updateCalls.filter(
+      (c) => c.table === teamJoinRequests && c.values.status === "cancelled"
+    );
+    expect(cancelledRequestUpdates.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("13. accepting cancels the applicant's OTHER pending invitations", async () => {
+    const { updateCalls } = setupAccept();
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await acceptJoinRequest("captain-1", "request-1");
+
+    const cancelledInvitationUpdates = updateCalls.filter(
+      (c) => c.table === teamInvitations && c.values.status === "cancelled"
+    );
+    expect(cancelledInvitationUpdates).toHaveLength(1);
+  });
+
+  it("filling the team to 5/5 auto-cancels other requests still pending against it", async () => {
+    const { updateCalls } = setupAccept({ activeCount: 4 });
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await acceptJoinRequest("captain-1", "request-1");
+
+    // Two teamJoinRequests updates: the accept itself, plus the "team is
+    // now full" auto-cancel sweep.
+    const requestUpdates = updateCalls.filter((c) => c.table === teamJoinRequests);
+    expect(requestUpdates.some((c) => c.values.status === "accepted")).toBe(true);
+    expect(requestUpdates.some((c) => c.values.status === "cancelled")).toBe(true);
+  });
+
+  it("21. notifies the accepted PLAYER, not the captain", async () => {
+    setupAccept();
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await acceptJoinRequest("captain-1", "request-1");
+
+    expect(mockSendNotification).toHaveBeenCalledWith(expect.objectContaining({ telegramId: 555 }));
+  });
+
+  it("17. accepting still succeeds even if the notification call rejects", async () => {
+    setupAccept();
+    mockSendNotification.mockRejectedValue(new Error("telegram down"));
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await expect(acceptJoinRequest("captain-1", "request-1")).resolves.toBeTruthy();
   });
 });

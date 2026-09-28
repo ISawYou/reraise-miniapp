@@ -18,6 +18,11 @@ import {
   InvitationNotPendingError,
   InvitationForbiddenError,
   PlayerNotFoundError,
+  JoinRequestNotFoundError,
+  JoinRequestNotPendingError,
+  JoinRequestForbiddenError,
+  AlreadyRequestedError,
+  AlreadyInvitedByTeamError,
 } from "@/features/teams";
 
 // One shared error -> HTTP response mapper for every app/api/teams/**
@@ -30,7 +35,8 @@ export function teamsErrorResponse(error: unknown): NextResponse {
   if (
     error instanceof TeamNotFoundError ||
     error instanceof InvitationNotFoundError ||
-    error instanceof PlayerNotFoundError
+    error instanceof PlayerNotFoundError ||
+    error instanceof JoinRequestNotFoundError
   ) {
     return NextResponse.json({ error: error.message }, { status: 404 });
   }
@@ -41,7 +47,10 @@ export function teamsErrorResponse(error: unknown): NextResponse {
     error instanceof AlreadyOnActiveTeamError ||
     error instanceof TeamFullError ||
     error instanceof InviteTargetUnavailableError ||
-    error instanceof InvitationNotPendingError
+    error instanceof InvitationNotPendingError ||
+    error instanceof JoinRequestNotPendingError ||
+    error instanceof AlreadyRequestedError ||
+    error instanceof AlreadyInvitedByTeamError
   ) {
     return NextResponse.json({ error: error.message }, { status: 409 });
   }
@@ -54,7 +63,8 @@ export function teamsErrorResponse(error: unknown): NextResponse {
     error instanceof NotCaptainError ||
     error instanceof CaptainCannotLeaveError ||
     error instanceof CaptainCannotBeRemovedError ||
-    error instanceof InvitationForbiddenError
+    error instanceof InvitationForbiddenError ||
+    error instanceof JoinRequestForbiddenError
   ) {
     return NextResponse.json({ error: error.message }, { status: 403 });
   }

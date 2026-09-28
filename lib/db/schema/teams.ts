@@ -37,6 +37,14 @@ export const teams = pgTable("teams", {
 
   status: text().notNull().default("active"),
 
+  // Optional captain-uploaded photo, normalized (Sharp, 512x512 WebP) and
+  // stored via the existing avatarStorageRepository -- see
+  // lib/team-avatar-derivative.ts and features/teams.ts's uploadTeamAvatar.
+  // NULL means "no photo yet" -- the emblem above remains the fallback and
+  // is never cleared when a photo is set, so removing the photo restores it.
+  avatarUrl: text("avatar_url"),
+  avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   disbandedAt: timestamp("disbanded_at", { withTimezone: true }),
@@ -138,4 +146,42 @@ export const teamInvitations = pgTable("team_invitations", {
   index("team_invitations_team_id_idx").on(table.teamId),
   index("team_invitations_invited_player_id_idx").on(table.invitedPlayerId),
   index("team_invitations_status_idx").on(table.status),
+]);
+
+// Player -> team join requests -- the MIRROR direction of team_invitations
+// (captain -> player), deliberately a SEPARATE table rather than reusing
+// team_invitations with reversed semantics: an invitation and a request
+// have different actors, different capacity-reservation rules (an
+// invitation reserves a seat; a request never does), and different
+// accept/decline authorities. Same "never delete, always update status in
+// place" discipline as team_invitations.
+export const teamJoinRequests = pgTable("team_join_requests", {
+  id: uuid().primaryKey().defaultRandom(),
+
+  teamId: uuid("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  playerId: uuid("player_id").notNull().references(() => players.id),
+
+  status: text().notNull().default("pending"),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+}, (table) => [
+  check(
+    "team_join_requests_status_check",
+    sql`${table.status} IN ('pending', 'accepted', 'declined', 'cancelled')`,
+  ),
+  check(
+    "team_join_requests_responded_at_consistency_check",
+    sql`(${table.status} = 'pending' AND ${table.respondedAt} IS NULL) OR (${table.status} != 'pending' AND ${table.respondedAt} IS NOT NULL)`,
+  ),
+
+  // At most one PENDING request per (team, player) -- same shape as
+  // team_invitations' own uniqueness rule.
+  uniqueIndex("team_join_requests_one_pending_per_team_player_idx")
+    .on(table.teamId, table.playerId)
+    .where(sql`${table.status} = 'pending'`),
+
+  index("team_join_requests_team_id_idx").on(table.teamId),
+  index("team_join_requests_player_id_idx").on(table.playerId),
+  index("team_join_requests_status_idx").on(table.status),
 ]);

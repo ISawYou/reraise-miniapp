@@ -29,8 +29,12 @@ vi.mock("@/lib/current-player", () => ({
   resolveCurrentPlayer: () => Promise.resolve(viewer).catch(() => null),
 }));
 
-vi.mock("@/lib/client-request", () => ({
+const { fetchAdminJson: mockFetchAdminJson } = vi.hoisted(() => ({
   fetchAdminJson: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/client-request", () => ({
+  fetchAdminJson: mockFetchAdminJson,
 }));
 
 vi.mock("@/lib/telegram", () => ({ getTelegramWebApp: vi.fn(() => null) }));
@@ -62,6 +66,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   teamBadgeResponse = { team: null };
+  mockFetchAdminJson.mockReset().mockResolvedValue(null);
 
   vi.stubGlobal(
     "fetch",
@@ -124,6 +129,35 @@ describe("own profile", () => {
     const link = Array.from(container.querySelectorAll("a")).find((a) => a.getAttribute("href") === "/teams");
     expect(link).toBeDefined();
   });
+
+  it("26. shows a pending invitation card with accept/decline when the player has no team but is invited", async () => {
+    teamBadgeResponse = { team: null };
+    mockFetchAdminJson.mockResolvedValue({
+      pending_invitations: [
+        { invitation_id: "inv-1", team_id: "team-1", team_name: "Sharks", team_emblem: "🦈", invited_by: { display_name: "Cap" } },
+      ],
+      pending_outgoing_join_requests: [],
+    });
+    await render();
+
+    expect(container.textContent).toContain("Приглашение в команду");
+    expect(container.textContent).toContain("Sharks");
+    expect(container.textContent).toContain("Принять");
+    expect(container.textContent).toContain("Отклонить");
+    expect(container.textContent).not.toContain("Нет команды · Создать");
+  });
+
+  it("26b. shows a compact 'Мои заявки: N' status when the player has only outgoing requests, no invitations", async () => {
+    teamBadgeResponse = { team: null };
+    mockFetchAdminJson.mockResolvedValue({
+      pending_invitations: [],
+      pending_outgoing_join_requests: [{ request_id: "req-1", team_id: "team-2", team_name: "Wolves", team_emblem: "🐺" }],
+    });
+    await render();
+
+    expect(container.textContent).toContain("Мои заявки: 1");
+    expect(container.textContent).not.toContain("Приглашение в команду");
+  });
 });
 
 describe("public profile (viewing someone else)", () => {
@@ -144,5 +178,19 @@ describe("public profile (viewing someone else)", () => {
     await render();
 
     expect(container.textContent).not.toContain("Нет команды");
+  });
+
+  it("27. never shows any invitation/request status on someone else's profile, even if they have pending items", async () => {
+    teamBadgeResponse = { team: null };
+    mockFetchAdminJson.mockResolvedValue({
+      pending_invitations: [
+        { invitation_id: "inv-1", team_id: "team-1", team_name: "Sharks", team_emblem: "🦈", invited_by: { display_name: "Cap" } },
+      ],
+      pending_outgoing_join_requests: [{ request_id: "req-1", team_id: "team-2", team_name: "Wolves", team_emblem: "🐺" }],
+    });
+    await render();
+
+    expect(container.textContent).not.toContain("Приглашение в команду");
+    expect(container.textContent).not.toContain("Мои заявки");
   });
 });

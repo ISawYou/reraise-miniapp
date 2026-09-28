@@ -30,6 +30,21 @@ type TeamDetailView = {
   contributions: TeamContributionRow[];
 };
 
+type TeamViewerState = {
+  is_member: boolean;
+  is_captain: boolean;
+  has_other_active_team: boolean;
+  pending_request_id: string | null;
+  pending_invitation_id: string | null;
+};
+
+type IncomingJoinRequestView = {
+  request_id: string;
+  team_id: string;
+  applicant: PlayerSafeView;
+  created_at: string;
+};
+
 // Inline invite widget for the hero's "+ Пригласить" roster slot -- the
 // SAME invitation flow "Моя команда" already uses (search-players + invite
 // endpoints), just condensed for the detail page. Only ever rendered for
@@ -113,6 +128,12 @@ export default function TeamDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
 
+  const [viewerState, setViewerState] = useState<TeamViewerState | null>(null);
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+
+  const [incomingRequests, setIncomingRequests] = useState<IncomingJoinRequestView[]>([]);
+
   async function load() {
     if (!teamId) return;
     try {
@@ -149,8 +170,105 @@ export default function TeamDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId]);
 
+  async function loadViewerState() {
+    if (!teamId || !viewer) {
+      setViewerState(null);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/teams/${teamId}/viewer-state`, { cache: "no-store" });
+      if (!response.ok) {
+        // 401 (logged out) or any other failure -- an anonymous/errored
+        // viewer simply gets no request CTA, never an error banner over
+        // the public team page.
+        setViewerState(null);
+        return;
+      }
+      setViewerState(await response.json());
+    } catch {
+      setViewerState(null);
+    }
+  }
+
+  useEffect(() => {
+    void loadViewerState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, viewer]);
+
   const isViewerCaptain = Boolean(viewer && team && viewer.id === team.captain_player_id);
   const canInvite = isViewerCaptain && team?.status === "active" && (team?.roster.length ?? 0) < 5;
+
+  // Captain's incoming-requests section -- reuses the SAME "Моя команда"
+  // read path (/api/teams/me) rather than a second captain-only team-detail
+  // endpoint, so there is exactly one query shape for "requests to MY team".
+  async function loadIncomingRequests() {
+    if (!isViewerCaptain) {
+      setIncomingRequests([]);
+      return;
+    }
+    try {
+      const data = await fetchAdminJson<{ pending_incoming_join_requests: IncomingJoinRequestView[] }>("/api/teams/me");
+      setIncomingRequests(data.pending_incoming_join_requests ?? []);
+    } catch {
+      setIncomingRequests([]);
+    }
+  }
+
+  useEffect(() => {
+    void loadIncomingRequests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isViewerCaptain]);
+
+  async function handleRequestToJoin() {
+    if (!teamId) return;
+    try {
+      setRequestBusy(true);
+      setRequestError(null);
+      await fetchAdminJson(`/api/teams/${teamId}/join-requests`, { method: "POST" });
+      await loadViewerState();
+    } catch (err) {
+      setRequestError(err instanceof Error ? err.message : "Не удалось подать заявку");
+    } finally {
+      setRequestBusy(false);
+    }
+  }
+
+  async function handleCancelOwnRequest() {
+    if (!viewerState?.pending_request_id) return;
+    try {
+      setRequestBusy(true);
+      setRequestError(null);
+      await fetchAdminJson(`/api/teams/join-requests/${viewerState.pending_request_id}/cancel`, { method: "POST" });
+      await loadViewerState();
+    } catch (err) {
+      setRequestError(err instanceof Error ? err.message : "Не удалось отменить заявку");
+    } finally {
+      setRequestBusy(false);
+    }
+  }
+
+  async function handleAcceptIncomingRequest(requestId: string) {
+    await fetchAdminJson(`/api/teams/join-requests/${requestId}/accept`, { method: "POST" });
+    await Promise.all([load(), loadIncomingRequests()]);
+  }
+
+  async function handleDeclineIncomingRequest(requestId: string) {
+    await fetchAdminJson(`/api/teams/join-requests/${requestId}/decline`, { method: "POST" });
+    await loadIncomingRequests();
+  }
+
+  // "Подать заявку" CTA -- Part 5: team active, viewer has no active team
+  // anywhere (including this one), roster not full, and no existing
+  // pending request/invitation already covering the same outcome. Public/
+  // anonymous viewers never see this (viewerState stays null for them).
+  const showRequestCta =
+    Boolean(viewerState) &&
+    !viewerState!.is_member &&
+    !viewerState!.has_other_active_team &&
+    team?.status === "active" &&
+    (team?.roster.length ?? 0) < 5 &&
+    !viewerState!.pending_invitation_id &&
+    !viewerState!.pending_request_id;
 
   return (
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
@@ -194,7 +312,67 @@ export default function TeamDetailPage() {
                   }}
                 />
               ) : null}
+
+              {requestError ? <p className="mt-3 text-xs text-red-300">{requestError}</p> : null}
+
+              {showRequestCta ? (
+                <button
+                  type="button"
+                  disabled={requestBusy}
+                  onClick={handleRequestToJoin}
+                  className="mt-4 w-full rounded-full bg-[#d7b55a] py-2.5 text-sm font-semibold text-black disabled:opacity-50"
+                >
+                  {requestBusy ? "Отправляем..." : "Подать заявку"}
+                </button>
+              ) : viewerState?.pending_request_id ? (
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                  <span className="text-sm font-medium text-white/70">Заявка отправлена</span>
+                  <button
+                    type="button"
+                    disabled={requestBusy}
+                    onClick={handleCancelOwnRequest}
+                    className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70 disabled:opacity-50"
+                  >
+                    Отменить заявку
+                  </button>
+                </div>
+              ) : null}
             </div>
+
+            {isViewerCaptain && incomingRequests.length > 0 ? (
+              <div className="mt-5 rounded-3xl border border-[#d5b867]/30 bg-[#d5b867]/[0.06] p-4">
+                <p className="text-sm font-semibold text-white/85">Заявки в команду · {incomingRequests.length}</p>
+                <div className="mt-3 space-y-3">
+                  {incomingRequests.map((request) => (
+                    <div
+                      key={request.request_id}
+                      className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3"
+                    >
+                      <Avatar player={request.applicant} className="h-9 w-9" />
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-white">
+                        {request.applicant.display_name}
+                      </p>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleAcceptIncomingRequest(request.request_id)}
+                          className="rounded-full bg-[#d7b55a] px-3 py-1.5 text-xs font-semibold text-black"
+                        >
+                          Принять
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeclineIncomingRequest(request.request_id)}
+                          className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/70"
+                        >
+                          Отклонить
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             {/* Roster -- Part F: keep the section, cleaner header. */}
             <div className="mt-5 rounded-3xl border border-white/10 bg-white/[0.05] p-4">
