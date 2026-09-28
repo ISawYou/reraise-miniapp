@@ -5,9 +5,11 @@ import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { fetchAdminJson } from "@/lib/client-request";
 import { resolveCurrentPlayer } from "@/lib/current-player";
-import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { TEAM_EMBLEMS, DEFAULT_TEAM_EMBLEM } from "@/config/team-emblems";
+import { Avatar, RosterSlots, formatRankBadge, formatStandingLine, type PlayerSafeView } from "@/components/teams/team-ui";
 import type { Player } from "@/types/domain";
+
+type TeamRosterMember = PlayerSafeView & { is_captain: boolean; joined_at: string };
 
 type TeamStandingRow = {
   team_id: string;
@@ -15,19 +17,13 @@ type TeamStandingRow = {
   emblem: string;
   status: "active" | "disbanded";
   points: number;
-  rank: number;
+  // null = not officially ranked yet (0 points in this scope) -- see
+  // components/teams/team-ui.tsx's formatRankBadge/formatStandingLine.
+  rank: number | null;
   member_count: number;
+  roster_preview: TeamRosterMember[];
 };
 
-type PlayerSafeView = {
-  player_id: string;
-  display_name: string;
-  username: string | null;
-  telegram_avatar_url: string | null;
-  custom_avatar_url: string | null;
-};
-
-type TeamRosterMember = PlayerSafeView & { is_captain: boolean; joined_at: string };
 type TeamContributionRow = PlayerSafeView & { points: number; is_current_member: boolean };
 
 type TeamDetailView = {
@@ -69,39 +65,31 @@ function scopeQuery(mode: RatingMode, seasonId: string | null): string {
   return "scope=current";
 }
 
-function Avatar({ player, className = "h-11 w-11" }: { player: PlayerSafeView; className?: string }) {
-  const url = getPlayerAvatarUrl({
-    display_name: player.display_name,
-    custom_avatar_url: player.custom_avatar_url,
-    telegram_avatar_url: player.telegram_avatar_url,
-  });
-  if (url) {
-    return <img src={url} alt={player.display_name} className={`${className} shrink-0 rounded-full border border-white/10 object-cover`} />;
-  }
-  return (
-    <div className={`${className} flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/80`}>
-      {getPlayerAvatarFallback({ display_name: player.display_name })}
-    </div>
-  );
-}
-
-function StandingRow({ row }: { row: TeamStandingRow }) {
+// Squad card -- Part D of the Teams v1 UI polish: emblem + name + score/rank
+// state + member count on top, a 5-slot roster preview row underneath, so a
+// team's fullness is visible at a glance without opening its detail page.
+function StandingCard({ row }: { row: TeamStandingRow }) {
   return (
     <Link
       href={`/teams/${row.team_id}`}
-      className="flex items-center gap-3 border-b border-white/10 px-4 py-3.5 last:border-b-0"
+      className="block border-b border-white/10 px-4 py-3.5 last:border-b-0"
     >
-      <div className="flex w-7 shrink-0 justify-center text-sm font-bold text-white/60">{row.rank}</div>
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-xl">
-        {row.emblem}
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-xl">
+          {row.emblem}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-white">{row.name}</p>
+          <p className="mt-0.5 text-xs text-white/50">
+            {formatRankBadge(row.rank)} · {row.member_count} / 5
+            {row.status === "disbanded" ? " · Распущена" : ""}
+          </p>
+        </div>
+        <div className="shrink-0 text-right text-sm font-bold text-[#d7b55a]">{row.points}</div>
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-white">{row.name}</p>
-        <p className="mt-0.5 text-xs text-white/50">
-          {row.member_count} / 5{row.status === "disbanded" ? " · Распущена" : ""}
-        </p>
+      <div className="mt-3">
+        <RosterSlots members={row.roster_preview} size="h-8 w-8" />
       </div>
-      <div className="shrink-0 text-right text-sm font-bold text-[#d7b55a]">{row.points}</div>
     </Link>
   );
 }
@@ -300,7 +288,7 @@ export default function TeamsPage() {
                     : "Пока ни одна команда не набрала очков"}
                 </p>
               ) : (
-                standings.map((row) => <StandingRow key={row.team_id} row={row} />)
+                standings.map((row) => <StandingCard key={row.team_id} row={row} />)
               )}
             </div>
           </div>
@@ -352,7 +340,10 @@ export default function TeamsPage() {
                 ) : null}
 
                 <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-center">
-                  <p className="text-sm text-white/60">У вас пока нет команды</p>
+                  <p className="text-sm font-semibold text-white/75">У вас пока нет команды</p>
+                  <p className="mt-1.5 text-sm text-white/50">
+                    Соберите команду до 5 игроков и соревнуйтесь в командном рейтинге клуба.
+                  </p>
                   {!showCreateForm ? (
                     <button
                       type="button"
@@ -476,10 +467,20 @@ function MyTeamCard({
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-bold text-white">{team.name}</p>
             <p className="mt-0.5 text-xs text-white/50">
-              {team.status === "disbanded" ? "Распущена" : `#${team.rank ?? "—"} в рейтинге`} ·{" "}
-              {team.points} очков
+              {team.roster.length} / 5 · {formatStandingLine(team.status, team.rank, team.points)}
             </p>
           </div>
+        </div>
+
+        <div className="mt-4">
+          <RosterSlots
+            members={team.roster}
+            onInviteSlotClick={
+              isCaptain && team.status === "active" && team.roster.length < 5
+                ? () => setShowInvite(true)
+                : undefined
+            }
+          />
         </div>
 
         {error ? <p className="mt-3 text-xs text-red-300">{error}</p> : null}
@@ -613,7 +614,10 @@ function MyTeamCard({
       </div>
 
       <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
-        <p className="text-sm font-semibold text-white/80">Состав ({team.roster.length} / 5)</p>
+        <div className="flex items-baseline justify-between">
+          <p className="text-sm font-semibold text-white/80">Состав</p>
+          <p className="text-xs text-white/50">{team.roster.length} / 5</p>
+        </div>
         <div className="mt-3 space-y-2">
           {team.roster.map((member) => (
             <div key={member.player_id} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] p-2.5">
@@ -690,20 +694,30 @@ function MyTeamCard({
 
       <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
         <p className="text-sm font-semibold text-white/80">Вклад в сезоне</p>
-        <div className="mt-3 space-y-2">
-          {team.contributions.map((row) => (
-            <div key={row.player_id} className="flex items-center gap-3">
-              <Avatar player={row} className="h-8 w-8" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-white/85">{row.display_name}</p>
-                {!row.is_current_member ? <p className="text-[11px] text-white/40">Бывший участник</p> : null}
+        {team.contributions.length === 0 ? (
+          <p className="mt-2 text-sm text-white/50">
+            Командные очки появятся после турниров, которые участники сыграют за эту команду.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {team.contributions.map((row) => (
+              <div key={row.player_id} className="flex items-center gap-3">
+                <Avatar player={row} className="h-8 w-8" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-white/85">{row.display_name}</p>
+                  {!row.is_current_member ? <p className="text-[11px] text-white/40">Бывший участник</p> : null}
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-semibold text-[#d7b55a]">{row.points}</p>
+                  {team.points > 0 ? (
+                    <p className="text-[10px] text-white/40">{Math.round((row.points / team.points) * 100)}%</p>
+                  ) : null}
+                </div>
               </div>
-              <div className="shrink-0 text-sm font-semibold text-[#d7b55a]">{row.points}</div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
-
     </div>
   );
 }

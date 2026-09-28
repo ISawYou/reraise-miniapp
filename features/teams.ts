@@ -184,8 +184,17 @@ export type TeamStandingRow = {
   emblem: TeamEmblem | string;
   status: "active" | "disbanded";
   points: number;
-  rank: number;
+  // null = no OFFICIAL displayed rank -- a team only ever consumes a
+  // ranking position once it has > 0 points in the selected scope (see
+  // getTeamLeaderboard below). A zero-point team is still listed (never
+  // hidden), just never shown as "#1".
+  rank: number | null;
   member_count: number;
+  // Up to 5 CURRENT active members, captain first -- just enough for the
+  // squad-card's 5-slot avatar row (Teams v1 UI polish). Same player-safe
+  // shape and same avatar-resolution helpers as everywhere else; no new
+  // avatar logic.
+  roster_preview: TeamRosterMember[];
 };
 
 export type TeamDetailView = {
@@ -332,17 +341,40 @@ async function computeAllTeamTotals(scope: TeamScopeInput) {
 // this scope). Competition ranking (1, 1, 3); ties broken for DISPLAY
 // order only by team name, never affecting the rank number itself.
 export async function getTeamLeaderboard(scope: TeamScopeInput): Promise<TeamStandingRow[]> {
-  const [allTeams, { totals }, activeCounts] = await Promise.all([
+  const [allTeams, { totals }, activeMemberships] = await Promise.all([
     db.select().from(teams),
     computeAllTeamTotals(scope),
-    db
-      .select({ teamId: teamMemberships.teamId, count: sql<number>`count(*)::int` })
-      .from(teamMemberships)
-      .where(isNull(teamMemberships.leftAt))
-      .groupBy(teamMemberships.teamId),
+    db.select().from(teamMemberships).where(isNull(teamMemberships.leftAt)),
   ]);
 
-  const memberCountByTeam = new Map(activeCounts.map((row) => [row.teamId, row.count]));
+  const memberCountByTeam = new Map<string, number>();
+  const membershipsByTeam = new Map<string, MembershipRow[]>();
+  for (const membership of activeMemberships) {
+    memberCountByTeam.set(membership.teamId, (memberCountByTeam.get(membership.teamId) ?? 0) + 1);
+    const list = membershipsByTeam.get(membership.teamId);
+    if (list) list.push(membership);
+    else membershipsByTeam.set(membership.teamId, [membership]);
+  }
+
+  const playerRows = await playerRepository.findByIds(activeMemberships.map((m) => m.playerId));
+  const playerById = new Map(playerRows.map((p) => [p.id, p]));
+
+  function rosterPreviewFor(team: TeamRow): TeamRosterMember[] {
+    const members = membershipsByTeam.get(team.id) ?? [];
+    return members
+      .map((membership) => {
+        const player = playerById.get(membership.playerId);
+        if (!player) return null;
+        return {
+          ...toPlayerSafeView(player),
+          is_captain: player.id === team.captainPlayerId,
+          joined_at: membership.joinedAt.toISOString(),
+        };
+      })
+      .filter((row): row is TeamRosterMember => row !== null)
+      .sort((a, b) => (a.is_captain === b.is_captain ? 0 : a.is_captain ? -1 : 1))
+      .slice(0, MAX_ACTIVE_MEMBERS);
+  }
 
   const visible = allTeams.filter((team) => {
     if (team.status === "active") return true;
@@ -357,20 +389,37 @@ export async function getTeamLeaderboard(scope: TeamScopeInput): Promise<TeamSta
       status: team.status as "active" | "disbanded",
       points: totals.get(team.id) ?? 0,
       member_count: memberCountByTeam.get(team.id) ?? 0,
+      roster_preview: rosterPreviewFor(team),
     }))
     // Stable presentation order within a tie: team name. The rank number
     // rankByPointsDescending assigns only ever depends on `points`, so this
     // secondary key can never change who shares a rank.
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 
-  return rankByPointsDescending(withPoints).map((row) => ({
+  // Only teams with a POSITIVE score consume an official ranking position
+  // -- a freshly created team with 0 points is listed (never hidden) but
+  // never displayed as "#1". Competition ranking (1, 1, 3) applies within
+  // the positive-score group exactly as before; it simply never runs over
+  // the zero-point tail.
+  const rankByTeamId = new Map(
+    rankByPointsDescending(withPoints.filter((row) => row.points > 0)).map((row) => [row.team_id, row.rank])
+  );
+
+  // Display order: points descending, `withPoints`'s stable name-sort above
+  // breaking ties -- this is what makes the actual RETURNED array order
+  // (not just the rank numbers) put zero-point teams at the bottom and
+  // equal-score teams in a stable, deterministic order.
+  const ordered = [...withPoints].sort((a, b) => b.points - a.points);
+
+  return ordered.map((row) => ({
     team_id: row.team_id,
     name: row.name,
     emblem: row.emblem,
     status: row.status,
     points: row.points,
-    rank: row.rank,
+    rank: rankByTeamId.get(row.team_id) ?? null,
     member_count: row.member_count,
+    roster_preview: row.roster_preview,
   }));
 }
 

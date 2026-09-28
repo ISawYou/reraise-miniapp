@@ -43,13 +43,22 @@ import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 import type { ClubActivityEvent } from "@/types/club-activity";
 import type { RankMovement } from "@/features/leaderboard";
 import { Podium } from "@/components/leaderboard/podium";
+import { Avatar as TeamAvatar } from "@/components/teams/team-ui";
 
 type HomeTeamStandingRow = {
   team_id: string;
   name: string;
   emblem: string;
   points: number;
-  rank: number;
+  rank: number | null;
+  roster_preview: Array<{
+    player_id: string;
+    display_name: string;
+    username: string | null;
+    telegram_avatar_url: string | null;
+    custom_avatar_url: string | null;
+    is_captain: boolean;
+  }>;
 };
 
 type LeaderboardRow = {
@@ -491,7 +500,14 @@ export default function HomePage() {
     setSeasonTitle(ratingData.seasonTitle);
     setLeaderboardRows(ratingData.leaderboard);
     setOutOfCompetitionRows(ratingData.outOfCompetition);
-    setTopTeams(((topTeamsData?.standings ?? []) as HomeTeamStandingRow[]).slice(0, 3));
+    // Only OFFICIALLY ranked (points > 0) teams ever appear in the Home
+    // TOP-3 -- a zero-point team sitting alone never gets padded in here
+    // just to fill the block (see components/teams/team-ui.tsx's
+    // formatRankBadge/formatStandingLine for the same "rank=null" rule
+    // everywhere else this data appears).
+    setTopTeams(
+      ((topTeamsData?.standings ?? []) as HomeTeamStandingRow[]).filter((team) => team.rank !== null).slice(0, 3)
+    );
     setIsDealer(Boolean(dealerMe?.dealer));
     setHomeActivity((activityData.events ?? []) as ClubActivityEvent[]);
     setCompletedAchievementsCount(
@@ -1644,20 +1660,30 @@ export default function HomePage() {
                       href={`/teams/${team.team_id}`}
                       className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2.5"
                     >
-                      <span className="w-5 shrink-0 text-center text-sm font-bold text-white/55">{team.rank}</span>
+                      <span className="w-5 shrink-0 text-center text-sm font-bold text-white/55">#{team.rank}</span>
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-lg">
                         {team.emblem}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{team.name}</span>
+                      <span className="hidden shrink-0 -space-x-2 sm:flex">
+                        {team.roster_preview.slice(0, 3).map((member) => (
+                          <span key={member.player_id} className="rounded-full ring-2 ring-[#0d0f0f]">
+                            <TeamAvatar player={member} className="h-6 w-6" />
+                          </span>
+                        ))}
+                      </span>
                       <span className="shrink-0 text-sm font-bold text-[#d7b55a]">{team.points}</span>
                     </Link>
                   ))}
                 </div>
               ) : (
                 <div className="mt-3 rounded-2xl border border-white/5 bg-white/[0.03] p-4 text-center">
-                  <p className="text-sm text-white/55">Пока ни одна команда не набрала очков</p>
+                  <p className="text-sm font-medium text-white/70">Командный рейтинг</p>
+                  <p className="mt-1.5 text-sm text-white/55">
+                    Командный зачёт начнётся после первого турнира, сыгранного участниками команд.
+                  </p>
                   <Link href="/teams" className="mt-2 inline-block text-sm font-medium text-[#d7b55a]">
-                    Создать команду →
+                    Все команды →
                   </Link>
                 </div>
               )}

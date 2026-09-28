@@ -38,6 +38,7 @@ function standing(overrides: Record<string, unknown> = {}) {
     points: 100,
     rank: 1,
     member_count: 3,
+    roster_preview: [],
     ...overrides,
   };
 }
@@ -120,8 +121,9 @@ describe("Teams -- Рейтинг tab", () => {
     });
     await render();
 
-    const rankCells = Array.from(container.querySelectorAll("a")).map((a) => a.querySelector("div")?.textContent);
-    expect(rankCells.filter((c) => c === "1")).toHaveLength(2);
+    const cards = Array.from(container.querySelectorAll('a[href^="/teams/"]'));
+    const rankBadges = cards.map((card) => card.textContent?.includes("#1"));
+    expect(rankBadges.filter(Boolean)).toHaveLength(2);
   });
 
   it("switching to Архив requires a season before querying, then queries with the chosen seasonId", async () => {

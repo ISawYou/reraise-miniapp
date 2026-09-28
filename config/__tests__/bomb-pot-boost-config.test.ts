@@ -25,19 +25,33 @@ import {
 import { getFreeSheetColumnLayout } from "@/lib/tournament-sheet-parsing";
 
 describe("templates", () => {
-  it("Bomb Pot: BOMB POT title + the product description", () => {
+  it("1. Bomb Pot: BOMB POT title + the product description says TWO boards (Double Board)", () => {
     const t = TOURNAMENT_PRESET_TEMPLATES.bomb_pot;
     expect(t.title).toBe("BOMB POT");
-    expect(t.description).toMatch(/^Турнир по Texas Hold'em со специальными Bomb Pot раздачами\./);
+    expect(t.description).toMatch(/^Турнир по Texas Hold'em со специальными Double Board Bomb Pot раздачами\./);
+    expect(t.description).toContain("Double Board");
+    expect(t.description).toContain("две отдельные доски флопа");
+    expect(t.description).toContain("половина банка разыгрывается по первой доске, половина — по второй");
     expect(t.description).toContain("каждый игрок, получающий карты, вносит 3 BB");
-    expect(t.description).toContain("После закрытия Late Registration специальные раздачи прекращаются.");
+    expect(t.description).toContain("После закрытия поздней регистрации Bomb Pot раздачи больше не проводятся.");
   });
 
-  it("Boost Rating: title is RERAISE MAIN EVENT (not the type name)", () => {
+  it("2. Bomb Pot: the old single-board wording is gone", () => {
+    const t = TOURNAMENT_PRESET_TEMPLATES.bomb_pot;
+    expect(t.description).not.toContain("одна доска флопа");
+    expect(t.description).not.toContain("открывается одна доска");
+    expect(t.description).not.toContain("Раз в каждый уровень до окончания поздней регистрации проводится одна Bomb Pot раздача");
+  });
+
+  it("4. Boost Rating: RERAISE MAIN EVENT copy communicates ×2", () => {
     const t = TOURNAMENT_PRESET_TEMPLATES.boost_rating;
     expect(t.title).toBe("RERAISE MAIN EVENT");
-    expect(t.description).toContain("коэффициент составляет x2");
-    expect(t.description).toContain("+2 очка за участие не умножаются.");
+    expect(t.description).toContain("умножаются на ×2");
+  });
+
+  it("5. Boost Rating: +2 participation is explicitly called out as unboosted", () => {
+    const t = TOURNAMENT_PRESET_TEMPLATES.boost_rating;
+    expect(t.description).toContain("Стандартные +2 очка за участие не умножаются.");
     expect(t.description).toContain("Нокаут-бонусов в этом формате нет.");
   });
 

@@ -103,17 +103,32 @@ describe("Home -- Командный рейтинг block", () => {
   it("shows a compact empty/onboarding state when no team has points yet", async () => {
     await renderHome();
     expect(container.textContent).toContain("Командный рейтинг");
-    expect(container.textContent).toContain("Пока ни одна команда не набрала очков");
-    expect(container.textContent).toContain("Создать команду →");
+    expect(container.textContent).toContain(
+      "Командный зачёт начнётся после первого турнира, сыгранного участниками команд."
+    );
+    expect(container.textContent).toContain("Все команды →");
+  });
+
+  it("8. Home with ONLY zero-point teams (rank=null for all) also shows the onboarding state, never a fake #1", async () => {
+    teamStandingsResponse = {
+      standings: [
+        { team_id: "t1", name: "Sharks", emblem: "🦈", status: "active", points: 0, rank: null, member_count: 2, roster_preview: [] },
+        { team_id: "t2", name: "Wolves", emblem: "🐺", status: "active", points: 0, rank: null, member_count: 1, roster_preview: [] },
+      ],
+    };
+    await renderHome();
+
+    expect(container.textContent).not.toContain("#1");
+    expect(container.textContent).toContain("Командный зачёт начнётся после первого турнира");
   });
 
   it("shows TOP 3 teams for the active season, each linking to /teams/[id]", async () => {
     teamStandingsResponse = {
       standings: [
-        { team_id: "t1", name: "Sharks", emblem: "🦈", status: "active", points: 300, rank: 1, member_count: 5 },
-        { team_id: "t2", name: "Wolves", emblem: "🐺", status: "active", points: 200, rank: 2, member_count: 4 },
-        { team_id: "t3", name: "Dragons", emblem: "🐉", status: "active", points: 100, rank: 3, member_count: 3 },
-        { team_id: "t4", name: "Fourth", emblem: "💎", status: "active", points: 50, rank: 4, member_count: 2 },
+        { team_id: "t1", name: "Sharks", emblem: "🦈", status: "active", points: 300, rank: 1, member_count: 5, roster_preview: [] },
+        { team_id: "t2", name: "Wolves", emblem: "🐺", status: "active", points: 200, rank: 2, member_count: 4, roster_preview: [] },
+        { team_id: "t3", name: "Dragons", emblem: "🐉", status: "active", points: 100, rank: 3, member_count: 3, roster_preview: [] },
+        { team_id: "t4", name: "Fourth", emblem: "💎", status: "active", points: 50, rank: 4, member_count: 2, roster_preview: [] },
       ],
     };
     await renderHome();
@@ -128,6 +143,16 @@ describe("Home -- Командный рейтинг block", () => {
     expect(links).toContain("/teams/t1");
     expect(links).toContain("/teams/t2");
     expect(links).toContain("/teams/t3");
+  });
+
+  it("9. a positive-score team on Home shows its official rank (#N)", async () => {
+    teamStandingsResponse = {
+      standings: [
+        { team_id: "t1", name: "Sharks", emblem: "🦈", status: "active", points: 300, rank: 1, member_count: 5, roster_preview: [] },
+      ],
+    };
+    await renderHome();
+    expect(container.textContent).toContain("#1");
   });
 
   it("links to /teams via 'Все команды →'", async () => {
