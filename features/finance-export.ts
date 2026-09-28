@@ -37,6 +37,20 @@ export type FinanceTournamentExportRow = {
   // (buildExportRow throws rather than exporting an inconsistent one --
   // see FreeReentryBreakdownInvariantError).
   freeReentryBreakdown: FreeReentryBreakdown;
+  // CLUB DISCOUNTS (2026-09-27): frozen per-player facts for arrived
+  // players with a NON-ZERO club_discount_percent (results.club_discount_percent
+  // -- see that column's doc comment). Deliberately omits players with 0%
+  // (the overwhelming majority) to keep the payload small; Finance treats
+  // any player absent from this array as having no discount. entryCount is
+  // always 1 (an arrived player's own entry is never free in this data
+  // model). paidReentryCount/paidAddonCount are ALREADY net of
+  // free_reentries (entry is never free, addons have no free concept) --
+  // Finance must apply the discount percent to these counts directly, at
+  // its OWN configured per-unit prices, and must never apply it a second
+  // time on top of the free-unit accounting it already does with
+  // freeReentryCount above (see calculateTournamentRevenue in Finance's
+  // own calculations.ts).
+  playerDiscounts: TournamentPlayerDiscount[];
   dealerPayrollRub: number;
   // SUM(amount_rub) of COMPLETED admin_shifts (ended_at IS NOT NULL)
   // linked to this tournament -- see
@@ -56,6 +70,53 @@ export type FinanceTournamentExportRow = {
   // real, reliable column exists to source this from.
   sourceUpdatedAt: string | null;
 };
+
+// CLUB DISCOUNTS -- one row per arrived player with a non-zero frozen
+// discount for this tournament. See FinanceTournamentExportRow's
+// playerDiscounts doc comment for the exact contract Finance depends on.
+export type TournamentPlayerDiscount = {
+  playerId: string;
+  entryCount: number;
+  paidReentryCount: number;
+  paidAddonCount: number;
+  discountPercent: number;
+};
+
+// Same normalizeReentryCount convention as the tournament-wide aggregate
+// above, minus this player's OWN free_reentries -- never Finance's job to
+// re-derive "paid vs free" for an individual player, RERAISE already
+// knows it here.
+export function buildPlayerDiscounts(
+  rows: Array<{
+    player_id: string;
+    arrived: boolean | null;
+    reentries: number;
+    addons: number;
+    free_reentries?: number | null;
+    club_discount_percent?: number | null;
+  }>
+): TournamentPlayerDiscount[] {
+  const discounts: TournamentPlayerDiscount[] = [];
+  for (const row of rows) {
+    if (row.arrived !== true) continue;
+    const discountPercent = row.club_discount_percent ?? 0;
+    if (discountPercent <= 0) continue;
+
+    const paidReentryCount = Math.max(
+      normalizeReentryCount(row.reentries) - (row.free_reentries ?? 0),
+      0
+    );
+
+    discounts.push({
+      playerId: row.player_id,
+      entryCount: 1,
+      paidReentryCount,
+      paidAddonCount: row.addons,
+      discountPercent,
+    });
+  }
+  return discounts;
+}
 
 export type TournamentAttendanceSummary = {
   playersCount: number;
@@ -272,6 +333,7 @@ async function buildExportRow(tournament: Tournament): Promise<FinanceTournament
     addonCount: attendance.addonCount,
     freeReentryCount: attendance.freeReentryCount,
     freeReentryBreakdown,
+    playerDiscounts: buildPlayerDiscounts(attendanceRows),
     dealerPayrollRub: dealerPayout.payoutRub,
     adminPayrollRub: adminPayout.payoutRub,
     attendanceUnknownCount: attendance.attendanceUnknownCount,

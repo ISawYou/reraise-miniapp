@@ -45,6 +45,12 @@ function mapPlayerRowToDomain(row: PlayerRow): Player {
     referral_count: row.referral_count,
     free_reentries_balance: row.free_reentries_balance,
     yandex_review_bonus_claimed: row.yandex_review_bonus_claimed,
+    // Defensive default, same reasoning as the players_role_check comment
+    // above: this Supabase database only has the column once
+    // sql/players_club_discount_percent.sql has been run against it
+    // separately (no migration tooling here) -- undefined until then,
+    // never treated as anything but "no discount".
+    club_discount_percent: row.club_discount_percent ?? 0,
     created_at: row.created_at,
   };
 }
@@ -168,6 +174,28 @@ export class SupabasePlayerRepository implements PlayerRepository {
       .in("id", playerIds);
 
     return (data ?? []) as PlayerActivitySummary[];
+  }
+
+  async findClubDiscountPercentsByIds(
+    playerIds: string[]
+  ): Promise<{ id: string; club_discount_percent: number }[]> {
+    if (playerIds.length === 0) {
+      return [];
+    }
+
+    const supabase = getSupabaseServer();
+    const { data } = await supabase
+      .from("players")
+      .select("id, club_discount_percent")
+      .in("id", playerIds);
+
+    // Defensive default, same reasoning as mapPlayerRowToDomain above: 0
+    // until sql/players_club_discount_percent.sql has been run against
+    // this Supabase database.
+    return ((data ?? []) as { id: string; club_discount_percent: number | null }[]).map((row) => ({
+      id: row.id,
+      club_discount_percent: row.club_discount_percent ?? 0,
+    }));
   }
 
   async listOrderedByCreatedAtDesc(): Promise<Player[]> {

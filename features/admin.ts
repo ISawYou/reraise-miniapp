@@ -58,6 +58,31 @@ export async function setPlayerBlocked(
   }
 }
 
+// CLUB DISCOUNTS (2026-09-27): sets a player's LIVE club discount percent
+// (players.club_discount_percent — see that column's doc comment). Never
+// touches results.club_discount_percent, the FROZEN per-tournament fact —
+// changing this setting can only ever affect tournaments completed AFTER
+// this call, never a past one (see features/tournaments.ts's freeze rule).
+// No role/staff restriction, unlike setPlayerBlocked above — any player
+// (including staff) may legitimately have a club discount.
+export async function setPlayerClubDiscount(
+  playerId: string,
+  discountPercent: number
+): Promise<Player> {
+  if (!Number.isInteger(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+    throw new Error("Скидка клуба должна быть целым числом от 0 до 100");
+  }
+
+  const player = await playerRepository.findById(playerId);
+  if (!player) throw new Error("Игрок не найден");
+
+  try {
+    return await playerRepository.update(playerId, { club_discount_percent: discountPercent });
+  } catch (err) {
+    throw new Error(`Ошибка обновления скидки клуба: ${errorMessage(err)}`);
+  }
+}
+
 export async function deleteManualPlayer(playerId: string): Promise<void> {
   const player = await playerRepository.findById(playerId);
 

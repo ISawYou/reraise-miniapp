@@ -44,6 +44,7 @@ function mapRowToPlayer(row: typeof players.$inferSelect): Player {
     yandex_review_bonus_claimed: row.yandexReviewBonusClaimed,
     merged_into_player_id: row.mergedIntoPlayerId,
     merged_at: row.mergedAt ? row.mergedAt.toISOString() : null,
+    club_discount_percent: row.clubDiscountPercent,
     created_at: row.createdAt.toISOString(),
   };
 }
@@ -86,6 +87,7 @@ function toColumnValues(data: PlayerInsert | PlayerPatch): Partial<typeof player
     values.yandexReviewBonusClaimed = data.yandex_review_bonus_claimed;
   }
   if (data.created_at !== undefined) values.createdAt = new Date(data.created_at);
+  if (data.club_discount_percent !== undefined) values.clubDiscountPercent = data.club_discount_percent;
   return values;
 }
 
@@ -173,6 +175,19 @@ export class PostgresPlayerRepository implements PlayerRepository {
         email: players.email,
         role: players.role,
       })
+      .from(players)
+      .where(inArray(players.id, playerIds));
+  }
+
+  async findClubDiscountPercentsByIds(
+    playerIds: string[]
+  ): Promise<{ id: string; club_discount_percent: number }[]> {
+    if (playerIds.length === 0) {
+      return [];
+    }
+
+    return db
+      .select({ id: players.id, club_discount_percent: players.clubDiscountPercent })
       .from(players)
       .where(inArray(players.id, playerIds));
   }

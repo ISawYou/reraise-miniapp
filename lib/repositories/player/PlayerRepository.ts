@@ -75,6 +75,14 @@ export interface PlayerRepository {
   // so these deliberately don't throw either.
   findRoleById(playerId: string): Promise<{ id: string; role: string } | null>;
   findSummariesByIds(playerIds: string[]): Promise<PlayerActivitySummary[]>;
+  // CLUB DISCOUNTS -- bulk read of the LIVE club_discount_percent for a set
+  // of players, used ONLY by features/tournaments.ts's freeze rule (the
+  // very first time a player is resulted for a given tournament — see
+  // lib/db/schema/results.ts's clubDiscountPercent doc comment). A
+  // dedicated method rather than widening findSummariesByIds/
+  // PlayerActivitySummary, which is an exact 5-column mirror of an
+  // unrelated existing select used elsewhere.
+  findClubDiscountPercentsByIds(playerIds: string[]): Promise<{ id: string; club_discount_percent: number }[]>;
 
   listOrderedByCreatedAtDesc(): Promise<Player[]>;
   listOrderedByDisplayName(): Promise<Player[]>;

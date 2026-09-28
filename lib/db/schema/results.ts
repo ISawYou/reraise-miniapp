@@ -83,11 +83,32 @@ export const results = pgTable("results", {
   bossBountyPoints: integer("boss_bounty_points"),
   itmPoints: integer("itm_points"),
 
+  // CLUB DISCOUNTS (2026-09-27): the club discount percent (0-100) ACTUALLY
+  // APPLIED to this player's paid participation in THIS tournament -- a
+  // frozen fact, not a live read of players.club_discount_percent. Written
+  // once by the completion path (features/tournaments.ts:
+  // completeTournamentFromLiveEntries / saveTournamentResults) at the same
+  // moment every other frozen column here is written (delete-then-insert).
+  //
+  // Freeze rule, enforced in features/tournaments.ts, not here: if a
+  // result row ALREADY existed for this player+tournament (i.e. this write
+  // is an admin CORRECTION, not the first completion), its existing
+  // club_discount_percent is carried forward unchanged into the new row --
+  // the player's CURRENT players.club_discount_percent is consulted only
+  // the very first time this player is resulted for this tournament. This
+  // is what makes a later change to a player's discount setting provably
+  // unable to alter a past tournament's numbers even across a correction.
+  // 0 for every pre-existing row (honest: no discount concept existed
+  // before this column, so 0 is the true historical fact, not a guess --
+  // same convention as addons/mysteryBountyPoints above).
+  clubDiscountPercent: integer("club_discount_percent").notNull().default(0),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("results_place_check", sql`${table.place} > 0`),
   check("results_rating_points_check", sql`${table.ratingPoints} >= 0`),
   check("results_free_reentries_check", sql`${table.freeReentries} >= 0`),
+  check("results_club_discount_percent_check", sql`${table.clubDiscountPercent} BETWEEN 0 AND 100`),
 
   // Non-negativity, same style as results_rating_points_check. NULL-tolerant
   // by ordinary SQL three-valued logic (a NULL operand makes the whole

@@ -15,6 +15,7 @@ import type {
   ResultHistoryRow,
   SeasonRecapResultRow,
   TeamScoringResultRow,
+  PlayerClubDiscountHistoryRow,
 } from "./ResultRepository";
 
 function errorMessage(err: unknown): string {
@@ -134,6 +135,7 @@ export class PostgresResultRepository implements ResultRepository {
         reentries: results.reentries,
         addons: results.addons,
         free_reentries: results.freeReentries,
+        club_discount_percent: results.clubDiscountPercent,
       })
       .from(results)
       .where(eq(results.tournamentId, tournamentId));
@@ -352,6 +354,30 @@ export class PostgresResultRepository implements ResultRepository {
     }));
   }
 
+  async findClubDiscountHistoryByPlayerId(playerId: string): Promise<PlayerClubDiscountHistoryRow[]> {
+    const rows = await db
+      .select({
+        resultId: results.id,
+        tournamentId: results.tournamentId,
+        tournamentTitle: tournaments.title,
+        tournamentStartAt: tournaments.startAt,
+        clubDiscountPercent: results.clubDiscountPercent,
+      })
+      .from(results)
+      .innerJoin(tournaments, eq(results.tournamentId, tournaments.id))
+      .where(eq(results.playerId, playerId))
+      .orderBy(desc(tournaments.startAt));
+
+    return rows;
+  }
+
+  async updateClubDiscountPercent(resultId: string, discountPercent: number): Promise<void> {
+    await db
+      .update(results)
+      .set({ clubDiscountPercent: discountPercent })
+      .where(eq(results.id, resultId));
+  }
+
   async deleteByTournamentId(tournamentId: string): Promise<void> {
     await db.delete(results).where(eq(results.tournamentId, tournamentId));
   }
@@ -386,7 +412,8 @@ export class PostgresResultRepository implements ResultRepository {
         ${row.participation_points ?? null},
         ${row.knockout_points ?? null},
         ${row.boss_bounty_points ?? null},
-        ${row.itm_points ?? null}
+        ${row.itm_points ?? null},
+        ${row.club_discount_percent ?? 0}
       )`),
       sql`, `
     );
@@ -408,7 +435,8 @@ export class PostgresResultRepository implements ResultRepository {
         "participation_points",
         "knockout_points",
         "boss_bounty_points",
-        "itm_points"
+        "itm_points",
+        "club_discount_percent"
       )
       values ${values}
     `);

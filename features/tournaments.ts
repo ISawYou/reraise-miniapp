@@ -927,6 +927,39 @@ export async function applyTournamentLiveSheetRows(
   return getTournamentLiveEntries(tournamentId);
 }
 
+// CLUB DISCOUNTS -- the freeze rule (see lib/db/schema/results.ts's
+// clubDiscountPercent doc comment). For each player about to receive a
+// (re)written results row for this tournament: if a results row ALREADY
+// existed for them here (this write is an admin correction, not the first
+// completion), their EXISTING frozen club_discount_percent is carried
+// forward unchanged -- their live players.club_discount_percent is
+// consulted ONLY the very first time they're resulted for this
+// tournament. This is what makes a later change to a player's discount
+// setting provably unable to alter a past tournament's numbers, even
+// across a correction (delete-then-reinsert, same as every other column
+// here).
+async function resolveClubDiscountPercents(
+  tournamentId: string,
+  playerIds: string[]
+): Promise<Map<string, number>> {
+  const existingRows = await resultRepository.findAttendanceByTournamentId(tournamentId);
+  const existingByPlayerId = new Map(
+    existingRows.map((row) => [row.player_id, row.club_discount_percent ?? 0])
+  );
+
+  const newPlayerIds = playerIds.filter((id) => !existingByPlayerId.has(id));
+  const liveDiscounts = newPlayerIds.length
+    ? await playerRepository.findClubDiscountPercentsByIds(newPlayerIds)
+    : [];
+  const liveByPlayerId = new Map(liveDiscounts.map((row) => [row.id, row.club_discount_percent]));
+
+  const resolved = new Map<string, number>();
+  for (const playerId of playerIds) {
+    resolved.set(playerId, existingByPlayerId.get(playerId) ?? liveByPlayerId.get(playerId) ?? 0);
+  }
+  return resolved;
+}
+
 export async function completeTournamentFromLiveEntries(tournamentId: string) {
   const tournament = await getTournamentById(tournamentId);
 
@@ -959,6 +992,14 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
   );
 
   const tournamentRow = await tournamentRepository.findSeasonIdById(tournamentId);
+
+  // CLUB DISCOUNTS -- must read any EXISTING frozen discounts before the
+  // delete below erases them (see resolveClubDiscountPercents's doc
+  // comment for the freeze rule this preserves).
+  const clubDiscountPercents = await resolveClubDiscountPercents(
+    tournamentId,
+    liveEntries.map((entry) => entry.player_id)
+  );
 
   await resultRepository.deleteByTournamentId(tournamentId);
 
@@ -1006,6 +1047,7 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
       knockout_points: rating?.knockout_points ?? null,
       boss_bounty_points: rating?.boss_bounty_points ?? null,
       itm_points: rating?.itm_points ?? null,
+      club_discount_percent: clubDiscountPercents.get(entry.player_id) ?? 0,
     };
   });
 
@@ -1052,6 +1094,17 @@ export async function saveTournamentResults(
 
   const tournamentRow = await tournamentRepository.findSeasonIdById(tournamentId);
 
+  // CLUB DISCOUNTS -- must read any EXISTING frozen discounts before the
+  // delete below erases them (see resolveClubDiscountPercents's doc
+  // comment for the freeze rule this preserves). This is exactly the path
+  // a legitimate admin correction re-runs, so preserving the ALREADY-frozen
+  // value here (rather than re-reading the player's possibly-since-changed
+  // live setting) is what actually matters.
+  const clubDiscountPercents = await resolveClubDiscountPercents(
+    tournamentId,
+    results.map((item) => item.player_id)
+  );
+
   await resultRepository.deleteByTournamentId(tournamentId);
 
   const payload = results.map((item) => ({
@@ -1074,6 +1127,7 @@ export async function saveTournamentResults(
     knockout_points: item.knockout_points ?? null,
     boss_bounty_points: item.boss_bounty_points ?? null,
     itm_points: item.itm_points ?? null,
+    club_discount_percent: clubDiscountPercents.get(item.player_id) ?? 0,
   }));
 
   await resultRepository.insertMany(payload);

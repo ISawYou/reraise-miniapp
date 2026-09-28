@@ -40,6 +40,12 @@ export type ResultInsert = {
   knockout_points?: number | null;
   boss_bounty_points?: number | null;
   itm_points?: number | null;
+  // CLUB DISCOUNTS (2026-09-27) -- see lib/db/schema/results.ts's
+  // clubDiscountPercent doc comment for the freeze rule. Optional here for
+  // the same type-level-flexibility reason as addons/boss_knockouts; the
+  // real write path (features/tournaments.ts) always provides it
+  // explicitly, computed via the freeze rule, never a live re-read.
+  club_discount_percent?: number;
 };
 
 export type RatingPointsRow = {
@@ -125,6 +131,16 @@ export type ResultAttendanceRow = {
   // normalizes either case to 0, same convention as every other
   // legacy-nullable numeric field this row type already carries.
   free_reentries: number | null;
+  // CLUB DISCOUNTS -- the FROZEN percent actually applied to this player's
+  // paid participation in this tournament (see lib/db/schema/results.ts's
+  // clubDiscountPercent doc comment). Reused for TWO purposes: (1)
+  // features/finance-export.ts's playerDiscounts breakdown, (2)
+  // features/tournaments.ts's freeze-preservation lookup before a
+  // completion/correction re-write (both need "every existing row's
+  // player_id + its frozen discount", which this query already provides
+  // unfiltered). Same nullable-for-Supabase-parity convention as
+  // free_reentries above -- normalized to 0 wherever it's consumed.
+  club_discount_percent: number | null;
 };
 
 // Teams v1 (lib/team-scoring.ts) -- every result row's frozen
@@ -239,7 +255,35 @@ export interface ResultRepository {
   findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]>;
   findAllForTeamScoring(): Promise<TeamScoringResultRow[]>;
 
+  // CLUB DISCOUNTS — targeted historical backfill (2026-09-28). Every
+  // completed tournament this player has a result row for, with the
+  // tournament's own start date and this row's CURRENTLY FROZEN
+  // club_discount_percent — the exact facts
+  // features/club-discount-backfill.ts's preview needs, and nothing else
+  // (never place/rating/knockouts — this tool must never touch those).
+  // Postgres-only for now, same as club_discount_percent itself (see
+  // lib/db/schema/results.ts) — the Supabase implementation throws a
+  // clear error rather than silently returning an empty/misleading result
+  // for what is, on that provider, simply an unsupported operation.
+  findClubDiscountHistoryByPlayerId(playerId: string): Promise<PlayerClubDiscountHistoryRow[]>;
+  // Narrowly updates ONLY club_discount_percent on one already-existing
+  // result row, identified by its own id (never a second lookup by
+  // player+tournament, so there is no ambiguity about which row is being
+  // changed). Never touches any other column — place, reentries, addons,
+  // free_reentries, rating_points, arrived, etc. are all byte-for-byte
+  // untouched. Idempotent by construction (a plain SQL SET, not a
+  // toggle/increment).
+  updateClubDiscountPercent(resultId: string, discountPercent: number): Promise<void>;
+
   deleteByTournamentId(tournamentId: string): Promise<void>;
   deleteByPlayerId(playerId: string): Promise<void>;
   insertMany(rows: ResultInsert[]): Promise<void>;
 }
+
+export type PlayerClubDiscountHistoryRow = {
+  resultId: string;
+  tournamentId: string;
+  tournamentTitle: string;
+  tournamentStartAt: Date;
+  clubDiscountPercent: number;
+};

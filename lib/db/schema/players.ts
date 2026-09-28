@@ -45,6 +45,16 @@ export const players = pgTable("players", {
   freeReentriesBalance: integer("free_reentries_balance").notNull().default(0),
   yandexReviewBonusClaimed: boolean("yandex_review_bonus_claimed").notNull().default(false),
 
+  // CLUB DISCOUNTS (2026-09-27): a permanent, LIVE percent discount (0-100)
+  // on this player's paid tournament participation (entry/re-entry/add-on)
+  // -- edited by a Super Admin, see app/admin/moderation/page.tsx. This is
+  // the CURRENT setting only. A completed tournament's actually-applied
+  // discount is a frozen, separate fact on results.club_discount_percent
+  // -- changing this column later must NEVER retroactively change a past
+  // tournament's financial numbers (see that column's own comment for the
+  // exact freeze mechanism). 0 = no discount, the default for every player.
+  clubDiscountPercent: integer("club_discount_percent").notNull().default(0),
+
   // Account merge (ported from Sterling/spb-poker commit 770ce78d) -- set
   // once, atomically, by lib/player-merge.ts's executeMerge(). Never
   // deleted, never cleared: a player row is soft-merged in place, not
@@ -64,6 +74,7 @@ export const players = pgTable("players", {
   // lock out an existing admin. See lib/roles.ts for the three-tier model.
   check("players_role_check", sql`${table.role} IN ('player', 'operator', 'admin')`),
   check("players_display_name_length", sql`char_length(${table.displayName}) BETWEEN 1 AND 100`),
+  check("players_club_discount_percent_check", sql`${table.clubDiscountPercent} BETWEEN 0 AND 100`),
   check(
     "players_pending_display_name_length",
     sql`${table.pendingDisplayName} IS NULL OR char_length(${table.pendingDisplayName}) BETWEEN 1 AND 100`,

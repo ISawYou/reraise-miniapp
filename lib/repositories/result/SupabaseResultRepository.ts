@@ -14,7 +14,11 @@ import type {
   ResultHistoryRow,
   SeasonRecapResultRow,
   TeamScoringResultRow,
+  PlayerClubDiscountHistoryRow,
 } from "./ResultRepository";
+
+const CLUB_DISCOUNT_POSTGRES_ONLY_MESSAGE =
+  "Скидка клуба (историческая заморозка) поддерживается только при DATABASE_PROVIDER=postgres — на Supabase колонки club_discount_percent не существует";
 
 function flattenEmbedded<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) {
@@ -228,9 +232,14 @@ export class SupabaseResultRepository implements ResultRepository {
     // `results` table has no free_reentries column (see the identical note
     // on findHistoryWithTournamentByPlayerId below). Always 0 here, an
     // honest "not tracked on this provider" default, not a guess.
-    return (data ?? []).map((row: Omit<ResultAttendanceRow, "free_reentries">) => ({
+    //
+    // club_discount_percent follows the EXACT same precedent: freezing a
+    // per-tournament club discount is Postgres-only for now (see
+    // insertMany below) -- always 0 here too, never a guess.
+    return (data ?? []).map((row: Omit<ResultAttendanceRow, "free_reentries" | "club_discount_percent">) => ({
       ...row,
       free_reentries: 0,
+      club_discount_percent: 0,
     }));
   }
 
@@ -543,6 +552,18 @@ export class SupabaseResultRepository implements ResultRepository {
     }));
   }
 
+  // Postgres-only (see ResultRepository.ts's doc comment) — throws rather
+  // than returning an empty/misleading result, since this is a WRITE-
+  // adjacent admin tool where silence could be mistaken for "nothing to
+  // backfill" instead of "unsupported on this provider".
+  async findClubDiscountHistoryByPlayerId(_playerId: string): Promise<PlayerClubDiscountHistoryRow[]> {
+    throw new Error(CLUB_DISCOUNT_POSTGRES_ONLY_MESSAGE);
+  }
+
+  async updateClubDiscountPercent(_resultId: string, _discountPercent: number): Promise<void> {
+    throw new Error(CLUB_DISCOUNT_POSTGRES_ONLY_MESSAGE);
+  }
+
   async deleteByTournamentId(tournamentId: string): Promise<void> {
     const supabase = getSupabaseServer();
     const { error } = await supabase
@@ -571,10 +592,14 @@ export class SupabaseResultRepository implements ResultRepository {
     const supabase = getSupabaseServer();
     // free_reentries is stripped -- the Supabase `results` table has no
     // such column (see findByTournamentIdWithPlayer's doc comment above);
-    // sending it would error on an unrecognized column.
+    // sending it would error on an unrecognized column. club_discount_percent
+    // is stripped for the same reason -- freezing a per-tournament club
+    // discount is Postgres-only for now (see findAttendanceByTournamentId
+    // above for the matching read-side default).
     const supabaseRows = rows.map((row) => {
       const supabaseRow: Partial<ResultInsert> = { ...row };
       delete supabaseRow.free_reentries;
+      delete supabaseRow.club_discount_percent;
       return supabaseRow;
     });
     const { error } = await supabase.from("results").insert(supabaseRows);

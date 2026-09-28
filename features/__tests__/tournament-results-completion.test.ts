@@ -19,10 +19,18 @@ const mocks = vi.hoisted(() => ({
   findPlayerIdsWithLiveEntry: vi.fn().mockResolvedValue([]),
   findLiveEntriesWithDetails: vi.fn(),
   publishTournamentWinnerEvent: vi.fn().mockResolvedValue(undefined),
+  // CLUB DISCOUNTS -- resolveClubDiscountPercents (features/tournaments.ts)
+  // reads these before every delete-then-reinsert; empty by default (no
+  // prior frozen rows, no live discount set) so existing, discount-unaware
+  // tests keep exercising exactly the same behavior as before.
+  findAttendanceByTournamentId: vi.fn().mockResolvedValue([]),
+  findClubDiscountPercentsByIds: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("@/lib/repositories", () => ({
-  playerRepository: {},
+  playerRepository: {
+    findClubDiscountPercentsByIds: mocks.findClubDiscountPercentsByIds,
+  },
   seasonRepository: {},
   tournamentRepository: {
     findById: mocks.findById,
@@ -41,6 +49,7 @@ vi.mock("@/lib/repositories", () => ({
     deleteByTournamentId: mocks.deleteByTournamentId,
     insertMany: mocks.insertMany,
     findByTournamentIdWithPlayer: mocks.findByTournamentIdWithPlayer,
+    findAttendanceByTournamentId: mocks.findAttendanceByTournamentId,
   },
 }));
 
@@ -107,6 +116,8 @@ beforeEach(() => {
   mocks.insertMany.mockResolvedValue(undefined);
   mocks.markAttendedBulk.mockResolvedValue(undefined);
   mocks.publishTournamentWinnerEvent.mockResolvedValue(undefined);
+  mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+  mocks.findClubDiscountPercentsByIds.mockResolvedValue([]);
 });
 
 describe("saveTournamentResults (free completion flow)", () => {
@@ -325,5 +336,132 @@ describe("getTournamentEntryStats", () => {
     // their initial entry).
     expect(stats.totalEntries).toBe(2);
     expect(stats.rebuysCount).toBe(0);
+  });
+});
+
+describe("CLUB DISCOUNTS -- freeze rule (resolveClubDiscountPercents, via both completion paths)", () => {
+  beforeEach(() => {
+    mocks.findSeasonIdById.mockResolvedValue({ id: FREE_TOURNAMENT_ID, season_id: "season-1" });
+  });
+
+  it("first completion: freezes the player's CURRENT live discount into the result row", async () => {
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]); // no prior row for this tournament
+    mocks.findClubDiscountPercentsByIds.mockResolvedValue([{ id: "p1", club_discount_percent: 10 }]);
+
+    await saveTournamentResults(FREE_TOURNAMENT_ID, [
+      freeResultInput({ player_id: "p1", place: 1, display_name: "Alice" }),
+    ]);
+
+    const inserted = mocks.insertMany.mock.calls[0][0];
+    expect(inserted[0].club_discount_percent).toBe(10);
+    expect(mocks.findClubDiscountPercentsByIds).toHaveBeenCalledWith(["p1"]);
+  });
+
+  it("a player with no live discount configured freezes 0", async () => {
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+    mocks.findClubDiscountPercentsByIds.mockResolvedValue([{ id: "p1", club_discount_percent: 0 }]);
+
+    await saveTournamentResults(FREE_TOURNAMENT_ID, [
+      freeResultInput({ player_id: "p1", place: 1, display_name: "Alice" }),
+    ]);
+
+    expect(mocks.insertMany.mock.calls[0][0][0].club_discount_percent).toBe(0);
+  });
+
+  it("CRITICAL: an admin correction (results already exist) carries forward the ALREADY-frozen discount, never re-reading the player's live setting -- even if it changed in between", async () => {
+    // The player was frozen at 10% during the original completion...
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "p1", arrived: true, reentries: 1, addons: 0, free_reentries: 0, club_discount_percent: 10 },
+    ]);
+    // ...but their LIVE setting has since changed to 20%.
+    mocks.findClubDiscountPercentsByIds.mockResolvedValue([{ id: "p1", club_discount_percent: 20 }]);
+
+    // Admin re-submits a correction (e.g. fixing a knockout count) for the SAME tournament.
+    await saveTournamentResults(FREE_TOURNAMENT_ID, [
+      freeResultInput({ player_id: "p1", place: 1, display_name: "Alice", knockouts: 3 }),
+    ]);
+
+    const inserted = mocks.insertMany.mock.calls[0][0];
+    // Still 10%, NOT the new live 20% -- the past tournament's numbers must
+    // never silently change because a player's discount setting changed later.
+    expect(inserted[0].club_discount_percent).toBe(10);
+    // The live lookup is never even consulted -- every player already has a frozen value.
+    expect(mocks.findClubDiscountPercentsByIds).not.toHaveBeenCalled();
+  });
+
+  it("a NEW player added during a correction (never resulted here before) still freezes from their CURRENT live setting", async () => {
+    mocks.findAttendanceByTournamentId.mockResolvedValue([
+      { player_id: "p1", arrived: true, reentries: 1, addons: 0, free_reentries: 0, club_discount_percent: 10 },
+    ]);
+    mocks.findClubDiscountPercentsByIds.mockResolvedValue([{ id: "p2", club_discount_percent: 15 }]);
+
+    await saveTournamentResults(FREE_TOURNAMENT_ID, [
+      freeResultInput({ player_id: "p1", place: 1, display_name: "Alice" }),
+      freeResultInput({ player_id: "p2", place: 2, display_name: "Bob" }),
+    ]);
+
+    const inserted = mocks.insertMany.mock.calls[0][0];
+    expect(inserted.find((r: { player_id: string }) => r.player_id === "p1").club_discount_percent).toBe(10);
+    expect(inserted.find((r: { player_id: string }) => r.player_id === "p2").club_discount_percent).toBe(15);
+    // Only the genuinely new player is looked up live.
+    expect(mocks.findClubDiscountPercentsByIds).toHaveBeenCalledWith(["p2"]);
+  });
+
+  it("two discounted players in the same tournament are frozen independently", async () => {
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+    mocks.findClubDiscountPercentsByIds.mockResolvedValue([
+      { id: "p1", club_discount_percent: 10 },
+      { id: "p2", club_discount_percent: 25 },
+    ]);
+
+    await saveTournamentResults(FREE_TOURNAMENT_ID, [
+      freeResultInput({ player_id: "p1", place: 1, display_name: "Alice" }),
+      freeResultInput({ player_id: "p2", place: 2, display_name: "Bob" }),
+    ]);
+
+    const inserted = mocks.insertMany.mock.calls[0][0];
+    expect(inserted.find((r: { player_id: string }) => r.player_id === "p1").club_discount_percent).toBe(10);
+    expect(inserted.find((r: { player_id: string }) => r.player_id === "p2").club_discount_percent).toBe(25);
+  });
+
+  it("live completion path (completeTournamentFromLiveEntries) freezes the same way as the free/Sheet path", async () => {
+    mocks.findById.mockResolvedValue({
+      id: LIVE_TOURNAMENT_ID,
+      title: "Live Cash Game",
+      google_sheet_tab_name: null,
+      start_at: new Date().toISOString(),
+      max_players: 20,
+      kind: "cash",
+      tournament_type: "classic",
+      season_id: "season-1",
+      status: "open",
+      created_at: new Date().toISOString(),
+      rating_formula_version: "legacy",
+      rating_guarantee: null,
+      is_final: false,
+    });
+    mocks.findSeasonIdById.mockResolvedValue({ id: LIVE_TOURNAMENT_ID, season_id: "season-1" });
+    mocks.findLiveEntriesWithDetails.mockResolvedValue([
+      liveEntryRow({ player_id: "p1", place: 1, display_name: "Alice" }),
+    ]);
+    mocks.findAttendanceByTournamentId.mockResolvedValue([]);
+    mocks.findClubDiscountPercentsByIds.mockResolvedValue([{ id: "p1", club_discount_percent: 10 }]);
+
+    await completeTournamentFromLiveEntries(LIVE_TOURNAMENT_ID);
+
+    expect(mocks.insertMany.mock.calls[0][0][0].club_discount_percent).toBe(10);
+  });
+
+  it("repeat sync (identical re-run) is idempotent -- freezes the same value every time, never duplicating or drifting", async () => {
+    mocks.findAttendanceByTournamentId.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { player_id: "p1", arrived: true, reentries: 1, addons: 0, free_reentries: 0, club_discount_percent: 10 },
+    ]);
+    mocks.findClubDiscountPercentsByIds.mockResolvedValue([{ id: "p1", club_discount_percent: 10 }]);
+
+    await saveTournamentResults(FREE_TOURNAMENT_ID, [freeResultInput({ player_id: "p1", place: 1, display_name: "Alice" })]);
+    await saveTournamentResults(FREE_TOURNAMENT_ID, [freeResultInput({ player_id: "p1", place: 1, display_name: "Alice" })]);
+
+    expect(mocks.insertMany.mock.calls[0][0][0].club_discount_percent).toBe(10);
+    expect(mocks.insertMany.mock.calls[1][0][0].club_discount_percent).toBe(10);
   });
 });

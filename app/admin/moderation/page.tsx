@@ -21,6 +21,7 @@ export default function AdminModerationPage() {
   const [processingKey, setProcessingKey] = useState<string | null>(null);
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
+  const [draftDiscounts, setDraftDiscounts] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +189,46 @@ export default function AdminModerationPage() {
       setMessage(nextBlocked ? "Игрок заблокирован" : "Игрок разблокирован");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка изменения статуса блокировки");
+    } finally {
+      setProcessingKey(null);
+    }
+  }
+
+  // CLUB DISCOUNTS -- saves players.club_discount_percent (the LIVE
+  // setting; see that column's doc comment). Never touches any past
+  // tournament's frozen results.club_discount_percent.
+  async function handleSaveClubDiscount(targetPlayer: Player) {
+    const raw = draftDiscounts[targetPlayer.id] ?? String(targetPlayer.club_discount_percent ?? 0);
+    const parsed = Number(raw);
+
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+      setError("Скидка клуба должна быть целым числом от 0 до 100");
+      return;
+    }
+
+    try {
+      setProcessingKey(`discount-${targetPlayer.id}`);
+      setMessage(null);
+      setError(null);
+
+      const { player: updatedPlayer } = await fetchAdminJson<{ player: Player }>(
+        `/api/admin/players/${targetPlayer.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "setClubDiscount", clubDiscountPercent: parsed }),
+        }
+      );
+
+      setPlayers((prev) => prev.map((p) => (p.id === updatedPlayer.id ? updatedPlayer : p)));
+      setDraftDiscounts((prev) => {
+        const next = { ...prev };
+        delete next[targetPlayer.id];
+        return next;
+      });
+      setMessage("Скидка клуба сохранена");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка сохранения скидки клуба");
     } finally {
       setProcessingKey(null);
     }
@@ -464,6 +505,42 @@ export default function AdminModerationPage() {
                             <span className="text-xs text-red-400">заблокирован</span>
                           ) : null}
                           </div>
+
+                          <div className="mt-2 flex items-center gap-2">
+                            <label className="text-xs text-white/60" htmlFor={`club-discount-${targetPlayer.id}`}>
+                              Скидка клуба
+                            </label>
+                            <input
+                              id={`club-discount-${targetPlayer.id}`}
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              inputMode="numeric"
+                              value={
+                                draftDiscounts[targetPlayer.id] ??
+                                String(targetPlayer.club_discount_percent ?? 0)
+                              }
+                              onChange={(e) =>
+                                setDraftDiscounts((prev) => ({ ...prev, [targetPlayer.id]: e.target.value }))
+                              }
+                              disabled={processingKey === `discount-${targetPlayer.id}`}
+                              className="w-16 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-sm text-white"
+                            />
+                            <span className="text-xs text-white/60">%</span>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveClubDiscount(targetPlayer)}
+                              disabled={processingKey === `discount-${targetPlayer.id}`}
+                              className="rounded-md border border-white/10 px-2 py-1 text-xs font-medium text-white disabled:opacity-60"
+                            >
+                              {processingKey === `discount-${targetPlayer.id}` ? "..." : "Сохранить"}
+                            </button>
+                          </div>
+                          <p className="mt-1 max-w-xs text-[11px] leading-snug text-white/40">
+                            Применяется к платному участию в турнирах клуба. Скидка в баре
+                            настраивается отдельно в GainUp.
+                          </p>
                         </div>
                       )}
                     </div>

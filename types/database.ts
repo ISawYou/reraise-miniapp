@@ -23,6 +23,15 @@ export type PlayerRow = {
   referral_count: number;
   free_reentries_balance: number;
   yandex_review_bonus_claimed: boolean;
+  // Club discount (CLUB DISCOUNTS + GAINUP DISCOUNT AUDIT, 2026-09-27):
+  // a permanent, LIVE percent discount (0-100) applied to this player's
+  // paid tournament participation (entry/re-entry/add-on). Editable by a
+  // Super Admin in the player catalog (app/admin/moderation/page.tsx).
+  // This is the CURRENT setting only -- it is never read back for a
+  // completed tournament's financial facts, which freeze their own copy
+  // on results.club_discount_percent instead (see that schema's comment
+  // for why). 0 = no discount, the default for every player.
+  club_discount_percent: number;
   created_at: string;
 };
 

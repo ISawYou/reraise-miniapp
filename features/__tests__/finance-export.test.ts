@@ -257,6 +257,7 @@ describe("getFinanceTournamentExport", () => {
         addonCount: 2,
         freeReentryCount: 1,
         freeReentryBreakdown: { ownerFreeCount: 0, operatorFreeCount: 0, dealerFreeCount: 0, promoFreeCount: 1 },
+        playerDiscounts: [],
         dealerPayrollRub: 6500,
         adminPayrollRub: 0,
         attendanceUnknownCount: 0,

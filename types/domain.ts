@@ -49,6 +49,11 @@ export type Player = {
   referral_count?: number;
   free_reentries_balance?: number;
   yandex_review_bonus_claimed?: boolean;
+  // See types/database.ts's PlayerRow.club_discount_percent doc comment --
+  // same field, same LIVE-only semantics (a completed tournament's actual
+  // applied discount is frozen on TournamentResult.club_discount_percent
+  // instead, never re-read from here).
+  club_discount_percent?: number;
   // Account merge (see lib/player-merge.ts) -- set once a player row is
   // soft-merged into another. Every identity-resolution path must follow
   // this to the canonical row (lib/canonical-player.ts) rather than acting
