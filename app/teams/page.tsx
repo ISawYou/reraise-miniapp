@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { fetchAdminJson } from "@/lib/client-request";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { TEAM_EMBLEMS, DEFAULT_TEAM_EMBLEM } from "@/config/team-emblems";
@@ -114,7 +114,19 @@ function StandingCard({ row }: { row: TeamStandingRow }) {
   );
 }
 
+// useSearchParams() opts the page out of static prerendering unless the
+// component reading it is wrapped in Suspense -- see TeamsPage below.
+// This deep-links /teams?tab=my-team from Telegram invitation/join-request
+// notifications (lib/telegram-bot-notify.ts) straight into "Моя команда".
 export default function TeamsPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-black" />}>
+      <TeamsPageContent />
+    </Suspense>
+  );
+}
+
+function TeamsPageContent() {
   const searchParams = useSearchParams();
   const [player, setPlayer] = useState<Player | null>(null);
   // Deep-linked from the Telegram bot's "Открыть приглашение"/"Открыть

@@ -3,11 +3,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Player } from "@/types/domain";
 
-const mocks = vi.hoisted(() => ({ fetchAdminJson: vi.fn() }));
+const mocks = vi.hoisted(() => ({ fetchAdminJson: vi.fn(), searchParams: new URLSearchParams() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ back: vi.fn(), push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mocks.searchParams,
 }));
 
 vi.mock("@/lib/current-player", () => ({
@@ -57,6 +57,7 @@ function myTeamState(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.searchParams = new URLSearchParams();
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -131,6 +132,23 @@ describe("Teams -- invitation badge (visible from ANY tab)", () => {
   it("no badge when there is nothing pending", async () => {
     await render();
     expect(container.querySelector('[data-testid="my-team-badge"]')).toBeNull();
+  });
+});
+
+describe("Teams -- deep-link initial tab (?tab=my-team, wrapped in Suspense)", () => {
+  it("/teams?tab=my-team initializes the 'Моя команда' tab", async () => {
+    mocks.searchParams = new URLSearchParams("tab=my-team");
+    await render();
+
+    expect(container.textContent).toContain("Создать команду");
+    expect(container.textContent).not.toContain("Текущий сезон");
+  });
+
+  it("plain /teams (no query) initializes the 'Рейтинг' tab", async () => {
+    mocks.searchParams = new URLSearchParams();
+    await render();
+
+    expect(container.textContent).toContain("Текущий сезон");
   });
 });
 
