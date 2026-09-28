@@ -4,7 +4,13 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teams, teamMemberships, teamInvitations, teamJoinRequests } from "@/lib/db/schema";
 import { extractPostgresError } from "@/lib/db/postgres-error";
-import { playerRepository, resultRepository, seasonRepository } from "@/lib/repositories";
+import {
+  playerRepository,
+  resultRepository,
+  seasonRepository,
+  avatarStorageRepository,
+  contentTypeToExtension,
+} from "@/lib/repositories";
 import { resolveCanonicalPlayer } from "@/lib/canonical-player";
 import { isTeamEmblem, DEFAULT_TEAM_EMBLEM, type TeamEmblem } from "@/config/team-emblems";
 import { sendTeamsTelegramNotification } from "@/lib/telegram-bot-notify";
@@ -188,6 +194,17 @@ export class AlreadyInvitedByTeamError extends Error {
   }
 }
 
+// Reuses NotCaptainError/TeamDisbandedError/TeamNotFoundError for the
+// "not authorized"/"not active"/"missing" cases of avatar upload (same
+// error, same HTTP mapping, no reason to duplicate). This one covers the
+// upload-specific validation failures that have no existing equivalent.
+export class InvalidTeamAvatarFileError extends Error {
+  constructor(message = "Можно загрузить только изображение (JPEG, PNG или WebP) размером до 15 МБ") {
+    super(message);
+    this.name = "InvalidTeamAvatarFileError";
+  }
+}
+
 // ---------------------------------------------------------------------
 // Player-safe view types -- never expose telegram_id/email/admin fields.
 // ---------------------------------------------------------------------
@@ -224,6 +241,7 @@ export type TeamStandingRow = {
   team_id: string;
   name: string;
   emblem: TeamEmblem | string;
+  avatar_url: string | null;
   status: "active" | "disbanded";
   points: number;
   // null = no OFFICIAL displayed rank -- a team only ever consumes a
@@ -243,6 +261,7 @@ export type TeamDetailView = {
   id: string;
   name: string;
   emblem: string;
+  avatar_url: string | null;
   status: "active" | "disbanded";
   disbanded_at: string | null;
   captain_player_id: string;
@@ -257,6 +276,7 @@ export type PendingInvitationView = {
   team_id: string;
   team_name: string;
   team_emblem: string;
+  team_avatar_url: string | null;
   invited_by: PlayerSafeView;
   created_at: string;
 };
@@ -266,6 +286,7 @@ export type OutgoingJoinRequestView = {
   team_id: string;
   team_name: string;
   team_emblem: string;
+  team_avatar_url: string | null;
   created_at: string;
 };
 
@@ -478,6 +499,7 @@ export async function getTeamLeaderboard(scope: TeamScopeInput): Promise<TeamSta
       team_id: team.id,
       name: team.name,
       emblem: team.emblem,
+      avatar_url: team.avatarUrl ?? null,
       status: team.status as "active" | "disbanded",
       points: totals.get(team.id) ?? 0,
       member_count: memberCountByTeam.get(team.id) ?? 0,
@@ -507,6 +529,7 @@ export async function getTeamLeaderboard(scope: TeamScopeInput): Promise<TeamSta
     team_id: row.team_id,
     name: row.name,
     emblem: row.emblem,
+    avatar_url: row.avatar_url,
     status: row.status,
     points: row.points,
     rank: rankByTeamId.get(row.team_id) ?? null,
@@ -566,6 +589,7 @@ async function buildTeamDetailView(team: TeamRow, scope: TeamScopeInput): Promis
     id: team.id,
     name: team.name,
     emblem: team.emblem,
+    avatar_url: team.avatarUrl ?? null,
     status: team.status as "active" | "disbanded",
     disbanded_at: team.disbandedAt ? team.disbandedAt.toISOString() : null,
     captain_player_id: team.captainPlayerId,
@@ -582,7 +606,7 @@ export async function getTeamDetail(teamId: string, scope: TeamScopeInput): Prom
   return buildTeamDetailView(team, scope);
 }
 
-export type PlayerTeamBadge = { team_id: string; name: string; emblem: string; rank: number | null };
+export type PlayerTeamBadge = { team_id: string; name: string; emblem: string; avatar_url: string | null; rank: number | null };
 
 // Player profile "Team card" (own AND public profiles) -- just enough to
 // render "[emblem] TEAM NAME · #N в командном рейтинге" without the caller
@@ -603,7 +627,7 @@ export async function getPlayerActiveTeamSummary(playerId: string): Promise<Play
   const leaderboard = await getTeamLeaderboard({ kind: "current" });
   const standing = leaderboard.find((row) => row.team_id === team.id);
 
-  return { team_id: team.id, name: team.name, emblem: team.emblem, rank: standing?.rank ?? null };
+  return { team_id: team.id, name: team.name, emblem: team.emblem, avatar_url: team.avatarUrl ?? null, rank: standing?.rank ?? null };
 }
 
 // "Моя команда" -- the caller's own team (if any), every pending
@@ -671,6 +695,7 @@ export async function getMyTeamState(actorId: string): Promise<MyTeamState> {
         team_id: inviteTeam.id,
         team_name: inviteTeam.name,
         team_emblem: inviteTeam.emblem,
+        team_avatar_url: inviteTeam.avatarUrl ?? null,
         invited_by: toPlayerSafeView(inviter),
         created_at: row.createdAt.toISOString(),
       };
@@ -686,6 +711,7 @@ export async function getMyTeamState(actorId: string): Promise<MyTeamState> {
         team_id: requestTeam.id,
         team_name: requestTeam.name,
         team_emblem: requestTeam.emblem,
+        team_avatar_url: requestTeam.avatarUrl ?? null,
         created_at: row.createdAt.toISOString(),
       };
     })
@@ -1476,5 +1502,64 @@ export async function acceptJoinRequest(actorId: string, requestId: string): Pro
     );
   }
 
+  return detail;
+}
+
+// ---------------------------------------------------------------------
+// Team avatar (captain-only) -- reuses avatarStorageRepository, the SAME
+// local-filesystem-backed storage as player avatars (see
+// lib/repositories/avatar-storage). This module never touches image
+// bytes itself: the caller (the API route) is responsible for validating
+// content-type/size and running lib/team-avatar-derivative.ts's Sharp
+// normalization BEFORE calling this -- this function's own job is just
+// the authorization check + the upload + the DB write, same division of
+// labor as updateTeamIdentity above.
+// ---------------------------------------------------------------------
+
+export async function uploadTeamAvatar(
+  actorId: string,
+  teamId: string,
+  processedBytes: Buffer,
+  contentType: string
+): Promise<TeamDetailView> {
+  await db.transaction(async (tx) => {
+    const [team] = await tx.select().from(teams).where(eq(teams.id, teamId)).for("update");
+    if (!team) throw new TeamNotFoundError();
+    if (team.status === "disbanded") throw new TeamDisbandedError();
+    if (team.captainPlayerId !== actorId) throw new NotCaptainError();
+
+    const filePath = `teams/${team.id}/avatar.${contentTypeToExtension(contentType)}`;
+    const arrayBuffer = processedBytes.buffer.slice(
+      processedBytes.byteOffset,
+      processedBytes.byteOffset + processedBytes.byteLength
+    ) as ArrayBuffer;
+    const { error: uploadError } = await avatarStorageRepository.upload(filePath, arrayBuffer, contentType);
+    if (uploadError) {
+      throw new Error(uploadError);
+    }
+
+    const publicUrl = avatarStorageRepository.getPublicUrl(filePath);
+    const versionedUrl = `${publicUrl}?v=${Date.now()}`;
+
+    await tx.update(teams).set({ avatarUrl: versionedUrl }).where(eq(teams.id, teamId));
+  });
+
+  const detail = await getTeamDetail(teamId, { kind: "current" });
+  if (!detail) throw new TeamNotFoundError();
+  return detail;
+}
+
+export async function resetTeamAvatar(actorId: string, teamId: string): Promise<TeamDetailView> {
+  await db.transaction(async (tx) => {
+    const [team] = await tx.select().from(teams).where(eq(teams.id, teamId)).for("update");
+    if (!team) throw new TeamNotFoundError();
+    if (team.status === "disbanded") throw new TeamDisbandedError();
+    if (team.captainPlayerId !== actorId) throw new NotCaptainError();
+
+    await tx.update(teams).set({ avatarUrl: null }).where(eq(teams.id, teamId));
+  });
+
+  const detail = await getTeamDetail(teamId, { kind: "current" });
+  if (!detail) throw new TeamNotFoundError();
   return detail;
 }

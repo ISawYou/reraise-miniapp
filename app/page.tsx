@@ -43,12 +43,13 @@ import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 import type { ClubActivityEvent } from "@/types/club-activity";
 import type { RankMovement } from "@/features/leaderboard";
 import { Podium } from "@/components/leaderboard/podium";
-import { Avatar as TeamAvatar } from "@/components/teams/team-ui";
+import { Avatar as TeamAvatar, TeamIdentity } from "@/components/teams/team-ui";
 
 type HomeTeamStandingRow = {
   team_id: string;
   name: string;
   emblem: string;
+  avatar_url: string | null;
   points: number;
   rank: number | null;
   roster_preview: Array<{
@@ -1661,9 +1662,7 @@ export default function HomePage() {
                       className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2.5"
                     >
                       <span className="w-5 shrink-0 text-center text-sm font-bold text-white/55">#{team.rank}</span>
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-lg">
-                        {team.emblem}
-                      </span>
+                      <TeamIdentity team={team} className="h-9 w-9 text-lg" />
                       <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{team.name}</span>
                       <span className="hidden shrink-0 -space-x-2 sm:flex">
                         {team.roster_preview.slice(0, 3).map((member) => (

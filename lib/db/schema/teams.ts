@@ -41,7 +41,8 @@ export const teams = pgTable("teams", {
   // stored via the existing avatarStorageRepository -- see
   // lib/team-avatar-derivative.ts and features/teams.ts's uploadTeamAvatar.
   // NULL means "no photo yet" -- the emblem above remains the fallback and
-  // is never cleared when a photo is set, so removing the photo restores it.
+  // is never cleared when a photo is set, so removing the photo restores it
+  // (features/teams.ts's resetTeamAvatar only ever nulls this column).
   avatarUrl: text("avatar_url"),
   avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
 

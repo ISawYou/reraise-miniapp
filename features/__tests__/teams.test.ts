@@ -13,7 +13,7 @@ import { teams, teamMemberships, teamInvitations, teamJoinRequests } from "@/lib
 // the fake simulates it -- both are standard, well-understood Postgres
 // behavior this codebase already relies on elsewhere (see dealer_shifts'
 // own one-open-shift constraint), not something worth a live-DB test here.
-const { currentTx, mockResolveCanonicalPlayer, mockPlayerRepo, mockResultRepo, mockSeasonRepo, mockSendNotification } =
+const { currentTx, mockResolveCanonicalPlayer, mockPlayerRepo, mockResultRepo, mockSeasonRepo, mockSendNotification, mockAvatarStorageRepository } =
   vi.hoisted(() => ({
     currentTx: { current: null as unknown },
     mockResolveCanonicalPlayer: vi.fn(),
@@ -25,6 +25,7 @@ const { currentTx, mockResolveCanonicalPlayer, mockPlayerRepo, mockResultRepo, m
     mockResultRepo: { findAllForTeamScoring: vi.fn().mockResolvedValue([]) },
     mockSeasonRepo: { findActive: vi.fn().mockResolvedValue(null) },
     mockSendNotification: vi.fn().mockResolvedValue(true),
+    mockAvatarStorageRepository: { upload: vi.fn().mockResolvedValue({ error: null }), getPublicUrl: vi.fn().mockReturnValue("https://cdn/teams/team-1/avatar.webp") },
   }));
 
 // Outside-tx fixture for a single team_join_requests row -- only
@@ -83,6 +84,8 @@ vi.mock("@/lib/repositories", () => ({
   playerRepository: mockPlayerRepo,
   resultRepository: mockResultRepo,
   seasonRepository: mockSeasonRepo,
+  avatarStorageRepository: mockAvatarStorageRepository,
+  contentTypeToExtension: (contentType: string) => (contentType === "image/webp" ? "webp" : "jpg"),
 }));
 
 vi.mock("@/lib/telegram-bot-notify", () => ({
@@ -221,6 +224,8 @@ beforeEach(() => {
   mockResultRepo.findAllForTeamScoring.mockResolvedValue([]);
   mockSeasonRepo.findActive.mockResolvedValue(null);
   mockSendNotification.mockReset().mockResolvedValue(true);
+  mockAvatarStorageRepository.upload.mockReset().mockResolvedValue({ error: null });
+  mockAvatarStorageRepository.getPublicUrl.mockReset().mockReturnValue("https://cdn/teams/team-1/avatar.webp");
   outsideTxJoinRequestRow = null;
 });
 
@@ -911,5 +916,85 @@ describe("acceptJoinRequest", () => {
 
     const { acceptJoinRequest } = await import("@/features/teams");
     await expect(acceptJoinRequest("captain-1", "request-1")).resolves.toBeTruthy();
+  });
+});
+
+describe("uploadTeamAvatar / resetTeamAvatar", () => {
+  it("22. captain upload: stores at teams/{id}/avatar.{ext}, persists a cache-busted URL, returns it in the detail view", async () => {
+    const { tx, updateCalls } = makeFakeTx({ teams: [[teamRow({ captainPlayerId: "captain-1" })]] });
+    currentTx.current = tx;
+
+    const { uploadTeamAvatar } = await import("@/features/teams");
+    const detail = await uploadTeamAvatar("captain-1", "team-1", Buffer.from("fake-webp-bytes"), "image/webp");
+
+    expect(mockAvatarStorageRepository.upload).toHaveBeenCalledWith(
+      "teams/team-1/avatar.webp",
+      expect.anything(),
+      "image/webp"
+    );
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toMatchObject({ table: teams });
+    expect(String(updateCalls[0].values.avatarUrl)).toMatch(/^https:\/\/cdn\/teams\/team-1\/avatar\.webp\?v=\d+$/);
+    expect(detail.id).toBe("team-1");
+  });
+
+  it("23. non-captain upload attempt is forbidden", async () => {
+    const { tx, updateCalls } = makeFakeTx({ teams: [[teamRow({ captainPlayerId: "captain-1" })]] });
+    currentTx.current = tx;
+
+    const { uploadTeamAvatar, NotCaptainError } = await import("@/features/teams");
+    await expect(
+      uploadTeamAvatar("member-1", "team-1", Buffer.from("x"), "image/webp")
+    ).rejects.toThrow(NotCaptainError);
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("24. upload rejected for a disbanded team", async () => {
+    const disbanded = teamRow({ status: "disbanded", captainPlayerId: "captain-1" });
+    const { tx, updateCalls } = makeFakeTx({ teams: [[disbanded]] });
+    currentTx.current = tx;
+
+    const { uploadTeamAvatar, TeamDisbandedError } = await import("@/features/teams");
+    await expect(
+      uploadTeamAvatar("captain-1", "team-1", Buffer.from("x"), "image/webp")
+    ).rejects.toThrow(TeamDisbandedError);
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("25. replacing an existing photo produces a NEW cache-busted URL", async () => {
+    const { tx: tx1, updateCalls: updates1 } = makeFakeTx({ teams: [[teamRow({ captainPlayerId: "captain-1", avatarUrl: "https://cdn/teams/team-1/avatar.webp?v=1" })]] });
+    currentTx.current = tx1;
+    const { uploadTeamAvatar } = await import("@/features/teams");
+    await uploadTeamAvatar("captain-1", "team-1", Buffer.from("first"), "image/webp");
+    const firstUrl = String(updates1[0].values.avatarUrl);
+
+    await new Promise((resolve) => setTimeout(resolve, 2));
+
+    const { tx: tx2, updateCalls: updates2 } = makeFakeTx({ teams: [[teamRow({ captainPlayerId: "captain-1", avatarUrl: firstUrl })]] });
+    currentTx.current = tx2;
+    await uploadTeamAvatar("captain-1", "team-1", Buffer.from("second"), "image/webp");
+    const secondUrl = String(updates2[0].values.avatarUrl);
+
+    expect(secondUrl).not.toBe(firstUrl);
+  });
+
+  it("26. resetTeamAvatar (captain-only) sets avatar_url back to null, emblem untouched", async () => {
+    const { tx, updateCalls } = makeFakeTx({ teams: [[teamRow({ captainPlayerId: "captain-1", avatarUrl: "https://cdn/x.webp?v=1" })]] });
+    currentTx.current = tx;
+
+    const { resetTeamAvatar } = await import("@/features/teams");
+    await resetTeamAvatar("captain-1", "team-1");
+
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toMatchObject({ table: teams, values: { avatarUrl: null } });
+  });
+
+  it("27. resetTeamAvatar forbidden for a non-captain", async () => {
+    const { tx, updateCalls } = makeFakeTx({ teams: [[teamRow({ captainPlayerId: "captain-1" })]] });
+    currentTx.current = tx;
+
+    const { resetTeamAvatar, NotCaptainError } = await import("@/features/teams");
+    await expect(resetTeamAvatar("member-1", "team-1")).rejects.toThrow(NotCaptainError);
+    expect(updateCalls).toHaveLength(0);
   });
 });

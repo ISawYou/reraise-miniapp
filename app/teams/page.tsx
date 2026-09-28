@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { fetchAdminJson } from "@/lib/client-request";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { TEAM_EMBLEMS, DEFAULT_TEAM_EMBLEM } from "@/config/team-emblems";
-import { Avatar, RosterSlots, formatRankBadge, formatStandingLine, type PlayerSafeView } from "@/components/teams/team-ui";
+import { Avatar, RosterSlots, TeamIdentity, formatRankBadge, formatStandingLine, type PlayerSafeView } from "@/components/teams/team-ui";
 import type { Player } from "@/types/domain";
 
 type TeamRosterMember = PlayerSafeView & { is_captain: boolean; joined_at: string };
@@ -16,6 +16,7 @@ type TeamStandingRow = {
   team_id: string;
   name: string;
   emblem: string;
+  avatar_url: string | null;
   status: "active" | "disbanded";
   points: number;
   // null = not officially ranked yet (0 points in this scope) -- see
@@ -31,6 +32,7 @@ type TeamDetailView = {
   id: string;
   name: string;
   emblem: string;
+  avatar_url: string | null;
   status: "active" | "disbanded";
   disbanded_at: string | null;
   captain_player_id: string;
@@ -45,6 +47,7 @@ type PendingInvitationView = {
   team_id: string;
   team_name: string;
   team_emblem: string;
+  team_avatar_url: string | null;
   invited_by: PlayerSafeView;
   created_at: string;
 };
@@ -54,6 +57,7 @@ type OutgoingJoinRequestView = {
   team_id: string;
   team_name: string;
   team_emblem: string;
+  team_avatar_url: string | null;
   created_at: string;
 };
 
@@ -93,9 +97,7 @@ function StandingCard({ row }: { row: TeamStandingRow }) {
       className="block border-b border-white/10 px-4 py-3.5 last:border-b-0"
     >
       <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-xl">
-          {row.emblem}
-        </div>
+        <TeamIdentity team={row} className="h-11 w-11 text-xl" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-white">{row.name}</p>
           <p className="mt-0.5 text-xs text-white/50">
@@ -387,9 +389,7 @@ export default function TeamsPage() {
                     <div className="mt-3 space-y-3">
                       {myTeamState.pending_invitations.map((invite) => (
                         <div key={invite.invitation_id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-lg">
-                            {invite.team_emblem}
-                          </div>
+                          <TeamIdentity team={{ emblem: invite.team_emblem, avatar_url: invite.team_avatar_url }} className="h-10 w-10 text-lg" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-white">{invite.team_name}</p>
                             <p className="truncate text-xs text-white/50">от {invite.invited_by.display_name}</p>
@@ -422,9 +422,7 @@ export default function TeamsPage() {
                     <div className="mt-3 space-y-3">
                       {myTeamState.pending_outgoing_join_requests.map((request) => (
                         <div key={request.request_id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-lg">
-                            {request.team_emblem}
-                          </div>
+                          <TeamIdentity team={{ emblem: request.team_emblem, avatar_url: request.team_avatar_url }} className="h-10 w-10 text-lg" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-white">{request.team_name}</p>
                             <p className="text-xs text-white/50">Заявка отправлена</p>
@@ -568,9 +566,7 @@ function MyTeamCard({
     <div className="space-y-4">
       <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-3xl">
-            {team.emblem}
-          </div>
+          <TeamIdentity team={team} className="h-14 w-14 text-3xl" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-bold text-white">{team.name}</p>
             <p className="mt-0.5 text-xs text-white/50">

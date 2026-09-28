@@ -418,3 +418,37 @@ describe("Teams -- Моя команда tab, has a team", () => {
     expect(container.textContent).not.toContain("Заявки в команду");
   });
 });
+
+describe("Teams -- leaderboard card identity (photo vs emblem)", () => {
+  it("shows the team's photo instead of the emoji emblem when avatar_url is set", async () => {
+    mocks.fetchAdminJson.mockImplementation((url: string) => {
+      if (url === "/api/leaderboard/seasons") return Promise.resolve({ seasons: [] });
+      if (url.startsWith("/api/teams?"))
+        return Promise.resolve({
+          standings: [standing({ avatar_url: "https://cdn/teams/team-1/avatar.webp?v=1" })],
+        });
+      if (url === "/api/teams/me") return Promise.resolve(myTeamState());
+      return Promise.reject(new Error(`unexpected: ${url}`));
+    });
+
+    await render();
+
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toBe("https://cdn/teams/team-1/avatar.webp?v=1");
+  });
+
+  it("falls back to the emoji emblem when avatar_url is absent", async () => {
+    mocks.fetchAdminJson.mockImplementation((url: string) => {
+      if (url === "/api/leaderboard/seasons") return Promise.resolve({ seasons: [] });
+      if (url.startsWith("/api/teams?")) return Promise.resolve({ standings: [standing()] });
+      if (url === "/api/teams/me") return Promise.resolve(myTeamState());
+      return Promise.reject(new Error(`unexpected: ${url}`));
+    });
+
+    await render();
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("🦈");
+  });
+});

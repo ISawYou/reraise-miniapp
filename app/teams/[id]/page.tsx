@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { BackButton } from "@/components/ui/back-button";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import {
   Avatar,
   RosterSlots,
+  TeamIdentity,
   formatStandingLine,
   type PlayerSafeView,
 } from "@/components/teams/team-ui";
@@ -21,6 +22,7 @@ type TeamDetailView = {
   id: string;
   name: string;
   emblem: string;
+  avatar_url: string | null;
   status: "active" | "disbanded";
   disbanded_at: string | null;
   captain_player_id: string;
@@ -114,6 +116,92 @@ function InviteWidget({ teamId, onInvited }: { teamId: string; onInvited: () => 
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Captain-only photo upload/replace/reset -- Part E of the Teams v1 UI
+// polish. Talks directly to POST/DELETE /api/teams/[id]/avatar (auth is
+// resolved server-side via resolveTeamsActor(), so this never sends a
+// captain/player id itself, only the file). On success it hands the fresh
+// TeamDetailView straight back to the page's own `team` state (no full
+// reload), mirroring how player-profile avatar upload updates `player`.
+function TeamAvatarManager({
+  team,
+  onUpdated,
+}: {
+  team: { id: string; avatar_url: string | null };
+  onUpdated: (team: TeamDetailView) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      setBusy(true);
+      setError(null);
+      const formData = new FormData();
+      formData.append("file", file);
+      const data = await fetchAdminJson<{ team: TeamDetailView }>(`/api/teams/${team.id}/avatar`, {
+        method: "POST",
+        body: formData,
+      });
+      onUpdated(data.team);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось загрузить фото");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      setBusy(true);
+      setError(null);
+      const data = await fetchAdminJson<{ team: TeamDetailView }>(`/api/teams/${team.id}/avatar`, {
+        method: "DELETE",
+      });
+      onUpdated(data.team);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось удалить фото");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 flex items-center gap-2">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => fileInputRef.current?.click()}
+        className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/80 disabled:opacity-50"
+      >
+        {busy ? "Загружаем..." : team.avatar_url ? "Изменить фото" : "Загрузить фото"}
+      </button>
+      {team.avatar_url ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={handleDelete}
+          className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/60 disabled:opacity-50"
+        >
+          Удалить фото
+        </button>
+      ) : null}
+      {error ? <p className="text-xs text-red-300">{error}</p> : null}
     </div>
   );
 }
@@ -285,9 +373,7 @@ export default function TeamDetailPage() {
                 state, and the 5-slot current squad row. */}
             <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-4xl">
-                  {team.emblem}
-                </div>
+                <TeamIdentity team={team} className="h-16 w-16 text-4xl" />
                 <div className="min-w-0 flex-1">
                   <h1 className="truncate text-xl font-black uppercase tracking-wide text-white">{team.name}</h1>
                   <p className="mt-1 text-sm text-white/55">
@@ -311,6 +397,10 @@ export default function TeamDetailPage() {
                     void load();
                   }}
                 />
+              ) : null}
+
+              {isViewerCaptain && team.status === "active" ? (
+                <TeamAvatarManager team={team} onUpdated={setTeam} />
               ) : null}
 
               {requestError ? <p className="mt-3 text-xs text-red-300">{requestError}</p> : null}

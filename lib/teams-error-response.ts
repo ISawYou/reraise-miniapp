@@ -23,6 +23,7 @@ import {
   JoinRequestForbiddenError,
   AlreadyRequestedError,
   AlreadyInvitedByTeamError,
+  InvalidTeamAvatarFileError,
 } from "@/features/teams";
 
 // One shared error -> HTTP response mapper for every app/api/teams/**
@@ -55,7 +56,12 @@ export function teamsErrorResponse(error: unknown): NextResponse {
     return NextResponse.json({ error: error.message }, { status: 409 });
   }
 
-  if (error instanceof InvalidTeamNameError || error instanceof InvalidEmblemError || error instanceof NotActiveTeamMemberError) {
+  if (
+    error instanceof InvalidTeamNameError ||
+    error instanceof InvalidEmblemError ||
+    error instanceof NotActiveTeamMemberError ||
+    error instanceof InvalidTeamAvatarFileError
+  ) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 

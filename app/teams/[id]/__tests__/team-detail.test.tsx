@@ -395,3 +395,30 @@ describe("public team detail -- captain incoming join requests", () => {
     expect(container.textContent).not.toContain("Заявки в команду");
   });
 });
+
+describe("team detail hero -- identity (photo vs emblem)", () => {
+  it("shows the team's photo instead of the emoji emblem when avatar_url is set", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ team: teamDetail({ avatar_url: "https://cdn/teams/team-1/avatar.webp?v=1" }) }) }) as Response)
+    );
+
+    await render();
+
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toBe("https://cdn/teams/team-1/avatar.webp?v=1");
+  });
+
+  it("falls back to the emoji emblem when avatar_url is absent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ team: teamDetail() }) }) as Response)
+    );
+
+    await render();
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("🦈");
+  });
+});

@@ -24,6 +24,7 @@ import { logEvent } from "@/lib/activity-client";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
 import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+import { TeamIdentity } from "@/components/teams/team-ui";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { fetchTournamentVisualConfigs } from "@/lib/tournament-visuals-client";
 import {
@@ -262,9 +263,9 @@ export default function PlayerProfilePage() {
   const [showFeaturedEditor, setShowFeaturedEditor] = useState(false);
   const [featuredSaving, setFeaturedSaving] = useState(false);
   const [dealerCard, setDealerCard] = useState<PersonalDealerCardSummary | null>(null);
-  const [teamBadge, setTeamBadge] = useState<{ team_id: string; name: string; emblem: string; rank: number | null } | null>(null);
+  const [teamBadge, setTeamBadge] = useState<{ team_id: string; name: string; emblem: string; avatar_url: string | null; rank: number | null } | null>(null);
   const [teamInvites, setTeamInvites] = useState<
-    Array<{ invitation_id: string; team_id: string; team_name: string; team_emblem: string; invited_by: { display_name: string } }>
+    Array<{ invitation_id: string; team_id: string; team_name: string; team_emblem: string; team_avatar_url: string | null; invited_by: { display_name: string } }>
   >([]);
   const [teamOutgoingRequests, setTeamOutgoingRequests] = useState<
     Array<{ request_id: string; team_id: string; team_name: string; team_emblem: string }>
@@ -770,9 +771,7 @@ export default function PlayerProfilePage() {
               href={`/teams/${teamBadge.team_id}`}
               className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4"
             >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-2xl">
-                {teamBadge.emblem}
-              </span>
+              <TeamIdentity team={teamBadge} className="h-11 w-11 text-2xl" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-white">{teamBadge.name}</p>
                 <p className="mt-0.5 text-xs text-white/50">
@@ -794,9 +793,7 @@ export default function PlayerProfilePage() {
               <div className="mt-3 space-y-3">
                 {teamInvites.map((invite) => (
                   <div key={invite.invitation_id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-lg">
-                      {invite.team_emblem}
-                    </span>
+                    <TeamIdentity team={{ emblem: invite.team_emblem, avatar_url: invite.team_avatar_url }} className="h-10 w-10 text-lg" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-white">{invite.team_name}</p>
                       <p className="truncate text-xs text-white/50">от {invite.invited_by.display_name}</p>

@@ -47,6 +47,42 @@ export function Avatar({
   );
 }
 
+export type TeamIdentityLike = { emblem: string; avatar_url?: string | null };
+
+// THE one shared way to render a team's visual identity -- a captain-
+// uploaded photo (avatar_url) when present, else the emoji emblem exactly
+// as before. Every existing emblem render site (leaderboard cards, "Моя
+// команда", the team hero, the player-profile Team card, invitation/
+// join-request compact rows, the Home top-3 block) must go through this
+// component so none of them can drift out of sync with each other once a
+// team sets/clears a photo. `className` controls sizing/font-size exactly
+// like Avatar above -- callers pass the same size classes they used to put
+// on their own emblem circle.
+export function TeamIdentity({
+  team,
+  className = "h-10 w-10 text-lg",
+}: {
+  team: TeamIdentityLike;
+  className?: string;
+}) {
+  if (team.avatar_url) {
+    return (
+      <img
+        src={team.avatar_url}
+        alt=""
+        className={`${className} shrink-0 rounded-full border border-white/10 object-cover`}
+      />
+    );
+  }
+  return (
+    <div
+      className={`${className} flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06]`}
+    >
+      {team.emblem}
+    </div>
+  );
+}
+
 // A team only ever consumes an OFFICIAL ranking position once it has > 0
 // points in the selected scope (see features/teams.ts::getTeamLeaderboard)
 // -- these two helpers are the ONE place that turns `rank`/`points`/status
