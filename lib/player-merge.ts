@@ -19,6 +19,7 @@ import {
   teamInvitations,
 } from "@/lib/db/schema";
 import { syncPlayerAchievements } from "@/features/achievements";
+import { intervalsOverlap } from "@/lib/team-scoring";
 import { playerMergeIntentRepository } from "@/lib/repositories";
 import type { PlayerMergeIntentRow } from "@/lib/repositories";
 
@@ -358,28 +359,52 @@ export async function executeMerge(params: {
       }
 
       // Teams v1 conflict check -- run BEFORE any row is touched, same
-      // position as the dealer-shift check above. If BOTH accounts
-      // currently hold an active team_memberships row (whether the SAME
-      // team or different teams), blindly reassigning source's row onto
-      // target's id would give target two simultaneous active memberships,
-      // violating team_memberships_one_active_per_player_idx -- and even
-      // where that wouldn't literally violate the constraint (it always
-      // would, since "both active" means two distinct rows), there is no
-      // single correct choice of which team the merged human should end up
-      // on. Fail closed with an explicit blocker rather than silently
-      // picking one; an admin/the two players resolve this out-of-band
-      // (one of them leaves their team) and merge can be retried after.
-      const activeTeamMembershipRows = await tx
-        .select({ playerId: teamMemberships.playerId })
+      // position as the dealer-shift check above. Reassigning source's
+      // team_memberships rows onto target's id is only safe if the two
+      // players' FULL histories (not just their current active row) never
+      // overlap in time -- an active-only check is necessary but NOT
+      // sufficient: two already-closed intervals from different (or even
+      // the same) teams can still overlap, and if they did, the canonical
+      // player would appear to have belonged to two teams at once, which
+      // lib/team-scoring.ts's temporal attribution correctly treats as
+      // corrupted/ambiguous data (AmbiguousTeamMembershipError) rather than
+      // silently picking one. So this loads EVERY membership row either
+      // player ever had (not filtered by left_at) and checks every
+      // source-interval/target-interval pair with the exact same
+      // half-open-interval overlap rule scoring uses
+      // (lib/team-scoring.ts::intervalsOverlap) -- including two intervals
+      // on the very same team, which is deliberately NOT auto-collapsed in
+      // v1 (membership history is the scoring/audit source of truth; a
+      // merge must never silently rewrite it). Fails closed with a
+      // categorical reason rather than choosing a team, truncating
+      // history, or moving points -- an admin/the two players resolve this
+      // out-of-band and merge can be retried after.
+      const allTeamMembershipRows = await tx
+        .select({
+          id: teamMemberships.id,
+          teamId: teamMemberships.teamId,
+          playerId: teamMemberships.playerId,
+          joinedAt: teamMemberships.joinedAt,
+          leftAt: teamMemberships.leftAt,
+        })
         .from(teamMemberships)
-        .where(and(inArray(teamMemberships.playerId, [targetId, sourceId]), isNull(teamMemberships.leftAt)));
+        .where(inArray(teamMemberships.playerId, [targetId, sourceId]));
 
-      const targetHasActiveTeam = activeTeamMembershipRows.some((row) => row.playerId === targetId);
-      const sourceHasActiveTeam = activeTeamMembershipRows.some((row) => row.playerId === sourceId);
+      const targetMembershipIntervals = allTeamMembershipRows.filter((row) => row.playerId === targetId);
+      const sourceMembershipIntervals = allTeamMembershipRows.filter((row) => row.playerId === sourceId);
 
-      if (targetHasActiveTeam && sourceHasActiveTeam) {
+      const hasHistoricalOverlap = targetMembershipIntervals.some((targetInterval) =>
+        sourceMembershipIntervals.some((sourceInterval) =>
+          intervalsOverlap(
+            { joined_at: targetInterval.joinedAt.toISOString(), left_at: targetInterval.leftAt?.toISOString() ?? null },
+            { joined_at: sourceInterval.joinedAt.toISOString(), left_at: sourceInterval.leftAt?.toISOString() ?? null }
+          )
+        )
+      );
+
+      if (hasHistoricalOverlap) {
         const reason =
-          "Оба аккаунта состоят в активных командах — объединение невозможно, сначала покиньте одну из команд";
+          "team_membership_history_conflict: пересекающаяся история командного участия — объединение невозможно, требуется ручное разрешение конфликта";
         await tx
           .update(playerMergeIntents)
           .set({ status: "conflict", conflictReason: reason, resolvedAt: new Date() })

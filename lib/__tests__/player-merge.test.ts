@@ -607,14 +607,33 @@ describe("executeMerge -- Teams v1 compatibility", () => {
     };
   }
 
+  // A raw team_memberships row as the historical-overlap check reads it --
+  // joinedAt/leftAt are real Date objects (the check calls .toISOString()
+  // on them), matching Drizzle's own row shape.
+  function rawMembership(overrides: {
+    playerId: string;
+    teamId?: string;
+    id?: string;
+    joinedAt: string;
+    leftAt: string | null;
+  }) {
+    return {
+      id: overrides.id ?? `m-${overrides.playerId}-${overrides.joinedAt}`,
+      teamId: overrides.teamId ?? "team-x",
+      playerId: overrides.playerId,
+      joinedAt: new Date(overrides.joinedAt),
+      leftAt: overrides.leftAt ? new Date(overrides.leftAt) : null,
+    };
+  }
+
   // Mirrors happyPathSelects/selectsWithDealerState's shared prefix (no
   // open dealer shifts, no dealer profiles -- Teams compatibility is
   // orthogonal to the dealer check, which always runs first), with the two
-  // Teams-specific slots parameterized: the active-team-membership conflict
-  // check, and (only when there's something to move) the pending-invitation
-  // collision lookup.
+  // Teams-specific slots parameterized: the FULL (not just active)
+  // membership-history overlap check, and (only when there's something to
+  // move) the pending-invitation collision lookup.
   function selectsWithTeamState(params: {
-    activeTeamMembershipRows?: unknown[];
+    allTeamMembershipRows?: unknown[];
     sourcePendingInvitationRows?: unknown[];
     targetPendingTeamIdRows?: unknown[];
   }) {
@@ -628,7 +647,7 @@ describe("executeMerge -- Teams v1 compatibility", () => {
       ...NO_OVERLAP_TABLES,
       [], // no open dealer shifts
       [], // no dealer profiles
-      params.activeTeamMembershipRows ?? [],
+      params.allTeamMembershipRows ?? [],
     ];
     const pending = params.sourcePendingInvitationRows ?? [];
     if (pending.length > 0) {
@@ -637,7 +656,7 @@ describe("executeMerge -- Teams v1 compatibility", () => {
     return [...base, pending];
   }
 
-  it("18. neither side has an active team: merge proceeds, and team_memberships/team_invitations/teams ownership moves unconditionally (a no-op update if source held nothing)", async () => {
+  it("18. neither side has ANY team membership history: merge proceeds, and team_memberships/team_invitations/teams ownership moves unconditionally (a no-op update if source held nothing)", async () => {
     const { executor, updateCalls } = makeFakeExecutor(selectsWithTeamState({}));
     mockTxTarget.current = executor;
 
@@ -650,54 +669,187 @@ describe("executeMerge -- Teams v1 compatibility", () => {
     expect(updateCalls.some((c) => c.table === teamInvitations && c.values.invitedByPlayerId === TARGET_ID)).toBe(true);
   });
 
-  it("19. BOTH accounts have an active team membership -- fails closed with an explicit merge blocker, no row is mutated beyond the intent's own status flip", async () => {
-    const { executor, updateCalls, deleteCalls } = makeFakeExecutor(
-      selectsWithTeamState({
-        activeTeamMembershipRows: [{ playerId: TARGET_ID }, { playerId: SOURCE_ID }],
-      })
-    );
-    mockTxTarget.current = executor;
+  describe("historical membership-history overlap -- fails closed, never chooses/truncates/merges", () => {
+    it("1. both currently active (different teams): blocked -- open intervals always overlap from the later join date onward", async () => {
+      const { executor, updateCalls, deleteCalls } = makeFakeExecutor(
+        selectsWithTeamState({
+          allTeamMembershipRows: [
+            rawMembership({ playerId: TARGET_ID, teamId: "team-a", joinedAt: "2026-01-01T00:00:00.000Z", leftAt: null }),
+            rawMembership({ playerId: SOURCE_ID, teamId: "team-b", joinedAt: "2026-02-01T00:00:00.000Z", leftAt: null }),
+          ],
+        })
+      );
+      mockTxTarget.current = executor;
 
-    const { executeMerge } = await import("@/lib/player-merge");
-    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+      const { executeMerge } = await import("@/lib/player-merge");
+      const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
 
-    expect(result.merged).toBe(false);
-    if (!result.merged) {
-      expect(result.conflict).toBe(true);
-      expect(result.reason).toContain("активных командах");
-    }
-    // Fails BEFORE any history-move update -- only the intent's own
-    // conflict status flip happened, same discipline as the dealer-shift
-    // conflict check right above it in executeMerge.
-    expect(updateCalls.length).toBe(1);
-    expect(updateCalls[0].values.status).toBe("conflict");
-    expect(deleteCalls.length).toBe(0);
-  });
+      expect(result.merged).toBe(false);
+      if (!result.merged) {
+        expect(result.conflict).toBe(true);
+        expect(result.reason).toContain("team_membership_history_conflict");
+      }
+      // Fails BEFORE any history-move update -- only the intent's own
+      // conflict status flip happened, same discipline as the dealer-shift
+      // conflict check right above it in executeMerge.
+      expect(updateCalls.length).toBe(1);
+      expect(updateCalls[0].values.status).toBe("conflict");
+      expect(deleteCalls.length).toBe(0);
+    });
 
-  it("18. only SOURCE has an active team: merge proceeds -- source's membership/captaincy become target's", async () => {
-    const { executor, updateCalls } = makeFakeExecutor(
-      selectsWithTeamState({ activeTeamMembershipRows: [{ playerId: SOURCE_ID }] })
-    );
-    mockTxTarget.current = executor;
+    it("2. historical (both closed) overlap, DIFFERENT teams: blocked -- exact spec example (target Team A Jan1-Mar1, source Team B Feb1-Apr1)", async () => {
+      const { executor, updateCalls } = makeFakeExecutor(
+        selectsWithTeamState({
+          allTeamMembershipRows: [
+            rawMembership({ playerId: TARGET_ID, teamId: "team-a", joinedAt: "2026-01-01T00:00:00.000Z", leftAt: "2026-03-01T00:00:00.000Z" }),
+            rawMembership({ playerId: SOURCE_ID, teamId: "team-b", joinedAt: "2026-02-01T00:00:00.000Z", leftAt: "2026-04-01T00:00:00.000Z" }),
+          ],
+        })
+      );
+      mockTxTarget.current = executor;
 
-    const { executeMerge } = await import("@/lib/player-merge");
-    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+      const { executeMerge } = await import("@/lib/player-merge");
+      const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
 
-    expect(result).toEqual({ merged: true });
-    expect(updateCalls.some((c) => c.table === teamMemberships && c.values.playerId === TARGET_ID)).toBe(true);
-    expect(updateCalls.some((c) => c.table === teams && c.values.captainPlayerId === TARGET_ID)).toBe(true);
-  });
+      expect(result.merged).toBe(false);
+      if (!result.merged) expect(result.reason).toContain("team_membership_history_conflict");
+      expect(updateCalls.length).toBe(1);
+    });
 
-  it("only TARGET has an active team: merge proceeds normally -- one active side is not a conflict", async () => {
-    const { executor } = makeFakeExecutor(
-      selectsWithTeamState({ activeTeamMembershipRows: [{ playerId: TARGET_ID }] })
-    );
-    mockTxTarget.current = executor;
+    it("3. historical overlap on the SAME team: also blocked -- never auto-collapsed, membership history is the scoring/audit source of truth", async () => {
+      const { executor, updateCalls } = makeFakeExecutor(
+        selectsWithTeamState({
+          allTeamMembershipRows: [
+            rawMembership({ playerId: TARGET_ID, teamId: "team-x", joinedAt: "2026-01-01T00:00:00.000Z", leftAt: "2026-03-01T00:00:00.000Z" }),
+            rawMembership({ playerId: SOURCE_ID, teamId: "team-x", joinedAt: "2026-02-01T00:00:00.000Z", leftAt: "2026-04-01T00:00:00.000Z" }),
+          ],
+        })
+      );
+      mockTxTarget.current = executor;
 
-    const { executeMerge } = await import("@/lib/player-merge");
-    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+      const { executeMerge } = await import("@/lib/player-merge");
+      const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
 
-    expect(result).toEqual({ merged: true });
+      expect(result.merged).toBe(false);
+      if (!result.merged) expect(result.reason).toContain("team_membership_history_conflict");
+      expect(updateCalls.length).toBe(1);
+    });
+
+    it("4. source interval entirely INSIDE target's interval: blocked", async () => {
+      const { executor, updateCalls } = makeFakeExecutor(
+        selectsWithTeamState({
+          allTeamMembershipRows: [
+            rawMembership({ playerId: TARGET_ID, teamId: "team-a", joinedAt: "2026-01-01T00:00:00.000Z", leftAt: "2026-06-01T00:00:00.000Z" }),
+            rawMembership({ playerId: SOURCE_ID, teamId: "team-b", joinedAt: "2026-02-01T00:00:00.000Z", leftAt: "2026-03-01T00:00:00.000Z" }),
+          ],
+        })
+      );
+      mockTxTarget.current = executor;
+
+      const { executeMerge } = await import("@/lib/player-merge");
+      const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+      expect(result.merged).toBe(false);
+      expect(updateCalls.length).toBe(1);
+    });
+
+    it("5. one side still open (active), the other closed and historical: an open interval overlapping a past closed one is still blocked", async () => {
+      const { executor, updateCalls } = makeFakeExecutor(
+        selectsWithTeamState({
+          allTeamMembershipRows: [
+            // Target has been on Team A since Jan 1 and is STILL active.
+            rawMembership({ playerId: TARGET_ID, teamId: "team-a", joinedAt: "2026-01-01T00:00:00.000Z", leftAt: null }),
+            // Source's Team B membership already ended, but it falls
+            // entirely inside target's still-open interval.
+            rawMembership({ playerId: SOURCE_ID, teamId: "team-b", joinedAt: "2026-02-01T00:00:00.000Z", leftAt: "2026-03-01T00:00:00.000Z" }),
+          ],
+        })
+      );
+      mockTxTarget.current = executor;
+
+      const { executeMerge } = await import("@/lib/player-merge");
+      const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+      expect(result.merged).toBe(false);
+      expect(updateCalls.length).toBe(1);
+    });
+
+    it("6. non-overlapping historical intervals: merge succeeds", async () => {
+      const { executor, updateCalls } = makeFakeExecutor(
+        selectsWithTeamState({
+          allTeamMembershipRows: [
+            rawMembership({ playerId: TARGET_ID, teamId: "team-a", joinedAt: "2026-01-01T00:00:00.000Z", leftAt: "2026-02-01T00:00:00.000Z" }),
+            rawMembership({ playerId: SOURCE_ID, teamId: "team-b", joinedAt: "2026-03-01T00:00:00.000Z", leftAt: "2026-04-01T00:00:00.000Z" }),
+          ],
+        })
+      );
+      mockTxTarget.current = executor;
+
+      const { executeMerge } = await import("@/lib/player-merge");
+      const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+      expect(result).toEqual({ merged: true });
+      expect(updateCalls.some((c) => c.table === teamMemberships && c.values.playerId === TARGET_ID)).toBe(true);
+    });
+
+    it("7. boundary-touching intervals (target leaves exactly when source joins): merge succeeds -- [joined, left) is half-open", async () => {
+      const { executor, updateCalls } = makeFakeExecutor(
+        selectsWithTeamState({
+          allTeamMembershipRows: [
+            rawMembership({ playerId: TARGET_ID, teamId: "team-a", joinedAt: "2026-01-01T00:00:00.000Z", leftAt: "2026-01-20T00:00:00.000Z" }),
+            rawMembership({ playerId: SOURCE_ID, teamId: "team-b", joinedAt: "2026-01-20T00:00:00.000Z", leftAt: "2026-02-01T00:00:00.000Z" }),
+          ],
+        })
+      );
+      mockTxTarget.current = executor;
+
+      const { executeMerge } = await import("@/lib/player-merge");
+      const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+      expect(result).toEqual({ merged: true });
+      expect(updateCalls.some((c) => c.table === teamMemberships && c.values.playerId === TARGET_ID)).toBe(true);
+    });
+
+    it("8. after a successful (non-overlapping) merge, feeding the reassigned intervals into team-scoring never sees two matches for the same tournament start time", async () => {
+      // Simulates exactly what executeMerge's own reassignment does on
+      // success: every membership row's player_id becomes targetId. Feeds
+      // that post-reassignment state into the REAL
+      // lib/team-scoring.ts::attributeResultsToTeams to prove the
+      // composition never produces AmbiguousTeamMembershipError for a case
+      // this merge is willing to approve.
+      const targetInterval = rawMembership({ playerId: TARGET_ID, teamId: "team-a", joinedAt: "2026-01-01T00:00:00.000Z", leftAt: "2026-02-01T00:00:00.000Z" });
+      const sourceInterval = rawMembership({ playerId: SOURCE_ID, teamId: "team-b", joinedAt: "2026-03-01T00:00:00.000Z", leftAt: "2026-04-01T00:00:00.000Z" });
+
+      const { executor } = makeFakeExecutor(
+        selectsWithTeamState({ allTeamMembershipRows: [targetInterval, sourceInterval] })
+      );
+      mockTxTarget.current = executor;
+
+      const { executeMerge } = await import("@/lib/player-merge");
+      const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+      expect(result).toEqual({ merged: true });
+
+      const { attributeResultsToTeams } = await import("@/lib/team-scoring");
+      const postMergeIntervals = [targetInterval, sourceInterval].map((row) => ({
+        id: row.id,
+        team_id: row.teamId,
+        player_id: TARGET_ID, // both rows now belong to the canonical player
+        joined_at: row.joinedAt.toISOString(),
+        left_at: row.leftAt ? row.leftAt.toISOString() : null,
+      }));
+
+      const attributedToA = attributeResultsToTeams(
+        [{ tournament_id: "t1", player_id: TARGET_ID, rating_points: 100, season_id: "s1", tournament_start_at: "2026-01-15T00:00:00.000Z" }],
+        postMergeIntervals
+      );
+      expect(attributedToA).toEqual([{ tournament_id: "t1", player_id: TARGET_ID, team_id: "team-a", rating_points: 100 }]);
+
+      const attributedToB = attributeResultsToTeams(
+        [{ tournament_id: "t2", player_id: TARGET_ID, rating_points: 50, season_id: "s1", tournament_start_at: "2026-03-15T00:00:00.000Z" }],
+        postMergeIntervals
+      );
+      expect(attributedToB).toEqual([{ tournament_id: "t2", player_id: TARGET_ID, team_id: "team-b", rating_points: 50 }]);
+    });
   });
 
   it("pending-invitation collision: both sides had a pending invite from the SAME team -- source's is CANCELLED, never reassigned onto a second pending row for target", async () => {

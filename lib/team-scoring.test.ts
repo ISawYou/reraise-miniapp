@@ -6,6 +6,7 @@ import {
   filterResultsForScope,
   rankByPointsDescending,
   findActiveMembershipAt,
+  intervalsOverlap,
   AmbiguousTeamMembershipError,
   type TeamScoringResultInput,
   type TeamMembershipInterval,
@@ -245,5 +246,67 @@ describe("competition ranking -- 1, 1, 3, never an invented tiebreak", () => {
       { name: "B", points: 0 },
     ]);
     expect(ranked.find((r) => r.name === "B")?.rank).toBe(2);
+  });
+});
+
+describe("intervalsOverlap -- the canonical interval-overlap rule (account-merge historical-overlap check reuses this exact function)", () => {
+  it("two currently-open (active) intervals always overlap, regardless of join order", () => {
+    expect(
+      intervalsOverlap(
+        { joined_at: "2026-01-01T00:00:00.000Z", left_at: null },
+        { joined_at: "2026-02-01T00:00:00.000Z", left_at: null }
+      )
+    ).toBe(true);
+  });
+
+  it("two historical (closed) intervals from different teams that overlap in time", () => {
+    expect(
+      intervalsOverlap(
+        { joined_at: "2026-01-01T00:00:00.000Z", left_at: "2026-03-01T00:00:00.000Z" },
+        { joined_at: "2026-02-01T00:00:00.000Z", left_at: "2026-04-01T00:00:00.000Z" }
+      )
+    ).toBe(true);
+  });
+
+  it("one interval entirely inside the other overlaps", () => {
+    expect(
+      intervalsOverlap(
+        { joined_at: "2026-01-01T00:00:00.000Z", left_at: "2026-06-01T00:00:00.000Z" },
+        { joined_at: "2026-02-01T00:00:00.000Z", left_at: "2026-03-01T00:00:00.000Z" }
+      )
+    ).toBe(true);
+  });
+
+  it("an open interval overlapping a historical one entirely inside it", () => {
+    expect(
+      intervalsOverlap(
+        { joined_at: "2026-01-01T00:00:00.000Z", left_at: null },
+        { joined_at: "2026-02-01T00:00:00.000Z", left_at: "2026-03-01T00:00:00.000Z" }
+      )
+    ).toBe(true);
+  });
+
+  it("non-overlapping historical intervals do not overlap", () => {
+    expect(
+      intervalsOverlap(
+        { joined_at: "2026-01-01T00:00:00.000Z", left_at: "2026-02-01T00:00:00.000Z" },
+        { joined_at: "2026-03-01T00:00:00.000Z", left_at: "2026-04-01T00:00:00.000Z" }
+      )
+    ).toBe(false);
+  });
+
+  it("boundary-touching intervals (one's left_at equals the other's joined_at) do NOT overlap -- half-open [joined, left)", () => {
+    expect(
+      intervalsOverlap(
+        { joined_at: "2026-01-01T00:00:00.000Z", left_at: "2026-01-20T00:00:00.000Z" },
+        { joined_at: "2026-01-20T00:00:00.000Z", left_at: "2026-02-01T00:00:00.000Z" }
+      )
+    ).toBe(false);
+  });
+
+  it("is symmetric -- argument order never changes the result", () => {
+    const a = { joined_at: "2026-01-01T00:00:00.000Z", left_at: "2026-03-01T00:00:00.000Z" };
+    const b = { joined_at: "2026-02-01T00:00:00.000Z", left_at: null };
+    expect(intervalsOverlap(a, b)).toBe(intervalsOverlap(b, a));
   });
 });

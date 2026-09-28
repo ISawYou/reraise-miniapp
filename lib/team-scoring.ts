@@ -74,6 +74,27 @@ function toEpochMs(iso: string): number {
   return ms;
 }
 
+// Two membership intervals [joined_at, left_at) overlap iff there exists
+// any instant contained in both -- NULL left_at means "still open"
+// (infinity). Standard half-open-interval overlap test:
+// a.joined < (b.left ?? +Inf) AND b.joined < (a.left ?? +Inf). This is the
+// ONE canonical interval-overlap definition -- lib/player-merge.ts's
+// account-merge historical-overlap check uses this exact function, so
+// "overlap" can never mean something subtly different there than it does
+// for scoring's own point-containment rule above (findActiveMembershipAt
+// is the degenerate case of this: a point is a zero-width instant, and
+// "contains X" is equivalent to "overlaps [X, X]").
+export function intervalsOverlap(
+  a: Pick<TeamMembershipInterval, "joined_at" | "left_at">,
+  b: Pick<TeamMembershipInterval, "joined_at" | "left_at">
+): boolean {
+  const aStart = toEpochMs(a.joined_at);
+  const bStart = toEpochMs(b.joined_at);
+  const aEnd = a.left_at === null ? Infinity : toEpochMs(a.left_at);
+  const bEnd = b.left_at === null ? Infinity : toEpochMs(b.left_at);
+  return aStart < bEnd && bStart < aEnd;
+}
+
 // The one membership interval (if any) that was active for `playerId` at
 // `tournamentStartAtIso`. Exported on its own (not just inlined in
 // attributeResultsToTeams) so both the bulk scoring path AND any future
