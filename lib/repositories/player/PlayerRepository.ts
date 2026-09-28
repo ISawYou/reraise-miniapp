@@ -62,6 +62,11 @@ export interface PlayerRepository {
   // row is found — mirrors approveNickname's specific `.single()` fetch
   // (not `.maybeSingle()`), used only there today.
   findByIdOrThrow(playerId: string): Promise<Player>;
+  // Bulk player hydration by id, full Player shape -- Teams v1 (roster/
+  // contribution rows) is today's one caller; other N+1-prone spots keep
+  // using findSummariesByIds's narrower shape unchanged. Empty input ->
+  // empty output, no query.
+  findByIds(playerIds: string[]): Promise<Player[]>;
   findByTelegramId(telegramId: number): Promise<Player | null>;
   findByEmail(email: string): Promise<Player | null>;
 

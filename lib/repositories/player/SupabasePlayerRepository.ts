@@ -73,6 +73,20 @@ export class SupabasePlayerRepository implements PlayerRepository {
     return mapPlayerRowToDomain(data as PlayerRow);
   }
 
+  async findByIds(playerIds: string[]): Promise<Player[]> {
+    if (playerIds.length === 0) {
+      return [];
+    }
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase.from("players").select("*").in("id", playerIds);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return ((data ?? []) as PlayerRow[]).map(mapPlayerRowToDomain);
+  }
+
   async findByIdOrThrow(playerId: string): Promise<Player> {
     const supabase = getSupabaseServer();
     const { data, error } = await supabase

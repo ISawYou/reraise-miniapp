@@ -44,6 +44,14 @@ import type { ClubActivityEvent } from "@/types/club-activity";
 import type { RankMovement } from "@/features/leaderboard";
 import { Podium } from "@/components/leaderboard/podium";
 
+type HomeTeamStandingRow = {
+  team_id: string;
+  name: string;
+  emblem: string;
+  points: number;
+  rank: number;
+};
+
 type LeaderboardRow = {
   player_id: string;
   username: string | null;
@@ -218,6 +226,7 @@ export default function HomePage() {
   const [tournamentVisuals, setTournamentVisuals] = useState<Record<string, TournamentVisualConfig>>({});
   const [seasonTitle, setSeasonTitle] = useState("Активный сезон");
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
+  const [topTeams, setTopTeams] = useState<HomeTeamStandingRow[] | null>(null);
   const [outOfCompetitionRows, setOutOfCompetitionRows] = useState<LeaderboardRow[]>([]);
   const [homeDataLoading, setHomeDataLoading] = useState(true);
   const [homeActivity, setHomeActivity] = useState<ClubActivityEvent[]>([]);
@@ -388,7 +397,7 @@ export default function HomePage() {
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts, achievementRows, ratingData, activityData, featuredData, visualsData, tournamentVisualsData, dealerMe] = await Promise.all([
+    const [registrations, tournaments, counts, achievementRows, ratingData, topTeamsData, activityData, featuredData, visualsData, tournamentVisualsData, dealerMe] = await Promise.all([
       getPlayerRegistrations(currentPlayer.id),
       getVisibleOpenTournamentsForPlayer(currentPlayer),
       getTournamentRegistrationCounts(),
@@ -421,6 +430,12 @@ export default function HomePage() {
           };
         }
       })(),
+      // Home "Командный рейтинг" TOP-3 -- current season only, never
+      // fatal (a failed fetch just means the block renders its empty
+      // state, same non-blocking treatment as the leaderboard fetch above).
+      fetch("/api/teams?scope=current")
+        .then((response) => (response.ok ? response.json() : { standings: [] }))
+        .catch(() => ({ standings: [] as HomeTeamStandingRow[] })),
       fetch("/api/club-activity?limit=3")
         .then(async (response) => response.ok ? response.json() : { events: [] })
         .catch(() => ({ events: [] })),
@@ -476,6 +491,7 @@ export default function HomePage() {
     setSeasonTitle(ratingData.seasonTitle);
     setLeaderboardRows(ratingData.leaderboard);
     setOutOfCompetitionRows(ratingData.outOfCompetition);
+    setTopTeams(((topTeamsData?.standings ?? []) as HomeTeamStandingRow[]).slice(0, 3));
     setIsDealer(Boolean(dealerMe?.dealer));
     setHomeActivity((activityData.events ?? []) as ClubActivityEvent[]);
     setCompletedAchievementsCount(
@@ -1608,6 +1624,43 @@ export default function HomePage() {
                   </p>
                 ) : null}
               </div>
+            </section>
+
+            <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-xl font-bold text-white">Командный рейтинг</h2>
+                <Link href="/teams" className="shrink-0 text-sm font-medium text-[#d7b55a]">
+                  Все команды →
+                </Link>
+              </div>
+
+              {homeDataLoading ? (
+                <div className="mt-3 text-sm text-white/40 animate-pulse">Загружаем...</div>
+              ) : topTeams && topTeams.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {topTeams.map((team) => (
+                    <Link
+                      key={team.team_id}
+                      href={`/teams/${team.team_id}`}
+                      className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2.5"
+                    >
+                      <span className="w-5 shrink-0 text-center text-sm font-bold text-white/55">{team.rank}</span>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-lg">
+                        {team.emblem}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{team.name}</span>
+                      <span className="shrink-0 text-sm font-bold text-[#d7b55a]">{team.points}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-2xl border border-white/5 bg-white/[0.03] p-4 text-center">
+                  <p className="text-sm text-white/55">Пока ни одна команда не набрала очков</p>
+                  <Link href="/teams" className="mt-2 inline-block text-sm font-medium text-[#d7b55a]">
+                    Создать команду →
+                  </Link>
+                </div>
+              )}
             </section>
 
             {homeActivity.length > 0 ? (

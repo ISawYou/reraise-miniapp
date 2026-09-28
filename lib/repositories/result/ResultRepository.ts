@@ -127,6 +127,22 @@ export type ResultAttendanceRow = {
   free_reentries: number | null;
 };
 
+// Teams v1 (lib/team-scoring.ts) -- every result row's frozen
+// rating_points, its own season_id, and its tournament's start_at. This is
+// the ONE bulk read the team-scoring temporal attribution needs: no rating
+// recomputation, no per-tournament fan-out, just the already-persisted
+// facts plus the one extra timestamp (tournament.start_at) results itself
+// doesn't carry. Not season-filtered -- callers slice by season_id
+// in-memory (current season / archive season / all-time all read from this
+// exact same bulk set, never a second query shape).
+export type TeamScoringResultRow = {
+  tournament_id: string;
+  player_id: string;
+  rating_points: number;
+  season_id: string | null;
+  tournament_start_at: string;
+};
+
 export type SeasonRecapResultRow = {
   tournament_id: string;
   tournament_title: string;
@@ -221,6 +237,7 @@ export interface ResultRepository {
   // for season records.
   findSeasonRecapRows(seasonId: string): Promise<SeasonRecapResultRow[]>;
   findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]>;
+  findAllForTeamScoring(): Promise<TeamScoringResultRow[]>;
 
   deleteByTournamentId(tournamentId: string): Promise<void>;
   deleteByPlayerId(playerId: string): Promise<void>;

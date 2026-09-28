@@ -262,6 +262,7 @@ export default function PlayerProfilePage() {
   const [showFeaturedEditor, setShowFeaturedEditor] = useState(false);
   const [featuredSaving, setFeaturedSaving] = useState(false);
   const [dealerCard, setDealerCard] = useState<PersonalDealerCardSummary | null>(null);
+  const [teamBadge, setTeamBadge] = useState<{ team_id: string; name: string; emblem: string; rank: number | null } | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -294,6 +295,7 @@ export default function PlayerProfilePage() {
           featuredData,
           tournamentVisualsData,
           dealerSummary,
+          teamBadgeData,
         ] = await Promise.all([
           isOwnProfileLoad ? Promise.resolve(ensuredViewer) : getPlayerById(playerId),
           fetch(`/api/players/${playerId}/rating-summary`).then((r) => r.json()) as Promise<PlayerRatingSummary>,
@@ -308,6 +310,13 @@ export default function PlayerProfilePage() {
           isOwnProfileLoad
             ? fetchAdminJson<PersonalDealerCardSummary>("/api/dealer/me").catch(() => null)
             : Promise.resolve(null),
+          // Team card -- public for BOTH own and someone else's profile
+          // (see the Teams v1 product spec's PROFILE_UI section), so this
+          // is a plain unauthenticated fetch, never dealerSummary's
+          // "own-profile-only" gating.
+          fetch(`/api/teams/by-player/${playerId}`)
+            .then((r) => (r.ok ? r.json() : { team: null }))
+            .catch(() => ({ team: null })),
         ]);
 
         if (!playerData) {
@@ -343,6 +352,7 @@ export default function PlayerProfilePage() {
         setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
         setFeaturedKeys(featuredData.keys ?? []);
         setDealerCard(dealerSummary?.dealer ? dealerSummary : null);
+        setTeamBadge(teamBadgeData.team);
         logEvent("profile_opened", { metadata: { target_player_id: playerId } });
       } catch (err) {
         setError(
@@ -699,6 +709,32 @@ export default function PlayerProfilePage() {
               </div>
             </div>
           </Link>
+
+          {teamBadge ? (
+            <Link
+              href={`/teams/${teamBadge.team_id}`}
+              className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4"
+            >
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-2xl">
+                {teamBadge.emblem}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">{teamBadge.name}</p>
+                <p className="mt-0.5 text-xs text-white/50">
+                  {teamBadge.rank != null ? `#${teamBadge.rank} в командном рейтинге` : "Командный рейтинг"}
+                </p>
+              </div>
+              <ArrowRightIcon />
+            </Link>
+          ) : isOwnProfile ? (
+            <Link
+              href="/teams"
+              className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/55"
+            >
+              <span>Нет команды · Создать</span>
+              <ArrowRightIcon />
+            </Link>
+          ) : null}
 
           {isOwnProfile && dealerCard?.dealer ? (
             <Link

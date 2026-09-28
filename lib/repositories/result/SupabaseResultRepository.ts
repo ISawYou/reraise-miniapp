@@ -13,6 +13,7 @@ import type {
   ResultAttendanceRow,
   ResultHistoryRow,
   SeasonRecapResultRow,
+  TeamScoringResultRow,
 } from "./ResultRepository";
 
 function flattenEmbedded<T>(value: T | T[] | null | undefined): T | null {
@@ -390,6 +391,47 @@ export class SupabaseResultRepository implements ResultRepository {
         display_name: player?.display_name ?? "Игрок",
         telegram_avatar_url: player?.telegram_avatar_url ?? null,
         custom_avatar_url: player?.custom_avatar_url ?? null,
+      };
+    });
+  }
+
+  // Teams v1 -- see TeamScoringResultRow's doc comment. Compile-completeness
+  // implementation for the legacy Supabase path (CLAUDE.md: not a live
+  // production target) -- same shape as PostgresResultRepository's, a
+  // plain inner join via the embedded `tournament:` select already used
+  // elsewhere in this file (see findByTournamentIdWithPlayer below).
+  async findAllForTeamScoring(): Promise<TeamScoringResultRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase.from("results").select(
+      `
+        tournament_id,
+        player_id,
+        rating_points,
+        season_id,
+        tournament:tournaments!inner ( start_at )
+      `
+    );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    type TeamScoringJoinRow = {
+      tournament_id: string;
+      player_id: string;
+      rating_points: number | null;
+      season_id: string | null;
+      tournament: { start_at: string } | { start_at: string }[] | null;
+    };
+
+    return (data ?? []).map((row: TeamScoringJoinRow) => {
+      const tournament = flattenEmbedded(row.tournament);
+      return {
+        tournament_id: row.tournament_id,
+        player_id: row.player_id,
+        rating_points: row.rating_points ?? 0,
+        season_id: row.season_id,
+        tournament_start_at: tournament?.start_at ?? "",
       };
     });
   }

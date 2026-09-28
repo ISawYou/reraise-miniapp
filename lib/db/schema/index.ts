@@ -19,3 +19,4 @@ export * from "./dealers";
 export * from "./adminShifts";
 export * from "./seasonRatingExclusions";
 export * from "./playerMergeIntents";
+export * from "./teams";

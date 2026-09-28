@@ -109,6 +109,14 @@ export class PostgresPlayerRepository implements PlayerRepository {
     return row ? mapRowToPlayer(row) : null;
   }
 
+  async findByIds(playerIds: string[]): Promise<Player[]> {
+    if (playerIds.length === 0) {
+      return [];
+    }
+    const rows = await db.select().from(players).where(inArray(players.id, playerIds));
+    return rows.map(mapRowToPlayer);
+  }
+
   async findByIdOrThrow(playerId: string): Promise<Player> {
     const rows = await db.select().from(players).where(eq(players.id, playerId)).limit(1);
     const [row] = rows;

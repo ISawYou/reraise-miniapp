@@ -14,6 +14,7 @@ import type {
   ResultAttendanceRow,
   ResultHistoryRow,
   SeasonRecapResultRow,
+  TeamScoringResultRow,
 } from "./ResultRepository";
 
 function errorMessage(err: unknown): string {
@@ -323,6 +324,32 @@ export class PostgresResultRepository implements ResultRepository {
           }
         : null,
     })) as ResultHistoryRow[];
+  }
+
+  // Teams v1 -- see TeamScoringResultRow's doc comment. `results.seasonId`
+  // is nullable (results predating the season column) so it's passed
+  // through as-is; the scoring layer treats a null season as belonging to
+  // no season filter (never counted for a specific season, always counted
+  // for all-time).
+  async findAllForTeamScoring(): Promise<TeamScoringResultRow[]> {
+    const rows = await db
+      .select({
+        tournament_id: results.tournamentId,
+        player_id: results.playerId,
+        rating_points: results.ratingPoints,
+        season_id: results.seasonId,
+        tournament_start_at: tournaments.startAt,
+      })
+      .from(results)
+      .innerJoin(tournaments, eq(results.tournamentId, tournaments.id));
+
+    return rows.map((row) => ({
+      tournament_id: row.tournament_id,
+      player_id: row.player_id,
+      rating_points: row.rating_points,
+      season_id: row.season_id,
+      tournament_start_at: row.tournament_start_at.toISOString(),
+    }));
   }
 
   async deleteByTournamentId(tournamentId: string): Promise<void> {

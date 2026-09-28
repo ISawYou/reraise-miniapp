@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dealerShifts, dealerProfiles } from "@/lib/db/schema";
+import { dealerShifts, dealerProfiles, teams, teamMemberships, teamInvitations } from "@/lib/db/schema";
 
 // Only executeMerge() uses the module-level default `db` (via
 // db.transaction() -- checkMergeEligibility/computeTournamentOverlap always
@@ -326,7 +326,12 @@ describe("executeMerge", () => {
   // prefix before reaching the history-move updates: intent, firstRow,
   // secondRow, then checkMergeEligibility's own (target row + source row +
   // 6 target overlap tables + 6 source overlap tables = 14), then the
-  // dealer open-shift check + dealer profile lookup (2) = 19 selects total.
+  // dealer open-shift check + dealer profile lookup (2), then Teams v1's own
+  // active-team-membership conflict check (1) and its post-reassignment
+  // pending-invitation lookup (1) = 21 selects total. The trailing `[], []`
+  // below means "neither side has an active team, no pending invitations to
+  // reassign" -- the ordinary, non-Teams happy path; see "executeMerge --
+  // Teams v1 compatibility" below for the Teams-specific scenarios.
   function happyPathSelects(openShiftRows: unknown[] = [], dealerProfileRows: unknown[] = []) {
     return [
       [intentRow()],
@@ -338,6 +343,8 @@ describe("executeMerge", () => {
       ...NO_OVERLAP_TABLES,
       openShiftRows,
       dealerProfileRows,
+      [], // Teams v1: activeTeamMembershipRows -- neither side on a team
+      [], // Teams v1: sourcePendingInvitations -- nothing to reassign
     ];
   }
 
@@ -444,6 +451,11 @@ describe("executeMerge -- dealer profile & shift merge", () => {
       ...NO_OVERLAP_TABLES,
       openShiftRows,
       dealerProfileRows,
+      // Teams v1: no active team on either side, nothing pending to
+      // reassign -- only reached when neither dealer shift is open (the
+      // "both open" test below short-circuits before this point).
+      [],
+      [],
     ];
   }
 
@@ -565,5 +577,168 @@ describe("executeMerge -- dealer profile & shift merge", () => {
     expect(updateCalls.length).toBe(1);
     expect(updateCalls[0].values.status).toBe("conflict");
     expect(deleteCalls.length).toBe(0);
+  });
+});
+
+// Teams v1 compatibility (see features/teams.ts, lib/team-scoring.ts) --
+// account merging must never reintroduce duplicate-account problems for
+// team membership/captaincy/invitations. Same fake-executor technique as
+// every describe block above.
+describe("executeMerge -- Teams v1 compatibility", () => {
+  beforeEach(() => {
+    process.env.DATABASE_PROVIDER = "postgres";
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    delete process.env.DATABASE_PROVIDER;
+    mockTxTarget.current = null;
+  });
+
+  function intentRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "intent-1",
+      targetPlayerId: TARGET_ID,
+      sourcePlayerId: SOURCE_ID,
+      email: "found@example.com",
+      status: "pending",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      ...overrides,
+    };
+  }
+
+  // Mirrors happyPathSelects/selectsWithDealerState's shared prefix (no
+  // open dealer shifts, no dealer profiles -- Teams compatibility is
+  // orthogonal to the dealer check, which always runs first), with the two
+  // Teams-specific slots parameterized: the active-team-membership conflict
+  // check, and (only when there's something to move) the pending-invitation
+  // collision lookup.
+  function selectsWithTeamState(params: {
+    activeTeamMembershipRows?: unknown[];
+    sourcePendingInvitationRows?: unknown[];
+    targetPendingTeamIdRows?: unknown[];
+  }) {
+    const base = [
+      [intentRow()],
+      [playerRow({ id: TARGET_ID })],
+      [playerRow({ id: SOURCE_ID })],
+      [playerRow({ id: TARGET_ID })],
+      [playerRow({ id: SOURCE_ID })],
+      ...NO_OVERLAP_TABLES,
+      ...NO_OVERLAP_TABLES,
+      [], // no open dealer shifts
+      [], // no dealer profiles
+      params.activeTeamMembershipRows ?? [],
+    ];
+    const pending = params.sourcePendingInvitationRows ?? [];
+    if (pending.length > 0) {
+      return [...base, pending, params.targetPendingTeamIdRows ?? []];
+    }
+    return [...base, pending];
+  }
+
+  it("18. neither side has an active team: merge proceeds, and team_memberships/team_invitations/teams ownership moves unconditionally (a no-op update if source held nothing)", async () => {
+    const { executor, updateCalls } = makeFakeExecutor(selectsWithTeamState({}));
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+    expect(updateCalls.some((c) => c.table === teamMemberships && c.values.playerId === TARGET_ID)).toBe(true);
+    expect(updateCalls.some((c) => c.table === teams && c.values.captainPlayerId === TARGET_ID)).toBe(true);
+    expect(updateCalls.some((c) => c.table === teamInvitations && c.values.invitedByPlayerId === TARGET_ID)).toBe(true);
+  });
+
+  it("19. BOTH accounts have an active team membership -- fails closed with an explicit merge blocker, no row is mutated beyond the intent's own status flip", async () => {
+    const { executor, updateCalls, deleteCalls } = makeFakeExecutor(
+      selectsWithTeamState({
+        activeTeamMembershipRows: [{ playerId: TARGET_ID }, { playerId: SOURCE_ID }],
+      })
+    );
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result.merged).toBe(false);
+    if (!result.merged) {
+      expect(result.conflict).toBe(true);
+      expect(result.reason).toContain("активных командах");
+    }
+    // Fails BEFORE any history-move update -- only the intent's own
+    // conflict status flip happened, same discipline as the dealer-shift
+    // conflict check right above it in executeMerge.
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].values.status).toBe("conflict");
+    expect(deleteCalls.length).toBe(0);
+  });
+
+  it("18. only SOURCE has an active team: merge proceeds -- source's membership/captaincy become target's", async () => {
+    const { executor, updateCalls } = makeFakeExecutor(
+      selectsWithTeamState({ activeTeamMembershipRows: [{ playerId: SOURCE_ID }] })
+    );
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+    expect(updateCalls.some((c) => c.table === teamMemberships && c.values.playerId === TARGET_ID)).toBe(true);
+    expect(updateCalls.some((c) => c.table === teams && c.values.captainPlayerId === TARGET_ID)).toBe(true);
+  });
+
+  it("only TARGET has an active team: merge proceeds normally -- one active side is not a conflict", async () => {
+    const { executor } = makeFakeExecutor(
+      selectsWithTeamState({ activeTeamMembershipRows: [{ playerId: TARGET_ID }] })
+    );
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+  });
+
+  it("pending-invitation collision: both sides had a pending invite from the SAME team -- source's is CANCELLED, never reassigned onto a second pending row for target", async () => {
+    const { executor, updateCalls } = makeFakeExecutor(
+      selectsWithTeamState({
+        sourcePendingInvitationRows: [{ id: "inv-source", teamId: "team-x" }],
+        targetPendingTeamIdRows: [{ teamId: "team-x" }],
+      })
+    );
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+    const cancelledInvitationUpdates = updateCalls.filter(
+      (c) => c.table === teamInvitations && c.values.status === "cancelled"
+    );
+    expect(cancelledInvitationUpdates).toHaveLength(1);
+    // Never reassigned onto targetId -- that would create a second pending
+    // row for the same (team, target) pair, violating
+    // team_invitations_one_pending_per_team_player_idx.
+    expect(updateCalls.some((c) => c.table === teamInvitations && c.values.invitedPlayerId === TARGET_ID)).toBe(
+      false
+    );
+  });
+
+  it("pending invitation, no collision: source's invite from a DIFFERENT team than target's own pending one is MOVED onto target, not cancelled", async () => {
+    const { executor, updateCalls } = makeFakeExecutor(
+      selectsWithTeamState({
+        sourcePendingInvitationRows: [{ id: "inv-source", teamId: "team-y" }],
+        targetPendingTeamIdRows: [],
+      })
+    );
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+    expect(updateCalls.some((c) => c.table === teamInvitations && c.values.invitedPlayerId === TARGET_ID)).toBe(true);
+    expect(updateCalls.some((c) => c.table === teamInvitations && c.values.status === "cancelled")).toBe(false);
   });
 });

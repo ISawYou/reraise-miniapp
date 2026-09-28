@@ -14,6 +14,9 @@ import {
   playerMergeIntents,
   dealerProfiles,
   dealerShifts,
+  teams,
+  teamMemberships,
+  teamInvitations,
 } from "@/lib/db/schema";
 import { syncPlayerAchievements } from "@/features/achievements";
 import { playerMergeIntentRepository } from "@/lib/repositories";
@@ -354,6 +357,37 @@ export async function executeMerge(params: {
         return { merged: false, conflict: true, reason };
       }
 
+      // Teams v1 conflict check -- run BEFORE any row is touched, same
+      // position as the dealer-shift check above. If BOTH accounts
+      // currently hold an active team_memberships row (whether the SAME
+      // team or different teams), blindly reassigning source's row onto
+      // target's id would give target two simultaneous active memberships,
+      // violating team_memberships_one_active_per_player_idx -- and even
+      // where that wouldn't literally violate the constraint (it always
+      // would, since "both active" means two distinct rows), there is no
+      // single correct choice of which team the merged human should end up
+      // on. Fail closed with an explicit blocker rather than silently
+      // picking one; an admin/the two players resolve this out-of-band
+      // (one of them leaves their team) and merge can be retried after.
+      const activeTeamMembershipRows = await tx
+        .select({ playerId: teamMemberships.playerId })
+        .from(teamMemberships)
+        .where(and(inArray(teamMemberships.playerId, [targetId, sourceId]), isNull(teamMemberships.leftAt)));
+
+      const targetHasActiveTeam = activeTeamMembershipRows.some((row) => row.playerId === targetId);
+      const sourceHasActiveTeam = activeTeamMembershipRows.some((row) => row.playerId === sourceId);
+
+      if (targetHasActiveTeam && sourceHasActiveTeam) {
+        const reason =
+          "Оба аккаунта состоят в активных командах — объединение невозможно, сначала покиньте одну из команд";
+        await tx
+          .update(playerMergeIntents)
+          .set({ status: "conflict", conflictReason: reason, resolvedAt: new Date() })
+          .where(eq(playerMergeIntents.id, intent.id));
+
+        return { merged: false, conflict: true, reason };
+      }
+
       // History: reassign every row -- safe only because eligibility above
       // just confirmed zero tournament overlap, so none of these updates
       // can collide with an existing target row on any (tournament_id,
@@ -377,6 +411,81 @@ export async function executeMerge(params: {
         .set({ playerId: targetId })
         .where(eq(tournamentRebuyState.playerId, sourceId));
       await tx.update(activityEvents).set({ playerId: targetId }).where(eq(activityEvents.playerId, sourceId));
+
+      // Teams v1 -- move EVERY team_memberships row (active or historical)
+      // from source to target, unconditionally. This is required for
+      // scoring correctness, not just tidiness: lib/team-scoring.ts
+      // attributes a result to a team by finding the membership interval
+      // for `results.player_id` that contains the tournament's start_at --
+      // and results.player_id was just reassigned to targetId above. If a
+      // membership interval source earned points under were left on
+      // sourceId, that history would silently stop being attributable to
+      // any team after the merge (an under-count), not merely "belong to
+      // the wrong id". The conflict check above already guarantees at most
+      // one of target/source has an ACTIVE row, so this can never produce
+      // two simultaneous active memberships for target.
+      await tx.update(teamMemberships).set({ playerId: targetId }).where(eq(teamMemberships.playerId, sourceId));
+
+      // Captaincy follows the same reassignment -- a captain must always be
+      // a CURRENT active member (features/teams.ts), so if source captained
+      // a team, that team's active membership row (just reassigned above)
+      // now has playerId = targetId, and captain_player_id must match.
+      await tx.update(teams).set({ captainPlayerId: targetId }).where(eq(teams.captainPlayerId, sourceId));
+
+      // team_invitations.invited_by_player_id is audit metadata only (no
+      // uniqueness constraint depends on it) -- unconditional, same
+      // reasoning as dealer_shifts' created_by/ended_by columns.
+      await tx
+        .update(teamInvitations)
+        .set({ invitedByPlayerId: targetId })
+        .where(eq(teamInvitations.invitedByPlayerId, sourceId));
+
+      // team_invitations.invited_player_id CAN collide: if both target and
+      // source independently held a pending invitation from the SAME team,
+      // reassigning source's onto targetId would violate
+      // team_invitations_one_pending_per_team_player_idx. Resolve exactly
+      // like duplicate pending invitations are resolved everywhere else in
+      // this feature (features/teams.ts::acceptInvitation) -- keep one,
+      // cancel the other -- rather than deleting anything. Target's own
+      // pending invitation (if any) always wins; source's colliding one is
+      // marked cancelled (its invited_player_id is deliberately left as
+      // sourceId, since it no longer needs to move -- the historical row
+      // simply records that this now-merged-away identity was once invited).
+      const sourcePendingInvitations = await tx
+        .select({ id: teamInvitations.id, teamId: teamInvitations.teamId })
+        .from(teamInvitations)
+        .where(and(eq(teamInvitations.invitedPlayerId, sourceId), eq(teamInvitations.status, "pending")));
+
+      if (sourcePendingInvitations.length > 0) {
+        const targetPendingTeamIds = new Set(
+          (
+            await tx
+              .select({ teamId: teamInvitations.teamId })
+              .from(teamInvitations)
+              .where(and(eq(teamInvitations.invitedPlayerId, targetId), eq(teamInvitations.status, "pending")))
+          ).map((row) => row.teamId)
+        );
+
+        const collidingIds = sourcePendingInvitations
+          .filter((row) => targetPendingTeamIds.has(row.teamId))
+          .map((row) => row.id);
+        const movableIds = sourcePendingInvitations
+          .filter((row) => !targetPendingTeamIds.has(row.teamId))
+          .map((row) => row.id);
+
+        if (collidingIds.length > 0) {
+          await tx
+            .update(teamInvitations)
+            .set({ status: "cancelled", respondedAt: new Date() })
+            .where(inArray(teamInvitations.id, collidingIds));
+        }
+        if (movableIds.length > 0) {
+          await tx
+            .update(teamInvitations)
+            .set({ invitedPlayerId: targetId })
+            .where(inArray(teamInvitations.id, movableIds));
+        }
+      }
 
       // Dealer/Staff ownership transfer -- shift history always moves with
       // the player. Unconditional (a no-op update if source never had any
