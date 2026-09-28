@@ -242,6 +242,35 @@ describe("public team detail -- captain-only invite slot (Part E)", () => {
     expect(container.textContent).toContain("5 / 5");
     expect(container.textContent).not.toContain("Пригласить");
   });
+
+  it("9. the captain still sees photo upload/replace/delete controls via the shared TeamAvatarEditor", async () => {
+    mocks.viewer = { id: "captain-1", role: "player", display_name: "Captain" } as Player;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ team: teamDetail() }) }) as Response)
+    );
+
+    await render();
+    expect(container.textContent).toContain("Загрузить фото");
+    expect(container.textContent).not.toContain("Удалить фото");
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["fake"], "photo.png", { type: "image/png" });
+    Object.defineProperty(fileInput, "files", { value: [file] });
+    mocks.fetchAdminJson.mockResolvedValueOnce({
+      team: teamDetail({ avatar_url: "https://cdn/teams/team-1/avatar.webp?v=1" }),
+    });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const call = mocks.fetchAdminJson.mock.calls.find((c: unknown[]) => c[0] === "/api/teams/team-1/avatar");
+    expect(call).toBeDefined();
+    expect((call?.[1] as RequestInit).method).toBe("POST");
+    const img = container.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("https://cdn/teams/team-1/avatar.webp?v=1");
+    expect(container.textContent).toContain("Удалить фото");
+  });
 });
 
 function mockFetchWithViewerState(team: Record<string, unknown>, viewerState: Record<string, unknown> | null) {

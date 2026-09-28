@@ -8,6 +8,7 @@ import { fetchAdminJson } from "@/lib/client-request";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { TEAM_EMBLEMS, DEFAULT_TEAM_EMBLEM } from "@/config/team-emblems";
 import { Avatar, RosterSlots, TeamIdentity, formatRankBadge, formatStandingLine, type PlayerSafeView } from "@/components/teams/team-ui";
+import { TeamAvatarEditor } from "@/components/teams/team-avatar-editor";
 import type { Player } from "@/types/domain";
 
 type TeamRosterMember = PlayerSafeView & { is_captain: boolean; joined_at: string };
@@ -578,7 +579,21 @@ function MyTeamCard({
     <div className="space-y-4">
       <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-5">
         <div className="flex items-center gap-3">
-          <TeamIdentity team={team} className="h-14 w-14 text-3xl" />
+          {isCaptain ? (
+            <button
+              type="button"
+              onClick={() => setEditingIdentity(true)}
+              className="relative shrink-0"
+              aria-label="Изменить фото команды"
+            >
+              <TeamIdentity team={team} className="h-14 w-14 text-3xl" />
+              <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-black text-[10px]">
+                ✏️
+              </span>
+            </button>
+          ) : (
+            <TeamIdentity team={team} className="h-14 w-14 text-3xl" />
+          )}
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-bold text-white">{team.name}</p>
             <p className="mt-0.5 text-xs text-white/50">
@@ -654,6 +669,16 @@ function MyTeamCard({
 
         {editingIdentity ? (
           <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+            <div className="space-y-2 border-b border-white/10 pb-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-white/60">Фото команды</p>
+              <TeamAvatarEditor
+                team={team}
+                onUpdated={() => void onChanged()}
+                showPreview
+                previewClassName="h-20 w-20 text-4xl"
+                helperText="Фото будет использоваться в рейтинге, профилях и на странице команды."
+              />
+            </div>
             <input
               type="text"
               value={nameDraft}

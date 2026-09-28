@@ -404,6 +404,202 @@ describe("Teams -- Моя команда tab, has a team", () => {
     expect(container.textContent).not.toContain("Пригласить");
   });
 
+  describe("captain team-photo editing inside 'Изменить команду'", () => {
+    it("1. shows 'Фото команды' inside the edit panel", async () => {
+      withTeam(true);
+      await render();
+      await click("Моя команда");
+      await flush();
+      await click("Изменить команду");
+      await flush();
+
+      expect(container.textContent).toContain("Фото команды");
+      expect(container.textContent).toContain(
+        "Фото будет использоваться в рейтинге, профилях и на странице команды."
+      );
+    });
+
+    it("2. no existing avatar => shows 'Загрузить фото'", async () => {
+      withTeam(true);
+      await render();
+      await click("Моя команда");
+      await flush();
+      await click("Изменить команду");
+      await flush();
+
+      expect(container.textContent).toContain("Загрузить фото");
+      expect(container.textContent).not.toContain("Удалить фото");
+    });
+
+    it("3. existing avatar => shows 'Изменить фото' + 'Удалить фото'", async () => {
+      mocks.fetchAdminJson.mockImplementation((url: string) => {
+        if (url === "/api/leaderboard/seasons") return Promise.resolve({ seasons: [] });
+        if (url.startsWith("/api/teams?")) return Promise.resolve({ standings: [] });
+        if (url === "/api/teams/me")
+          return Promise.resolve(
+            myTeamState({
+              team: teamDetail({ avatar_url: "https://cdn/teams/team-1/avatar.webp?v=1" }),
+              is_captain: true,
+              pending_invitations: [],
+              pending_incoming_join_requests: [],
+            })
+          );
+        return Promise.resolve({ ok: true });
+      });
+      await render();
+      await click("Моя команда");
+      await flush();
+      await click("Изменить команду");
+      await flush();
+
+      expect(container.textContent).toContain("Изменить фото");
+      expect(container.textContent).toContain("Удалить фото");
+    });
+
+    it("4. upload posts multipart 'file' to the existing /api/teams/[id]/avatar endpoint", async () => {
+      withTeam(true);
+      await render();
+      await click("Моя команда");
+      await flush();
+      await click("Изменить команду");
+      await flush();
+
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(["fake"], "photo.png", { type: "image/png" });
+      Object.defineProperty(fileInput, "files", { value: [file] });
+      await act(async () => {
+        fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await flush();
+
+      const call = mocks.fetchAdminJson.mock.calls.find((c: unknown[]) => c[0] === "/api/teams/team-1/avatar");
+      expect(call).toBeDefined();
+      const init = call?.[1] as RequestInit;
+      expect(init.method).toBe("POST");
+      expect(init.body).toBeInstanceOf(FormData);
+      expect((init.body as FormData).get("file")).toBe(file);
+    });
+
+    it("5. delete calls DELETE on the existing /api/teams/[id]/avatar endpoint", async () => {
+      mocks.fetchAdminJson.mockImplementation((url: string, init?: RequestInit) => {
+        if (url === "/api/leaderboard/seasons") return Promise.resolve({ seasons: [] });
+        if (url.startsWith("/api/teams?")) return Promise.resolve({ standings: [] });
+        if (url === "/api/teams/me")
+          return Promise.resolve(
+            myTeamState({
+              team: teamDetail({ avatar_url: "https://cdn/teams/team-1/avatar.webp?v=1" }),
+              is_captain: true,
+              pending_invitations: [],
+              pending_incoming_join_requests: [],
+            })
+          );
+        if (url === "/api/teams/team-1/avatar" && init?.method === "DELETE") {
+          return Promise.resolve({ team: teamDetail({ avatar_url: null }) });
+        }
+        return Promise.resolve({ ok: true });
+      });
+      await render();
+      await click("Моя команда");
+      await flush();
+      await click("Изменить команду");
+      await flush();
+      await click("Удалить фото");
+      await flush();
+
+      const call = mocks.fetchAdminJson.mock.calls.find(
+        (c: unknown[]) => c[0] === "/api/teams/team-1/avatar" && (c[1] as RequestInit)?.method === "DELETE"
+      );
+      expect(call).toBeDefined();
+    });
+
+    it("6. successful upload refreshes /api/teams/me and the new photo renders instead of the emblem", async () => {
+      let uploaded = false;
+      mocks.fetchAdminJson.mockImplementation((url: string, init?: RequestInit) => {
+        if (url === "/api/leaderboard/seasons") return Promise.resolve({ seasons: [] });
+        if (url.startsWith("/api/teams?")) return Promise.resolve({ standings: [] });
+        if (url === "/api/teams/me")
+          return Promise.resolve(
+            myTeamState({
+              team: teamDetail(uploaded ? { avatar_url: "https://cdn/teams/team-1/avatar.webp?v=1" } : {}),
+              is_captain: true,
+              pending_invitations: [],
+              pending_incoming_join_requests: [],
+            })
+          );
+        if (url === "/api/teams/team-1/avatar" && init?.method === "POST") {
+          uploaded = true;
+          return Promise.resolve({ team: teamDetail({ avatar_url: "https://cdn/teams/team-1/avatar.webp?v=1" }) });
+        }
+        return Promise.resolve({ ok: true });
+      });
+      await render();
+      await click("Моя команда");
+      await flush();
+      await click("Изменить команду");
+      await flush();
+
+      expect(container.querySelector("img")).toBeNull();
+
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(["fake"], "photo.png", { type: "image/png" });
+      Object.defineProperty(fileInput, "files", { value: [file] });
+      await act(async () => {
+        fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await flush();
+
+      const img = container.querySelector("img");
+      expect(img).not.toBeNull();
+      expect(img?.getAttribute("src")).toBe("https://cdn/teams/team-1/avatar.webp?v=1");
+    });
+
+    it("7. delete restores the emoji-emblem fallback", async () => {
+      let deleted = false;
+      mocks.fetchAdminJson.mockImplementation((url: string, init?: RequestInit) => {
+        if (url === "/api/leaderboard/seasons") return Promise.resolve({ seasons: [] });
+        if (url.startsWith("/api/teams?")) return Promise.resolve({ standings: [] });
+        if (url === "/api/teams/me")
+          return Promise.resolve(
+            myTeamState({
+              team: teamDetail(deleted ? {} : { avatar_url: "https://cdn/teams/team-1/avatar.webp?v=1" }),
+              is_captain: true,
+              pending_invitations: [],
+              pending_incoming_join_requests: [],
+            })
+          );
+        if (url === "/api/teams/team-1/avatar" && init?.method === "DELETE") {
+          deleted = true;
+          return Promise.resolve({ team: teamDetail({ avatar_url: null }) });
+        }
+        return Promise.resolve({ ok: true });
+      });
+      await render();
+      await click("Моя команда");
+      await flush();
+      await click("Изменить команду");
+      await flush();
+
+      expect(container.querySelector("img")).not.toBeNull();
+
+      await click("Удалить фото");
+      await flush();
+
+      expect(container.querySelector("img")).toBeNull();
+      expect(container.textContent).toContain("🦈");
+    });
+
+    it("8. a non-captain never sees the photo-edit controls (no 'Изменить команду' section at all)", async () => {
+      withTeam(false);
+      await render();
+      await click("Моя команда");
+      await flush();
+
+      expect(container.textContent).not.toContain("Изменить команду");
+      expect(container.textContent).not.toContain("Загрузить фото");
+      expect(container.textContent).not.toContain("Фото команды");
+    });
+  });
+
   it("32. captain sees incoming join requests with Принять/Отклонить", async () => {
     withTeam(true, undefined, [
       {

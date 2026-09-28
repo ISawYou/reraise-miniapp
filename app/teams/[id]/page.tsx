@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { BackButton } from "@/components/ui/back-button";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import {
@@ -13,6 +13,7 @@ import {
   formatStandingLine,
   type PlayerSafeView,
 } from "@/components/teams/team-ui";
+import { TeamAvatarEditor } from "@/components/teams/team-avatar-editor";
 import type { Player } from "@/types/domain";
 
 type TeamRosterMember = PlayerSafeView & { is_captain: boolean; joined_at: string };
@@ -116,92 +117,6 @@ function InviteWidget({ teamId, onInvited }: { teamId: string; onInvited: () => 
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-// Captain-only photo upload/replace/reset -- Part E of the Teams v1 UI
-// polish. Talks directly to POST/DELETE /api/teams/[id]/avatar (auth is
-// resolved server-side via resolveTeamsActor(), so this never sends a
-// captain/player id itself, only the file). On success it hands the fresh
-// TeamDetailView straight back to the page's own `team` state (no full
-// reload), mirroring how player-profile avatar upload updates `player`.
-function TeamAvatarManager({
-  team,
-  onUpdated,
-}: {
-  team: { id: string; avatar_url: string | null };
-  onUpdated: (team: TeamDetailView) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
-    try {
-      setBusy(true);
-      setError(null);
-      const formData = new FormData();
-      formData.append("file", file);
-      const data = await fetchAdminJson<{ team: TeamDetailView }>(`/api/teams/${team.id}/avatar`, {
-        method: "POST",
-        body: formData,
-      });
-      onUpdated(data.team);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить фото");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleDelete() {
-    try {
-      setBusy(true);
-      setError(null);
-      const data = await fetchAdminJson<{ team: TeamDetailView }>(`/api/teams/${team.id}/avatar`, {
-        method: "DELETE",
-      });
-      onUpdated(data.team);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось удалить фото");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mt-4 flex items-center gap-2">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        className="hidden"
-        onChange={handleFileChange}
-      />
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => fileInputRef.current?.click()}
-        className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/80 disabled:opacity-50"
-      >
-        {busy ? "Загружаем..." : team.avatar_url ? "Изменить фото" : "Загрузить фото"}
-      </button>
-      {team.avatar_url ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={handleDelete}
-          className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium text-white/60 disabled:opacity-50"
-        >
-          Удалить фото
-        </button>
-      ) : null}
-      {error ? <p className="text-xs text-red-300">{error}</p> : null}
     </div>
   );
 }
@@ -400,7 +315,9 @@ export default function TeamDetailPage() {
               ) : null}
 
               {isViewerCaptain && team.status === "active" ? (
-                <TeamAvatarManager team={team} onUpdated={setTeam} />
+                <div className="mt-4">
+                  <TeamAvatarEditor team={team} onUpdated={setTeam} />
+                </div>
               ) : null}
 
               {requestError ? <p className="mt-3 text-xs text-red-300">{requestError}</p> : null}
