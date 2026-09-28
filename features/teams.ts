@@ -1541,7 +1541,7 @@ export async function uploadTeamAvatar(
     const publicUrl = avatarStorageRepository.getPublicUrl(filePath);
     const versionedUrl = `${publicUrl}?v=${Date.now()}`;
 
-    await tx.update(teams).set({ avatarUrl: versionedUrl }).where(eq(teams.id, teamId));
+    await tx.update(teams).set({ avatarUrl: versionedUrl, avatarUpdatedAt: new Date() }).where(eq(teams.id, teamId));
   });
 
   const detail = await getTeamDetail(teamId, { kind: "current" });
@@ -1556,7 +1556,7 @@ export async function resetTeamAvatar(actorId: string, teamId: string): Promise<
     if (team.status === "disbanded") throw new TeamDisbandedError();
     if (team.captainPlayerId !== actorId) throw new NotCaptainError();
 
-    await tx.update(teams).set({ avatarUrl: null }).where(eq(teams.id, teamId));
+    await tx.update(teams).set({ avatarUrl: null, avatarUpdatedAt: new Date() }).where(eq(teams.id, teamId));
   });
 
   const detail = await getTeamDetail(teamId, { kind: "current" });
