@@ -152,10 +152,11 @@ export const teamInvitations = pgTable("team_invitations", {
 // Player -> team join requests -- the MIRROR direction of team_invitations
 // (captain -> player), deliberately a SEPARATE table rather than reusing
 // team_invitations with reversed semantics: an invitation and a request
-// have different actors, different capacity-reservation rules (an
-// invitation reserves a seat; a request never does), and different
-// accept/decline authorities. Same "never delete, always update status in
-// place" discipline as team_invitations.
+// have different actors and different accept/decline authorities. Neither
+// one reserves a seat -- only CURRENT ACTIVE team_memberships ever count
+// against the 5-player cap (see features/teams.ts's MAX_ACTIVE_MEMBERS
+// usages). Same "never delete, always update status in place" discipline
+// as team_invitations.
 export const teamJoinRequests = pgTable("team_join_requests", {
   id: uuid().primaryKey().defaultRandom(),
 

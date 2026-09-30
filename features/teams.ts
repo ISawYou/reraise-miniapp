@@ -923,10 +923,12 @@ export async function updateTeamIdentity(
   return detail;
 }
 
-// Captain-only. Reserves a seat the moment an invitation is sent (active
-// members + pending invitations >= 5 is rejected up front) -- acceptance
-// re-verifies capacity anyway, since a captain could send several
-// invitations in a row before any is accepted.
+// Captain-only. Pending invitations do NOT reserve a seat -- only CURRENT
+// ACTIVE members count against MAX_ACTIVE_MEMBERS, so a captain may hold
+// far more pending invitations than free slots (first acceptance wins the
+// last seat; acceptInvitation re-verifies capacity under lock at that
+// point, and cancels any other now-unfillable pending invitations/requests
+// once the team reaches 5/5).
 export async function inviteToTeam(actorId: string, teamId: string, invitedPlayerId: string): Promise<void> {
   const invitee = await resolveEligiblePlayer(invitedPlayerId);
 
@@ -964,12 +966,8 @@ export async function inviteToTeam(actorId: string, teamId: string, invitedPlaye
       .select({ activeCount: sql<number>`count(*)::int` })
       .from(teamMemberships)
       .where(and(eq(teamMemberships.teamId, teamId), isNull(teamMemberships.leftAt)));
-    const [{ pendingCount }] = await tx
-      .select({ pendingCount: sql<number>`count(*)::int` })
-      .from(teamInvitations)
-      .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, "pending")));
 
-    if (activeCount + pendingCount >= MAX_ACTIVE_MEMBERS) {
+    if (activeCount >= MAX_ACTIVE_MEMBERS) {
       throw new TeamFullError();
     }
 
@@ -1030,14 +1028,47 @@ export async function cancelInvitation(actorId: string, invitationId: string): P
 }
 
 // The invited player's own action. Full transactional capacity/uniqueness
-// re-check under lock -- see the "CAPACITY / CONCURRENCY" contract this
-// mirrors exactly: lock the team, recheck active/pending, recheck the
-// invitation is still pending, recheck the player still has no active
-// team, recheck capacity < 5, THEN create the membership, mark this
-// invitation accepted, and cancel every OTHER pending invitation for this
-// player (atomically, same transaction).
+// re-check under lock: lock the team, recheck the invitation is still
+// pending, recheck the player still has no active team, recheck ACTIVE
+// member count < 5 (pending invitations never count here -- see
+// inviteToTeam's doc comment), THEN create the membership, mark this
+// invitation accepted, cancel every OTHER pending invitation for this
+// player (atomically, same transaction), and -- if this acceptance just
+// filled the team to 5/5 -- cancel every OTHER pending invitation AND
+// pending join request still targeting THIS team, since it can no longer
+// honor them.
+//
+// LOCK ORDER: the team row is locked BEFORE the invitation row, not after.
+// This is required now that a full team's 5/5 sweep cancels OTHER pending
+// invitations/requests for that team from inside the transaction that
+// holds the team lock: if two concurrent acceptances for the SAME team
+// each locked their own invitation/request row first and only then waited
+// on the team lock, the one that wins the team lock could deadlock trying
+// to UPDATE (i.e. implicitly lock) the other's still-row-locked invitation/
+// request during its sweep, while that other transaction sits blocked
+// waiting for the team lock it will never get. Locking the team FIRST
+// means no transaction can be holding a competing invitation/request row
+// lock while blocked on the team lock, so the sweep can never deadlock.
+// acceptJoinRequest below follows the exact same team-first ordering, so
+// one invitation acceptance racing one join-request acceptance for the
+// same team's last seat is equally safe.
 export async function acceptInvitation(actorId: string, invitationId: string): Promise<TeamDetailView> {
   const { teamId, captainPlayerId, teamName } = await db.transaction(async (tx) => {
+    // Non-locking lookup ONLY to discover which team this invitation
+    // targets. Its status/ownership is never trusted here -- the row is
+    // re-read FOR UPDATE immediately after the team lock and every check
+    // below runs against that fresh, locked read.
+    const [invitationPreview] = await tx
+      .select()
+      .from(teamInvitations)
+      .where(eq(teamInvitations.id, invitationId))
+      .limit(1);
+    if (!invitationPreview) throw new InvitationNotFoundError();
+
+    const [team] = await tx.select().from(teams).where(eq(teams.id, invitationPreview.teamId)).for("update");
+    if (!team) throw new TeamNotFoundError();
+    if (team.status === "disbanded") throw new TeamDisbandedError();
+
     const [invitation] = await tx
       .select()
       .from(teamInvitations)
@@ -1046,10 +1077,6 @@ export async function acceptInvitation(actorId: string, invitationId: string): P
     if (!invitation) throw new InvitationNotFoundError();
     if (invitation.invitedPlayerId !== actorId) throw new InvitationForbiddenError();
     if (invitation.status !== "pending") throw new InvitationNotPendingError();
-
-    const [team] = await tx.select().from(teams).where(eq(teams.id, invitation.teamId)).for("update");
-    if (!team) throw new TeamNotFoundError();
-    if (team.status === "disbanded") throw new TeamDisbandedError();
 
     const [existingActive] = await tx
       .select()
@@ -1094,6 +1121,26 @@ export async function acceptInvitation(actorId: string, invitationId: string): P
           sql`${teamInvitations.id} != ${invitationId}`
         )
       );
+
+    // If this acceptance just filled the team to 5/5, no other pending
+    // invitation or join request targeting THIS team can ever be honored
+    // -- auto-cancel them rather than leave them pending forever.
+    if (activeCount + 1 >= MAX_ACTIVE_MEMBERS) {
+      await tx
+        .update(teamInvitations)
+        .set({ status: "cancelled", respondedAt: now })
+        .where(
+          and(
+            eq(teamInvitations.teamId, team.id),
+            eq(teamInvitations.status, "pending"),
+            sql`${teamInvitations.id} != ${invitationId}`
+          )
+        );
+      await tx
+        .update(teamJoinRequests)
+        .set({ status: "cancelled", respondedAt: now })
+        .where(and(eq(teamJoinRequests.teamId, team.id), eq(teamJoinRequests.status, "pending")));
+    }
 
     return { teamId: team.id, captainPlayerId: team.captainPlayerId, teamName: team.name };
   });
@@ -1260,11 +1307,11 @@ export async function disbandTeam(actorId: string, teamId: string): Promise<void
 // index as the final backstop" discipline as every mutation above.
 // ---------------------------------------------------------------------
 
-// The player's own action. Join requests deliberately do NOT reserve a
-// seat (see MAX_ACTIVE_MEMBERS' doc comments on invitations) -- eligibility
-// only checks the team's CURRENT active member count, never pending
-// invitations. Capacity that actually matters (including invitation
-// reservations) is re-checked at acceptJoinRequest time instead.
+// The player's own action. Join requests, like invitations, do NOT reserve
+// a seat -- eligibility only checks the team's CURRENT active member
+// count, never pending invitations or other pending requests. Capacity is
+// re-checked again at acceptJoinRequest time under lock, since it can
+// change between now and then.
 export async function requestToJoinTeam(actorId: string, teamId: string): Promise<void> {
   const teamName = await db.transaction(async (tx) => {
     const [team] = await tx.select().from(teams).where(eq(teams.id, teamId)).for("update");
@@ -1387,22 +1434,43 @@ export async function declineJoinRequest(actorId: string, requestId: string): Pr
 
 // Captain-only. Full transactional re-check under lock -- request still
 // pending, team still active, actor still captain, requesting player still
-// canonical/not-blocked/teamless, and (the CAPACITY RULE) active members +
-// pending OUTGOING INVITATIONS still < 5, since a captain's own pending
-// invitations reserve seats that a join request must never steal. On
-// success: create the membership, mark this request accepted, cancel every
-// OTHER pending join request AND every pending invitation for that player
-// (any team), and -- if this acceptance just filled the team to 5/5 --
-// auto-cancel any other requests still pending against this same team,
-// since it can no longer accept them. Never deletes a historical row.
+// canonical/not-blocked/teamless, and (the CAPACITY RULE) ONLY active
+// members count against MAX_ACTIVE_MEMBERS -- pending invitations never
+// reserve seats, so a team with e.g. 3 active + 20 pending invitations
+// still freely accepts a join request. On success: create the membership,
+// mark this request accepted, cancel every OTHER pending join request AND
+// every pending invitation for that player (any team), and -- if this
+// acceptance just filled the team to 5/5 -- auto-cancel every other
+// pending join request AND every pending invitation still targeting this
+// same team, since it can no longer accept them. Never deletes a
+// historical row.
+//
+// LOCK ORDER: the team row is locked BEFORE the join-request row -- see
+// acceptInvitation's matching "LOCK ORDER" doc comment for why (the 5/5
+// sweep cancelling other pending rows for this team can otherwise deadlock
+// against a concurrent acceptance that locked its own row first). Both
+// accept flows lock team-then-own-row, so a same-team invitation
+// acceptance racing a join-request acceptance for the last seat is equally
+// deadlock-safe.
 export async function acceptJoinRequest(actorId: string, requestId: string): Promise<TeamDetailView> {
-  const canonicalApplicant = await (async () => {
+  // Non-locking lookup ONLY to discover the applicant's canonical identity
+  // and which team this request targets -- its status/ownership is never
+  // trusted here, the row is re-read FOR UPDATE inside the transaction
+  // (after the team lock) and every check below runs against that fresh,
+  // locked read.
+  const requestPreview = await (async () => {
     const [request] = await db.select().from(teamJoinRequests).where(eq(teamJoinRequests.id, requestId)).limit(1);
     if (!request) throw new JoinRequestNotFoundError();
-    return resolveEligiblePlayer(request.playerId);
+    return request;
   })();
+  const canonicalApplicant = await resolveEligiblePlayer(requestPreview.playerId);
 
   const { teamId, teamName } = await db.transaction(async (tx) => {
+    const [team] = await tx.select().from(teams).where(eq(teams.id, requestPreview.teamId)).for("update");
+    if (!team) throw new TeamNotFoundError();
+    if (team.status === "disbanded") throw new TeamDisbandedError();
+    if (team.captainPlayerId !== actorId) throw new NotCaptainError();
+
     const [request] = await tx
       .select()
       .from(teamJoinRequests)
@@ -1411,11 +1479,6 @@ export async function acceptJoinRequest(actorId: string, requestId: string): Pro
     if (!request) throw new JoinRequestNotFoundError();
     if (request.status !== "pending") throw new JoinRequestNotPendingError();
 
-    const [team] = await tx.select().from(teams).where(eq(teams.id, request.teamId)).for("update");
-    if (!team) throw new TeamNotFoundError();
-    if (team.status === "disbanded") throw new TeamDisbandedError();
-    if (team.captainPlayerId !== actorId) throw new NotCaptainError();
-
     const [existingActive] = await tx
       .select()
       .from(teamMemberships)
@@ -1423,17 +1486,13 @@ export async function acceptJoinRequest(actorId: string, requestId: string): Pro
       .for("update");
     if (existingActive) throw new AlreadyOnActiveTeamError();
 
-    // Capacity rule: pending CAPTAIN INVITATIONS reserve seats -- a join
-    // request must never steal one of them.
+    // Capacity rule: ONLY active members count -- pending invitations never
+    // reserve seats.
     const [{ activeCount }] = await tx
       .select({ activeCount: sql<number>`count(*)::int` })
       .from(teamMemberships)
       .where(and(eq(teamMemberships.teamId, team.id), isNull(teamMemberships.leftAt)));
-    const [{ pendingInviteCount }] = await tx
-      .select({ pendingInviteCount: sql<number>`count(*)::int` })
-      .from(teamInvitations)
-      .where(and(eq(teamInvitations.teamId, team.id), eq(teamInvitations.status, "pending")));
-    if (activeCount + pendingInviteCount >= MAX_ACTIVE_MEMBERS) {
+    if (activeCount >= MAX_ACTIVE_MEMBERS) {
       throw new TeamFullError();
     }
 
@@ -1474,14 +1533,18 @@ export async function acceptJoinRequest(actorId: string, requestId: string): Pro
       .where(and(eq(teamInvitations.invitedPlayerId, canonicalApplicant.id), eq(teamInvitations.status, "pending")));
 
     // If this acceptance just filled the team to 5/5, any OTHER pending
-    // request still targeting this same team can no longer be honored --
-    // auto-cancel it rather than leave a request pending forever against a
-    // team that structurally cannot accept it.
+    // request AND any pending invitation still targeting this same team
+    // can no longer be honored -- auto-cancel them rather than leave them
+    // pending forever against a team that structurally cannot accept them.
     if (activeCount + 1 >= MAX_ACTIVE_MEMBERS) {
       await tx
         .update(teamJoinRequests)
         .set({ status: "cancelled", respondedAt: now })
         .where(and(eq(teamJoinRequests.teamId, team.id), eq(teamJoinRequests.status, "pending")));
+      await tx
+        .update(teamInvitations)
+        .set({ status: "cancelled", respondedAt: now })
+        .where(and(eq(teamInvitations.teamId, team.id), eq(teamInvitations.status, "pending")));
     }
 
     return { teamId: team.id, teamName: team.name };

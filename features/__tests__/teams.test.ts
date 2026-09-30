@@ -117,6 +117,11 @@ function makeFakeTx(config: TxConfig) {
 
   const insertCalls: Array<{ table: unknown; values: Record<string, unknown> }> = [];
   const updateCalls: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+  // Records every table a `.select()` chain was opened against, in call
+  // order -- used ONLY by the lock-order tests to assert the team row is
+  // selected (and thus FOR UPDATE-locked, per the real query) before the
+  // invitation/join-request row is re-selected FOR UPDATE.
+  const selectOrder: unknown[] = [];
 
   function dequeue(table: unknown): unknown[] {
     const queue = queues.get(table);
@@ -127,6 +132,7 @@ function makeFakeTx(config: TxConfig) {
   }
 
   function selectChain(table: unknown) {
+    selectOrder.push(table);
     const resultPromise = Promise.resolve(dequeue(table));
     return Object.assign(resultPromise, {
       limit: () => resultPromise,
@@ -163,7 +169,7 @@ function makeFakeTx(config: TxConfig) {
     }),
   };
 
-  return { tx, insertCalls, updateCalls };
+  return { tx, insertCalls, updateCalls, selectOrder };
 }
 
 function teamRow(overrides: Record<string, unknown> = {}) {
@@ -283,15 +289,15 @@ describe("createTeam", () => {
   });
 });
 
-describe("capacity: invite reserves a seat, 5/5 is the hard ceiling", () => {
-  it("3 & 4. a captain-only team with 4 active members can invite a 5th (4 active + 0 pending < 5)", async () => {
+describe("capacity: pending invitations never reserve seats, active members are the only ceiling", () => {
+  it("3 & 4. a captain-only team with 4 active members can invite a 5th (4 active < 5)", async () => {
     mockResolveCanonicalPlayer.mockResolvedValue(playerDomain());
     mockPlayerRepo.findById.mockResolvedValue(playerDomain());
 
     const { tx, insertCalls } = makeFakeTx({
       teams: [[teamRow({ captainPlayerId: "captain-1" })]],
       teamMemberships: [[], [{ activeCount: 4 }]],
-      teamInvitations: [[], [{ pendingCount: 0 }]],
+      teamInvitations: [[]],
     });
     currentTx.current = tx;
 
@@ -302,14 +308,14 @@ describe("capacity: invite reserves a seat, 5/5 is the hard ceiling", () => {
     expect(insertCalls[0].table).toBe(teamInvitations);
   });
 
-  it("5. active(5) + pending(0) >= 5 -- TeamFullError, sixth member impossible via invite", async () => {
+  it("5. active(5) -- TeamFullError, sixth member impossible via invite, regardless of pending count", async () => {
     mockResolveCanonicalPlayer.mockResolvedValue(playerDomain());
     mockPlayerRepo.findById.mockResolvedValue(playerDomain());
 
     const { tx, insertCalls } = makeFakeTx({
       teams: [[teamRow({ captainPlayerId: "captain-1" })]],
       teamMemberships: [[], [{ activeCount: 5 }]],
-      teamInvitations: [[], [{ pendingCount: 0 }]],
+      teamInvitations: [[]],
     });
     currentTx.current = tx;
 
@@ -318,19 +324,39 @@ describe("capacity: invite reserves a seat, 5/5 is the hard ceiling", () => {
     expect(insertCalls).toHaveLength(0);
   });
 
-  it("pending invitations reserve remaining seats: active(3) + pending(2) >= 5 blocks a 6th invite", async () => {
+  it("pending invitations do NOT reserve seats: active(3) + pending(2) still allows another invite", async () => {
     mockResolveCanonicalPlayer.mockResolvedValue(playerDomain());
     mockPlayerRepo.findById.mockResolvedValue(playerDomain());
 
-    const { tx } = makeFakeTx({
+    const { tx, insertCalls } = makeFakeTx({
       teams: [[teamRow({ captainPlayerId: "captain-1" })]],
       teamMemberships: [[], [{ activeCount: 3 }]],
-      teamInvitations: [[], [{ pendingCount: 2 }]],
+      teamInvitations: [[]],
     });
     currentTx.current = tx;
 
-    const { inviteToTeam, TeamFullError } = await import("@/features/teams");
-    await expect(inviteToTeam("captain-1", "team-1", "invitee-1")).rejects.toThrow(TeamFullError);
+    const { inviteToTeam } = await import("@/features/teams");
+    await inviteToTeam("captain-1", "team-1", "invitee-1");
+
+    expect(insertCalls).toHaveLength(1);
+    expect(insertCalls[0].table).toBe(teamInvitations);
+  });
+
+  it("active(4) + pending(10) still allows a captain to invite up to the 5th active seat", async () => {
+    mockResolveCanonicalPlayer.mockResolvedValue(playerDomain());
+    mockPlayerRepo.findById.mockResolvedValue(playerDomain());
+
+    const { tx, insertCalls } = makeFakeTx({
+      teams: [[teamRow({ captainPlayerId: "captain-1" })]],
+      teamMemberships: [[], [{ activeCount: 4 }]],
+      teamInvitations: [[]],
+    });
+    currentTx.current = tx;
+
+    const { inviteToTeam } = await import("@/features/teams");
+    await inviteToTeam("captain-1", "team-1", "invitee-1");
+
+    expect(insertCalls).toHaveLength(1);
   });
 
   it("7. non-captain cannot invite", async () => {
@@ -347,7 +373,7 @@ describe("capacity: invite reserves a seat, 5/5 is the hard ceiling", () => {
 
   it("6. acceptInvitation re-checks capacity under lock -- a team already at 5/5 by accept time rejects the 6th, even if the invite was sent earlier when there was room (the concurrency guarantee itself is the DB row lock + unique index; this proves the code path actually re-checks rather than trusting the invite-time count)", async () => {
     const { tx, insertCalls } = makeFakeTx({
-      teamInvitations: [[invitationRow({ invitedPlayerId: "invitee-1" })]],
+      teamInvitations: [[invitationRow({ invitedPlayerId: "invitee-1" })], [invitationRow({ invitedPlayerId: "invitee-1" })]],
       teams: [[teamRow({ id: "team-1" })]],
       teamMemberships: [[], [{ activeCount: 5 }]],
     });
@@ -496,7 +522,7 @@ describe("disbandTeam", () => {
 describe("acceptInvitation", () => {
   it("creates the membership and marks the invitation accepted", async () => {
     const { tx, insertCalls, updateCalls } = makeFakeTx({
-      teamInvitations: [[invitationRow({ invitedPlayerId: "invitee-1" })]],
+      teamInvitations: [[invitationRow({ invitedPlayerId: "invitee-1" })], [invitationRow({ invitedPlayerId: "invitee-1" })]],
       teams: [[teamRow({ id: "team-1" })]],
       teamMemberships: [[], [{ activeCount: 1 }]],
     });
@@ -512,7 +538,7 @@ describe("acceptInvitation", () => {
 
   it("16. accepting one invitation atomically cancels every OTHER pending invitation for that player", async () => {
     const { tx, updateCalls } = makeFakeTx({
-      teamInvitations: [[invitationRow({ id: "invitation-1", invitedPlayerId: "invitee-1", teamId: "team-1" })]],
+      teamInvitations: [[invitationRow({ id: "invitation-1", invitedPlayerId: "invitee-1", teamId: "team-1" })], [invitationRow({ id: "invitation-1", invitedPlayerId: "invitee-1", teamId: "team-1" })]],
       teams: [[teamRow({ id: "team-1" })]],
       teamMemberships: [[], [{ activeCount: 0 }]],
     });
@@ -528,8 +554,47 @@ describe("acceptInvitation", () => {
     expect(updateCalls.filter((c) => c.table === teamInvitations)).toHaveLength(2);
   });
 
+  it("filling the team to 5/5 via invitation acceptance cancels every OTHER pending invitation AND pending join request targeting THIS team", async () => {
+    const { tx, updateCalls } = makeFakeTx({
+      teamInvitations: [[invitationRow({ id: "invitation-1", invitedPlayerId: "invitee-1", teamId: "team-1" })], [invitationRow({ id: "invitation-1", invitedPlayerId: "invitee-1", teamId: "team-1" })]],
+      teams: [[teamRow({ id: "team-1" })]],
+      teamMemberships: [[], [{ activeCount: 4 }]],
+    });
+    currentTx.current = tx;
+
+    const { acceptInvitation } = await import("@/features/teams");
+    await acceptInvitation("invitee-1", "invitation-1");
+
+    const invitationCancels = updateCalls.filter(
+      (c) => c.table === teamInvitations && c.values.status === "cancelled"
+    );
+    expect(invitationCancels.length).toBeGreaterThanOrEqual(1);
+    const requestCancels = updateCalls.filter(
+      (c) => c.table === teamJoinRequests && c.values.status === "cancelled"
+    );
+    expect(requestCancels).toHaveLength(1);
+  });
+
+  it("accepting at active(2) (not yet full) does NOT sweep other pending invitations/requests against this team", async () => {
+    const { tx, updateCalls } = makeFakeTx({
+      teamInvitations: [[invitationRow({ id: "invitation-1", invitedPlayerId: "invitee-1", teamId: "team-1" })], [invitationRow({ id: "invitation-1", invitedPlayerId: "invitee-1", teamId: "team-1" })]],
+      teams: [[teamRow({ id: "team-1" })]],
+      teamMemberships: [[], [{ activeCount: 2 }]],
+    });
+    currentTx.current = tx;
+
+    const { acceptInvitation } = await import("@/features/teams");
+    await acceptInvitation("invitee-1", "invitation-1");
+
+    const requestCancels = updateCalls.filter((c) => c.table === teamJoinRequests);
+    expect(requestCancels).toHaveLength(0);
+  });
+
   it("rejects accepting someone else's invitation", async () => {
-    const { tx } = makeFakeTx({ teamInvitations: [[invitationRow({ invitedPlayerId: "someone-else" })]] });
+    const { tx } = makeFakeTx({
+      teamInvitations: [[invitationRow({ invitedPlayerId: "someone-else" })], [invitationRow({ invitedPlayerId: "someone-else" })]],
+      teams: [[teamRow({ id: "team-1" })]],
+    });
     currentTx.current = tx;
 
     const { acceptInvitation, InvitationForbiddenError } = await import("@/features/teams");
@@ -537,11 +602,41 @@ describe("acceptInvitation", () => {
   });
 
   it("rejects accepting an already-resolved invitation", async () => {
-    const { tx } = makeFakeTx({ teamInvitations: [[invitationRow({ invitedPlayerId: "invitee-1", status: "declined" })]] });
+    const { tx } = makeFakeTx({
+      teamInvitations: [
+        [invitationRow({ invitedPlayerId: "invitee-1", status: "declined" })],
+        [invitationRow({ invitedPlayerId: "invitee-1", status: "declined" })],
+      ],
+      teams: [[teamRow({ id: "team-1" })]],
+    });
     currentTx.current = tx;
 
     const { acceptInvitation, InvitationNotPendingError } = await import("@/features/teams");
     await expect(acceptInvitation("invitee-1", "invitation-1")).rejects.toThrow(InvitationNotPendingError);
+  });
+
+  it("DEADLOCK SAFETY: locks the team row BEFORE re-locking the invitation row (team-first ordering)", async () => {
+    const { tx, selectOrder } = makeFakeTx({
+      teamInvitations: [[invitationRow({ invitedPlayerId: "invitee-1" })], [invitationRow({ invitedPlayerId: "invitee-1" })]],
+      teams: [[teamRow({ id: "team-1" })]],
+      teamMemberships: [[], [{ activeCount: 1 }]],
+    });
+    currentTx.current = tx;
+
+    const { acceptInvitation } = await import("@/features/teams");
+    await acceptInvitation("invitee-1", "invitation-1");
+
+    // The FIRST teamInvitations read is a non-locking preview (only to
+    // learn the teamId); the team row must be locked next, and only THEN
+    // is the invitation row re-selected FOR UPDATE. This ordering is what
+    // prevents a same-team deadlock between two concurrent acceptances
+    // (see acceptInvitation's "LOCK ORDER" doc comment).
+    const firstInvitationIdx = selectOrder.indexOf(teamInvitations);
+    const teamIdx = selectOrder.indexOf(teams);
+    const secondInvitationIdx = selectOrder.indexOf(teamInvitations, firstInvitationIdx + 1);
+    expect(firstInvitationIdx).toBeGreaterThanOrEqual(0);
+    expect(teamIdx).toBeGreaterThan(firstInvitationIdx);
+    expect(secondInvitationIdx).toBeGreaterThan(teamIdx);
   });
 });
 
@@ -555,7 +650,7 @@ describe("invite target eligibility -- account-merge / blocked-player compatibil
     const { tx, insertCalls } = makeFakeTx({
       teams: [[teamRow({ captainPlayerId: "captain-1" })]],
       teamMemberships: [[], [{ activeCount: 1 }]],
-      teamInvitations: [[], [{ pendingCount: 0 }]],
+      teamInvitations: [[]],
     });
     currentTx.current = tx;
 
@@ -817,24 +912,22 @@ describe("acceptJoinRequest", () => {
   function setupAccept(overrides: {
     teamOverrides?: Record<string, unknown>;
     activeCount?: number;
-    pendingInviteCount?: number;
     existingActiveMembership?: unknown[];
   } = {}) {
     outsideTxJoinRequestRow = joinRequestRow({ playerId: "applicant-1", teamId: "team-1" });
     mockPlayerRepo.findById.mockResolvedValue(playerDomain({ id: "applicant-1", display_name: "Applicant", telegram_id: 555 }));
     mockResolveCanonicalPlayer.mockResolvedValue(playerDomain({ id: "applicant-1", display_name: "Applicant", telegram_id: 555 }));
 
-    const { tx, insertCalls, updateCalls } = makeFakeTx({
+    const { tx, insertCalls, updateCalls, selectOrder } = makeFakeTx({
       teamJoinRequests: [[joinRequestRow({ id: "request-1", playerId: "applicant-1", teamId: "team-1" })]],
       teams: [[teamRow({ id: "team-1", captainPlayerId: "captain-1", ...overrides.teamOverrides })]],
       teamMemberships: [
         overrides.existingActiveMembership ?? [],
         [{ activeCount: overrides.activeCount ?? 1 }],
       ],
-      teamInvitations: [[{ pendingInviteCount: overrides.pendingInviteCount ?? 0 }]],
     });
     currentTx.current = tx;
-    return { insertCalls, updateCalls };
+    return { insertCalls, updateCalls, selectOrder };
   }
 
   it("9/10. captain can accept -- creates exactly one membership", async () => {
@@ -856,8 +949,17 @@ describe("acceptJoinRequest", () => {
     expect(insertCalls.filter((c) => c.table === teamMemberships)).toHaveLength(0);
   });
 
-  it("11. respects pending-invitation reserved capacity: active(3) + pending invites(2) >= 5 blocks acceptance", async () => {
-    const { insertCalls } = setupAccept({ activeCount: 3, pendingInviteCount: 2 });
+  it("11. pending invitations never count against capacity: active(3) + 20 pending invitations still lets the captain accept a join request", async () => {
+    const { insertCalls } = setupAccept({ activeCount: 3 });
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await acceptJoinRequest("captain-1", "request-1");
+
+    expect(insertCalls.filter((c) => c.table === teamMemberships)).toHaveLength(1);
+  });
+
+  it("active(5) still blocks acceptance regardless of pending invitations", async () => {
+    const { insertCalls } = setupAccept({ activeCount: 5 });
 
     const { acceptJoinRequest, TeamFullError } = await import("@/features/teams");
     await expect(acceptJoinRequest("captain-1", "request-1")).rejects.toThrow(TeamFullError);
@@ -888,7 +990,7 @@ describe("acceptJoinRequest", () => {
     expect(cancelledInvitationUpdates).toHaveLength(1);
   });
 
-  it("filling the team to 5/5 auto-cancels other requests still pending against it", async () => {
+  it("filling the team to 5/5 auto-cancels other requests AND other pending invitations still targeting it", async () => {
     const { updateCalls } = setupAccept({ activeCount: 4 });
 
     const { acceptJoinRequest } = await import("@/features/teams");
@@ -899,6 +1001,35 @@ describe("acceptJoinRequest", () => {
     const requestUpdates = updateCalls.filter((c) => c.table === teamJoinRequests);
     expect(requestUpdates.some((c) => c.values.status === "accepted")).toBe(true);
     expect(requestUpdates.some((c) => c.values.status === "cancelled")).toBe(true);
+
+    // Pending invitations against this same team are also swept once full
+    // -- at least the applicant's-own-invitations cancel plus this sweep.
+    const invitationCancels = updateCalls.filter(
+      (c) => c.table === teamInvitations && c.values.status === "cancelled"
+    );
+    expect(invitationCancels.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("active(3) does NOT trigger the 'team is now full' sweep -- only the unconditional applicant-cancel runs, not the team-wide one", async () => {
+    const { updateCalls } = setupAccept({ activeCount: 3 });
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await acceptJoinRequest("captain-1", "request-1");
+
+    // Exactly one teamJoinRequests cancel here: the unconditional "cancel
+    // the applicant's OTHER pending requests" update that always runs.
+    // Compare against the active(4) case, which additionally runs the
+    // "team just filled to 5/5" sweep (asserted in the test above).
+    const cancelledRequestUpdates = updateCalls.filter(
+      (c) => c.table === teamJoinRequests && c.values.status === "cancelled"
+    );
+    expect(cancelledRequestUpdates).toHaveLength(1);
+
+    const cancelledInvitationUpdates = updateCalls.filter(
+      (c) => c.table === teamInvitations && c.values.status === "cancelled"
+    );
+    // Only the applicant's-own-invitations cancel -- no team-wide sweep.
+    expect(cancelledInvitationUpdates).toHaveLength(1);
   });
 
   it("21. notifies the accepted PLAYER, not the captain", async () => {
@@ -916,6 +1047,22 @@ describe("acceptJoinRequest", () => {
 
     const { acceptJoinRequest } = await import("@/features/teams");
     await expect(acceptJoinRequest("captain-1", "request-1")).resolves.toBeTruthy();
+  });
+
+  it("DEADLOCK SAFETY: locks the team row BEFORE locking the join-request row (team-first ordering, matching acceptInvitation)", async () => {
+    const { selectOrder } = setupAccept();
+
+    const { acceptJoinRequest } = await import("@/features/teams");
+    await acceptJoinRequest("captain-1", "request-1");
+
+    // teams must be locked before the in-transaction teamJoinRequests
+    // FOR UPDATE re-read -- the same team-first ordering acceptInvitation
+    // uses, so a same-team invitation acceptance racing a join-request
+    // acceptance for the last seat cannot deadlock.
+    const teamIdx = selectOrder.indexOf(teams);
+    const requestIdx = selectOrder.indexOf(teamJoinRequests);
+    expect(teamIdx).toBeGreaterThanOrEqual(0);
+    expect(requestIdx).toBeGreaterThan(teamIdx);
   });
 });
 
