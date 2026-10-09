@@ -740,3 +740,48 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- Boost Rating", () =>
     expect(results.map((r: { rating_points: number }) => r.rating_points)).toEqual([142, 108, 80]);
   });
 });
+
+describe("POST /api/admin/tournaments/[id]/complete-free -- re-completion guard", () => {
+  it("an already-completed tournament is rejected with 409 BEFORE any Sheets read, live-state write, results write, Sheets export or Poker Clock finish", async () => {
+    mocks.getTournamentById.mockResolvedValue({
+      id: "t1",
+      status: "completed",
+      google_sheet_tab_name: "Sheet1",
+      tournament_type: "classic",
+      rating_formula_version: "v2",
+      rating_guarantee: null,
+      is_final: false,
+    });
+
+    const response = await POST(request({ rows: [row()] }), context());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Турнир уже завершён" });
+    expect(mocks.readAndParseFreeTournamentSheet).not.toHaveBeenCalled();
+    expect(mocks.applyLiveFieldsFromSheetSnapshot).not.toHaveBeenCalled();
+    expect(mocks.saveTournamentResults).not.toHaveBeenCalled();
+    expect(mocks.syncTournamentSheet).not.toHaveBeenCalled();
+    expect(mocks.finishPokerClockTournament).not.toHaveBeenCalled();
+  });
+
+  it("race loser: saveTournamentResults' locked check rejects -> 409, and neither the Sheets export nor Poker Clock finish runs", async () => {
+    const { TournamentAlreadyCompletedError } = await import("@/lib/tournament-errors");
+    mocks.saveTournamentResults.mockRejectedValue(new TournamentAlreadyCompletedError());
+
+    const response = await POST(request({ rows: [row()] }), context());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Турнир уже завершён" });
+    expect(mocks.syncTournamentSheet).not.toHaveBeenCalled();
+    expect(mocks.finishPokerClockTournament).not.toHaveBeenCalled();
+  });
+
+  it("an open tournament still completes normally (Sheets export + Poker Clock finish attempted after save)", async () => {
+    const response = await POST(request({ rows: [row()] }), context());
+
+    expect(response.status).toBe(200);
+    expect(mocks.saveTournamentResults).toHaveBeenCalledTimes(1);
+    expect(mocks.syncTournamentSheet).toHaveBeenCalledTimes(1);
+    expect(mocks.finishPokerClockTournament).toHaveBeenCalledWith("t1");
+  });
+});

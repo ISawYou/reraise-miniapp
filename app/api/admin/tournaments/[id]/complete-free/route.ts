@@ -18,6 +18,7 @@ import {
 } from "@/features/tournament-sheet-sync";
 import type { NormalizedFreeSheetRow } from "@/lib/tournament-sheet-parsing";
 import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
+import { TournamentAlreadyCompletedError } from "@/lib/tournament-errors";
 import { finishPokerClockTournament } from "@/lib/poker-clock-client";
 
 // ReRaise is the authoritative tournament/results system -- everything
@@ -66,6 +67,14 @@ export async function POST(
 
     const rawRows = body.rows ?? [];
     const tournament = await getTournamentById(id);
+
+    // Re-completion guard, fail fast BEFORE any Sheets read or live-state
+    // write below. The authoritative (locked) check is inside
+    // saveTournamentResults -> commitTournamentCompletion
+    // (features/tournament-completion-commit.ts).
+    if (tournament.status === "completed") {
+      throw new TournamentAlreadyCompletedError();
+    }
 
     // For a GS-linked free tournament, completion must guarantee freshness
     // itself -- the admin must never need to remember "Обновить из GS,

@@ -22,3 +22,30 @@ export class TournamentNotFoundError extends Error {
     this.name = "TournamentNotFoundError";
   }
 }
+
+// Re-completion guard (features/tournament-completion-commit.ts). Once a
+// tournament is `completed`, neither completion path (complete-free /
+// complete-live) may run again: re-running full completion USED to be the
+// informal way finishing places were corrected, and is now superseded by
+// the Super-Admin place correction (features/
+// completed-tournament-place-correction.ts). Thrown before any write (or
+// inside the locked completion transaction, before its first write). Mapped
+// to 409 by lib/tournament-completion-errors.ts::resolveCompletionError.
+export const TOURNAMENT_ALREADY_COMPLETED_MESSAGE = "Турнир уже завершён";
+
+export class TournamentAlreadyCompletedError extends Error {
+  constructor() {
+    super(TOURNAMENT_ALREADY_COMPLETED_MESSAGE);
+    this.name = "TournamentAlreadyCompletedError";
+  }
+}
+
+// Same Postgres-only precedent as lib/player-merge.ts's assertPostgresMode /
+// CompletedPlaceCorrectionUnavailableError: the locked completion
+// transaction is implemented against Drizzle/Postgres only.
+export class TournamentCompletionUnavailableError extends Error {
+  constructor() {
+    super("Tournament completion requires DATABASE_PROVIDER=postgres");
+    this.name = "TournamentCompletionUnavailableError";
+  }
+}

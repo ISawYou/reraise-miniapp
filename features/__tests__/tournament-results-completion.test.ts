@@ -53,6 +53,29 @@ vi.mock("@/lib/repositories", () => ({
   },
 }));
 
+// The final DB-mutation tail (lock -> reject-if-completed -> delete ->
+// insert -> mark attended -> status) now runs in ONE locked transaction in
+// features/tournament-completion-commit.ts, exercised for real (lock order,
+// re-completion rejection, rollback) in tournament-completion-guard.test.ts.
+// Here it is stubbed by a shim forwarding to the same repository mocks in
+// the same order as before, so this file keeps asserting exactly what it
+// always did: payload shaping, discount freeze, validation-before-write.
+vi.mock("@/features/tournament-completion-commit", () => ({
+  commitTournamentCompletion: vi.fn(
+    async (input: { tournamentId: string; results: unknown[]; attendedPlayerIds: string[] }) => {
+      await mocks.deleteByTournamentId(input.tournamentId);
+      await mocks.insertMany(input.results);
+      if (input.attendedPlayerIds.length > 0) {
+        await mocks.markAttendedBulk(input.tournamentId, input.attendedPlayerIds, [
+          "registered",
+          "attended",
+        ]);
+      }
+      await mocks.patch(input.tournamentId, { status: "completed" });
+    }
+  ),
+}));
+
 vi.mock("@/features/achievements", () => ({
   syncPlayersAchievementsIfEnabled: vi.fn().mockResolvedValue(undefined),
 }));

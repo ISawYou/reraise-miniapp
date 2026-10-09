@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { completeTournamentFromLiveEntries } from "@/features/tournaments";
+import { completeTournamentFromLiveEntries, getTournamentById } from "@/features/tournaments";
 import { syncTournamentLiveSheet } from "@/app/api/admin/tournaments/[id]/live-sync/route";
 import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
+import { TournamentAlreadyCompletedError } from "@/lib/tournament-errors";
 
 const OPERATION = "complete-live";
 
@@ -31,6 +32,15 @@ export async function POST(
           bountyPrice?: number;
         }
       | null;
+
+    // Re-completion guard, fail fast BEFORE the pre-completion live-entry /
+    // Google Sheets sync below. The authoritative (locked) check is inside
+    // completeTournamentFromLiveEntries -> commitTournamentCompletion
+    // (features/tournament-completion-commit.ts).
+    const tournament = await getTournamentById(id);
+    if (tournament.status === "completed") {
+      throw new TournamentAlreadyCompletedError();
+    }
 
     if (body?.rows?.length) {
       await syncTournamentLiveSheet(

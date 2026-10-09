@@ -20,7 +20,10 @@ import {
 import { isRatingEligibleTournament } from "@/lib/tournament-helpers";
 import { assertValidResultPlaces } from "@/lib/tournament-results-validation";
 import { computeDerivedEliminationPlaces } from "@/lib/tournament-placement";
-import { TournamentNotFoundError } from "@/lib/tournament-errors";
+import {
+  TournamentAlreadyCompletedError,
+  TournamentNotFoundError,
+} from "@/lib/tournament-errors";
 import { assertPlayerActive } from "@/features/auth-server";
 import { assertServerActorRole } from "@/lib/admin-auth";
 import {
@@ -32,6 +35,7 @@ import {
   reconcileTournamentWaitlistCapacity,
   unEliminateTournamentPlayerWithinCapacity,
 } from "@/features/tournament-waitlist-capacity";
+import { commitTournamentCompletion } from "@/features/tournament-completion-commit";
 import type {
   Registration,
   RegistrationStatus,
@@ -946,6 +950,12 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     throw new Error("Завершение через live-режим доступно только для платных турниров и кэш-игр");
   }
 
+  // Fail fast (unlocked) before any work; the authoritative check is the
+  // locked one inside commitTournamentCompletion below.
+  if (tournament.status === "completed") {
+    throw new TournamentAlreadyCompletedError();
+  }
+
   const liveEntries = await getTournamentLiveEntries(tournamentId);
 
   if (liveEntries.length === 0) {
@@ -979,8 +989,6 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     tournamentId,
     liveEntries.map((entry) => entry.player_id)
   );
-
-  await resultRepository.deleteByTournamentId(tournamentId);
 
   // entry.rebuys is each player's TOTAL entries (initial entry + every
   // rebuy) -- the same admin-facing field/convention used throughout the
@@ -1030,16 +1038,17 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
     };
   });
 
-  await resultRepository.insertMany(payload);
-
   const playerIds = liveEntries.map((entry) => entry.player_id);
 
-  await registrationRepository.markAttendedBulk(tournamentId, playerIds, [
-    "registered",
-    "attended",
-  ]);
-
-  await tournamentRepository.patch(tournamentId, { status: "completed" });
+  // Lock tournament row -> reject if already completed -> delete/insert
+  // results -> mark attended -> status "completed", all in ONE transaction
+  // (see features/tournament-completion-commit.ts). Throws
+  // TournamentAlreadyCompletedError with zero writes on a re-completion.
+  await commitTournamentCompletion({
+    tournamentId,
+    results: payload,
+    attendedPlayerIds: playerIds,
+  });
 
   try {
     const winner = liveEntries.find((entry) => entry.place === 1);
@@ -1075,16 +1084,16 @@ export async function saveTournamentResults(
 
   // CLUB DISCOUNTS -- must read any EXISTING frozen discounts before the
   // delete below erases them (see resolveClubDiscountPercents's doc
-  // comment for the freeze rule this preserves). This is exactly the path
-  // a legitimate admin correction re-runs, so preserving the ALREADY-frozen
-  // value here (rather than re-reading the player's possibly-since-changed
-  // live setting) is what actually matters.
+  // comment for the freeze rule this preserves). Re-running completion on
+  // an already-completed tournament is rejected by
+  // commitTournamentCompletion below (corrections go through
+  // features/completed-tournament-place-correction.ts instead), but
+  // results can still pre-exist here if e.g. an older partial run left
+  // them behind, so the ALREADY-frozen value still wins.
   const clubDiscountPercents = await resolveClubDiscountPercents(
     tournamentId,
     results.map((item) => item.player_id)
   );
-
-  await resultRepository.deleteByTournamentId(tournamentId);
 
   const payload = results.map((item) => ({
     tournament_id: tournamentId,
@@ -1109,18 +1118,15 @@ export async function saveTournamentResults(
     club_discount_percent: clubDiscountPercents.get(item.player_id) ?? 0,
   }));
 
-  await resultRepository.insertMany(payload);
-
   const playerIds = results.map((item) => item.player_id);
 
-  if (playerIds.length > 0) {
-    await registrationRepository.markAttendedBulk(tournamentId, playerIds, [
-      "registered",
-      "attended",
-    ]);
-  }
-
-  await tournamentRepository.patch(tournamentId, { status: "completed" });
+  // Same locked tail as completeTournamentFromLiveEntries -- see
+  // features/tournament-completion-commit.ts.
+  await commitTournamentCompletion({
+    tournamentId,
+    results: payload,
+    attendedPlayerIds: playerIds,
+  });
 
   try {
     const winner = results.find((item) => item.place === 1);

@@ -2,6 +2,7 @@ import "server-only";
 
 import { extractPostgresError } from "@/lib/db/postgres-error";
 import { ResultPlaceValidationError } from "@/lib/tournament-results-validation";
+import { TournamentAlreadyCompletedError } from "@/lib/tournament-errors";
 
 // Shared by the two tournament-completion API routes
 // (app/api/admin/tournaments/[id]/complete-free/route.ts and
@@ -29,6 +30,12 @@ export type CompletionErrorResolution = {
 export function resolveCompletionError(error: unknown): CompletionErrorResolution {
   if (error instanceof ResultPlaceValidationError) {
     return { status: 400, message: error.message, expected: true };
+  }
+
+  // Re-completion of an already-completed tournament (see
+  // features/tournament-completion-commit.ts) -- rejected with zero writes.
+  if (error instanceof TournamentAlreadyCompletedError) {
+    return { status: 409, message: error.message, expected: true };
   }
 
   const pg = extractPostgresError(error);

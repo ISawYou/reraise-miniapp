@@ -359,6 +359,19 @@ export default function AdminTournamentResultsPage() {
   const [returningPlayerId, setReturningPlayerId] = useState<string | null>(null);
   useBodyScrollLock(showEliminationCorrection);
 
+  // "Исправить места" -- Super-Admin-only correction of an ALREADY-COMPLETED
+  // tournament's finishing places (features/completed-tournament-place-
+  // correction.ts). Separate from the live panel above. Place 1 is pinned
+  // and never part of `placeCorrectionOrder`, which holds the remaining
+  // player_ids worst-place-first (index 0 = highest place number);
+  // tournamentResults stays the single source of display data.
+  const [showPlaceCorrection, setShowPlaceCorrection] = useState(false);
+  const [placeCorrectionOrder, setPlaceCorrectionOrder] = useState<string[]>([]);
+  const [placeCorrectionConfirming, setPlaceCorrectionConfirming] = useState(false);
+  const [placeCorrectionSaving, setPlaceCorrectionSaving] = useState(false);
+  const [placeCorrectionError, setPlaceCorrectionError] = useState<string | null>(null);
+  useBodyScrollLock(showPlaceCorrection);
+
   // Kept fresh every render so the queue's `send` closure (created once,
   // below) always calls the right tournament -- params.id is effectively
   // stable for this page's lifetime, but a ref removes any doubt.
@@ -1204,6 +1217,125 @@ export default function AdminTournamentResultsPage() {
       );
     } finally {
       setCorrectionSaving(false);
+    }
+  }
+
+  // --- "Исправить места" (completed tournaments, Super Admin only) ---
+
+  const placeCorrectionWinner = tournamentResults.find((result) => result.place === 1) ?? null;
+  // Places available to the reorderable list, worst first -- the k-th entry
+  // of placeCorrectionOrder takes placeCorrectionSlots[k].
+  const placeCorrectionSlots = tournamentResults
+    .filter((result) => result.place !== 1)
+    .map((result) => result.place)
+    .sort((a, b) => b - a);
+  const placeCorrectionChanges = placeCorrectionOrder
+    .map((playerId, index) => {
+      const result = tournamentResults.find((r) => r.player_id === playerId);
+      const newPlace = placeCorrectionSlots[index];
+      if (!result || newPlace === undefined || result.place === newPlace) return null;
+      return {
+        player_id: playerId,
+        display_name: result.display_name,
+        old_place: result.place,
+        new_place: newPlace,
+      };
+    })
+    .filter((change) => change !== null)
+    .sort((a, b) => a.new_place - b.new_place);
+
+  // Always starts from the CURRENT canonical results, never stale state
+  // from a previous open/close.
+  function openPlaceCorrectionPanel() {
+    setPlaceCorrectionError(null);
+    setPlaceCorrectionConfirming(false);
+    setPlaceCorrectionOrder(
+      tournamentResults
+        .filter((result) => result.place !== 1)
+        .sort((a, b) => b.place - a.place)
+        .map((result) => result.player_id)
+    );
+    setShowPlaceCorrection(true);
+  }
+
+  function closePlaceCorrectionPanel() {
+    if (placeCorrectionSaving) return;
+    setShowPlaceCorrection(false);
+    setPlaceCorrectionConfirming(false);
+    setPlaceCorrectionError(null);
+  }
+
+  function movePlaceCorrectionEntry(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    setPlaceCorrectionConfirming(false);
+    setPlaceCorrectionOrder((prev) => {
+      if (target < 0 || target >= prev.length) {
+        return prev;
+      }
+      const next = prev.slice();
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  // Sends the FULL result set (pinned winner + every reordered player with
+  // their new place); the server re-reads results under a lock and rejects
+  // anything stale, so a panel left open in another tab can't corrupt data.
+  async function handleConfirmPlaceCorrection() {
+    if (!tournamentId || placeCorrectionChanges.length === 0) return;
+
+    setPlaceCorrectionSaving(true);
+    setPlaceCorrectionError(null);
+
+    const rows = [
+      ...(placeCorrectionWinner
+        ? [{ player_id: placeCorrectionWinner.player_id, place: placeCorrectionWinner.place }]
+        : []),
+      ...placeCorrectionOrder.map((playerId, index) => ({
+        player_id: playerId,
+        place: placeCorrectionSlots[index],
+      })),
+    ];
+
+    try {
+      const payload = await fetchAdminJson<{
+        ok: true;
+        changed: {
+          player_id: string;
+          old_place: number;
+          new_place: number;
+          rating_points: number;
+        }[];
+        sheet_sync_warning?: string;
+      }>(`/api/admin/tournaments/${tournamentId}/completed-place-correction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+
+      const changedById = new Map(payload.changed.map((change) => [change.player_id, change]));
+      setTournamentResults((prev) =>
+        prev
+          .map((result) => {
+            const change = changedById.get(result.player_id);
+            return change
+              ? { ...result, place: change.new_place, rating_points: change.rating_points }
+              : result;
+          })
+          .sort((a, b) => a.place - b.place)
+      );
+      setShowPlaceCorrection(false);
+      setPlaceCorrectionConfirming(false);
+      setMessage(
+        payload.sheet_sync_warning
+          ? `Места исправлены. ${payload.sheet_sync_warning}`
+          : "Места исправлены"
+      );
+    } catch (err) {
+      setPlaceCorrectionError(err instanceof Error ? err.message : "Не удалось исправить места");
+      setPlaceCorrectionConfirming(false);
+    } finally {
+      setPlaceCorrectionSaving(false);
     }
   }
 
@@ -2308,6 +2440,15 @@ export default function AdminTournamentResultsPage() {
             <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-center text-xs text-white/60">
               Показаны зафиксированные результаты турнира
             </p>
+            {isSuperAdmin(player?.role) && tournamentResults.length > 1 ? (
+              <button
+                type="button"
+                onClick={openPlaceCorrectionPanel}
+                className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-3 text-sm font-semibold text-white/85 disabled:opacity-40"
+              >
+                Исправить места
+              </button>
+            ) : null}
             {tournamentResults.length === 0 ? (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
                 Результаты турнира не найдены.
@@ -2930,6 +3071,169 @@ export default function AdminTournamentResultsPage() {
             >
               {correctionSaving ? "Сохраняем..." : "Сохранить порядок"}
             </button>
+          </section>
+        </div>
+      ) : null}
+
+      {showPlaceCorrection ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/70"
+          onClick={closePlaceCorrectionPanel}
+        >
+          <section
+            className="max-h-[86vh] w-full overflow-y-auto overscroll-contain rounded-t-[30px] border border-white/10 bg-[#101612]/95 p-5 pb-[calc(env(safe-area-inset-bottom)+24px)] shadow-2xl backdrop-blur-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Исправить места</h2>
+                <p className="mt-1.5 text-xs text-white/50">
+                  Турнир завершён. Стрелками можно поменять итоговые места (кроме 1-го).
+                  ITM-очки закреплены за местом и перейдут к новому владельцу места,
+                  остальные очки игрока не меняются.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closePlaceCorrectionPanel}
+                disabled={placeCorrectionSaving}
+                className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-sm text-white/70 disabled:opacity-50"
+              >
+                Закрыть
+              </button>
+            </div>
+
+            {placeCorrectionError ? (
+              <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-200">
+                {placeCorrectionError}
+              </p>
+            ) : null}
+
+            {placeCorrectionConfirming ? (
+              <div className="mt-4 space-y-2">
+                <p className="text-sm font-semibold text-white">
+                  Проверьте изменения перед сохранением:
+                </p>
+                {placeCorrectionChanges.map((change) => (
+                  <div
+                    key={change.player_id}
+                    className="flex items-center justify-between gap-2.5 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-2.5"
+                  >
+                    <p className="min-w-0 truncate text-sm font-medium text-white">
+                      {change.display_name}
+                    </p>
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-yellow-200">
+                      {change.old_place} → {change.new_place}
+                    </p>
+                  </div>
+                ))}
+                <p className="text-[11px] text-white/45">
+                  Рейтинг изменённых игроков будет пересчитан из зафиксированных ITM-очков
+                  мест. Остальные игроки не затрагиваются.
+                </p>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setPlaceCorrectionConfirming(false)}
+                    disabled={placeCorrectionSaving}
+                    className="flex-1 rounded-lg border border-white/15 px-3 py-3 text-sm font-semibold text-white/85 disabled:opacity-50"
+                  >
+                    Назад
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmPlaceCorrection}
+                    disabled={placeCorrectionSaving || placeCorrectionChanges.length === 0}
+                    className="flex-1 rounded-lg bg-yellow-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-50"
+                  >
+                    {placeCorrectionSaving ? "Сохраняем..." : "Подтвердить и сохранить"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="mt-4 space-y-2">
+                  {placeCorrectionWinner ? (
+                    <div className="flex items-center gap-2.5 rounded-xl border border-yellow-500/30 bg-yellow-500/[0.08] p-2.5">
+                      <div className="flex w-9 shrink-0 items-center justify-center rounded-lg bg-yellow-500/20 py-1.5 text-sm font-semibold text-yellow-200">
+                        1
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-white">
+                          🏆 {placeCorrectionWinner.display_name}
+                        </p>
+                        <p className="text-[11px] text-white/45">Победитель — не изменяется</p>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {placeCorrectionOrder.map((playerId, index) => {
+                    const result = tournamentResults.find((r) => r.player_id === playerId);
+                    if (!result) return null;
+                    const newPlace = placeCorrectionSlots[index];
+                    const moved = newPlace !== result.place;
+
+                    return (
+                      <div
+                        key={playerId}
+                        className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-black/25 p-2.5"
+                      >
+                        <div
+                          className={`flex w-9 shrink-0 items-center justify-center rounded-lg py-1.5 text-sm font-semibold ${
+                            moved ? "bg-yellow-500/20 text-yellow-200" : "bg-white/[0.06] text-white/80"
+                          }`}
+                        >
+                          {newPlace}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-white">
+                            {result.display_name}
+                          </p>
+                          {moved ? (
+                            <p className="text-[11px] text-white/45">было: {result.place}</p>
+                          ) : null}
+                        </div>
+
+                        <div className="flex shrink-0 flex-col gap-1">
+                          <button
+                            type="button"
+                            onClick={() => movePlaceCorrectionEntry(index, -1)}
+                            disabled={index === 0}
+                            aria-label="Переместить на место хуже"
+                            className="flex h-7 w-9 items-center justify-center rounded-md border border-white/10 text-white/70 disabled:opacity-30"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => movePlaceCorrectionEntry(index, 1)}
+                            disabled={index === placeCorrectionOrder.length - 1}
+                            aria-label="Переместить на место лучше"
+                            className="flex h-7 w-9 items-center justify-center rounded-md border border-white/10 text-white/70 disabled:opacity-30"
+                          >
+                            ↓
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlaceCorrectionError(null);
+                    setPlaceCorrectionConfirming(true);
+                  }}
+                  disabled={placeCorrectionSaving || placeCorrectionChanges.length === 0}
+                  className="mt-4 w-full rounded-lg bg-yellow-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-50"
+                >
+                  {placeCorrectionChanges.length === 0 ? "Нет изменений" : "Сохранить"}
+                </button>
+              </>
+            )}
           </section>
         </div>
       ) : null}
