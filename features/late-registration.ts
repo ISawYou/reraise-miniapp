@@ -32,7 +32,10 @@ import type {
 // closing boundary. This module is therefore Postgres-only for the actual
 // close, same precedent as lib/player-merge.ts and
 // tournament-waitlist-capacity.ts.
-export class LateRegistrationCloseUnavailableError extends Error {
+// Not exported -- see features/mystery-bounty.ts's mapMysteryBountyDrizzleRow
+// comment: a "use server" file's top-level exports must all be async
+// functions (Next.js Server Actions convention), so this stays internal.
+class LateRegistrationCloseUnavailableError extends Error {
   constructor() {
     super("Closing Late Registration requires DATABASE_PROVIDER=postgres");
     this.name = "LateRegistrationCloseUnavailableError";
@@ -305,7 +308,7 @@ export async function closeTournamentLateRegistrationOperation(
         // Historical partial-close recovery: Mystery's envelope snapshot
         // already exists (from an earlier attempt whose generic step
         // failed) -- reused byte-for-byte, never recomputed/overwritten.
-        mysteryBountySnapshot = mapMysteryBountyDrizzleRow(existingMysteryRow);
+        mysteryBountySnapshot = await mapMysteryBountyDrizzleRow(existingMysteryRow);
       } else if (existingGenericRow) {
         // Not reachable via this function in ordinary operation (Mystery
         // is always created before the generic snapshot below) -- fail
@@ -348,7 +351,7 @@ export async function closeTournamentLateRegistrationOperation(
           .returning();
 
         if (insertedMystery) {
-          mysteryBountySnapshot = mapMysteryBountyDrizzleRow(insertedMystery);
+          mysteryBountySnapshot = await mapMysteryBountyDrizzleRow(insertedMystery);
         } else {
           const [fallbackMystery] = await tx
             .select()
@@ -358,7 +361,7 @@ export async function closeTournamentLateRegistrationOperation(
           if (!fallbackMystery) {
             throw new Error("Failed to close Mystery Bounty: snapshot was not returned");
           }
-          mysteryBountySnapshot = mapMysteryBountyDrizzleRow(fallbackMystery);
+          mysteryBountySnapshot = await mapMysteryBountyDrizzleRow(fallbackMystery);
         }
 
         // Same locked `rows` read above, reused here -- NOT a second

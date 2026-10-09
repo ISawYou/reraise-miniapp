@@ -74,9 +74,12 @@ function mapRow(row: MysteryBountyRow): MysteryBountySnapshot {
 // transactional Mystery-aware close can map the raw row it just
 // inserted/read via `tx` (bypassing the repository, which isn't tx-aware)
 // without duplicating this field list a third time.
-export function mapMysteryBountyDrizzleRow(
+// async: every top-level export of a "use server" file must be an async
+// function (Next.js Server Actions convention) -- this mapper has no IO of
+// its own, but a plain sync export here breaks the WHOLE module's build.
+export async function mapMysteryBountyDrizzleRow(
   row: typeof tournamentMysteryBounty.$inferSelect
-): MysteryBountySnapshot {
+): Promise<MysteryBountySnapshot> {
   return mapRow({
     tournament_id: row.tournamentId,
     status: row.status as MysteryBountyRow["status"],
