@@ -52,6 +52,11 @@ import {
   setTournamentPlayerRebuyState,
   type ReorderEliminationsResult,
 } from "@/features/tournaments";
+import {
+  assertTournamentSeatAvailableForReturn,
+  reconcileTournamentWaitlistCapacity,
+  TournamentSeatUnavailableError,
+} from "@/features/tournament-waitlist-capacity";
 import { tournamentRepository } from "@/lib/repositories";
 import {
   applyNewRosterRowsFormatting,
@@ -196,10 +201,28 @@ export async function applyLiveFieldsFromSheetSnapshot(
     if (wasEliminated !== sheetRow.eliminated) {
       // Never trust a GS elimination timestamp -- setTournamentPlayerElimination
       // derives/preserves eliminated_at itself.
-      await setTournamentPlayerElimination(tournamentId, playerId, sheetRow.eliminated);
-      eliminationChanges++;
-      if (wasEliminated && !sheetRow.eliminated) {
-        unEliminatedPlayerIds.push(playerId);
+      let applied = true;
+      try {
+        await setTournamentPlayerElimination(tournamentId, playerId, sheetRow.eliminated);
+      } catch (error) {
+        // Un-checking Выбыл in the sheet while the tournament is full: the
+        // capacity check fails closed for THIS player only (Postgres keeps
+        // eliminated=true, retried every tick) -- it must not abort the
+        // rest of this tournament's sync pass.
+        if (!(error instanceof TournamentSeatUnavailableError)) {
+          throw error;
+        }
+        applied = false;
+        logSyncError("un-elimination from sheet rejected: no free seat", {
+          tournamentId,
+          playerId,
+        });
+      }
+      if (applied) {
+        eliminationChanges++;
+        if (wasEliminated && !sheetRow.eliminated) {
+          unEliminatedPlayerIds.push(playerId);
+        }
       }
     }
 
@@ -442,7 +465,9 @@ export async function syncTournamentRosterToSheet(
 
 export type ReconcileTournamentResult =
   | { skipped: true; reason: string }
-  | ({ skipped: false } & LiveFieldSyncResult & RosterSyncResult & PlacementSyncResult);
+  | ({ skipped: false; promotedPlayerIds: string[] } & LiveFieldSyncResult &
+      RosterSyncResult &
+      PlacementSyncResult);
 
 // The single reconciliation pass for ONE tournament -- reads the sheet
 // once, then reuses that snapshot for roster sync, live-field sync, AND
@@ -480,6 +505,36 @@ export async function reconcileTournamentFromSheet(
     eligiblePlayerIds
   );
 
+  // Seat capacity, every tick, unconditionally (not only when this tick saw
+  // an elimination) -- so state that predates this code, or a promotion
+  // that failed transiently elsewhere, self-heals on the next poll.
+  // Eliminations applied just above already reconciled once each; this
+  // extra call is an idempotent no-op in that case.
+  const reconciliation = await reconcileTournamentWaitlistCapacity(tournamentId);
+
+  // Same-pass catch-up for newly-promoted players, reusing the SAME parsed
+  // snapshot (no second sheet read): they weren't in eligiblePlayerIds a
+  // moment ago, but their sheet row may already carry operational state
+  // (e.g. Пришёл ticked by an operator while they waited). Applying it now
+  // means a promoted player is fully live this tick instead of ~15s later.
+  // Anyone promoted as a side effect of THIS catch-up (a promoted player
+  // already marked Выбыл frees their seat again) gets the same treatment on
+  // the next tick -- the generic eligiblePlayerIds path above.
+  if (reconciliation.promotedPlayerIds.length > 0) {
+    const promotedLiveResult = await applyLiveFieldsFromSheetSnapshot(
+      tournamentId,
+      readResult.rows,
+      new Set(reconciliation.promotedPlayerIds)
+    );
+    liveResult.attendanceChanges += promotedLiveResult.attendanceChanges;
+    liveResult.eliminationChanges += promotedLiveResult.eliminationChanges;
+    liveResult.rebuyChanges += promotedLiveResult.rebuyChanges;
+    liveResult.unEliminatedPlayerIds.push(...promotedLiveResult.unEliminatedPlayerIds);
+  }
+
+  // Runs AFTER reconciliation, so a promoted player's existing sheet row
+  // gets its Статус регистрации cell rewritten waitlist -> registered (the
+  // B:E identity/status range only; no new row, no operational cell).
   const rosterResult = await syncTournamentRosterToSheet(
     tournament,
     readResult.rows,
@@ -491,14 +546,27 @@ export async function reconcileTournamentFromSheet(
   // same pass already shifted fieldSize by the time this runs, and an
   // already-eliminated player's place must shift with it with no separate
   // click required (see syncDerivedPlacementToSheet's doc comment).
+  // Re-read eligibility after reconciliation so promoted players are
+  // included in derived-placement sync.
+  const postReconcileEligiblePlayerIds =
+    reconciliation.promotedPlayerIds.length > 0
+      ? new Set((await getTournamentResultsDraft(tournamentId)).map((row) => row.player_id))
+      : eligiblePlayerIds;
+
   const placementResult = await syncDerivedPlacementToSheet(
     tournament,
     readResult.rows,
-    eligiblePlayerIds,
+    postReconcileEligiblePlayerIds,
     liveResult.unEliminatedPlayerIds
   );
 
-  return { skipped: false, ...liveResult, ...rosterResult, ...placementResult };
+  return {
+    skipped: false,
+    promotedPlayerIds: reconciliation.promotedPlayerIds,
+    ...liveResult,
+    ...rosterResult,
+    ...placementResult,
+  };
 }
 
 // Called on every poller tick. One broken tournament's sheet must never
@@ -584,6 +652,17 @@ export async function setTournamentPlayerEliminationThroughSheet(
     throw new Error("Не удалось прочитать Google Таблицу — попробуйте ещё раз");
   }
 
+  // Returning a player needs a free seat. Refuse BEFORE touching the sheet
+  // (an un-elimination we then couldn't apply in Postgres would leave the
+  // sheet saying "in play" for a player Postgres still has eliminated).
+  // Advisory only -- setTournamentPlayerElimination re-checks under the
+  // tournament-row lock and stays authoritative.
+  if (!eliminated && isGsActive) {
+    await assertTournamentSeatAvailableForReturn(tournamentId, playerId);
+  }
+
+  let sheetCellWritten: { range: string } | null = null;
+
   if (readResult?.ok) {
     const sheetRow = readResult.rows.get(playerId);
 
@@ -594,13 +673,10 @@ export async function setTournamentPlayerEliminationThroughSheet(
     if (sheetRow && sheetRow.eliminated !== eliminated) {
       const tabName = tournament.google_sheet_tab_name!.trim();
       const layout = getFreeSheetColumnLayout(tournament.tournament_type);
+      const range = `${tabName}!${columnIndexToLetter(layout.eliminatedIndex)}${sheetRow.rowNumber}`;
       try {
-        await batchUpdateSpreadsheetValues([
-          {
-            range: `${tabName}!${columnIndexToLetter(layout.eliminatedIndex)}${sheetRow.rowNumber}`,
-            values: [[eliminated]],
-          },
-        ]);
+        await batchUpdateSpreadsheetValues([{ range, values: [[eliminated]] }]);
+        sheetCellWritten = { range };
       } catch (error) {
         logSyncError("elimination write-through to sheet failed", {
           tournamentId,
@@ -616,7 +692,28 @@ export async function setTournamentPlayerEliminationThroughSheet(
     }
   }
 
-  const result = await setTournamentPlayerElimination(tournamentId, playerId, eliminated);
+  let result: { eliminated: boolean; eliminated_at: string | null };
+  try {
+    result = await setTournamentPlayerElimination(tournamentId, playerId, eliminated);
+  } catch (error) {
+    // Lost a race for the last seat between the advisory pre-check and the
+    // locked check: best-effort put the sheet's Выбыл cell back so the two
+    // systems agree again, then surface the original error.
+    if (error instanceof TournamentSeatUnavailableError && sheetCellWritten) {
+      try {
+        await batchUpdateSpreadsheetValues([
+          { range: sheetCellWritten.range, values: [[!eliminated]] },
+        ]);
+      } catch (revertError) {
+        logSyncError("failed to revert Выбыл cell after seat rejection", {
+          tournamentId,
+          playerId,
+          error: revertError instanceof Error ? revertError.message : String(revertError),
+        });
+      }
+    }
+    throw error;
+  }
 
   // The derived place itself is a pure Postgres computation -- always
   // returned regardless of GS linkage, so the ReRaise admin UI never needs

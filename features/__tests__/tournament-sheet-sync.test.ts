@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   readSpreadsheetTabValues: vi.fn(),
   batchUpdateSpreadsheetValues: vi.fn(),
   applyNewRosterRowsFormatting: vi.fn(),
+  reconcileTournamentWaitlistCapacity: vi.fn(),
+  assertTournamentSeatAvailableForReturn: vi.fn(),
 }));
 
 vi.mock("@/features/tournaments", () => ({
@@ -31,6 +33,16 @@ vi.mock("@/features/tournaments", () => ({
   setTournamentPlayerAttendance: mocks.setTournamentPlayerAttendance,
   setTournamentPlayerElimination: mocks.setTournamentPlayerElimination,
   setTournamentPlayerRebuyState: mocks.setTournamentPlayerRebuyState,
+}));
+
+// Only the two DB-touching entry points are mocked; the error classes stay
+// real so `instanceof` checks in the module under test behave exactly as in
+// production. The capacity logic itself is covered against a stateful fake
+// db in tournament-waitlist-capacity.test.ts / waitlist.test.ts.
+vi.mock("@/features/tournament-waitlist-capacity", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/tournament-waitlist-capacity")>()),
+  reconcileTournamentWaitlistCapacity: mocks.reconcileTournamentWaitlistCapacity,
+  assertTournamentSeatAvailableForReturn: mocks.assertTournamentSeatAvailableForReturn,
 }));
 
 vi.mock("@/lib/repositories", () => ({
@@ -50,6 +62,7 @@ const {
   setTournamentPlayerEliminationThroughSheet,
   reorderTournamentEliminationsThroughSheet,
 } = await import("@/features/tournament-sheet-sync");
+const { TournamentSeatUnavailableError } = await import("@/features/tournament-waitlist-capacity");
 
 function tournament(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -115,6 +128,11 @@ beforeEach(() => {
   mocks.setTournamentPlayerElimination.mockResolvedValue({ eliminated: true, eliminated_at: null });
   mocks.setTournamentPlayerRebuyState.mockResolvedValue({ rebuys: 0, addons: 0 });
   mocks.getDerivedEliminationPlaces.mockResolvedValue(new Map());
+  mocks.reconcileTournamentWaitlistCapacity.mockResolvedValue({
+    promotedRegistrationIds: [],
+    promotedPlayerIds: [],
+  });
+  mocks.assertTournamentSeatAvailableForReturn.mockResolvedValue(undefined);
 });
 
 describe("reconcileTournamentFromSheet -- live field reconciliation", () => {
@@ -727,5 +745,184 @@ describe("reorderTournamentEliminationsThroughSheet -- \"Исправить по
     // reconcile because Postgres and the sheet already agree.
     expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalled();
     expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
+  });
+});
+
+// Seat capacity / waitlist promotion inside the GS reconciliation pass.
+// Design (see reconcileTournamentFromSheet): the reconciler runs ONCE per
+// pass, unconditionally, after live-field sync and BEFORE roster sync; any
+// newly-promoted player's live fields are applied in the SAME pass from the
+// SAME parsed snapshot (no second sheet read), and eligibility is re-read
+// before derived-placement sync.
+describe("reconcileTournamentFromSheet -- waitlist capacity", () => {
+  function playerRow(id: string, nick: string, status: string, overrides: Partial<Record<number, string>> = {}) {
+    return p1Row({ 0: id, 1: nick, 2: nick, 3: `@${nick}`, 4: status, ...overrides });
+  }
+
+  function promote(playerIds: string[]) {
+    mocks.reconcileTournamentWaitlistCapacity.mockResolvedValueOnce({
+      promotedRegistrationIds: playerIds.map((id) => `reg-${id}`),
+      promotedPlayerIds: playerIds,
+    });
+  }
+
+  it("runs the reconciler every pass, even with no elimination change this tick (self-heals pre-existing free seats)", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row()]));
+
+    await reconcileTournamentFromSheet("t1");
+
+    expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalled();
+    expect(mocks.reconcileTournamentWaitlistCapacity).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileTournamentWaitlistCapacity).toHaveBeenCalledWith("t1");
+  });
+
+  it("a GS-driven elimination leads to promotion in the SAME pass: elimination applied, then the reconciler, then roster sync", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([p1Row({ 14: "true" }), playerRow("w1", "wendy", "waitlist")])
+    );
+    promote(["w1"]);
+    mocks.getTournamentSheetExportData.mockResolvedValue(
+      exportRoster([
+        { player_id: "p1" },
+        { player_id: "w1", username: "wendy", display_name: "wendy", registration_status: "registered" },
+      ])
+    );
+
+    const result = await reconcileTournamentFromSheet("t1");
+
+    expect(mocks.setTournamentPlayerElimination).toHaveBeenCalledWith("t1", "p1", true);
+    const eliminationOrder = mocks.setTournamentPlayerElimination.mock.invocationCallOrder[0];
+    const reconcileOrder = mocks.reconcileTournamentWaitlistCapacity.mock.invocationCallOrder[0];
+    const rosterOrder = mocks.getTournamentSheetExportData.mock.invocationCallOrder[0];
+    expect(eliminationOrder).toBeLessThan(reconcileOrder);
+    expect(reconcileOrder).toBeLessThan(rosterOrder);
+    expect(result).toMatchObject({ skipped: false, promotedPlayerIds: ["w1"] });
+  });
+
+  it("a promoted player's EXISTING sheet row gets only its B:E identity/status range rewritten -- no new row, no operational cell", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    // w1 waited with operational data already entered (Re-buy=2).
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([p1Row(), playerRow("w1", "wendy", "waitlist", { 9: "2" })])
+    );
+    mocks.getTournamentRebuyState.mockResolvedValue(new Map([["w1", { rebuys: 2, addons: 0 }]]));
+    promote(["w1"]);
+    mocks.getTournamentSheetExportData.mockResolvedValue(
+      exportRoster([
+        { player_id: "p1" },
+        { player_id: "w1", username: "wendy", display_name: "wendy", registration_status: "registered" },
+      ])
+    );
+
+    const result = await reconcileTournamentFromSheet("t1");
+
+    expect(result).toMatchObject({ appended: 0, identityUpdated: 1 });
+    const allUpdates = mocks.batchUpdateSpreadsheetValues.mock.calls.flatMap((call) => call[0]);
+    expect(allUpdates).toEqual([
+      { range: "Sheet1!B9:E9", values: [["wendy", "wendy", "@wendy", "registered"]] },
+    ]);
+    expect(mocks.applyNewRosterRowsFormatting).not.toHaveBeenCalled();
+  });
+
+  it("a newly-promoted player becomes eligible for live-field sync in the same pass (their sheet Пришёл is applied) and for placement sync", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([p1Row(), playerRow("w1", "wendy", "waitlist", { 5: "true" })])
+    );
+    // Before promotion only p1 is eligible; after it, p1 + w1.
+    mocks.getTournamentResultsDraft
+      .mockResolvedValueOnce([{ player_id: "p1", display_name: "Alice", username: "alice", status: "registered" }])
+      .mockResolvedValueOnce([
+        { player_id: "p1", display_name: "Alice", username: "alice", status: "registered" },
+        { player_id: "w1", display_name: "wendy", username: "wendy", status: "registered" },
+      ]);
+    promote(["w1"]);
+
+    const result = await reconcileTournamentFromSheet("t1");
+
+    expect(mocks.setTournamentPlayerAttendance).toHaveBeenCalledTimes(1);
+    expect(mocks.setTournamentPlayerAttendance).toHaveBeenCalledWith("t1", "w1", true);
+    expect(result).toMatchObject({ attendanceChanges: 1 });
+    // Same parsed snapshot reused -- exactly one sheet read this pass.
+    expect(mocks.readSpreadsheetTabValues).toHaveBeenCalledTimes(1);
+    // Eligibility re-read after reconciliation (for placement sync).
+    expect(mocks.getTournamentResultsDraft).toHaveBeenCalledTimes(2);
+  });
+
+  it("before promotion, a waitlisted player's sheet state is still ignored (no promotion this pass => no live write)", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(
+      sheetValues([p1Row(), playerRow("w1", "wendy", "waitlist", { 5: "true" })])
+    );
+
+    await reconcileTournamentFromSheet("t1");
+
+    expect(mocks.setTournamentPlayerAttendance).not.toHaveBeenCalled();
+    expect(mocks.getTournamentResultsDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("a sheet un-elimination rejected for lack of seats is skipped for that player only -- the rest of the pass continues", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.getTournamentEliminations.mockResolvedValue(new Map([["p1", { eliminated: true, eliminated_at: "x" }]]));
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 9: "4", 14: "false" })]));
+    mocks.setTournamentPlayerElimination.mockRejectedValue(new TournamentSeatUnavailableError());
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await reconcileTournamentFromSheet("t1");
+
+    expect(result).toMatchObject({ skipped: false, eliminationChanges: 0, unEliminatedPlayerIds: [], rebuyChanges: 1 });
+    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 4, 0);
+    expect(mocks.reconcileTournamentWaitlistCapacity).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("any OTHER elimination error still aborts the pass (not swallowed)", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 14: "true" })]));
+    mocks.setTournamentPlayerElimination.mockRejectedValue(new Error("db down"));
+
+    await expect(reconcileTournamentFromSheet("t1")).rejects.toThrow("db down");
+  });
+});
+
+describe("setTournamentPlayerEliminationThroughSheet -- return to game needs a free seat", () => {
+  it("no free seat: refuses BEFORE writing the sheet, Postgres untouched", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "true" })]));
+    mocks.assertTournamentSeatAvailableForReturn.mockRejectedValue(new TournamentSeatUnavailableError());
+
+    await expect(
+      setTournamentPlayerEliminationThroughSheet("t1", "p1", false, { failClosedOnSheetWrite: true })
+    ).rejects.toThrow("Невозможно вернуть игрока в игру — турнир заполнен (нет свободных мест)");
+
+    expect(mocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
+    expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalled();
+  });
+
+  it("seat lost to a race after the pre-check: the locked check throws and the Выбыл cell is reverted", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "true" })]));
+    mocks.setTournamentPlayerElimination.mockRejectedValue(new TournamentSeatUnavailableError());
+
+    await expect(
+      setTournamentPlayerEliminationThroughSheet("t1", "p1", false, { failClosedOnSheetWrite: true })
+    ).rejects.toBeInstanceOf(TournamentSeatUnavailableError);
+
+    const writes = mocks.batchUpdateSpreadsheetValues.mock.calls.map((call) => call[0]);
+    expect(writes).toEqual([
+      [{ range: "Sheet1!O8", values: [[false]] }],
+      [{ range: "Sheet1!O8", values: [[true]] }],
+    ]);
+  });
+
+  it("the pre-check is skipped for eliminations (they only free seats)", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament());
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 5: "true", 14: "false" })]));
+
+    await setTournamentPlayerEliminationThroughSheet("t1", "p1", true);
+
+    expect(mocks.assertTournamentSeatAvailableForReturn).not.toHaveBeenCalled();
   });
 });

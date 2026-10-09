@@ -12,7 +12,8 @@ import {
   tournamentMysteryBountyRepository,
   tournamentLiveStateRepository,
 } from "@/lib/repositories";
-import type { MysteryBountyRow } from "@/lib/repositories";
+import type { MysteryBountyInsert, MysteryBountyRow } from "@/lib/repositories";
+import { tournamentMysteryBounty } from "@/lib/db/schema";
 import {
   computeEnvelopeDistribution,
   computeMysteryPool,
@@ -66,6 +67,35 @@ function mapRow(row: MysteryBountyRow): MysteryBountySnapshot {
     activated_at: row.activated_at,
     recalculated_at: row.recalculated_at,
   };
+}
+
+// Same field mapping as PostgresTournamentMysteryBountyRepository's own
+// (private) mapRow, exposed here so features/late-registration.ts's
+// transactional Mystery-aware close can map the raw row it just
+// inserted/read via `tx` (bypassing the repository, which isn't tx-aware)
+// without duplicating this field list a third time.
+export function mapMysteryBountyDrizzleRow(
+  row: typeof tournamentMysteryBounty.$inferSelect
+): MysteryBountySnapshot {
+  return mapRow({
+    tournament_id: row.tournamentId,
+    status: row.status as MysteryBountyRow["status"],
+    players_count: row.playersCount,
+    total_entries_count: row.totalEntriesCount,
+    rebuys_count: row.rebuysCount,
+    addons_count: row.addonsCount,
+    active_players_count: row.activePlayersCount,
+    mystery_pool: row.mysteryPool,
+    envelope_count: row.envelopeCount,
+    small_count: row.smallCount,
+    small_value: row.smallValue,
+    medium_count: row.mediumCount,
+    medium_value: row.mediumValue,
+    jackpot_value: row.jackpotValue,
+    closed_at: row.closedAt.toISOString(),
+    activated_at: row.activatedAt ? row.activatedAt.toISOString() : null,
+    recalculated_at: row.recalculatedAt ? row.recalculatedAt.toISOString() : null,
+  });
 }
 
 async function assertMysteryBountyTournament(tournamentId: string) {
@@ -172,6 +202,45 @@ export async function getMysteryBountySnapshot(
   return row ? mapRow(row) : null;
 }
 
+// THE pool/envelope computation, shared by closeMysteryBountyLateRegistration
+// below AND features/late-registration.ts's transactional Mystery-aware
+// close -- so the formula is computed in exactly one place no matter which
+// caller is closing Late Registration. Returns ready-to-insert values
+// (minus tournament_id, which each caller already has) rather than the
+// intermediate ComputedSnapshotInputs shape, so neither caller re-maps
+// field names on its own.
+export async function buildMysteryBountyInsertValues(
+  tournamentId: string,
+  rows: MysteryBountyRosterRow[],
+  ratingFormulaVersion: RatingFormulaVersion
+): Promise<Omit<MysteryBountyInsert, "tournament_id">> {
+  const {
+    playersCount,
+    totalEntriesCount,
+    rebuysCount,
+    addonsCount,
+    activePlayersCount,
+    mysteryPool,
+    breakdown,
+  } = await computeSnapshotInputs(tournamentId, rows, ratingFormulaVersion);
+
+  return {
+    status: "pending_envelopes",
+    players_count: playersCount,
+    total_entries_count: totalEntriesCount,
+    rebuys_count: rebuysCount,
+    addons_count: addonsCount,
+    active_players_count: activePlayersCount,
+    mystery_pool: mysteryPool,
+    envelope_count: breakdown.envelopeCount,
+    small_count: breakdown.smallCount,
+    small_value: breakdown.smallValue,
+    medium_count: breakdown.mediumCount,
+    medium_value: breakdown.mediumValue,
+    jackpot_value: breakdown.jackpotValue,
+  };
+}
+
 export async function closeMysteryBountyLateRegistration(
   tournamentId: string,
   rows: MysteryBountyRosterRow[]
@@ -189,31 +258,15 @@ export async function closeMysteryBountyLateRegistration(
     );
   }
 
-  const {
-    playersCount,
-    totalEntriesCount,
-    rebuysCount,
-    addonsCount,
-    activePlayersCount,
-    mysteryPool,
-    breakdown,
-  } = await computeSnapshotInputs(tournamentId, rows, tournament.rating_formula_version);
+  const insertValues = await buildMysteryBountyInsertValues(
+    tournamentId,
+    rows,
+    tournament.rating_formula_version
+  );
 
   const row = await tournamentMysteryBountyRepository.insert({
     tournament_id: tournamentId,
-    status: "pending_envelopes",
-    players_count: playersCount,
-    total_entries_count: totalEntriesCount,
-    rebuys_count: rebuysCount,
-    addons_count: addonsCount,
-    active_players_count: activePlayersCount,
-    mystery_pool: mysteryPool,
-    envelope_count: breakdown.envelopeCount,
-    small_count: breakdown.smallCount,
-    small_value: breakdown.smallValue,
-    medium_count: breakdown.mediumCount,
-    medium_value: breakdown.mediumValue,
-    jackpot_value: breakdown.jackpotValue,
+    ...insertValues,
   });
 
   return mapRow(row);

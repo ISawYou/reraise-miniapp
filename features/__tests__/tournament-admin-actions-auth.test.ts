@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   registrationFindStatusAndTournamentById: vi.fn(),
   registrationDelete: vi.fn(),
   registrationFindOldestWaitlisted: vi.fn(),
+  admitPlayerToTournament: vi.fn(),
+  reconcileTournamentWaitlistCapacity: vi.fn(),
 }));
 
 // Wholesale mock -- NOT vi.importActual + spread. assertServerActorRole's
@@ -34,6 +36,12 @@ const mocks = vi.hoisted(() => ({
 // which are covered by middleware.test.ts's real integration.
 vi.mock("@/lib/admin-auth", () => ({
   assertServerActorRole: mocks.assertServerActorRole,
+}));
+
+vi.mock("@/features/tournament-waitlist-capacity", () => ({
+  admitPlayerToTournament: mocks.admitPlayerToTournament,
+  reconcileTournamentWaitlistCapacity: mocks.reconcileTournamentWaitlistCapacity,
+  unEliminateTournamentPlayerWithinCapacity: vi.fn(),
 }));
 
 vi.mock("@/lib/repositories", () => ({
@@ -109,6 +117,11 @@ beforeEach(() => {
   mocks.registrationFindStatusAndTournamentById.mockResolvedValue({ status: "registered", tournament_id: "t1" });
   mocks.registrationDelete.mockResolvedValue(undefined);
   mocks.registrationFindOldestWaitlisted.mockResolvedValue([]);
+  mocks.admitPlayerToTournament.mockResolvedValue({ id: "reg-new", status: "registered" });
+  mocks.reconcileTournamentWaitlistCapacity.mockResolvedValue({
+    promotedRegistrationIds: [],
+    promotedPlayerIds: [],
+  });
 });
 
 function allow(role: "operator" | "admin") {
@@ -182,12 +195,13 @@ describe("addAdminTournamentParticipant / addExistingPlayerToTournament / remove
     deny();
     await expect(addExistingPlayerToTournament("t1", "p2")).rejects.toThrow();
     expect(mocks.registrationFindLatest).not.toHaveBeenCalled();
+    expect(mocks.admitPlayerToTournament).not.toHaveBeenCalled();
   });
 
   it("addExistingPlayerToTournament allows an operator", async () => {
     allow("operator");
     await addExistingPlayerToTournament("t1", "p2");
-    expect(mocks.registrationCreateSilent).toHaveBeenCalled();
+    expect(mocks.admitPlayerToTournament).toHaveBeenCalledWith("t1", "p2");
   });
 
   it("removeAdminTournamentParticipant rejects when the guard rejects", async () => {

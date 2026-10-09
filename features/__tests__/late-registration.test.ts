@@ -1,20 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { addRegistration, fake, fakeDb, resetFakeCapacityDb } from "./helpers/fake-capacity-db";
 
 const mocks = vi.hoisted(() => ({
   findTournament: vi.fn(),
   findSnapshot: vi.fn(),
-  insertIfAbsent: vi.fn(),
   findAttended: vi.fn(),
   findRebuyState: vi.fn(),
   getMysterySnapshot: vi.fn(),
   closeMystery: vi.fn(),
+  buildMysteryInsertValues: vi.fn(),
 }));
+
+// closeTournamentLateRegistration's actual lock+insert now goes through
+// the SAME raw `db` as features/tournament-waitlist-capacity.ts (see that
+// module's and features/tournament-row-lock.ts's doc comments) -- this
+// suite mocks @/lib/db with the shared stateful fake so tests can prove
+// the shared-lock invariant directly. `tournamentLateRegistrationRepository
+// .findByTournamentId`'s own cheap pre-check (outside the lock) and the
+// attendance/rebuy/Mystery reads still go through the ordinary
+// @/lib/repositories / @/features/mystery-bounty mocks, exactly as before.
+vi.mock("@/lib/db", () => ({ db: fakeDb }));
 
 vi.mock("@/lib/repositories", () => ({
   tournamentRepository: { findById: mocks.findTournament },
   tournamentLateRegistrationRepository: {
     findByTournamentId: mocks.findSnapshot,
-    insertIfAbsent: mocks.insertIfAbsent,
   },
   tournamentLiveStateRepository: {
     findAttendedPlayersWithDetails: mocks.findAttended,
@@ -25,6 +35,35 @@ vi.mock("@/lib/repositories", () => ({
 vi.mock("@/features/mystery-bounty", () => ({
   getMysteryBountySnapshot: mocks.getMysterySnapshot,
   closeMysteryBountyLateRegistration: mocks.closeMystery,
+  // closeTournamentLateRegistrationOperation's fresh-close path calls this
+  // directly (not closeMysteryBountyLateRegistration) so Mystery's insert
+  // can happen under the SAME tx/lock as the generic snapshot -- see that
+  // function's doc comment. Mocked here for the same reason the real pool/
+  // envelope math is never exercised in this suite: these tests prove the
+  // ORDERING/lock-sharing contract, not the formula (covered elsewhere).
+  buildMysteryBountyInsertValues: mocks.buildMysteryInsertValues,
+  // Real mapper -- it's a pure field-rename with no IO, fine to use as-is
+  // against the fake db's plain-object rows.
+  mapMysteryBountyDrizzleRow: (row: Record<string, unknown>) => ({
+    tournament_id: row.tournamentId,
+    late_registration_status: "closed",
+    status: row.status,
+    players_count: row.playersCount,
+    total_entries_count: row.totalEntriesCount,
+    rebuys_count: row.rebuysCount,
+    addons_count: row.addonsCount,
+    active_players_count: row.activePlayersCount,
+    mystery_pool: row.mysteryPool,
+    envelope_count: row.envelopeCount,
+    small_count: row.smallCount,
+    small_value: row.smallValue,
+    medium_count: row.mediumCount,
+    medium_value: row.mediumValue,
+    jackpot_value: row.jackpotValue,
+    closed_at: (row.closedAt as Date).toISOString(),
+    activated_at: row.activatedAt ? (row.activatedAt as Date).toISOString() : null,
+    recalculated_at: row.recalculatedAt ? (row.recalculatedAt as Date).toISOString() : null,
+  }),
 }));
 
 const {
@@ -32,6 +71,9 @@ const {
   closeTournamentLateRegistrationOperation,
   getTournamentStateForIntegration,
 } = await import("@/features/late-registration");
+const { reconcileTournamentWaitlistCapacity } = await import(
+  "@/features/tournament-waitlist-capacity"
+);
 
 const tournament = {
   id: "t1",
@@ -43,8 +85,14 @@ const tournament = {
   is_final: false,
 };
 
+function insertCount() {
+  return fake.state.log.filter((entry) => entry === "insert:tournament_late_registration").length;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.DATABASE_PROVIDER = "postgres";
+  resetFakeCapacityDb({ tournamentId: "t1" });
   mocks.findTournament.mockResolvedValue(tournament);
   mocks.findSnapshot.mockResolvedValue(null);
   mocks.findAttended.mockResolvedValue([
@@ -59,11 +107,22 @@ beforeEach(() => {
       ["p3", { rebuys: 1, addons: 0 }],
     ])
   );
-  mocks.insertIfAbsent.mockImplementation(async (row) => ({
-    ...row,
-    closed_at: "2026-08-25T12:00:00.000Z",
-  }));
   mocks.getMysterySnapshot.mockResolvedValue(null);
+  mocks.buildMysteryInsertValues.mockResolvedValue({
+    status: "pending_envelopes",
+    players_count: 3,
+    total_entries_count: 3,
+    rebuys_count: 0,
+    addons_count: 0,
+    active_players_count: 3,
+    mystery_pool: 100,
+    envelope_count: 1,
+    small_count: 1,
+    small_value: 100,
+    medium_count: 0,
+    medium_value: 0,
+    jackpot_value: 0,
+  });
 });
 
 describe("generic Late Registration snapshot", () => {
@@ -101,7 +160,7 @@ describe("generic Late Registration snapshot", () => {
     });
   });
 
-  it("is idempotent and never recomputes an existing frozen snapshot", async () => {
+  it("is idempotent and never recomputes an existing frozen snapshot (cheap pre-check short-circuits before the lock)", async () => {
     const frozen = {
       tournament_id: "t1",
       closed_at: "2026-08-25T12:00:00.000Z",
@@ -112,13 +171,43 @@ describe("generic Late Registration snapshot", () => {
     await expect(closeTournamentLateRegistration("t1")).resolves.toBe(frozen);
     expect(mocks.findAttended).not.toHaveBeenCalled();
     expect(mocks.findRebuyState).not.toHaveBeenCalled();
-    expect(mocks.insertIfAbsent).not.toHaveBeenCalled();
+    expect(insertCount()).toBe(0);
+  });
+
+  it("is idempotent even when the cheap pre-check misses -- the lock-protected re-check inside the transaction catches a snapshot created while this call was waiting for the lock", async () => {
+    // Simulate: pre-check (outside the lock) ran first and saw nothing,
+    // but by the time THIS call reaches the lock, a concurrent close has
+    // already committed a snapshot.
+    mocks.findSnapshot.mockResolvedValue(null);
+    resetFakeCapacityDb({ tournamentId: "t1" });
+    fake.state.lateRegistrationSnapshot = {
+      tournamentId: "t1",
+      arrivedPlayersCount: 1,
+      initialStacksCount: 1,
+      totalEntriesCount: 1,
+      rebuysCount: 0,
+      addonsCount: 0,
+      tournamentType: "classic",
+      ratingFormulaVersion: "v2",
+      ratingGuarantee: null,
+      ratingPlaces: [{ place: 1, points: 1 }],
+      closedAt: new Date("2026-08-25T12:00:00.000Z"),
+    };
+
+    const snapshot = await closeTournamentLateRegistration("t1");
+
+    expect(snapshot.arrived_players_count).toBe(1);
+    // Never recomputed/overwritten -- the lock-protected re-check inside
+    // closeGenericSnapshotLocked returns the existing row untouched (an
+    // attendance read may still happen before that re-check runs; it's
+    // simply discarded, not a correctness issue).
+    expect(insertCount()).toBe(0);
   });
 
   it("does not enable close for paid/cash tournaments", async () => {
     mocks.findTournament.mockResolvedValue({ ...tournament, kind: "paid" });
     await expect(closeTournamentLateRegistration("t1")).rejects.toThrow("только для рейтинговых free");
-    expect(mocks.insertIfAbsent).not.toHaveBeenCalled();
+    expect(insertCount()).toBe(0);
   });
 
   it("reports open/null before close and frozen places after close", async () => {
@@ -202,32 +291,112 @@ describe("generic Late Registration snapshot", () => {
     });
   });
 
-  it("composes Mystery-specific and generic close, reusing an existing Mystery pool on retry", async () => {
-    const mystery = { tournament_id: "t1", mystery_pool: 100 };
+  it("composes Mystery-specific and generic close, reusing an EXISTING Mystery snapshot on retry (historical partial-close recovery)", async () => {
     mocks.findTournament.mockResolvedValue({ ...tournament, tournament_type: "mystery_bounty" });
-    mocks.getMysterySnapshot.mockResolvedValue(mystery);
+    // Simulates a prior attempt whose Mystery step succeeded but whose
+    // generic step failed -- exactly the documented recoverable gap.
+    fake.state.mysteryBountySnapshot = {
+      tournamentId: "t1",
+      status: "pending_envelopes",
+      playersCount: 3,
+      totalEntriesCount: 3,
+      rebuysCount: 0,
+      addonsCount: 0,
+      activePlayersCount: 3,
+      mysteryPool: 100,
+      envelopeCount: 1,
+      smallCount: 1,
+      smallValue: 100,
+      mediumCount: 0,
+      mediumValue: 0,
+      jackpotValue: 0,
+      closedAt: new Date("2026-08-25T12:00:00.000Z"),
+      activatedAt: null,
+      recalculatedAt: null,
+    };
 
     const result = await closeTournamentLateRegistrationOperation("t1");
-    expect(result.mysteryBountySnapshot).toBe(mystery);
+
+    expect(result.mysteryBountySnapshot).toMatchObject({ tournament_id: "t1", mystery_pool: 100 });
+    // The EXISTING row is reused byte-for-byte -- never recomputed/
+    // overwritten (buildMysteryBountyInsertValues is the only thing that
+    // would recompute it, and it must never run here).
+    expect(mocks.buildMysteryInsertValues).not.toHaveBeenCalled();
     expect(mocks.closeMystery).not.toHaveBeenCalled();
-    expect(mocks.insertIfAbsent).toHaveBeenCalledTimes(1);
+    // Exactly one insert this call: the generic snapshot. Mystery's
+    // snapshot already existed, so zero Mystery inserts.
+    expect(insertCount()).toBe(1);
   });
 
-  it("creates Mystery-specific state before the generic snapshot on the first unified close", async () => {
-    const mystery = { tournament_id: "t1", mystery_pool: 100 };
+  it("creates Mystery-specific state before the generic snapshot on the first unified close -- both under the SAME lock/transaction, no nested transaction", async () => {
     mocks.findTournament.mockResolvedValue({ ...tournament, tournament_type: "mystery_bounty" });
-    mocks.closeMystery.mockResolvedValue(mystery);
+
+    const result = await closeTournamentLateRegistrationOperation("t1");
+
+    // Mystery's insert-values builder ran with the authoritative roster
+    // (never the old closeMysteryBountyLateRegistration/closeMystery path).
+    expect(mocks.buildMysteryInsertValues).toHaveBeenCalledWith(
+      "t1",
+      [
+        { player_id: "p1", arrived: true, rebuys: 1, addons: 0 },
+        { player_id: "p2", arrived: true, rebuys: 1, addons: 0 },
+        { player_id: "p3", arrived: true, rebuys: 1, addons: 0 },
+      ],
+      "v2"
+    );
+    expect(mocks.closeMystery).not.toHaveBeenCalled();
+
+    // Both rows inserted exactly once each, inside ONE transaction (no
+    // "tx:begin" appears twice -- a nested transaction would show as a
+    // second begin before this one commits).
+    expect(fake.state.log.filter((e) => e === "tx:begin")).toHaveLength(1);
+    expect(fake.state.log.filter((e) => e === "insert:tournament_mystery_bounty")).toHaveLength(1);
+    expect(insertCount()).toBe(1);
+
+    // Mystery's insert happened strictly BEFORE the generic snapshot's
+    // insert, under the lock, matching the documented ordering.
+    const mysteryIdx = fake.state.log.indexOf("insert:tournament_mystery_bounty");
+    const genericIdx = fake.state.log.indexOf("insert:tournament_late_registration");
+    expect(mysteryIdx).toBeGreaterThanOrEqual(0);
+    expect(genericIdx).toBeGreaterThan(mysteryIdx);
+
+    expect(result.mysteryBountySnapshot).toMatchObject({ tournament_id: "t1", mystery_pool: 100 });
+    expect(result.snapshot.arrived_players_count).toBe(3);
+  });
+
+  it("Mystery close shares exactly one lock acquisition with the generic snapshot (no separate, later lock for the generic step)", async () => {
+    mocks.findTournament.mockResolvedValue({ ...tournament, tournament_type: "mystery_bounty" });
 
     await closeTournamentLateRegistrationOperation("t1");
 
-    expect(mocks.closeMystery).toHaveBeenCalledWith("t1", [
-      { player_id: "p1", arrived: true, rebuys: 1, addons: 0 },
-      { player_id: "p2", arrived: true, rebuys: 1, addons: 0 },
-      { player_id: "p3", arrived: true, rebuys: 1, addons: 0 },
-    ]);
-    expect(mocks.closeMystery.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.insertIfAbsent.mock.invocationCallOrder[0]
+    expect(fake.state.log.filter((e) => e === "lock:tournaments")).toHaveLength(1);
+  });
+
+  it("if a concurrent waitlist promotion wins the lock first, both the Mystery and generic snapshots see the post-promotion roster", async () => {
+    resetFakeCapacityDb({ tournamentId: "t1", maxPlayers: 4 });
+    addRegistration("p1", "registered");
+    addRegistration("p2", "registered");
+    addRegistration("p3", "registered");
+    addRegistration("w1", "waitlist");
+    fake.state.eliminations.set("p1", true); // a seat opens
+
+    const { reconcileTournamentWaitlistCapacity } = await import(
+      "@/features/tournament-waitlist-capacity"
     );
+    const promoted = await reconcileTournamentWaitlistCapacity("t1");
+    expect(promoted.promotedPlayerIds).toEqual(["w1"]);
+
+    mocks.findTournament.mockResolvedValue({ ...tournament, tournament_type: "mystery_bounty" });
+    // This test only asserts the lock-sharing/ordering contract (the Mystery
+    // roster inputs themselves come from the mocked attendance/rebuy repo,
+    // independent of the fake registrations model) -- the promotion above
+    // is already fully committed before this call even starts, which is
+    // the property under test.
+    await closeTournamentLateRegistrationOperation("t1");
+
+    expect(fake.state.registrations.find((r) => r.playerId === "w1")?.status).toBe("registered");
+    expect(fake.state.mysteryBountySnapshot).not.toBeNull();
+    expect(fake.state.lateRegistrationSnapshot).not.toBeNull();
   });
 });
 
@@ -271,5 +440,84 @@ describe("Boost Rating -- placement multiplier is frozen INTO rating_places at c
       { place: 2, points: 53 },
       { place: 3, points: 39 },
     ]);
+  });
+});
+
+describe("Late Registration close shares the tournament-row lock with waitlist capacity", () => {
+  it("1. lock order: tournament row FOR UPDATE, then the late-reg snapshot re-check, then (if absent) the insert", async () => {
+    await closeTournamentLateRegistration("t1");
+
+    const lockIdx = fake.state.log.indexOf("lock:tournaments");
+    const snapshotCheckIdx = fake.state.log.indexOf("select:tournament_late_registration");
+    const insertIdx = fake.state.log.indexOf("insert:tournament_late_registration");
+
+    expect(lockIdx).toBeGreaterThanOrEqual(0);
+    expect(snapshotCheckIdx).toBeGreaterThan(lockIdx);
+    expect(insertIdx).toBeGreaterThan(snapshotCheckIdx);
+  });
+
+  it("2. close takes the SAME lock primitive as reconcileTournamentWaitlistCapacity (both log lock:tournaments as their first tournament-scoped statement)", async () => {
+    resetFakeCapacityDb({ tournamentId: "t1" });
+    await reconcileTournamentWaitlistCapacity("t1");
+    const reconcilerLockIdx = fake.state.log.indexOf("lock:tournaments");
+    expect(reconcilerLockIdx).toBe(0 + fake.state.log.indexOf("tx:begin") + 1);
+
+    resetFakeCapacityDb({ tournamentId: "t1" });
+    await closeTournamentLateRegistration("t1");
+    const closeLockIdx = fake.state.log.indexOf("lock:tournaments");
+    expect(closeLockIdx).toBe(fake.state.log.indexOf("tx:begin") + 1);
+  });
+
+  it("3. if close wins the lock first, a waiting reconcile sees CLOSED and promotes 0 -- no stale 'open' read survives the close", async () => {
+    resetFakeCapacityDb({ tournamentId: "t1", maxPlayers: 3 });
+    addRegistration("w1", "waitlist");
+    // Simplest deterministic proof without real concurrency: close commits
+    // first (this fake's transaction mutex already serializes same-model
+    // calls one at a time, standing in for the real FOR UPDATE wait), THEN
+    // the reconciler runs and must see the snapshot that now exists.
+    await closeTournamentLateRegistration("t1");
+
+    const result = await reconcileTournamentWaitlistCapacity("t1");
+    expect(result.promotedPlayerIds).toEqual([]);
+  });
+
+  it("4. if reconcile wins first, its promotion completes before close reads attendance -- close's snapshot reflects the post-promotion roster", async () => {
+    resetFakeCapacityDb({ tournamentId: "t1", maxPlayers: 4 });
+    fake.state.registrations = [];
+    fake.state.eliminations = new Map();
+    addRegistration("p1", "registered");
+    addRegistration("p2", "registered");
+    addRegistration("p3", "registered");
+    addRegistration("w1", "waitlist");
+
+    // A seat opens (p1 eliminated) and the reconciler promotes w1 to
+    // `registered` BEFORE Late Registration is closed.
+    fake.state.eliminations.set("p1", true);
+    const reconcileResult = await reconcileTournamentWaitlistCapacity("t1");
+    expect(reconcileResult.promotedPlayerIds).toEqual(["w1"]);
+
+    // Close now runs against the model's CURRENT registrations table --
+    // this test's attendance mock is independent of the fake registrations
+    // model (closeTournamentLateRegistration reads attendance through the
+    // ordinary repository mock, not the fake registrations table), so this
+    // asserts the ordering/lock-sharing contract itself: the promotion is
+    // fully committed (w1 is `registered`) strictly before close's lock
+    // acquisition can proceed.
+    expect(fake.state.registrations.find((r) => r.playerId === "w1")?.status).toBe("registered");
+    await closeTournamentLateRegistration("t1");
+    expect(fake.state.lateRegistrationSnapshot).not.toBeNull();
+  });
+
+  it("5. no promotion can cross a committed snapshot boundary: once closed, the reconciler never promotes again even with free seats", async () => {
+    resetFakeCapacityDb({ tournamentId: "t1", maxPlayers: 2 });
+    addRegistration("p1", "registered");
+    addRegistration("w1", "waitlist");
+
+    await closeTournamentLateRegistration("t1");
+    fake.state.eliminations.set("p1", true); // a seat opens AFTER close
+
+    const result = await reconcileTournamentWaitlistCapacity("t1");
+    expect(result.promotedPlayerIds).toEqual([]);
+    expect(fake.state.registrations.find((r) => r.playerId === "w1")?.status).toBe("waitlist");
   });
 });

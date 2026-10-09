@@ -27,6 +27,11 @@ import {
   FINAL_CANCELLATION_REJECTED_MESSAGE,
   FINAL_REGISTRATION_REJECTED_MESSAGE,
 } from "@/lib/tournament-final-policy";
+import {
+  admitPlayerToTournament,
+  reconcileTournamentWaitlistCapacity,
+  unEliminateTournamentPlayerWithinCapacity,
+} from "@/features/tournament-waitlist-capacity";
 import type {
   Registration,
   RegistrationStatus,
@@ -259,6 +264,10 @@ export async function getPlayerRegistrationForTournament(
   return registrationRepository.findActiveByPlayerAndTournament(playerId, tournamentId);
 }
 
+// Display-only count of `registered` rows per tournament (tournament
+// cards/lists). NOT a capacity check -- seat capacity is decided solely by
+// features/tournament-waitlist-capacity.ts (simultaneous seats: registered/
+// attended minus currently-eliminated players).
 export async function getTournamentRegistrationCounts() {
   const rows = await registrationRepository.findRegisteredTournamentIds();
 
@@ -291,10 +300,6 @@ export async function registerPlayerForTournament(
     return existingRegistration;
   }
 
-  if (existingRegistration?.status === "waitlist") {
-    return existingRegistration;
-  }
-
   const tournament = await getTournamentById(tournamentId);
 
   // Fail closed, server-side: a "Финал месяца" tournament's composition is
@@ -305,28 +310,24 @@ export async function registerPlayerForTournament(
   // created/reactivated below -- title/description/tournament_type must
   // never be used to infer this, only tournament.is_final.
   if (tournament.is_final) {
+    // An (admin-curated) waitlist row on a final is returned untouched, as
+    // before -- no self-service call may change a final's composition.
+    if (existingRegistration?.status === "waitlist") {
+      return existingRegistration;
+    }
     throw new Error(FINAL_REGISTRATION_REJECTED_MESSAGE);
   }
-
-  const counts = await getTournamentRegistrationCounts();
-  const registeredCount = counts[tournamentId] ?? 0;
-
-  const nextStatus: RegistrationStatus =
-    registeredCount < tournament.max_players ? "registered" : "waitlist";
 
   if (existingRegistration?.status === "attended") {
     throw new Error("Нельзя заново зарегистрироваться в завершённый турнир");
   }
 
-  if (existingRegistration?.status === "cancelled") {
-    return registrationRepository.updateStatus(existingRegistration.id, nextStatus);
-  }
-
-  return registrationRepository.create({
-    player_id: playerId,
-    tournament_id: tournamentId,
-    status: nextStatus,
-  });
+  // Seat decision + write under the tournament-row lock (see
+  // features/tournament-waitlist-capacity.ts). An already-waitlisted player
+  // is re-evaluated here rather than handed back their stale waitlist row:
+  // if a seat has been freed since (e.g. by an elimination) and they're
+  // first in line, they come back `registered`.
+  return admitPlayerToTournament(tournamentId, playerId);
 }
 
 export async function cancelPlayerRegistration(
@@ -354,13 +355,10 @@ export async function cancelPlayerRegistration(
 
   await registrationRepository.updateStatusSilent(currentRegistration.id, "cancelled");
 
-  if (currentRegistration.status === "registered") {
-    const waitlistData = await registrationRepository.findOldestWaitlisted(tournamentId);
-    const nextWaitlistPlayer = waitlistData[0];
-
-    if (nextWaitlistPlayer) {
-      await registrationRepository.updateStatusSilent(nextWaitlistPlayer.id, "registered");
-    }
+  // A cancelled seat-holder frees a seat -- fill it via the one canonical
+  // reconciler (FIFO, Late-Registration-aware, capacity-locked).
+  if (currentRegistration.status !== "waitlist") {
+    await reconcileTournamentWaitlistCapacity(tournamentId);
   }
 }
 
@@ -704,22 +702,10 @@ export async function addExistingPlayerToTournament(
     throw new Error("Игрок уже участвовал в этом турнире");
   }
 
-  const tournament = await getTournamentById(tournamentId);
-  const counts = await getTournamentRegistrationCounts();
-  const registeredCount = counts[tournamentId] ?? 0;
-
-  const nextStatus: RegistrationStatus =
-    registeredCount < tournament.max_players ? "registered" : "waitlist";
-
-  if (existingReg?.status === "cancelled") {
-    await registrationRepository.updateStatusSilent(existingReg.id, nextStatus);
-  } else {
-    await registrationRepository.createSilent({
-      player_id: playerId,
-      tournament_id: tournamentId,
-      status: nextStatus,
-    });
-  }
+  // Same locked seat decision as self-registration (registered iff a seat
+  // is free and nobody is already waiting ahead, else waitlist). Never
+  // checks is_final -- this IS the admin path that curates a final.
+  await admitPlayerToTournament(tournamentId, playerId);
 }
 
 // Same bypass-of-middleware reasoning as updateTournament above. Staff --
@@ -732,15 +718,8 @@ export async function removeAdminTournamentParticipant(registrationId: string) {
 
   await registrationRepository.delete(registrationId);
 
-  if (regData.status === "registered") {
-    const waitlistData = await registrationRepository.findOldestWaitlisted(
-      regData.tournament_id
-    );
-
-    const nextWaitlistPlayer = waitlistData[0];
-    if (nextWaitlistPlayer) {
-      await registrationRepository.updateStatusSilent(nextWaitlistPlayer.id, "registered");
-    }
+  if (regData.status === "registered" || regData.status === "attended") {
+    await reconcileTournamentWaitlistCapacity(regData.tournament_id);
   }
 }
 
@@ -1314,14 +1293,14 @@ export async function setTournamentPlayerElimination(
   playerId: string,
   eliminated: boolean
 ): Promise<{ eliminated: boolean; eliminated_at: string | null }> {
+  // The single low-level elimination toggle every path goes through (admin
+  // checkbox / "Вернуть в игру" via setTournamentPlayerEliminationThroughSheet,
+  // the GS poller, pull-sheet) -- so seat capacity is enforced here, once.
   if (!eliminated) {
-    await tournamentLiveStateRepository.upsertElimination({
-      tournament_id: tournamentId,
-      player_id: playerId,
-      eliminated: false,
-      eliminated_at: null,
-      updated_at: new Date().toISOString(),
-    });
+    // Returning a player re-occupies a seat: capacity-checked and written
+    // under the tournament-row lock; throws TournamentSeatUnavailableError
+    // (and changes nothing) if the tournament is full.
+    await unEliminateTournamentPlayerWithinCapacity(tournamentId, playerId);
 
     return { eliminated: false, eliminated_at: null };
   }
@@ -1341,6 +1320,11 @@ export async function setTournamentPlayerElimination(
     eliminated_at: eliminatedAt,
     updated_at: new Date().toISOString(),
   });
+
+  // The eliminated player's seat is now free -- hand it to the waitlist
+  // (only while Late Registration is open; idempotent, so N calls from a
+  // batch of N eliminations are harmless).
+  await reconcileTournamentWaitlistCapacity(tournamentId);
 
   return { eliminated: true, eliminated_at: eliminatedAt };
 }

@@ -20,6 +20,18 @@ const mocks = vi.hoisted(() => ({
   registrationUpdateStatusSilent: vi.fn(),
   registrationFindOldestWaitlisted: vi.fn(),
   playerCreate: vi.fn(),
+  admitPlayerToTournament: vi.fn(),
+  reconcileTournamentWaitlistCapacity: vi.fn(),
+}));
+
+// Seat decisions live in features/tournament-waitlist-capacity.ts (Postgres
+// transaction + tournament-row lock, covered by
+// tournament-waitlist-capacity.test.ts / waitlist.test.ts); this file only
+// checks the is_final POLICY boundary around it.
+vi.mock("@/features/tournament-waitlist-capacity", () => ({
+  admitPlayerToTournament: mocks.admitPlayerToTournament,
+  reconcileTournamentWaitlistCapacity: mocks.reconcileTournamentWaitlistCapacity,
+  unEliminateTournamentPlayerWithinCapacity: vi.fn(),
 }));
 
 vi.mock("@/lib/admin-auth", () => ({
@@ -96,6 +108,11 @@ beforeEach(() => {
     status: "registered",
   });
   mocks.playerCreate.mockResolvedValue({ id: "p-new" });
+  mocks.admitPlayerToTournament.mockResolvedValue({ id: "reg-1", status: "registered" });
+  mocks.reconcileTournamentWaitlistCapacity.mockResolvedValue({
+    promotedRegistrationIds: [],
+    promotedPlayerIds: [],
+  });
   mocks.tournamentCreate.mockResolvedValue(tournament());
 });
 
@@ -107,6 +124,7 @@ describe("registerPlayerForTournament -- fail closed on is_final", () => {
       "Регистрация на финальный турнир доступна только по приглашению.",
     );
     expect(mocks.registrationCreate).not.toHaveBeenCalled();
+    expect(mocks.admitPlayerToTournament).not.toHaveBeenCalled();
   });
 
   it("still allows normal self-registration for an is_final=false tournament", async () => {
@@ -115,11 +133,7 @@ describe("registerPlayerForTournament -- fail closed on is_final", () => {
     const result = await registerPlayerForTournament("player-1", "t1");
 
     expect(result).toEqual({ id: "reg-1", status: "registered" });
-    expect(mocks.registrationCreate).toHaveBeenCalledWith({
-      player_id: "player-1",
-      tournament_id: "t1",
-      status: "registered",
-    });
+    expect(mocks.admitPlayerToTournament).toHaveBeenCalledWith("t1", "player-1");
   });
 });
 
@@ -139,6 +153,7 @@ describe("cancelPlayerRegistration -- fail closed on is_final", () => {
     await cancelPlayerRegistration("player-1", "t1");
 
     expect(mocks.registrationUpdateStatusSilent).toHaveBeenCalledWith("reg-1", "cancelled");
+    expect(mocks.reconcileTournamentWaitlistCapacity).toHaveBeenCalledWith("t1");
   });
 });
 
@@ -183,15 +198,11 @@ describe("admin manual participant flow -- untouched by the final registration p
     expect(mocks.tournamentFindById).not.toHaveBeenCalled();
   });
 
-  it("addExistingPlayerToTournament succeeds for a final tournament -- it reads the tournament for capacity only, and never checks is_final", async () => {
+  it("addExistingPlayerToTournament succeeds for a final tournament -- it only makes the seat decision, and never checks is_final", async () => {
     mocks.tournamentFindById.mockResolvedValue(tournament({ is_final: true }));
 
     await addExistingPlayerToTournament("t1", "p2");
 
-    expect(mocks.registrationCreateSilent).toHaveBeenCalledWith({
-      player_id: "p2",
-      tournament_id: "t1",
-      status: "registered",
-    });
+    expect(mocks.admitPlayerToTournament).toHaveBeenCalledWith("t1", "p2");
   });
 });

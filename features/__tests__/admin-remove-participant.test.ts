@@ -1,107 +1,94 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockFrom } = vi.hoisted(() => ({ mockFrom: vi.fn() }));
-
-vi.mock('@/lib/supabase', () => ({
-  supabase: { from: mockFrom },
+// removeAdminTournamentParticipant: deletes the registration, then -- only
+// if the removed row held a seat (registered/attended) -- hands the freed
+// seat to the waitlist via the ONE canonical reconciler
+// (features/tournament-waitlist-capacity.ts, covered against a stateful
+// fake db in tournament-waitlist-capacity.test.ts / waitlist.test.ts).
+//
+// (Previously this file drove the legacy Supabase query-builder chain and
+// failed at import time with "NEXT_PUBLIC_SUPABASE_URL is not set".)
+const mocks = vi.hoisted(() => ({
+  assertServerActorRole: vi.fn(),
+  findStatusAndTournamentById: vi.fn(),
+  registrationDelete: vi.fn(),
+  findOldestWaitlisted: vi.fn(),
+  updateStatusSilent: vi.fn(),
+  reconcileTournamentWaitlistCapacity: vi.fn(),
 }));
 
-vi.mock('@/features/achievements', () => ({
-  syncPlayersAchievementsIfEnabled: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/lib/admin-auth", () => ({ assertServerActorRole: mocks.assertServerActorRole }));
+
+vi.mock("@/lib/repositories", () => ({
+  playerRepository: {},
+  seasonRepository: {},
+  tournamentRepository: {},
+  registrationRepository: {
+    findStatusAndTournamentById: mocks.findStatusAndTournamentById,
+    delete: mocks.registrationDelete,
+    findOldestWaitlisted: mocks.findOldestWaitlisted,
+    updateStatusSilent: mocks.updateStatusSilent,
+  },
+  tournamentLiveStateRepository: {},
+  resultRepository: {},
 }));
 
-import { removeAdminTournamentParticipant } from '@/features/tournaments';
+vi.mock("@/features/tournament-waitlist-capacity", () => ({
+  admitPlayerToTournament: vi.fn(),
+  reconcileTournamentWaitlistCapacity: mocks.reconcileTournamentWaitlistCapacity,
+  unEliminateTournamentPlayerWithinCapacity: vi.fn(),
+}));
 
-// ---------------------------------------------------------------------------
-// Helpers — same pattern as waitlist.test.ts
-// ---------------------------------------------------------------------------
+vi.mock("@/features/achievements", () => ({ syncPlayersAchievementsIfEnabled: vi.fn() }));
+vi.mock("@/features/club-activity", () => ({ publishTournamentWinnerEvent: vi.fn() }));
 
-type ChainResult = { data?: unknown; error?: unknown };
+const { removeAdminTournamentParticipant } = await import("@/features/tournaments");
 
-function makeChain(result: ChainResult) {
-  const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'neq', 'in', 'order', 'limit', 'insert']) {
-    chain[m] = vi.fn().mockReturnValue(chain);
-  }
-  chain.update = vi.fn().mockReturnValue(chain);
-  chain.delete = vi.fn().mockReturnValue(chain);
-  chain.single = vi.fn().mockResolvedValue(result);
-  chain.then = (res: (value: ChainResult) => void, rej: (reason?: unknown) => void) =>
-    Promise.resolve(result).then(res, rej);
-  return chain;
-}
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.assertServerActorRole.mockResolvedValue({ id: "staff-1", role: "operator" });
+  mocks.registrationDelete.mockResolvedValue(undefined);
+  mocks.reconcileTournamentWaitlistCapacity.mockResolvedValue({
+    promotedRegistrationIds: ["waitlist-1"],
+    promotedPlayerIds: ["player-2"],
+  });
+});
 
-beforeEach(() => mockFrom.mockReset());
+describe("removeAdminTournamentParticipant", () => {
+  it.each(["registered", "attended"])(
+    "removing a %s participant deletes the row, then reconciles the waitlist for that tournament",
+    async (status) => {
+      mocks.findStatusAndTournamentById.mockResolvedValue({ status, tournament_id: "tournament-1" });
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+      await removeAdminTournamentParticipant("reg-1");
 
-describe('removeAdminTournamentParticipant', () => {
-  it('promotes first waitlist player when a registered participant is removed', async () => {
-    const promoteChain = makeChain({ error: null });
+      expect(mocks.registrationDelete).toHaveBeenCalledWith("reg-1");
+      expect(mocks.reconcileTournamentWaitlistCapacity).toHaveBeenCalledWith("tournament-1");
+      expect(mocks.registrationDelete.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.reconcileTournamentWaitlistCapacity.mock.invocationCallOrder[0]
+      );
+      // No ad hoc single promotion any more.
+      expect(mocks.findOldestWaitlisted).not.toHaveBeenCalled();
+      expect(mocks.updateStatusSilent).not.toHaveBeenCalled();
+    }
+  );
 
-    mockFrom
-      // 1. fetch registration: status=registered, tournament_id=t-1
-      .mockImplementationOnce(() =>
-        makeChain({
-          data: { status: 'registered', tournament_id: 'tournament-1' },
-          error: null,
-        })
-      )
-      // 2. delete the registration
-      .mockImplementationOnce(() => makeChain({ error: null }))
-      // 3. find first waitlist player (created_at ASC)
-      .mockImplementationOnce(() =>
-        makeChain({
-          data: [{ id: 'waitlist-1', tournament_id: 'tournament-1', status: 'waitlist', created_at: '2024-01-01T01:00:00Z' }],
-          error: null,
-        })
-      )
-      // 4. promote waitlist-1 → registered
-      .mockImplementationOnce(() => promoteChain);
+  it("removing a waitlisted participant frees no seat -- no reconciliation", async () => {
+    mocks.findStatusAndTournamentById.mockResolvedValue({ status: "waitlist", tournament_id: "tournament-1" });
 
-    await removeAdminTournamentParticipant('reg-1');
+    await removeAdminTournamentParticipant("reg-waitlist-1");
 
-    expect(mockFrom).toHaveBeenCalledTimes(4);
-    expect(promoteChain.update).toHaveBeenCalledWith({ status: 'registered' });
+    expect(mocks.registrationDelete).toHaveBeenCalledWith("reg-waitlist-1");
+    expect(mocks.reconcileTournamentWaitlistCapacity).not.toHaveBeenCalled();
   });
 
-  it('does NOT promote anyone when a waitlist participant is removed', async () => {
-    mockFrom
-      // 1. fetch registration: status=waitlist
-      .mockImplementationOnce(() =>
-        makeChain({
-          data: { status: 'waitlist', tournament_id: 'tournament-1' },
-          error: null,
-        })
-      )
-      // 2. delete the registration
-      .mockImplementationOnce(() => makeChain({ error: null }));
+  it("does not throw when nothing is promoted (empty waitlist)", async () => {
+    mocks.findStatusAndTournamentById.mockResolvedValue({ status: "registered", tournament_id: "tournament-1" });
+    mocks.reconcileTournamentWaitlistCapacity.mockResolvedValue({
+      promotedRegistrationIds: [],
+      promotedPlayerIds: [],
+    });
 
-    await removeAdminTournamentParticipant('reg-waitlist-1');
-
-    // Only 2 DB calls — no promotion step
-    expect(mockFrom).toHaveBeenCalledTimes(2);
-  });
-
-  it('does NOT throw when registered participant is removed but waitlist is empty', async () => {
-    mockFrom
-      // 1. fetch registration: status=registered
-      .mockImplementationOnce(() =>
-        makeChain({
-          data: { status: 'registered', tournament_id: 'tournament-1' },
-          error: null,
-        })
-      )
-      // 2. delete the registration
-      .mockImplementationOnce(() => makeChain({ error: null }))
-      // 3. find first waitlist player → empty
-      .mockImplementationOnce(() => makeChain({ data: [], error: null }));
-
-    await expect(removeAdminTournamentParticipant('reg-1')).resolves.toBeUndefined();
-
-    // 3 DB calls, no 4th (promote)
-    expect(mockFrom).toHaveBeenCalledTimes(3);
+    await expect(removeAdminTournamentParticipant("reg-1")).resolves.toBeUndefined();
   });
 });
