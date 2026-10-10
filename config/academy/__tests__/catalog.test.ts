@@ -35,8 +35,9 @@ const PERSISTED_LESSON_CODES = [
 ] as const;
 
 describe("Academy catalog structure", () => {
-  it("contains exactly one course", () => {
-    expect(ACADEMY_CATALOG).toHaveLength(1);
+  it("keeps База MTT as the first (primary) course; Solver Lab is additive", () => {
+    expect(ACADEMY_CATALOG).toHaveLength(2);
+    expect(ACADEMY_CATALOG.map((course) => course.code)).toEqual([ACADEMY_BASE_MTT_COURSE_CODE, "solver_lab"]);
     expect(getPrimaryAcademyCourse()).toBe(ACADEMY_CATALOG[0]);
     expect(ACADEMY_CATALOG[0]).toMatchObject({
       code: ACADEMY_BASE_MTT_COURSE_CODE,
@@ -66,7 +67,7 @@ describe("Academy catalog structure", () => {
 
   it("keeps lesson codes byte-identical to the persisted literal values, in order", () => {
     expect(listAcademyCourseLessonCodes(getPrimaryAcademyCourse())).toEqual(PERSISTED_LESSON_CODES);
-    expect(listAllAcademyLessonCodes()).toEqual(PERSISTED_LESSON_CODES);
+    expect(listAllAcademyLessonCodes().slice(0, PERSISTED_LESSON_CODES.length)).toEqual(PERSISTED_LESSON_CODES);
     expect([...ACADEMY_PREFLOP_LESSON_CODES]).toEqual(PERSISTED_LESSON_CODES);
   });
 

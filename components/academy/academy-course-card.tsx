@@ -32,7 +32,10 @@ export function AcademyCourseCard({ course }: { course: AcademyCourse }) {
   const [firstModule] = course.modules;
   // Lesson count always comes from the catalog; the server supplies passed counts.
   const totalLessons = listAcademyCourseLessonCodes(course).length;
-  const progress = data && data.courseCode === course.code ? data.course : null;
+  // Each course reads its OWN payload from the additive `courses` list; the
+  // legacy top-level payload is only used when it describes this course.
+  const progress = data?.courses?.find((entry) => entry.courseCode === course.code)?.course
+    ?? (data && data.courseCode === course.code ? data.course : null);
   const progressPercent = progress?.progressPercent ?? 0;
 
   return (

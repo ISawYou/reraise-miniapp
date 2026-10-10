@@ -5,7 +5,8 @@ import type { AcademyLessonCode } from "@/types/academy";
 
 export function AcademyLessonProgressStatus({ lessonCode }: { lessonCode: AcademyLessonCode }) {
   const { data, error, retry } = useAcademyProgress();
-  const progress = data?.lessons.find((lesson) => lesson.lessonCode === lessonCode);
+  const progress = data?.lessons.find((lesson) => lesson.lessonCode === lessonCode)
+    ?? data?.courses?.flatMap((course) => course.lessons).find((lesson) => lesson.lessonCode === lessonCode);
 
   if (error) {
     return (

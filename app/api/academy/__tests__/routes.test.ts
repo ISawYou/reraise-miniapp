@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 const mockGetPlayerFromSessionServer = vi.fn();
 const mockGetAcademyCourseProgress = vi.fn();
+const mockGetAllAcademyCoursesProgress = vi.fn();
 const mockSubmitAcademyTrainingAttempt = vi.fn();
 
 vi.mock("@/features/auth-server", () => ({
@@ -12,6 +13,7 @@ vi.mock("@/features/auth-server", () => ({
 vi.mock("@/features/academy", () => ({
   AcademyValidationError: class AcademyValidationError extends Error {},
   getAcademyCourseProgress: mockGetAcademyCourseProgress,
+  getAllAcademyCoursesProgress: mockGetAllAcademyCoursesProgress,
   submitAcademyTrainingAttempt: mockSubmitAcademyTrainingAttempt,
 }));
 
@@ -36,6 +38,7 @@ beforeEach(() => {
     lessons: [],
     course: { passedLessons: 0, totalLessons: 7, progressPercent: 0 },
   });
+  mockGetAllAcademyCoursesProgress.mockReset().mockResolvedValue({ courses: [] });
   mockSubmitAcademyTrainingAttempt.mockReset().mockResolvedValue({ ok: true });
 });
 

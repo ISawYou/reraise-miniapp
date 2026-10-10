@@ -7,10 +7,18 @@ import {
   listAcademyCourseLessonCodes,
   listAcademyCourseLessons,
   listAcademyCourses,
+  listAllAcademyLessonCodes,
 } from "@/config/academy/catalog";
 import { getAcademyPreflopLessonByCode } from "@/config/academy/lessons";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
+import { getAcademySolverRfiLessonByCode } from "@/config/academy/solver-lessons";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
+import {
+  ACADEMY_SOLVER_QUESTION_COUNT,
+  buildAcademySolverSession,
+  toPublicSolverQuestion,
+  type AcademySolverSessionQuestion,
+} from "@/lib/academy/solver-training";
 import { getTeachingAction, isCanonicalStartingHand } from "@/lib/academy/preflop";
 import {
   calculateAcademyCourseProgress,
@@ -32,6 +40,9 @@ import type {
   AcademyLessonCode,
   AcademyLessonProgress,
   AcademyModuleProgress,
+  AcademySolverAction,
+  AcademySolverPublicQuestion,
+  AcademySolverQuestionReveal,
   AcademyTrainerKind,
   AcademyTrainingResult,
   PreflopAction,
@@ -60,6 +71,19 @@ export type AcademyProgressPayload = {
   readonly courseCode: string;
   /** Additive (catalog foundation): per-module progress within the course. */
   readonly modules: readonly AcademyModuleProgress[];
+};
+
+/**
+ * Additive response of `GET /api/academy/progress`: the original single-course
+ * (База MTT) payload at the top level, plus `courses` with one payload per
+ * catalog course. `courses` is optional for older consumers/fixtures.
+ */
+export type AcademyProgressResponse = AcademyProgressPayload & {
+  readonly courses?: readonly AcademyProgressPayload[];
+};
+
+export type AcademyAllCoursesProgressPayload = {
+  readonly courses: readonly AcademyProgressPayload[];
 };
 
 export type SubmitAcademyAttemptResult = {
@@ -103,6 +127,33 @@ export async function getAcademyCourseProgress(
     courseCode: course.code,
     modules: course.modules.map((courseModule) =>
       calculateAcademyModuleProgress(lessons, courseModule)),
+  };
+}
+
+/**
+ * Progress for every catalog course (База MTT, Solver Lab, ...), each computed
+ * strictly over its own catalog lessons — no cross-course contamination.
+ * Additive: `getAcademyCourseProgress` keeps its signature and default.
+ */
+export async function getAllAcademyCoursesProgress(
+  playerId: string,
+  repository: AcademyProgressRepository = academyProgressRepository,
+): Promise<AcademyAllCoursesProgressPayload> {
+  const rows = await repository.listCourseProgress(playerId, listAllAcademyLessonCodes());
+  const allLessons = rows.map(mapProgress);
+
+  return {
+    courses: listAcademyCourses().map((course) => {
+      const courseLessonCodes = new Set(listAcademyCourseLessonCodes(course));
+      const lessons = allLessons.filter((lesson) => courseLessonCodes.has(lesson.lessonCode));
+      return {
+        lessons,
+        course: calculateAcademyCourseProgress(lessons, course),
+        courseCode: course.code,
+        modules: course.modules.map((courseModule) =>
+          calculateAcademyModuleProgress(lessons, courseModule)),
+      };
+    }),
   };
 }
 
@@ -246,21 +297,188 @@ export function verifyAcademyTrainingAttempt(
   return scoreTrainingSession(correctAnswers, input.questions.length);
 }
 
-export type AcademyAttemptVerifier = (input: SubmitAcademyAttemptInput) => AcademyTrainingResult;
+/** Server-side facts a verifier may need beyond the client payload. */
+export type AcademyAttemptVerificationContext = {
+  /** Authenticated player id (from the session), never from the client body. */
+  readonly playerId?: string;
+};
+
+// ---------------------------------------------------------------------------
+// Solver Lab (PREFLOP_RFI_FREQUENCY)
+// ---------------------------------------------------------------------------
+
+export type AcademySolverQuestionInput = {
+  readonly lessonCode: string;
+  readonly attemptId: string;
+  readonly questionIndex: unknown;
+};
+
+export type AcademySolverRevealInput = AcademySolverQuestionInput & {
+  readonly selectedAction: unknown;
+};
+
+function isSolverAction(action: unknown): action is AcademySolverAction {
+  return action === "RAISE_2_25BB" || action === "FOLD";
+}
+
+function requireSolverSession(
+  playerId: string | undefined,
+  lessonCode: string,
+  attemptId: string,
+): readonly AcademySolverSessionQuestion[] {
+  const solverLesson = getAcademySolverRfiLessonByCode(lessonCode);
+  const catalogLesson = getAcademyLessonByCode(lessonCode);
+  if (!solverLesson || catalogLesson?.trainerKind !== "PREFLOP_RFI_FREQUENCY") {
+    throw new AcademyValidationError("Неизвестный урок Solver Lab");
+  }
+  if (!UUID_PATTERN.test(attemptId)) {
+    throw new AcademyValidationError("Некорректный идентификатор попытки");
+  }
+  if (typeof playerId !== "string" || playerId.length === 0) {
+    throw new AcademyValidationError("Попытка Solver Lab требует авторизованного игрока");
+  }
+  return buildAcademySolverSession({
+    playerId,
+    lessonCode: solverLesson.code,
+    attemptId,
+    position: solverLesson.position,
+  });
+}
+
+function requireQuestionIndex(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value >= ACADEMY_SOLVER_QUESTION_COUNT) {
+    throw new AcademyValidationError(
+      `Номер вопроса должен быть от 0 до ${ACADEMY_SOLVER_QUESTION_COUNT - 1}`,
+    );
+  }
+  return value;
+}
+
+/**
+ * One Solver Lab question, regenerated deterministically server-side. Returns
+ * only `{hand, renderedCards, randomizerPercent}` — never the frequencies or
+ * the resolved action. Idempotent for the same (player, lesson, attempt, index).
+ */
+export function getAcademySolverQuestion(
+  playerId: string,
+  input: AcademySolverQuestionInput,
+): AcademySolverPublicQuestion {
+  const session = requireSolverSession(playerId, input.lessonCode, input.attemptId);
+  return toPublicSolverQuestion(session[requireQuestionIndex(input.questionIndex)]);
+}
+
+/**
+ * Post-answer reveal for one question: frequencies, resolved action and
+ * whether the player's choice matched it. Purely informational — the score is
+ * always recomputed from scratch by `verifyAcademySolverAttempt`.
+ */
+export function revealAcademySolverAnswer(
+  playerId: string,
+  input: AcademySolverRevealInput,
+): AcademySolverQuestionReveal {
+  const session = requireSolverSession(playerId, input.lessonCode, input.attemptId);
+  const question = session[requireQuestionIndex(input.questionIndex)];
+  if (!isSolverAction(input.selectedAction)) {
+    throw new AcademyValidationError("Допустимые действия: RAISE_2_25BB или FOLD");
+  }
+  return {
+    ...toPublicSolverQuestion(question),
+    questionIndex: question.questionIndex,
+    frequencies: question.frequencies,
+    resolvedAction: question.resolvedAction,
+    selectedAction: input.selectedAction,
+    bucket: question.bucket,
+    matchesResolvedAction: input.selectedAction === question.resolvedAction,
+  };
+}
+
+/**
+ * Server verifier for the Solver Lab frequency trainer.
+ *
+ * Trust model: the ONLY client input used is `selectedAction` per question
+ * (answers[i] answers question i). The server re-derives, from
+ * (playerId, lessonCode, attemptId) + SESSION_SECRET, which 10 hands were
+ * shown, in which order, each hand's randomizer and resolved action. Any
+ * client-sent hand/frequencies/correctAction/randomizerPercent/score is
+ * ignored (a malformed or duplicated `hand` field is still rejected).
+ *
+ * Scoring: a question is correct iff `selectedAction` equals the resolved
+ * action for that hand in this session — also for mixed hands, because the
+ * randomizer outcome is the ground truth for that specific deal. Feedback copy
+ * for mixed hands is non-judgmental (see lib/academy/solver-feedback.ts), but
+ * that is presentation only. Pass/fail uses the shared ACADEMY_PASS_THRESHOLD
+ * through `scoreTrainingSession`.
+ */
+export function verifyAcademySolverAttempt(
+  input: SubmitAcademyAttemptInput,
+  context: AcademyAttemptVerificationContext = {},
+): AcademyTrainingResult {
+  if (!getAcademySolverRfiLessonByCode(input.lessonCode)) {
+    throw new AcademyValidationError("Неизвестный урок Solver Lab");
+  }
+  if (!UUID_PATTERN.test(input.attemptId)) {
+    throw new AcademyValidationError("Некорректный идентификатор попытки");
+  }
+  if (!Array.isArray(input.questions) || input.questions.length !== ACADEMY_SOLVER_QUESTION_COUNT) {
+    throw new AcademyValidationError(
+      `Завершённая тренировка должна содержать ${ACADEMY_SOLVER_QUESTION_COUNT} ответов`,
+    );
+  }
+
+  const session = requireSolverSession(context.playerId, input.lessonCode, input.attemptId);
+  if (new Set(session.map((question) => question.hand)).size !== session.length) {
+    throw new Error("Solver Lab session invariant violated: duplicate hands");
+  }
+
+  const submittedHands = new Set<string>();
+  let correctAnswers = 0;
+
+  input.questions.forEach((rawAnswer, index) => {
+    if (!rawAnswer || typeof rawAnswer !== "object") {
+      throw new AcademyValidationError("Попытка содержит некорректный ответ");
+    }
+    const answer = rawAnswer as { questionIndex?: unknown; selectedAction?: unknown; hand?: unknown };
+    if (answer.questionIndex !== undefined && answer.questionIndex !== index) {
+      throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
+    }
+    if (!isSolverAction(answer.selectedAction)) {
+      throw new AcademyValidationError("Допустимые действия: RAISE_2_25BB или FOLD");
+    }
+    if (answer.hand !== undefined) {
+      if (typeof answer.hand !== "string" || !isCanonicalStartingHand(answer.hand)) {
+        throw new AcademyValidationError("Попытка содержит некорректную стартовую руку");
+      }
+      if (submittedHands.has(answer.hand)) {
+        throw new AcademyValidationError("Стартовые руки в попытке не должны повторяться");
+      }
+      submittedHands.add(answer.hand);
+    }
+
+    if (answer.selectedAction === session[index].resolvedAction) correctAnswers += 1;
+  });
+
+  return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
+}
+
+export type AcademyAttemptVerifier = (
+  input: SubmitAcademyAttemptInput,
+  context?: AcademyAttemptVerificationContext,
+) => AcademyTrainingResult;
 
 /**
  * Trainer registry: one server-authoritative verifier per trainer kind.
- * Phase 1 has a single entry — the existing OPEN/FOLD preflop RFI verifier.
  */
 export const ACADEMY_TRAINER_VERIFIERS: Readonly<Record<AcademyTrainerKind, AcademyAttemptVerifier>> =
   Object.freeze({
     PREFLOP_RFI_BINARY: verifyAcademyTrainingAttempt,
+    PREFLOP_RFI_FREQUENCY: verifyAcademySolverAttempt,
   });
 
 /** Dispatches attempt verification by the catalog lesson's trainer kind. */
 export function verifyAcademyAttempt(
   lesson: AcademyLesson,
   input: SubmitAcademyAttemptInput,
+  context: AcademyAttemptVerificationContext = {},
 ): AcademyTrainingResult {
   if (input.lessonCode !== lesson.code) {
     throw new AcademyValidationError("Попытка не относится к этому уроку Academy");
@@ -269,7 +487,7 @@ export function verifyAcademyAttempt(
     ? ACADEMY_TRAINER_VERIFIERS[lesson.trainerKind]
     : undefined;
   if (!verifier) throw new AcademyValidationError("Неподдерживаемый тип тренажёра Academy");
-  return verifier(input);
+  return verifier(input, context);
 }
 
 export async function submitAcademyTrainingAttempt(
@@ -280,7 +498,7 @@ export async function submitAcademyTrainingAttempt(
   const lesson = getAcademyLessonByCode(input.lessonCode);
   if (!lesson) throw new AcademyValidationError("Неизвестный урок Academy");
 
-  const result = verifyAcademyAttempt(lesson, input);
+  const result = verifyAcademyAttempt(lesson, input, { playerId });
   const stored = await repository.recordCompletedAttempt({
     attemptId: input.attemptId,
     playerId,

@@ -143,9 +143,12 @@ export type AcademyLessonKind = "PREFLOP_RFI";
 /**
  * Interaction/validation kind of a lesson's trainer. Each member must have a
  * registered server verifier (see `ACADEMY_TRAINER_VERIFIERS` in
- * `features/academy.ts`). Phase 1: the binary OPEN/FOLD preflop RFI trainer.
+ * `features/academy.ts`).
+ * - `PREFLOP_RFI_BINARY`: the original OPEN/FOLD preflop RFI trainer (База MTT).
+ * - `PREFLOP_RFI_FREQUENCY`: the Solver Lab frequency-aware RFI trainer, scored
+ *   against a server-derived randomizer outcome per hand.
  */
-export type AcademyTrainerKind = "PREFLOP_RFI_BINARY";
+export type AcademyTrainerKind = "PREFLOP_RFI_BINARY" | "PREFLOP_RFI_FREQUENCY";
 
 export type AcademyLesson = {
   readonly code: AcademyLessonCode;
@@ -224,4 +227,82 @@ export type AcademyAdminProgressPayload = {
 export type AcademyTrainingAnswer = {
   readonly hand: StartingHandClass;
   readonly selectedAction: PreflopAction;
+};
+
+/**
+ * Strategy action code inside an `AcademyStrategyDataset` (e.g.
+ * `"RAISE_2_25BB"`, `"FOLD"`). Deliberately an open string so future spots with
+ * three or more actions fit without a type redesign.
+ */
+export type AcademyStrategyActionCode = string;
+
+/** Action code → frequency in [0, 1]; frequencies of one hand sum to 1. */
+export type AcademyStrategyHandFrequencies = Readonly<Record<AcademyStrategyActionCode, number>>;
+
+export type AcademyStrategyPositionFrequencies = Readonly<
+  Record<StartingHandClass, AcademyStrategyHandFrequencies>
+>;
+
+/**
+ * Versioned, provenance-carrying strategy dataset (frequencies only — there is
+ * intentionally no EV concept in this model).
+ */
+export type AcademyStrategyDataset = {
+  /** Immutable version id. A data change must ship under a new id. */
+  readonly id: string;
+  readonly title: string;
+  readonly game: AcademyGame;
+  readonly format: AcademyFormat;
+  readonly tableSize: 9;
+  readonly effectiveStackBb: 100;
+  readonly spot: PreflopSpot;
+  readonly provenance: {
+    readonly provider: AcademyPreflopRange["source"]["provider"];
+    readonly scenario: AcademyPreflopRange["source"]["scenario"];
+    readonly rangeUrl: string;
+    readonly contextUrl: string;
+    readonly provenanceNote: string;
+    /** How this dataset was derived from the upstream source. */
+    readonly derivation: string;
+    readonly assumptions: AcademyPreflopRange["assumptions"];
+    readonly positions: Readonly<Record<PreflopPosition, {
+      readonly sourcePosition: AcademyPreflopRange["source"]["sourcePosition"];
+      readonly reportedWeightedRangePercentage: number;
+    }>>;
+  };
+  /** Action codes in their stable canonical order (used by the resolver). */
+  readonly actions: readonly AcademyStrategyActionCode[];
+  readonly positions: Readonly<Record<PreflopPosition, AcademyStrategyPositionFrequencies>>;
+};
+
+export type AcademySolverAction = "RAISE_2_25BB" | "FOLD";
+
+/** Composition bucket of a hand for the Solver Lab balanced sampler. */
+export type AcademySolverHandBucket = "MIXED" | "PURE_RAISE" | "PURE_FOLD";
+
+/**
+ * What `POST /api/academy/solver/session` returns for one question: only the
+ * hand and the server-derived randomizer, never the answer.
+ */
+export type AcademySolverPublicQuestion = {
+  readonly hand: StartingHandClass;
+  readonly renderedCards: readonly [RenderedPlayingCard, RenderedPlayingCard];
+  /** Integer in [0, 99]. See `resolveActionFromFrequencies` for semantics. */
+  readonly randomizerPercent: number;
+};
+
+/** Returned only after the player has answered a question. */
+export type AcademySolverQuestionReveal = AcademySolverPublicQuestion & {
+  readonly questionIndex: number;
+  readonly frequencies: AcademyStrategyHandFrequencies;
+  readonly resolvedAction: AcademySolverAction;
+  readonly selectedAction: AcademySolverAction;
+  readonly bucket: AcademySolverHandBucket;
+  readonly matchesResolvedAction: boolean;
+};
+
+/** One submitted Solver Lab answer; only `selectedAction` is trusted. */
+export type AcademySolverAnswer = {
+  readonly questionIndex: number;
+  readonly selectedAction: AcademySolverAction;
 };

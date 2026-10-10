@@ -3,7 +3,7 @@ import { ACADEMY_PREFLOP_LESSONS } from "@/config/academy/lessons";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
 import { CANONICAL_STARTING_HANDS, getTeachingAction } from "@/lib/academy/preflop";
 import { ACADEMY_PASS_THRESHOLD, ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
-import { ACADEMY_BASE_MTT_COURSE_CODE, getPrimaryAcademyCourse } from "@/config/academy/catalog";
+import { ACADEMY_BASE_MTT_COURSE_CODE, getPrimaryAcademyCourse, listAcademyCourses } from "@/config/academy/catalog";
 import type {
   AcademyAdminProgressRow,
   AcademyProgressRepository,
@@ -212,8 +212,8 @@ describe("Academy frozen training contract", () => {
 });
 
 describe("Academy trainer registry", () => {
-  it("has exactly one trainer kind, routed to the existing OPEN/FOLD verifier", () => {
-    expect(Object.keys(ACADEMY_TRAINER_VERIFIERS)).toEqual(["PREFLOP_RFI_BINARY"]);
+  it("routes PREFLOP_RFI_BINARY to the existing OPEN/FOLD verifier (plus the Solver Lab kind)", () => {
+    expect(Object.keys(ACADEMY_TRAINER_VERIFIERS)).toEqual(["PREFLOP_RFI_BINARY", "PREFLOP_RFI_FREQUENCY"]);
     expect(ACADEMY_TRAINER_VERIFIERS.PREFLOP_RFI_BINARY).toBe(verifyAcademyTrainingAttempt);
   });
 
@@ -348,7 +348,9 @@ describe("Academy admin progress", () => {
     ]);
     const payload = await getAcademyAdminProgress(repository);
     const course = getPrimaryAcademyCourse();
-    const catalogLessons = course.modules[0].lessons;
+    // Flat list + overall totals span every catalog course (База MTT + Solver Lab).
+    const catalogLessons = listAcademyCourses().flatMap((c) => c.modules.flatMap((m) => m.lessons));
+    const baseLessons = course.modules[0].lessons;
 
     expect(payload.summary).toEqual({ startedPlayers: 2, passedPlayers: 1 });
     expect(payload.players.map((p) => p.player.id)).toEqual([PLAYER_ID, OTHER_PLAYER]);
@@ -370,7 +372,7 @@ describe("Academy admin progress", () => {
     expect(first.lessons[0].title).toBe("UTG · Under the Gun");
     expect(first.lessons[1].title).toBe("UTG+1 · EP · Early Position");
 
-    expect(first.courses).toHaveLength(1);
+    expect(first.courses).toHaveLength(listAcademyCourses().length);
     expect(first.courses[0]).toMatchObject({
       courseCode: course.code,
       title: course.title,
@@ -384,7 +386,7 @@ describe("Academy admin progress", () => {
       passedLessons: 2,
       totalLessons: 7,
     });
-    expect(first.courses[0].modules[0].lessons).toEqual(first.lessons);
+    expect(first.courses[0].modules[0].lessons).toEqual(first.lessons.slice(0, baseLessons.length));
   });
 
   it("fails closed when an admin row has a lesson code outside the catalog", async () => {

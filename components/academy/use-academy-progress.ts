@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AcademyProgressPayload } from "@/features/academy";
+import type { AcademyProgressResponse } from "@/features/academy";
 import { getTelegramInitData, isTelegramMiniAppContext } from "@/lib/telegram";
 
 export function useAcademyProgress() {
-  const [data, setData] = useState<AcademyProgressPayload | null>(null);
+  const [data, setData] = useState<AcademyProgressResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -37,7 +37,7 @@ export function useAcademyProgress() {
           credentials: "include",
           cache: "no-store",
         });
-        const payload = await response.json() as AcademyProgressPayload & { error?: string };
+        const payload = await response.json() as AcademyProgressResponse & { error?: string };
         if (!response.ok) throw new Error(payload.error || "Не удалось загрузить прогресс");
         if (!cancelled) setData(payload);
       } catch (loadError) {
