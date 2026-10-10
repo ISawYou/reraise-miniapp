@@ -80,6 +80,13 @@ export const TOURNAMENT_PRESET_TEMPLATES: Record<
   // Title is the first Boost event's name, not the type name. "x2" in the
   // copy matches DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER; the actual math
   // always uses the tournament's stored placement_points_multiplier.
+  // FREE-ROLL: ordinary Hold'em volume format; the only special rule (first
+  // entry free) is a Finance fact (features/finance-export.ts), never a
+  // rating one.
+  free_roll: {
+    title: "FREE-ROLL",
+    description: "Классический фриролл по Texas Hold'em. Первый вход в турнир бесплатный для каждого игрока. Re-entry и Add-on оплачиваются по обычным правилам и продолжают увеличивать рейтинговый пул турнира. Стартовый стек — 30 000 фишек. Add-on — 60 000 фишек.",
+  },
   boost_rating: {
     title: "RERAISE MAIN EVENT",
     description: "Специальный рейтинговый турнир РЕРЕЙЗ с повышенным коэффициентом за занятые места.\n\nВ RERAISE MAIN EVENT очки за место в рейтинговой зоне умножаются на ×2.\n\nБуст применяется только к очкам за занятое место. Стандартные +2 очка за участие не умножаются.\n\nRe-entry и Add-on продолжают увеличивать рейтинговый объём турнира по обычным правилам.\n\nНокаут-бонусов в этом формате нет.",

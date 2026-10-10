@@ -23,6 +23,7 @@ const TOURNAMENT_TYPE_LABEL: Record<string, string> = {
   boss_bounty: "Boss Bounty",
   win_the_button: "Win The Button",
   mystery_bounty: "Mystery Bounty",
+  free_roll: "Free-roll",
 };
 
 function Stat({ label, value }: { label: string; value: string | number }) {

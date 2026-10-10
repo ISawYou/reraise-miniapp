@@ -28,12 +28,13 @@ const ALL_TOURNAMENT_TYPES = [
   "crazy_pineapple",
   "bomb_pot",
   "boost_rating",
+  "free_roll",
 ];
 
-describe("10 tournament visual types", () => {
-  it("recognizes exactly the 10 current TournamentType visual entries", () => {
+describe("11 tournament visual types", () => {
+  it("recognizes exactly the 11 current TournamentType visual entries", () => {
     expect(TOURNAMENT_VISUAL_TYPES.slice().sort()).toEqual(ALL_TOURNAMENT_TYPES.slice().sort());
-    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(10);
+    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(11);
   });
 
   it("crazy_pineapple remains recognized as a valid tournament visual type", () => {

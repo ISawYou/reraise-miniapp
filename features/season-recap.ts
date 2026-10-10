@@ -95,6 +95,7 @@ const TOURNAMENT_TYPES: TournamentType[] = [
   "crazy_pineapple",
   "bomb_pot",
   "boost_rating",
+  "free_roll",
 ];
 
 function ruSort(a: string, b: string): number {

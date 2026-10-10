@@ -441,6 +441,19 @@ describe("Boost Rating -- placement multiplier is frozen INTO rating_places at c
       { place: 3, points: 39 },
     ]);
   });
+
+  it("free_roll freezes the ordinary volume structure (same as classic: 70/53/39)", async () => {
+    // Its free first entry is a Finance-only fact -- entries/addons feeding
+    // the frozen rating_places are exactly classic's.
+    mocks.findTournament.mockResolvedValue({ ...tournament, tournament_type: "free_roll" });
+
+    const snapshot = await closeTournamentLateRegistration("t1");
+    expect(snapshot.rating_places).toEqual([
+      { place: 1, points: 70 },
+      { place: 2, points: 53 },
+      { place: 3, points: 39 },
+    ]);
+  });
 });
 
 describe("Late Registration close shares the tournament-row lock with waitlist capacity", () => {

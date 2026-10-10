@@ -26,6 +26,7 @@ function baseRecap(overrides: Partial<SeasonRecap> = {}): SeasonRecap {
         crazy_pineapple: 0,
         bomb_pot: 0,
         boost_rating: 0,
+        free_roll: 0,
       },
     },
     official: {

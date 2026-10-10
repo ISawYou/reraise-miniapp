@@ -71,7 +71,7 @@ describe("getTournamentVisualConfigs", () => {
     expect(pineapple.cardAssetUrl).toBe("/tournament-assets/pineapple-card.png");
   });
 
-  it("all 10 tournament visual types are present", async () => {
+  it("all 11 tournament visual types are present", async () => {
     const configs = await getTournamentVisualConfigs();
     expect(configs.map((c) => c.tournamentType).sort()).toEqual(
       [
@@ -85,6 +85,7 @@ describe("getTournamentVisualConfigs", () => {
         "crazy_pineapple",
         "bomb_pot",
         "boost_rating",
+        "free_roll",
       ].sort(),
     );
   });

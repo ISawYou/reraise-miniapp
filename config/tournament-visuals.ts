@@ -48,6 +48,7 @@ export const DEFAULT_TOURNAMENT_VISUALS = {
   // without a code change (a stored config always wins over this default).
   bomb_pot: "/tournament-assets/bomb-pot.png",
   boost_rating: "/tournament-assets/boost-rating.png",
+  free_roll: "/tournament-assets/free-roll.png",
 } as const satisfies Record<TournamentType, string>;
 
 export const TOURNAMENT_VISUAL_TYPES = Object.keys(
@@ -60,7 +61,7 @@ export function isTournamentVisualType(value: string): value is TournamentType {
 
 // Deliberately a PARTIAL map, unlike DEFAULT_TOURNAMENT_VISUALS above --
 // only types whose 512px built-in derivative actually exists in the repo
-// belong here. Crazy Pineapple (Phase 2B.2), Bomb Pot and Boost Rating
+// belong here. Crazy Pineapple (Phase 2B.2), Bomb Pot, Boost Rating and Free-roll
 // have generated derivatives; the seven legacy originals are not backfilled by this change (see
 // getTournamentVisualConfigs's stored-default inheritance for why an old
 // config is still safe without an entry here) and must never get a guessed
@@ -71,6 +72,7 @@ export const DEFAULT_TOURNAMENT_CARD_VISUALS: Partial<Record<TournamentType, str
   // scripts/generate-tournament-card-derivatives.mjs (resize-only).
   bomb_pot: "/tournament-assets/bomb-pot-card.png",
   boost_rating: "/tournament-assets/boost-rating-card.png",
+  free_roll: "/tournament-assets/free-roll-card.png",
 };
 
 export function getDefaultTournamentVisual(

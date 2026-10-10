@@ -1,7 +1,7 @@
 import { tournamentRepository, resultRepository, dealerRepository, playerRepository } from "@/lib/repositories";
 import { getTournamentDealerPayoutSummary } from "./dealers";
 import { getTournamentAdminPayoutSummary } from "./admin-shifts";
-import type { Tournament } from "@/types/domain";
+import type { Tournament, TournamentType } from "@/types/domain";
 import type { ResultAttendanceRow } from "@/lib/repositories/result/ResultRepository";
 
 // RERAISE Finance data foundation. Exposes completed-tournament operational
@@ -28,6 +28,10 @@ export type FinanceTournamentExportRow = {
   // no monetary calculation on this; Finance subtracts it from
   // entry+reentry+addon itself. Additive alongside the existing raw counts
   // -- entryCount/reentryCount/addonCount are never reduced by it.
+  // FREE-ROLL: for tournamentType "free_roll" this ALSO includes one
+  // automatic free unit per arrived player (their free first entry -- see
+  // getAutomaticFreeEntryUnitsPerPlayer), added on top of, never replacing,
+  // the recorded results.free_reentries units.
   freeReentryCount: number;
   // Automatic analytical classification of freeReentryCount by likely
   // cause -- purely additive breakdown of the SAME total above, never a
@@ -42,8 +46,10 @@ export type FinanceTournamentExportRow = {
   // -- see that column's doc comment). Deliberately omits players with 0%
   // (the overwhelming majority) to keep the payload small; Finance treats
   // any player absent from this array as having no discount. entryCount is
-  // always 1 (an arrived player's own entry is never free in this data
-  // model). paidReentryCount/paidAddonCount are ALREADY net of
+  // 1 (an arrived player's own entry is paid) -- except for a "free_roll"
+  // tournament, where it is 0: that first entry is already fully free
+  // (counted in freeReentryCount above) and must never be discounted a
+  // second time. paidReentryCount/paidAddonCount are ALREADY net of
   // free_reentries (entry is never free, addons have no free concept) --
   // Finance must apply the discount percent to these counts directly, at
   // its OWN configured per-unit prices, and must never apply it a second
@@ -82,6 +88,18 @@ export type TournamentPlayerDiscount = {
   discountPercent: number;
 };
 
+// FREE-ROLL: the number of automatic free units every ARRIVED player gets
+// purely because of the tournament's type -- 1 (the free first entry) for
+// "free_roll", 0 for every other type. Keyed ONLY on the persisted,
+// structural tournament_type -- never on any mutable per-row/sheet flag
+// (e.g. the Google Sheets "Оплатил" checkbox). Money-only: rating inputs
+// (entries/addons, Weighted Volume, Late Registration) never read this.
+export function getAutomaticFreeEntryUnitsPerPlayer(
+  tournamentType: TournamentType | string | undefined
+): number {
+  return tournamentType === "free_roll" ? 1 : 0;
+}
+
 // Same normalizeReentryCount convention as the tournament-wide aggregate
 // above, minus this player's OWN free_reentries -- never Finance's job to
 // re-derive "paid vs free" for an individual player, RERAISE already
@@ -94,8 +112,11 @@ export function buildPlayerDiscounts(
     addons: number;
     free_reentries?: number | null;
     club_discount_percent?: number | null;
-  }>
+  }>,
+  tournamentType?: TournamentType | string
 ): TournamentPlayerDiscount[] {
+  // A free_roll first entry is already free -- nothing left to discount.
+  const entryCount = getAutomaticFreeEntryUnitsPerPlayer(tournamentType) > 0 ? 0 : 1;
   const discounts: TournamentPlayerDiscount[] = [];
   for (const row of rows) {
     if (row.arrived !== true) continue;
@@ -109,7 +130,7 @@ export function buildPlayerDiscounts(
 
     discounts.push({
       playerId: row.player_id,
-      entryCount: 1,
+      entryCount,
       paidReentryCount,
       paidAddonCount: row.addons,
       discountPercent,
@@ -151,8 +172,10 @@ export function summarizeTournamentAttendance(
     reentries: number;
     addons: number;
     free_reentries?: number | null;
-  }>
+  }>,
+  tournamentType?: TournamentType | string
 ): TournamentAttendanceSummary {
+  const automaticFreeUnitsPerPlayer = getAutomaticFreeEntryUnitsPerPlayer(tournamentType);
   let playersCount = 0;
   let reentryCount = 0;
   let addonCount = 0;
@@ -170,6 +193,8 @@ export function summarizeTournamentAttendance(
       // or the Supabase provider, which has no such column at all --
       // see SupabaseResultRepository.ts) normalized to 0, never guessed.
       freeReentryCount += row.free_reentries ?? 0;
+      // FREE-ROLL: + the automatic free first entry, additively.
+      freeReentryCount += automaticFreeUnitsPerPlayer;
     } else if (row.arrived === null) {
       attendanceUnknownCount += 1;
     }
@@ -230,11 +255,19 @@ export class FreeReentryBreakdownInvariantError extends Error {
 // Role classification uses the player's CURRENT role (no role-history in
 // this codebase yet) -- see this feature's task doc comment for why that's
 // an accepted, deliberate limitation for historical tournaments, not a bug.
+//
+// FREE-ROLL: the automatic free first entry of every arrived player in a
+// "free_roll" tournament (getAutomaticFreeEntryUnitsPerPlayer) always goes
+// to promoFreeCount -- regardless of role or dealer shift: it is free
+// because the TOURNAMENT is a Free-roll, not because of who the player is.
+// The player's recorded free_reentries still go through A-D unchanged.
 export function classifyFreeReentries(
   rows: Pick<ResultAttendanceRow, "player_id" | "arrived" | "free_reentries">[],
   roleByPlayerId: ReadonlyMap<string, string>,
-  dealerPlayerIdsForTournament: ReadonlySet<string>
+  dealerPlayerIdsForTournament: ReadonlySet<string>,
+  tournamentType?: TournamentType | string
 ): FreeReentryBreakdown {
+  const automaticFreeUnitsPerPlayer = getAutomaticFreeEntryUnitsPerPlayer(tournamentType);
   let ownerFreeCount = 0;
   let operatorFreeCount = 0;
   let dealerFreeCount = 0;
@@ -242,6 +275,7 @@ export function classifyFreeReentries(
 
   for (const row of rows) {
     if (row.arrived !== true) continue;
+    promoFreeCount += automaticFreeUnitsPerPlayer;
     const free = row.free_reentries ?? 0;
     if (free <= 0) continue;
 
@@ -283,7 +317,7 @@ async function buildExportRow(tournament: Tournament): Promise<FinanceTournament
     dealerRepository.listShiftsByTournamentId(tournament.id),
   ]);
 
-  const attendance = summarizeTournamentAttendance(attendanceRows);
+  const attendance = summarizeTournamentAttendance(attendanceRows, tournament.tournament_type);
 
   // Only the players who actually need classifying (arrived, free_reentries
   // > 0) -- one bulk role lookup per tournament, never per-row (see
@@ -311,7 +345,8 @@ async function buildExportRow(tournament: Tournament): Promise<FinanceTournament
   const freeReentryBreakdown = classifyFreeReentries(
     attendanceRows,
     roleByPlayerId,
-    dealerPlayerIdsForTournament
+    dealerPlayerIdsForTournament,
+    tournament.tournament_type
   );
   const breakdownSum =
     freeReentryBreakdown.ownerFreeCount +
@@ -333,7 +368,7 @@ async function buildExportRow(tournament: Tournament): Promise<FinanceTournament
     addonCount: attendance.addonCount,
     freeReentryCount: attendance.freeReentryCount,
     freeReentryBreakdown,
-    playerDiscounts: buildPlayerDiscounts(attendanceRows),
+    playerDiscounts: buildPlayerDiscounts(attendanceRows, tournament.tournament_type),
     dealerPayrollRub: dealerPayout.payoutRub,
     adminPayrollRub: adminPayout.payoutRub,
     attendanceUnknownCount: attendance.attendanceUnknownCount,

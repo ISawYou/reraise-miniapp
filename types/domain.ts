@@ -24,7 +24,8 @@ export type TournamentType =
   | "mystery_bounty"
   | "crazy_pineapple"
   | "bomb_pot"
-  | "boost_rating";
+  | "boost_rating"
+  | "free_roll";
 
 export type Player = {
   id: string;

@@ -204,6 +204,13 @@
       "when": 1790624783434,
       "tag": "0028_calm_cyclops",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791669754484,
+      "tag": "0029_powerful_argent",
+      "breakpoints": true
     }
   ]
 }

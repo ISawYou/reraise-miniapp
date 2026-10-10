@@ -209,6 +209,10 @@ export const VOLUME_FORMATS: ReadonlySet<TournamentType> = new Set<TournamentTyp
   "crazy_pineapple",
   "bomb_pot",
   "boost_rating",
+  // FREE-ROLL: ordinary Hold'em volume format. Its only special rule (the
+  // first entry is free) is a Finance/money fact handled in
+  // features/finance-export.ts -- rating math is identical to classic.
+  "free_roll",
 ]);
 
 // Formats that exist only under Rating Engine v2 -- never valid with
@@ -219,6 +223,9 @@ export const VOLUME_FORMATS: ReadonlySet<TournamentType> = new Set<TournamentTyp
 export const V2_ONLY_TOURNAMENT_TYPES: ReadonlySet<TournamentType> = new Set<TournamentType>([
   "bomb_pot",
   "boost_rating",
+  // Introduced after the legacy formula was retired, same as bomb_pot /
+  // boost_rating -- a legacy tournament must never be switched to it.
+  "free_roll",
 ]);
 
 export function assertTournamentTypeSupportsFormula(

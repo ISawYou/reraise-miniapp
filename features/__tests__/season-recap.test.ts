@@ -130,6 +130,21 @@ describe("getSeasonRecap -- summary", () => {
     expect(recap.summary.tournamentTypeBreakdown.phoenix).toBe(0);
   });
 
+  it("counts a free_roll tournament (never dropped as an unknown type)", async () => {
+    mockFindSeasonRecapRows.mockResolvedValue([
+      row({ tournament_id: "t1", tournament_type: "free_roll", player_id: "p1" }),
+      row({ tournament_id: "t1", tournament_type: "free_roll", player_id: "p2" }),
+      row({ tournament_id: "t2", tournament_type: "classic", player_id: "p1" }),
+    ]);
+
+    const recap = await getSeasonRecap(SEASON_ID);
+
+    expect(recap.summary.tournamentTypeBreakdown.free_roll).toBe(1);
+    expect(recap.summary.tournamentTypeBreakdown.classic).toBe(1);
+    expect(recap.summary.completedTournaments).toBe(2);
+    expect(recap.tournamentRecords.distinctFormatsPlayed).toBe(2);
+  });
+
   it("largest field reports the tournament with the most participants", async () => {
     mockFindSeasonRecapRows.mockResolvedValue([
       row({ tournament_id: "small", tournament_title: "Small", player_id: "p1" }),

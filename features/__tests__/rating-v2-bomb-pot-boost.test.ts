@@ -213,8 +213,52 @@ describe("Late Registration structure + completion never boost twice", () => {
   });
 });
 
+describe("FREE-ROLL -- ordinary v2 volume format, rating-identical to classic", () => {
+  it("is a TournamentType in the canonical volume-format policy and v2-only", () => {
+    const type: TournamentType = "free_roll";
+    expect(VOLUME_FORMATS.has(type)).toBe(true);
+    expect(V2_ONLY_TOURNAMENT_TYPES.has(type)).toBe(true);
+  });
+
+  it("byte-identical results + volume meta to classic for the same inputs (with re-entries and add-ons)", () => {
+    const classic = calculateRatingPointsForTournament(field(), "classic", "v2");
+    const freeRoll = calculateRatingPointsForTournament(field(), "free_roll", "v2");
+
+    expect(freeRoll).toEqual(classic);
+    expect(JSON.stringify(freeRoll)).toBe(JSON.stringify(classic));
+    expect(freeRoll.meta).toMatchObject({ kind: "volume", placementPointsMultiplier: 1 });
+    if (freeRoll.meta?.kind !== "volume") throw new Error("expected volume meta");
+    expect(freeRoll.meta.volumeMultiplier).toBeGreaterThan(1);
+  });
+
+  it("standard rating zone, +2 participation, no KO/boss/mystery; a stray boost multiplier is ignored", () => {
+    const { results } = calculateRatingPointsForTournament(field(), "free_roll", "v2", {
+      placementPointsMultiplier: 2,
+    });
+    const classic = calculateRatingPointsForTournament(field(), "classic", "v2");
+    const zone = getExpectedPrizePlaces(14);
+
+    results.forEach((r, i) => {
+      expect(r.participation_points).toBe(PARTICIPATION_POINTS);
+      expect(r.knockout_points).toBe(0);
+      expect(r.boss_bounty_points).toBe(0);
+      expect(r.mystery_bounty_points).toBe(0);
+      expect(r.itm_points > 0).toBe(i + 1 <= zone);
+      expect(r.rating_points).toBe(sumOfComponents(r));
+      expect(r).toEqual(classic.results[i]);
+    });
+  });
+
+  it("frozen place structure equals classic's", () => {
+    const entries = field().map(({ entries, addons }) => ({ entries, addons }));
+    expect(calculateRatingPlaceStructureForTournament(entries, "free_roll", "v2")).toEqual(
+      calculateRatingPlaceStructureForTournament(entries, "classic", "v2")
+    );
+  });
+});
+
 describe("V2-only safety", () => {
-  it.each(["bomb_pot", "boost_rating"] as const)(
+  it.each(["bomb_pot", "boost_rating", "free_roll"] as const)(
     "%s + legacy formula fails closed instead of computing legacy math",
     (type) => {
       expect(() => calculateRatingPointsForTournament(field(), type, "legacy")).toThrow(/v2/);

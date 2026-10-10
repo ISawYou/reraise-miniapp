@@ -28,6 +28,7 @@ export const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: st
   { value: "crazy_pineapple", label: "Crazy Pineapple" },
   { value: "bomb_pot", label: "Bomb Pot" },
   { value: "boost_rating", label: "Boost Rating" },
+  { value: "free_roll", label: "Free-roll" },
   { value: FINAL_MONTH_PRESET, label: FINAL_MONTH_LABEL },
 ];
 

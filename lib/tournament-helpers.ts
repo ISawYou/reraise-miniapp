@@ -53,6 +53,8 @@ export function getTournamentTypeLabel(type: TournamentType): string {
       return "Bomb Pot";
     case "boost_rating":
       return "Boost Rating";
+    case "free_roll":
+      return "Free-roll";
     case "classic":
     default:
       return "Texas Classic";
