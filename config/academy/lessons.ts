@@ -1,7 +1,11 @@
-import type { AcademyLessonCode, PreflopPosition } from "@/types/academy";
+import type {
+  AcademyLessonCode,
+  AcademyPreflopRfiLessonCode,
+  PreflopPosition,
+} from "@/types/academy";
 
 export type AcademyPreflopLesson = {
-  readonly code: AcademyLessonCode;
+  readonly code: AcademyPreflopRfiLessonCode;
   readonly position: PreflopPosition;
   readonly displayLabel: string;
   readonly fullName: string;

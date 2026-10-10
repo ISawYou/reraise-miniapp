@@ -5,7 +5,27 @@ import { BackButton } from "@/components/ui/back-button";
 import { useEffect, useState } from "react";
 import { fetchAdminJson } from "@/lib/client-request";
 import { resolveCurrentPlayer } from "@/lib/current-player";
-import type { AcademyAdminProgressPayload } from "@/types/academy";
+import type {
+  AcademyAdminLessonProgress,
+  AcademyAdminProgressPayload,
+} from "@/types/academy";
+
+function AdminLessonRows({ lessons }: { lessons: readonly AcademyAdminLessonProgress[] }) {
+  return (
+    <>
+      {lessons.map((lesson) => (
+        <div key={lesson.lessonCode} className={`flex items-center justify-between gap-3 border-b border-white/5 py-2.5 last:border-0 ${lesson.progress ? "" : "text-white/30"}`}>
+          <span className="min-w-0 truncate text-sm">
+            {lesson.progress?.passed ? "✓ " : ""}{lesson.title}
+          </span>
+          <span className="shrink-0 text-xs tabular-nums">
+            {lesson.progress ? `${lesson.progress.bestScorePercent}% · ${lesson.progress.attemptsCount} попыток` : "Не начат"}
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
 
 function formatActivity(value: string) {
   return new Intl.DateTimeFormat("ru-RU", {
@@ -89,14 +109,21 @@ export default function AdminAcademyPage() {
 
                     {expanded ? (
                       <div className="border-t border-white/10 px-3 py-2">
-                        {entry.lessons.map((lesson) => (
-                          <div key={lesson.lessonCode} className={`flex items-center justify-between gap-3 border-b border-white/5 py-2.5 last:border-0 ${lesson.progress ? "" : "text-white/30"}`}>
-                            <span className="min-w-0 truncate text-sm">
-                              {lesson.progress?.passed ? "✓ " : ""}{lesson.title}
-                            </span>
-                            <span className="shrink-0 text-xs tabular-nums">
-                              {lesson.progress ? `${lesson.progress.bestScorePercent}% · ${lesson.progress.attemptsCount} попыток` : "Не начат"}
-                            </span>
+                        {entry.courses.map((course) => (
+                          <div key={course.courseCode} className="py-1">
+                            <div className="flex items-center justify-between gap-3 pt-1.5 text-sm font-semibold">
+                              <span className="min-w-0 truncate">{course.title}</span>
+                              <span className="shrink-0 text-xs text-emerald-300 tabular-nums">{course.passedLessons} из {course.totalLessons}</span>
+                            </div>
+                            {course.modules.map((courseModule) => (
+                              <div key={courseModule.moduleCode} className="mt-1.5">
+                                <div className="flex items-center justify-between gap-3 text-xs text-white/50">
+                                  <span className="min-w-0 truncate">{courseModule.title}</span>
+                                  <span className="shrink-0 tabular-nums">{courseModule.passedLessons} из {courseModule.totalLessons}</span>
+                                </div>
+                                <AdminLessonRows lessons={courseModule.lessons} />
+                              </div>
+                            ))}
                           </div>
                         ))}
                       </div>

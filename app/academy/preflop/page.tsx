@@ -3,8 +3,16 @@
 import Link from "next/link";
 import { useAcademyProgress } from "@/components/academy/use-academy-progress";
 import { BackButton } from "@/components/ui/back-button";
-import { ACADEMY_PREFLOP_LESSONS } from "@/config/academy/lessons";
-import { ACADEMY_PREFLOP_POSITIONS } from "@/lib/academy/preflop";
+import {
+  ACADEMY_PREFLOP_OPEN_RAISE_MODULE_CODE,
+  getAcademyModule,
+} from "@/config/academy/catalog";
+
+const preflopModule = getAcademyModule(ACADEMY_PREFLOP_OPEN_RAISE_MODULE_CODE);
+if (!preflopModule) {
+  throw new Error(`Academy catalog is missing module ${ACADEMY_PREFLOP_OPEN_RAISE_MODULE_CODE}`);
+}
+const PREFLOP_MODULE_LESSONS = preflopModule.lessons;
 
 export default function AcademyPreflopPage() {
   const { data, error, retry } = useAcademyProgress();
@@ -49,14 +57,13 @@ export default function AcademyPreflopPage() {
         </section>
 
         <div className="mt-6 space-y-2.5">
-          {ACADEMY_PREFLOP_POSITIONS.map((position, index) => {
-            const lesson = ACADEMY_PREFLOP_LESSONS[position];
+          {PREFLOP_MODULE_LESSONS.map((lesson, index) => {
             const progress = progressByLesson.get(lesson.code);
 
             return (
               <Link
-                key={position}
-                href={`/academy/preflop/${position.toLowerCase()}`}
+                key={lesson.code}
+                href={lesson.route}
                 className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-3.5 active:bg-white/[0.09]"
               >
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#315f48] text-sm font-semibold text-white">
@@ -65,10 +72,8 @@ export default function AcademyPreflopPage() {
 
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
-                    <span className="text-lg font-semibold text-white">{lesson.displayLabel}</span>
-                    <span className="truncate text-xs text-white/35">
-                      {position !== lesson.displayLabel ? `${position} · ` : ""}{lesson.fullName}
-                    </span>
+                    <span className="text-lg font-semibold text-white">{lesson.title}</span>
+                    <span className="truncate text-xs text-white/35">{lesson.subtitle}</span>
                   </span>
                   <span className={`mt-0.5 block text-sm ${progress?.passed ? "text-[#90c9a8]" : "text-white/45"}`}>
                     {progress?.passed

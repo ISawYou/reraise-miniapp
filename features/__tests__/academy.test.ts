@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { ACADEMY_PREFLOP_LESSONS } from "@/config/academy/lessons";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
 import { CANONICAL_STARTING_HANDS, getTeachingAction } from "@/lib/academy/preflop";
+import { ACADEMY_PASS_THRESHOLD, ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
+import { ACADEMY_BASE_MTT_COURSE_CODE, getPrimaryAcademyCourse } from "@/config/academy/catalog";
 import type {
+  AcademyAdminProgressRow,
   AcademyProgressRepository,
   AcademyProgressRow,
   RecordAcademyAttemptInput,
@@ -15,9 +18,13 @@ vi.mock("@/lib/repositories", () => ({
 }));
 
 const {
+  ACADEMY_TRAINER_VERIFIERS,
   AcademyValidationError,
-  calculateAcademyCourseProgress,
+  getAcademyAdminProgress,
+  getAcademyCourseProgress,
+  getAcademyLessonProgress,
   submitAcademyTrainingAttempt,
+  verifyAcademyAttempt,
   verifyAcademyTrainingAttempt,
 } = await import("@/features/academy");
 
@@ -38,12 +45,12 @@ function answersFor(position: PreflopPosition, correctCount: number): AcademyTra
 }
 
 class MemoryAcademyProgressRepository implements AcademyProgressRepository {
-  private readonly progress = new Map<string, AcademyProgressRow>();
+  readonly progress = new Map<string, AcademyProgressRow>();
   private readonly attempts = new Map<string, RecordAcademyAttemptInput>();
   private readonly attemptFlags = new Map<string, { first_pass: boolean; new_best: boolean }>();
   private sequence = 0;
 
-  async listAdminProgress() {
+  async listAdminProgress(): Promise<AcademyAdminProgressRow[]> {
     return [];
   }
 
@@ -184,15 +191,208 @@ describe("Academy progress semantics", () => {
     expect((await repository.getLessonProgress(PLAYER_ID, ACADEMY_PREFLOP_LESSONS.BTN.code))?.best_score_percent).toBe(60);
   });
 
-  it.each([[0, 0], [1, 14], [4, 57], [7, 100]])(
-    "calculates %i/7 as %i%%",
-    (passedLessons, expectedPercent) => {
-      const lessons = Array.from({ length: 7 }, (_, index) => ({ passed: index < passedLessons }));
-      expect(calculateAcademyCourseProgress(lessons)).toEqual({
-        passedLessons,
-        totalLessons: 7,
-        progressPercent: expectedPercent,
-      });
-    },
-  );
+  it("rejects an unknown lesson before touching the repository", async () => {
+    const repository = new MemoryAcademyProgressRepository();
+    await expect(submitAcademyTrainingAttempt(
+      PLAYER_ID,
+      { ...input(8), lessonCode: "preflop_rfi_9max_100bb_sb" },
+      repository,
+    )).rejects.toThrow(AcademyValidationError);
+    expect(repository.progress.size).toBe(0);
+  });
+});
+
+describe("Academy frozen training contract", () => {
+  it("keeps 10 questions and the 80% pass threshold", () => {
+    expect(ACADEMY_TRAINING_QUESTION_COUNT).toBe(10);
+    expect(ACADEMY_PASS_THRESHOLD).toBe(0.8);
+    expect(verifyAcademyTrainingAttempt(input(7))).toMatchObject({ percentage: 70, passed: false });
+    expect(verifyAcademyTrainingAttempt(input(8))).toMatchObject({ percentage: 80, passed: true });
+  });
+});
+
+describe("Academy trainer registry", () => {
+  it("has exactly one trainer kind, routed to the existing OPEN/FOLD verifier", () => {
+    expect(Object.keys(ACADEMY_TRAINER_VERIFIERS)).toEqual(["PREFLOP_RFI_BINARY"]);
+    expect(ACADEMY_TRAINER_VERIFIERS.PREFLOP_RFI_BINARY).toBe(verifyAcademyTrainingAttempt);
+  });
+
+  it("dispatches by the catalog lesson's trainer kind with identical scoring", () => {
+    const lesson = getPrimaryAcademyCourse().modules[0].lessons[0];
+    for (const correct of [0, 5, 8, 10]) {
+      expect(verifyAcademyAttempt(lesson, input(correct))).toEqual(
+        verifyAcademyTrainingAttempt(input(correct)),
+      );
+    }
+  });
+
+  it("rejects an attempt whose lessonCode does not match the dispatched lesson", () => {
+    const btn = getPrimaryAcademyCourse().modules[0].lessons[6];
+    expect(() => verifyAcademyAttempt(btn, input(8))).toThrow(AcademyValidationError);
+  });
+
+  it("rejects a lesson whose trainer kind has no registered verifier", () => {
+    const lesson = {
+      ...getPrimaryAcademyCourse().modules[0].lessons[0],
+      trainerKind: "UNKNOWN" as unknown as "PREFLOP_RFI_BINARY",
+    };
+    expect(() => verifyAcademyAttempt(lesson, input(8))).toThrow(AcademyValidationError);
+  });
+});
+
+function persistedRow(overrides: Partial<AcademyProgressRow> = {}): AcademyProgressRow {
+  return {
+    lesson_code: "preflop_rfi_9max_100bb_utg",
+    attempts_count: 3,
+    last_score_percent: 70,
+    best_score_percent: 90,
+    passed: true,
+    first_completed_at: "2026-03-01T10:00:00.000Z",
+    last_attempt_at: "2026-03-02T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+class SeededRepository extends MemoryAcademyProgressRepository {
+  constructor(private readonly adminRows: AcademyAdminProgressRow[] = []) {
+    super();
+  }
+
+  seed(playerId: string, row: AcademyProgressRow) {
+    this.progress.set(`${playerId}:${row.lesson_code}`, row);
+    return this;
+  }
+
+  override async listAdminProgress() {
+    return this.adminRows;
+  }
+}
+
+describe("Academy catalog-driven progress (backward compatibility)", () => {
+  it("maps an existing persisted row to the same catalog lesson with no backfill", async () => {
+    // Literal pre-refactor row exactly as stored in academy_lesson_progress.
+    const repository = new SeededRepository().seed(PLAYER_ID, persistedRow());
+    const payload = await getAcademyCourseProgress(PLAYER_ID, repository);
+
+    expect(payload.lessons).toEqual([{
+      lessonCode: "preflop_rfi_9max_100bb_utg",
+      attemptsCount: 3,
+      lastScorePercent: 70,
+      bestScorePercent: 90,
+      passed: true,
+      firstCompletedAt: "2026-03-01T10:00:00.000Z",
+      lastAttemptAt: "2026-03-02T10:00:00.000Z",
+    }]);
+    expect(payload.course).toEqual({ passedLessons: 1, totalLessons: 7, progressPercent: 14 });
+    expect(payload.courseCode).toBe(ACADEMY_BASE_MTT_COURSE_CODE);
+    expect(await getAcademyLessonProgress(PLAYER_ID, "preflop_rfi_9max_100bb_utg", repository))
+      .toMatchObject({ passed: true, bestScorePercent: 90, attemptsCount: 3 });
+  });
+
+  it("queries exactly the catalog course's lesson codes and reports per-module progress", async () => {
+    const repository = new SeededRepository()
+      .seed(PLAYER_ID, persistedRow())
+      .seed(PLAYER_ID, persistedRow({ lesson_code: "preflop_rfi_9max_100bb_btn", passed: false }));
+    const spy = vi.spyOn(repository, "listCourseProgress");
+    const payload = await getAcademyCourseProgress(PLAYER_ID, repository);
+    const course = getPrimaryAcademyCourse();
+
+    expect(spy).toHaveBeenCalledWith(PLAYER_ID, course.modules[0].lessons.map((l) => l.code));
+    expect(payload.modules).toEqual([{
+      moduleCode: course.modules[0].code,
+      passedLessons: 1,
+      totalLessons: 7,
+      progressPercent: 14,
+    }]);
+  });
+
+  it("fails closed when a persisted lesson code is not in the catalog", async () => {
+    const repository = new SeededRepository();
+    vi.spyOn(repository, "listCourseProgress").mockResolvedValue([
+      persistedRow({ lesson_code: "legacy_corrupt_code" }),
+    ]);
+    await expect(getAcademyCourseProgress(PLAYER_ID, repository))
+      .rejects.toThrow("Unknown persisted Academy lesson: legacy_corrupt_code");
+
+    vi.spyOn(repository, "getLessonProgress").mockResolvedValue(
+      persistedRow({ lesson_code: "legacy_corrupt_code" }),
+    );
+    await expect(getAcademyLessonProgress(PLAYER_ID, "legacy_corrupt_code", repository))
+      .rejects.toThrow(/Unknown persisted Academy lesson/);
+  });
+
+  it("rejects an unknown course code instead of returning empty progress", async () => {
+    await expect(getAcademyCourseProgress(PLAYER_ID, new SeededRepository(), "missing_course"))
+      .rejects.toThrow(/Unknown Academy course/);
+  });
+});
+
+function adminRow(playerId: string, overrides: Partial<AcademyProgressRow> = {}): AcademyAdminProgressRow {
+  return {
+    ...persistedRow(overrides),
+    player_id: playerId,
+    player_display_name: `Player ${playerId.slice(0, 4)}`,
+    player_username: "nick",
+    player_avatar_url: "https://example.test/a.png",
+  };
+}
+
+describe("Academy admin progress", () => {
+  const OTHER_PLAYER = "99999999-9999-4999-8999-999999999999";
+
+  it("takes titles, grouping and counts from the catalog and keeps last-activity sorting", async () => {
+    const repository = new SeededRepository([
+      adminRow(PLAYER_ID, { lesson_code: "preflop_rfi_9max_100bb_ep", last_attempt_at: "2026-03-05T00:00:00.000Z" }),
+      adminRow(PLAYER_ID),
+      adminRow(OTHER_PLAYER, { passed: false, last_attempt_at: "2026-03-01T00:00:00.000Z" }),
+    ]);
+    const payload = await getAcademyAdminProgress(repository);
+    const course = getPrimaryAcademyCourse();
+    const catalogLessons = course.modules[0].lessons;
+
+    expect(payload.summary).toEqual({ startedPlayers: 2, passedPlayers: 1 });
+    expect(payload.players.map((p) => p.player.id)).toEqual([PLAYER_ID, OTHER_PLAYER]);
+
+    const [first] = payload.players;
+    expect(first.player).toEqual({
+      id: PLAYER_ID,
+      displayName: "Player 1111",
+      username: "nick",
+      avatarUrl: "https://example.test/a.png",
+    });
+    expect(first.lastActivityAt).toBe("2026-03-05T00:00:00.000Z");
+    expect(first.passedLessons).toBe(2);
+    expect(first.totalLessons).toBe(catalogLessons.length);
+    expect(first.lessons.map((l) => l.lessonCode)).toEqual(catalogLessons.map((l) => l.code));
+    expect(first.lessons.map((l) => l.title)).toEqual(
+      catalogLessons.map((l) => `${l.title} · ${l.subtitle}`),
+    );
+    expect(first.lessons[0].title).toBe("UTG · Under the Gun");
+    expect(first.lessons[1].title).toBe("UTG+1 · EP · Early Position");
+
+    expect(first.courses).toHaveLength(1);
+    expect(first.courses[0]).toMatchObject({
+      courseCode: course.code,
+      title: course.title,
+      passedLessons: 2,
+      totalLessons: 7,
+    });
+    expect(first.courses[0].modules).toHaveLength(1);
+    expect(first.courses[0].modules[0]).toMatchObject({
+      moduleCode: course.modules[0].code,
+      title: "Open Raise · 100 BB",
+      passedLessons: 2,
+      totalLessons: 7,
+    });
+    expect(first.courses[0].modules[0].lessons).toEqual(first.lessons);
+  });
+
+  it("fails closed when an admin row has a lesson code outside the catalog", async () => {
+    const repository = new SeededRepository([
+      adminRow(PLAYER_ID),
+      adminRow(PLAYER_ID, { lesson_code: "legacy_corrupt_code" }),
+    ]);
+    await expect(getAcademyAdminProgress(repository))
+      .rejects.toThrow("Unknown persisted Academy lesson: legacy_corrupt_code");
+  });
 });

@@ -1,13 +1,22 @@
 import "server-only";
 
 import {
-  ACADEMY_PREFLOP_LESSONS,
-  ACADEMY_PREFLOP_LESSON_CODES,
-  getAcademyPreflopLessonByCode,
-} from "@/config/academy/lessons";
+  getAcademyCourse,
+  getAcademyLessonByCode,
+  getPrimaryAcademyCourse,
+  listAcademyCourseLessonCodes,
+  listAcademyCourseLessons,
+  listAcademyCourses,
+} from "@/config/academy/catalog";
+import { getAcademyPreflopLessonByCode } from "@/config/academy/lessons";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
 import { getTeachingAction, isCanonicalStartingHand } from "@/lib/academy/preflop";
+import {
+  calculateAcademyCourseProgress,
+  calculateAcademyModuleProgress,
+  calculateAcademyProgressForLessons,
+} from "@/lib/academy/progress";
 import { scoreTrainingSession } from "@/lib/academy/training";
 import {
   academyProgressRepository,
@@ -15,13 +24,24 @@ import {
   type AcademyProgressRow,
 } from "@/lib/repositories/academy-progress";
 import type {
+  AcademyAdminCourseProgress,
+  AcademyAdminLessonProgress,
   AcademyCourseProgress,
   AcademyAdminProgressPayload,
+  AcademyLesson,
   AcademyLessonCode,
   AcademyLessonProgress,
+  AcademyModuleProgress,
+  AcademyTrainerKind,
   AcademyTrainingResult,
   PreflopAction,
 } from "@/types/academy";
+
+export {
+  calculateAcademyCourseProgress,
+  calculateAcademyModuleProgress,
+  calculateAcademyProgressForLessons,
+};
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -36,6 +56,10 @@ export type SubmitAcademyAttemptInput = {
 export type AcademyProgressPayload = {
   readonly lessons: readonly AcademyLessonProgress[];
   readonly course: AcademyCourseProgress;
+  /** Additive (catalog foundation): which catalog course `course` describes. */
+  readonly courseCode: string;
+  /** Additive (catalog foundation): per-module progress within the course. */
+  readonly modules: readonly AcademyModuleProgress[];
 };
 
 export type SubmitAcademyAttemptResult = {
@@ -47,7 +71,9 @@ export type SubmitAcademyAttemptResult = {
 };
 
 function mapProgress(row: AcademyProgressRow): AcademyLessonProgress {
-  const lesson = getAcademyPreflopLessonByCode(row.lesson_code);
+  // Fail closed: a persisted code that is not in the catalog is corrupt data,
+  // never silently dropped or rendered as a default state.
+  const lesson = getAcademyLessonByCode(row.lesson_code);
   if (!lesson) throw new Error(`Unknown persisted Academy lesson: ${row.lesson_code}`);
 
   return {
@@ -61,27 +87,22 @@ function mapProgress(row: AcademyProgressRow): AcademyLessonProgress {
   };
 }
 
-export function calculateAcademyCourseProgress(
-  lessons: readonly Pick<AcademyLessonProgress, "passed">[],
-  totalLessons = ACADEMY_PREFLOP_LESSON_CODES.length,
-): AcademyCourseProgress {
-  const passedLessons = lessons.filter((lesson) => lesson.passed).length;
-  return {
-    passedLessons,
-    totalLessons,
-    progressPercent: totalLessons === 0 ? 0 : Math.round((passedLessons / totalLessons) * 100),
-  };
-}
-
 export async function getAcademyCourseProgress(
   playerId: string,
   repository: AcademyProgressRepository = academyProgressRepository,
+  courseCode: string = getPrimaryAcademyCourse().code,
 ): Promise<AcademyProgressPayload> {
-  const rows = await repository.listCourseProgress(playerId, ACADEMY_PREFLOP_LESSON_CODES);
+  const course = getAcademyCourse(courseCode);
+  if (!course) throw new Error(`Unknown Academy course: ${courseCode}`);
+
+  const rows = await repository.listCourseProgress(playerId, listAcademyCourseLessonCodes(course));
   const lessons = rows.map(mapProgress);
   return {
     lessons,
-    course: calculateAcademyCourseProgress(lessons),
+    course: calculateAcademyCourseProgress(lessons, course),
+    courseCode: course.code,
+    modules: course.modules.map((courseModule) =>
+      calculateAcademyModuleProgress(lessons, courseModule)),
   };
 }
 
@@ -97,18 +118,52 @@ export async function getAcademyAdminProgress(
     grouped.set(row.player_id, playerRows);
   }
 
-  const catalog = Object.values(ACADEMY_PREFLOP_LESSONS);
+  const catalog = listAcademyCourses();
   const players = Array.from(grouped.values()).map((playerRows) => {
     const first = playerRows[0];
-    const byLesson = new Map(playerRows.map((row) => [row.lesson_code, row]));
-    const lessons = catalog.map((lesson) => {
-      const row = byLesson.get(lesson.code);
+    // mapProgress fails closed on any row whose lesson_code is not in the catalog.
+    const progressByLesson = new Map(
+      playerRows.map((row) => {
+        const progress = mapProgress(row);
+        return [progress.lessonCode, progress] as const;
+      }),
+    );
+    const toAdminLesson = (lesson: AcademyLesson): AcademyAdminLessonProgress => ({
+      lessonCode: lesson.code,
+      title: `${lesson.title} · ${lesson.subtitle}`,
+      progress: progressByLesson.get(lesson.code) ?? null,
+    });
+    const courses: AcademyAdminCourseProgress[] = catalog.map((course) => {
+      const courseProgress = calculateAcademyCourseProgress(
+        Array.from(progressByLesson.values()),
+        course,
+      );
       return {
-        lessonCode: lesson.code,
-        title: `${lesson.displayLabel} · ${lesson.fullName}`,
-        progress: row ? mapProgress(row) : null,
+        courseCode: course.code,
+        title: course.title,
+        passedLessons: courseProgress.passedLessons,
+        totalLessons: courseProgress.totalLessons,
+        modules: course.modules.map((courseModule) => {
+          const moduleProgress = calculateAcademyModuleProgress(
+            Array.from(progressByLesson.values()),
+            courseModule,
+          );
+          return {
+            moduleCode: courseModule.code,
+            title: courseModule.title,
+            passedLessons: moduleProgress.passedLessons,
+            totalLessons: moduleProgress.totalLessons,
+            lessons: courseModule.lessons.map(toAdminLesson),
+          };
+        }),
       };
     });
+    const catalogLessons = catalog.flatMap((course) => listAcademyCourseLessons(course));
+    const lessons = catalogLessons.map(toAdminLesson);
+    const overall = calculateAcademyProgressForLessons(
+      Array.from(progressByLesson.values()),
+      catalogLessons.map((lesson) => lesson.code),
+    );
 
     return {
       player: {
@@ -117,13 +172,14 @@ export async function getAcademyAdminProgress(
         username: first.player_username,
         avatarUrl: first.player_avatar_url,
       },
-      passedLessons: lessons.filter((lesson) => lesson.progress?.passed).length,
-      totalLessons: catalog.length,
+      passedLessons: overall.passedLessons,
+      totalLessons: overall.totalLessons,
       lastActivityAt: playerRows.reduce(
         (latest, row) => row.last_attempt_at > latest ? row.last_attempt_at : latest,
         first.last_attempt_at,
       ),
       lessons,
+      courses,
     };
   }).sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
 
@@ -190,15 +246,41 @@ export function verifyAcademyTrainingAttempt(
   return scoreTrainingSession(correctAnswers, input.questions.length);
 }
 
+export type AcademyAttemptVerifier = (input: SubmitAcademyAttemptInput) => AcademyTrainingResult;
+
+/**
+ * Trainer registry: one server-authoritative verifier per trainer kind.
+ * Phase 1 has a single entry — the existing OPEN/FOLD preflop RFI verifier.
+ */
+export const ACADEMY_TRAINER_VERIFIERS: Readonly<Record<AcademyTrainerKind, AcademyAttemptVerifier>> =
+  Object.freeze({
+    PREFLOP_RFI_BINARY: verifyAcademyTrainingAttempt,
+  });
+
+/** Dispatches attempt verification by the catalog lesson's trainer kind. */
+export function verifyAcademyAttempt(
+  lesson: AcademyLesson,
+  input: SubmitAcademyAttemptInput,
+): AcademyTrainingResult {
+  if (input.lessonCode !== lesson.code) {
+    throw new AcademyValidationError("Попытка не относится к этому уроку Academy");
+  }
+  const verifier = Object.prototype.hasOwnProperty.call(ACADEMY_TRAINER_VERIFIERS, lesson.trainerKind)
+    ? ACADEMY_TRAINER_VERIFIERS[lesson.trainerKind]
+    : undefined;
+  if (!verifier) throw new AcademyValidationError("Неподдерживаемый тип тренажёра Academy");
+  return verifier(input);
+}
+
 export async function submitAcademyTrainingAttempt(
   playerId: string,
   input: SubmitAcademyAttemptInput,
   repository: AcademyProgressRepository = academyProgressRepository,
 ): Promise<SubmitAcademyAttemptResult> {
-  const lesson = getAcademyPreflopLessonByCode(input.lessonCode);
+  const lesson = getAcademyLessonByCode(input.lessonCode);
   if (!lesson) throw new AcademyValidationError("Неизвестный урок Academy");
 
-  const result = verifyAcademyTrainingAttempt(input);
+  const result = verifyAcademyAttempt(lesson, input);
   const stored = await repository.recordCompletedAttempt({
     attemptId: input.attemptId,
     playerId,

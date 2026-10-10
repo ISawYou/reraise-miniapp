@@ -8,7 +8,19 @@ export type PreflopSpot = "RFI";
 
 export type PreflopPosition = "UTG" | "EP" | "MP1" | "MP2" | "HJ" | "CO" | "BTN";
 
-export type AcademyLessonCode = `preflop_rfi_9max_100bb_${Lowercase<PreflopPosition>}`;
+/**
+ * Persisted Academy lesson identifier (`academy_lesson_progress.lesson_code`,
+ * `academy_training_attempts.lesson_code`, both unconstrained `text`).
+ *
+ * Deliberately an open string: the catalog (`config/academy/catalog.ts`) is the
+ * runtime source of truth for which codes exist, so adding a lesson must not
+ * require editing this core type. Unknown codes are rejected at runtime by the
+ * catalog lookup (fail closed), not by the type system.
+ */
+export type AcademyLessonCode = string;
+
+/** The seven canonical, already-persisted preflop RFI lesson codes. */
+export type AcademyPreflopRfiLessonCode = `preflop_rfi_9max_100bb_${Lowercase<PreflopPosition>}`;
 
 export type PreflopAction = "OPEN" | "FOLD";
 
@@ -115,6 +127,54 @@ export type AcademyCourseProgress = {
   readonly progressPercent: number;
 };
 
+/** Generic passed/total summary over an explicit lesson collection. */
+export type AcademyLessonCollectionProgress = AcademyCourseProgress;
+
+export type AcademyModuleProgress = AcademyLessonCollectionProgress & {
+  readonly moduleCode: string;
+};
+
+/**
+ * Presentation kind of a catalog lesson. Phase 1 has exactly one real kind:
+ * a preflop raise-first-in lesson (theory + range grid).
+ */
+export type AcademyLessonKind = "PREFLOP_RFI";
+
+/**
+ * Interaction/validation kind of a lesson's trainer. Each member must have a
+ * registered server verifier (see `ACADEMY_TRAINER_VERIFIERS` in
+ * `features/academy.ts`). Phase 1: the binary OPEN/FOLD preflop RFI trainer.
+ */
+export type AcademyTrainerKind = "PREFLOP_RFI_BINARY";
+
+export type AcademyLesson = {
+  readonly code: AcademyLessonCode;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly description: string;
+  readonly order: number;
+  readonly route: string;
+  readonly lessonKind: AcademyLessonKind;
+  readonly trainerKind: AcademyTrainerKind;
+};
+
+export type AcademyModule = {
+  readonly code: string;
+  readonly title: string;
+  readonly description: string;
+  readonly order: number;
+  readonly route: string;
+  readonly lessons: readonly AcademyLesson[];
+};
+
+export type AcademyCourse = {
+  readonly code: string;
+  readonly title: string;
+  readonly description: string;
+  readonly order: number;
+  readonly modules: readonly AcademyModule[];
+};
+
 export type AcademyAdminLessonProgress = {
   readonly lessonCode: AcademyLessonCode;
   readonly title: string;
@@ -131,7 +191,26 @@ export type AcademyAdminPlayerProgress = {
   readonly passedLessons: number;
   readonly totalLessons: number;
   readonly lastActivityAt: string;
+  /** Flat list of every catalog lesson (kept for backward compatibility). */
   readonly lessons: readonly AcademyAdminLessonProgress[];
+  /** Same lessons grouped by catalog course → module. */
+  readonly courses: readonly AcademyAdminCourseProgress[];
+};
+
+export type AcademyAdminModuleProgress = {
+  readonly moduleCode: string;
+  readonly title: string;
+  readonly passedLessons: number;
+  readonly totalLessons: number;
+  readonly lessons: readonly AcademyAdminLessonProgress[];
+};
+
+export type AcademyAdminCourseProgress = {
+  readonly courseCode: string;
+  readonly title: string;
+  readonly passedLessons: number;
+  readonly totalLessons: number;
+  readonly modules: readonly AcademyAdminModuleProgress[];
 };
 
 export type AcademyAdminProgressPayload = {
