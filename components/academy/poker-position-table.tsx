@@ -52,6 +52,13 @@ type TrainingSceneProps = {
   stackBb?: number;
   /** Optional hero hole cards, placed on the felt just above the hero's seat. */
   heroCards?: ReactNode;
+  /**
+   * Cap the scene's height to the VISIBLE viewport (Telegram top chrome,
+   * safe areas, bottom nav and the decision UI below the table), so the whole
+   * table — top seats included — and the action buttons fit on arrival. See
+   * `TRAINING_SCENE_FIT_MAX_HEIGHT`.
+   */
+  fitViewport?: boolean;
 };
 
 export type PokerPositionTableProps =
@@ -453,6 +460,85 @@ const CHIP_HEIGHT = 20;
 /** Top edge (viewBox units) of the hero-cards area on the felt, above the hero plate. */
 const HERO_CARDS_TOP = 242;
 
+// ---------------------------------------------------------------------------
+// Viewport fit (safe area). Pure numbers shared by the CSS below and the
+// layout model `trainingSceneFitLayout`, so tests and rendering cannot drift.
+// ---------------------------------------------------------------------------
+
+/** Session chrome ABOVE the table (page top padding, top bar, spot context), px. */
+export const TRAINING_SCENE_CHROME_ABOVE_PX = 140;
+/** Decision UI BELOW the table ("Твой ход" + action buttons, incl. two-line labels), px. */
+export const TRAINING_SCENE_CHROME_BELOW_PX = 120;
+/** The app's fixed bottom nav (incl. its 10px offset) + 8px breathing room, px — excluding the bottom safe-area inset. */
+export const TRAINING_SCENE_BOTTOM_NAV_CLEARANCE_PX = 86;
+/**
+ * Floor of the fitted height: below this, the 78px hole cards would no longer
+ * fit between `HERO_CARDS_TOP` and the hero plate (85 viewBox units ≥ 78px ⇒
+ * scale ≥ 0.92 ⇒ ≥ 352px). On extreme screens the page scrolls instead of
+ * crushing the table.
+ */
+export const TRAINING_SCENE_MIN_HEIGHT_PX = 352;
+/** Smallest distance (viewBox units) between any seat plate and the scene's top edge. */
+export const TRAINING_SCENE_TOP_SEAT_MARGIN_UNITS = 6;
+
+/** Everything around the table that must fit in the visible viewport, px (above + below + bottom nav). */
+export const TRAINING_SCENE_RESERVED_PX = 346;
+
+/**
+ * CSS max-height of a fitted scene. `--app-top-offset` is the Telegram
+ * fullscreen top chrome (status bar + Mini App close bar), maintained by
+ * TelegramAppShell; `--tg-viewport-stable-height` is Telegram's visible
+ * viewport (falls back to 100dvh outside Telegram).
+ *
+ * Deliberately ONE plain string literal: the production minifier mangled the
+ * equivalent template-literal concatenation (dropping the `var(...)` terms and
+ * producing an invalid value the browser silently ignored). A test pins the
+ * numbers to the constants above (352 = MIN, 346 = RESERVED).
+ */
+export const TRAINING_SCENE_FIT_MAX_HEIGHT =
+  "max(352px, calc(var(--tg-viewport-stable-height, 100dvh) - var(--app-top-offset, 0px) - env(safe-area-inset-bottom, 0px) - 346px))";
+
+/** Top edge (viewBox units) of the highest seat plate of the scene. */
+export function trainingSceneTopSeatEdgeUnits(): number {
+  return Math.min(...SCENE_SLOTS.map((slot, index) => slot.y - (index === 0 ? HERO_PLATE.height : PLATE.height) / 2));
+}
+
+/**
+ * Layout model of a fitted scene (mirrors `TRAINING_SCENE_FIT_MAX_HEIGHT`):
+ * where the table and its highest seat land on screen for a viewport, the
+ * Telegram top chrome and the bottom safe area. `contentWidth` is the scene's
+ * rendered width (content column minus gutters).
+ */
+export function trainingSceneFitLayout({
+  viewportHeight,
+  topInset,
+  bottomInset = 0,
+  contentWidth,
+}: {
+  readonly viewportHeight: number;
+  readonly topInset: number;
+  readonly bottomInset?: number;
+  readonly contentWidth: number;
+}) {
+  const naturalHeight = (contentWidth * SCENE_HEIGHT) / SCENE_WIDTH;
+  const available = viewportHeight - topInset - bottomInset
+    - TRAINING_SCENE_CHROME_ABOVE_PX - TRAINING_SCENE_CHROME_BELOW_PX - TRAINING_SCENE_BOTTOM_NAV_CLEARANCE_PX;
+  const maxHeight = Math.max(TRAINING_SCENE_MIN_HEIGHT_PX, available);
+  const height = Math.min(naturalHeight, maxHeight);
+  const scale = Math.min(height / SCENE_HEIGHT, contentWidth / SCENE_WIDTH);
+  const tableTop = topInset + TRAINING_SCENE_CHROME_ABOVE_PX;
+  // preserveAspectRatio="xMidYMid meet": a height-capped scene is centred vertically in its box.
+  const contentTop = tableTop + (height - SCENE_HEIGHT * scale) / 2;
+  return {
+    height,
+    scale,
+    tableTop,
+    topSeatTop: contentTop + trainingSceneTopSeatEdgeUnits() * scale,
+    buttonsBottom: tableTop + height + TRAINING_SCENE_CHROME_BELOW_PX,
+    bottomNavTop: viewportHeight - bottomInset - TRAINING_SCENE_BOTTOM_NAV_CLEARANCE_PX,
+  };
+}
+
 type SceneSlot = {
   /** Seat plate centre. */
   readonly x: number;
@@ -592,7 +678,7 @@ function SceneChip({ seat, slot, role, label }: { seat: string; slot: SceneSlot;
   );
 }
 
-function TrainingSceneTable({ scene, stackBb, heroCards }: Omit<TrainingSceneProps, "mode">) {
+function TrainingSceneTable({ scene, stackBb, heroCards, fitViewport = false }: Omit<TrainingSceneProps, "mode">) {
   const bySeat = new Map(scene.seats.map((entry) => [entry.seat, entry]));
   const folded = scene.seats.filter((entry) => entry.role === "folded").map((entry) => entry.seat);
   const villain = scene.villainSeat ? bySeat.get(scene.villainSeat) : undefined;
@@ -614,13 +700,14 @@ function TrainingSceneTable({ scene, stackBb, heroCards }: Omit<TrainingScenePro
   const dealer = seats.find((entry) => entry.seat === "BTN")?.slot.dealer;
 
   return (
-    <figure className="m-0 min-w-0" data-scene-layout="SEAT_VIEW">
+    <figure className="m-0 min-w-0" data-scene-layout="SEAT_VIEW" data-scene-fit={fitViewport ? "viewport" : undefined}>
       <div className="relative" data-table-mode="TRAINING_SCENE">
         <svg
           role="img"
           aria-label={description}
           viewBox={`0 0 ${SCENE_WIDTH} ${SCENE_HEIGHT}`}
           className="block h-auto w-full max-w-full"
+          style={fitViewport ? { maxHeight: TRAINING_SCENE_FIT_MAX_HEIGHT } : undefined}
         >
           <SceneFelt stackBb={stackBb} />
           {dealer ? (
@@ -663,7 +750,7 @@ export function PokerPositionTable(props: PokerPositionTableProps) {
         />
       );
     case "TRAINING_SCENE":
-      return <TrainingSceneTable scene={props.scene} stackBb={props.stackBb} heroCards={props.heroCards} />;
+      return <TrainingSceneTable scene={props.scene} stackBb={props.stackBb} heroCards={props.heroCards} fitViewport={props.fitViewport} />;
     default:
       return <StaticTable activePosition={props.activePosition} />;
   }

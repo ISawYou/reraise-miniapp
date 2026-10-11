@@ -11,8 +11,8 @@
  * - Продолжающим  → Solver Lab · 100 BB RFI module (`/academy/solver/rfi/100bb/**`).
  * - Продвинутым   → range study of harder spots on the existing trainer spot
  *                   pages (`/academy/solver/preflop/[stack]/[node]`).
- * - Тренажёры     → the existing practice activities (preflop trainer, Push/Fold),
- *                   presented by goal instead of by implementation.
+ * - Тренажёры     → the existing practice activities (preflop trainer; Push/Fold
+ *                   as a non-scored reference), presented by goal.
  */
 import {
   ACADEMY_BASE_MTT_COURSE_CODE,
@@ -35,7 +35,7 @@ import {
   ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
 } from "@/config/academy/preflop-trainer";
 import {
-  ACADEMY_PUSH_FOLD_QUICK_ROUTE,
+  ACADEMY_SOLVER_PUSH_FOLD_ROUTE,
   ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE,
 } from "@/config/academy/push-fold-trainer";
 
@@ -107,46 +107,50 @@ export function requireAcademyDestination(code: AcademyDestinationCode): Academy
 
 /** One goal-based way to practise, linking to an existing trainer route. */
 export type AcademyTrainerEntry = {
-  readonly code: "quick-mix" | "setup" | "push-fold-quick" | "push-fold-setup";
+  readonly code: "quick-mix" | "setup" | "push-fold-reference";
   readonly title: string;
+  /** One short line — the difference between modes at a glance. */
   readonly description: string;
   readonly route: string;
   readonly cta: string;
+  /** "scored" = the route starts/configures a scored session; "reference" = study only, nothing is scored. */
+  readonly kind: "scored" | "reference";
   /** The existing practice activity (catalog lesson code) the trainer records under. */
   readonly practiceLessonCode: string;
 };
 
+/**
+ * "Тренажёры" entries. "Быстрая тренировка" links straight to the running
+ * Preflop Quick Mix session (no intermediate page). "Короткий стек" is a
+ * NON-SCORED reference while the HoldemMath multiway data is unvalidated
+ * (docs/ACADEMY_PUSH_FOLD_AUDIT.md) — its copy must not promise scored training.
+ */
 export const ACADEMY_TRAINER_ENTRIES: readonly AcademyTrainerEntry[] = Object.freeze([
   Object.freeze({
     code: "quick-mix",
     title: "Быстрая тренировка",
-    description: "10 раздач из разных ситуаций и стеков — без настройки. Просто реши, как сыграть.",
+    description: "Разные префлоп-ситуации, 10 раздач",
     route: ACADEMY_PREFLOP_QUICK_MIX_ROUTE,
     cta: "Начать",
+    kind: "scored",
     practiceLessonCode: ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
   }),
   Object.freeze({
     code: "setup",
-    title: "Настроить ситуацию",
-    description: "Выбери стек, свою позицию и действие соперника — и тренируй именно этот момент.",
+    title: "Выбрать ситуацию",
+    description: "Стек, позиция и действие соперника",
     route: ACADEMY_PREFLOP_SETUP_ROUTE,
-    cta: "Выбрать ситуацию",
+    cta: "Настроить",
+    kind: "scored",
     practiceLessonCode: ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
   }),
   Object.freeze({
-    code: "push-fold-quick",
-    title: "Быстрая Push/Fold тренировка",
-    description: "Короткий стек 4–15 BB: 10 решений «олл-ин или фолд» подряд.",
-    route: ACADEMY_PUSH_FOLD_QUICK_ROUTE,
-    cta: "Начать",
-    practiceLessonCode: ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE,
-  }),
-  Object.freeze({
-    code: "push-fold-setup",
-    title: "Push/Fold",
-    description: "Выбери стек и позицию: когда пушить первым и когда коллировать чужой олл-ин.",
-    route: ACADEMY_PUSH_FOLD_SETUP_ROUTE,
-    cta: "Выбрать ситуацию",
+    code: "push-fold-reference",
+    title: "Короткий стек",
+    description: "Push/Fold 4–15 BB — справочник диапазонов, без оценки",
+    route: ACADEMY_SOLVER_PUSH_FOLD_ROUTE,
+    cta: "Смотреть диапазоны",
+    kind: "reference",
     practiceLessonCode: ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE,
   }),
 ] satisfies AcademyTrainerEntry[]);

@@ -508,8 +508,23 @@ export type AcademyPreflopTrainerPublicSpot = AcademyPreflopTrainerSpot & Academ
   readonly scene: AcademyPreflopTableScene;
 };
 
-/** Public question of the configurable trainer: Solver Lab public question + spot. */
-export type AcademyPreflopTrainerPublicQuestion = AcademySolverPublicQuestion & {
+/**
+ * Server-computed three-state outcome of one answer in the NORMAL practice
+ * trainers (configurable preflop trainer, Quick Mix, Push/Fold):
+ * - `RESOLVED_MATCH`: the choice equals the randomizer-resolved action;
+ * - `VALID_MIXED`: a different action the strategy also plays (> 0%) — counts
+ *   as correct, never a mistake;
+ * - `NOT_IN_STRATEGY`: the strategy never plays the chosen action (0%).
+ * Not used by the 100bb HRC Solver Lab trainer (exact-randomizer scoring).
+ */
+export type AcademyStrategyAnswerOutcome = "RESOLVED_MATCH" | "VALID_MIXED" | "NOT_IN_STRATEGY";
+
+/**
+ * Public question of the configurable trainer: hand, cards, actions and spot.
+ * Deliberately WITHOUT the randomizer: in normal practice the player answers
+ * from the strategy, and the randomizer is only explained after answering.
+ */
+export type AcademyPreflopTrainerPublicQuestion = Omit<AcademySolverPublicQuestion, "randomizerPercent"> & {
   readonly spot: AcademyPreflopTrainerPublicSpot;
 };
 
@@ -517,10 +532,16 @@ export type AcademyPreflopTrainerPublicQuestion = AcademySolverPublicQuestion & 
 export type AcademyPreflopTrainerReveal = AcademyPreflopTrainerPublicQuestion & {
   readonly questionIndex: number;
   readonly frequencies: AcademyStrategyHandFrequencies;
+  /** Integer in [0, 99] — secondary, explanatory information only. */
+  readonly randomizerPercent: number;
   readonly resolvedAction: AcademySolverAction;
   readonly selectedAction: AcademySolverAction;
   readonly bucket: AcademyStrategyHandBucket;
   readonly matchesResolvedAction: boolean;
+  /** Server-computed; see `AcademyStrategyAnswerOutcome`. */
+  readonly outcome: AcademyStrategyAnswerOutcome;
+  /** Server-computed: true iff the verifier counts this answer as correct. */
+  readonly countsAsCorrect: boolean;
 };
 
 /**
@@ -604,6 +625,10 @@ export type AcademyPushFoldReveal = AcademyPushFoldPublicQuestion & {
   readonly resolvedAction: AcademySolverAction;
   readonly selectedAction: AcademySolverAction;
   readonly matchesResolvedAction: boolean;
+  /** Server-computed; see `AcademyStrategyAnswerOutcome`. */
+  readonly outcome: AcademyStrategyAnswerOutcome;
+  /** Server-computed: true iff the verifier counts this answer as correct. */
+  readonly countsAsCorrect: boolean;
 };
 
 /**

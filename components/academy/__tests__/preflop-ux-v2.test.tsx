@@ -47,6 +47,7 @@ const { buildAcademyPreflopMixSession } = await import("@/lib/academy/preflop-mi
 const {
   listAcademyPreflopTrainerSpots,
   requireAcademyPreflopTrainerSpotByStack,
+  toPreflopTrainerReveal,
   toPublicPreflopTrainerQuestion,
   toPublicPreflopTrainerSpot,
 } = await import("@/lib/academy/preflop-trainer");
@@ -140,11 +141,7 @@ describe("(2)(3) Quick Mix session UI", () => {
         payload = toPublicPreflopTrainerQuestion(session[body.questionIndex as number]);
       } else if (url.endsWith("/mix/reveal")) {
         const question = session[body.questionIndex as number];
-        payload = {
-          ...toPublicPreflopTrainerQuestion(question), questionIndex: question.questionIndex, frequencies: question.frequencies,
-          resolvedAction: question.resolvedAction, selectedAction: body.selectedAction as string, bucket: question.bucket,
-          matchesResolvedAction: body.selectedAction === question.resolvedAction,
-        } satisfies AcademyPreflopTrainerReveal;
+        payload = toPreflopTrainerReveal(question, body.selectedAction as string) satisfies AcademyPreflopTrainerReveal;
       } else {
         payload = {
           result: { correctAnswers: 10, totalQuestions: 10, percentage: 100, passed: true, feedback: "Отлично" },

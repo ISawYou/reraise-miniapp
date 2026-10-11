@@ -13,8 +13,9 @@ type PreflopMixSessionRequestBody = {
  * player (player id from the session cookie only). The node is derived on the
  * server from (player, attemptId, questionIndex) — ONLY `attemptId` and
  * `questionIndex` are read from the body; any datasetId / nodeKey / playerId
- * there is ignored. Responds with `{hand, renderedCards, randomizerPercent,
- * actions, spot}` — never frequencies, the resolved action or derivation inputs.
+ * there is ignored. Responds with `{hand, renderedCards, actions, spot}` —
+ * never the randomizer (revealed only after answering), frequencies, the
+ * resolved action or derivation inputs.
  */
 export async function POST(request: NextRequest) {
   const player = await getPlayerFromSessionServer(request.cookies.get(COOKIE_NAME)?.value);
@@ -29,7 +30,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       hand: question.hand,
       renderedCards: question.renderedCards,
-      randomizerPercent: question.randomizerPercent,
       actions: question.actions,
       spot: question.spot,
     });

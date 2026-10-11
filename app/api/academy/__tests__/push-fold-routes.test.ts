@@ -8,6 +8,16 @@ vi.mock("@/features/auth-server", () => ({
   getPlayerFromSessionServer: mockGetPlayerFromSessionServer,
 }));
 
+// These tests exercise the SCORED Push/Fold engine (sessions, reveal, verifier)
+// as it will run once a dataset is independently validated for scored
+// training. Production keeps ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS EMPTY (see
+// docs/ACADEMY_PUSH_FOLD_AUDIT.md); that real, unmocked fail-closed policy is
+// pinned in features/__tests__/academy-push-fold-policy.test.ts.
+vi.mock("@/config/academy/push-fold-trainer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/config/academy/push-fold-trainer")>();
+  return { ...actual, ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS: actual.ACADEMY_PUSH_FOLD_TRAINER_DATASET_IDS };
+});
+
 const memory = vi.hoisted(() => ({ recorded: [] as Array<Record<string, unknown>> }));
 
 vi.mock("@/lib/repositories/academy-progress", () => ({

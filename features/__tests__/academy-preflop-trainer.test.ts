@@ -118,12 +118,12 @@ describe("one lesson code for the whole configurable trainer", () => {
 });
 
 describe("question / reveal / verify", () => {
-  it("(11) the served question never exposes frequencies or the resolved action", () => {
+  it("(11) the served question never exposes frequencies, the resolved action or the randomizer", () => {
     for (let questionIndex = 0; questionIndex < 10; questionIndex += 1) {
       const question = getAcademyPreflopTrainerQuestion(PLAYER_ID, { datasetId: DATASET_40, nodeKey: NODE, attemptId: ATTEMPT_ID, questionIndex });
-      expect(Object.keys(question).sort()).toEqual(["actions", "hand", "randomizerPercent", "renderedCards", "spot"]);
+      expect(Object.keys(question).sort()).toEqual(["actions", "hand", "renderedCards", "spot"]);
       const raw = JSON.stringify(question);
-      for (const leak of ["frequencies", "frequency", "resolvedAction", "bucket", "evBb", "preflop-feature-secret"]) expect(raw).not.toContain(leak);
+      for (const leak of ["frequencies", "frequency", "resolvedAction", "bucket", "evBb", "randomizer", "preflop-feature-secret"]) expect(raw).not.toContain(leak);
       expect(question.spot).toMatchObject({ stackBb: 40, heroPosition: "BB", villainPosition: "BTN", title: "BB против BTN" });
     }
   });
@@ -147,13 +147,14 @@ describe("question / reveal / verify", () => {
     }
   });
 
-  it("scores against the resolved action only (perfect / all-fold), like the 100bb trainer", () => {
+  it("normal-practice scoring: any action the strategy plays (> 0%) is correct, a 0% action is not", () => {
     const resolved = session().map((question) => question.resolvedAction);
     const verify = (selected: readonly string[]) => verifyAcademyPreflopTrainerAttempt(
       { attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: answers(selected) }, { playerId: PLAYER_ID });
     expect(verify(resolved)).toMatchObject({ correctAnswers: 10, percentage: 100, passed: true });
-    const foldCount = resolved.filter((action) => action === "FOLD").length;
-    expect(verify(resolved.map(() => "FOLD")).correctAnswers).toBe(foldCount);
+    // All-fold: correct exactly where the strategy folds with frequency > 0 (not only where the randomizer said fold).
+    const foldPlayed = session().filter((question) => (question.frequencies.FOLD ?? 0) > 0).length;
+    expect(verify(resolved.map(() => "FOLD")).correctAnswers).toBe(foldPlayed);
     // Dispatch by the catalog lesson's trainer kind uses the same verifier.
     expect(verifyAcademyAttempt(getAcademyLessonByCode(LESSON)!, {
       attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: answers(resolved),

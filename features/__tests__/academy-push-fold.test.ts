@@ -38,6 +38,16 @@ import { buildAcademyPreflopTrainerSession, requireAcademyPreflopTrainerSpot } f
 import { resolveAcademyStrategyNodeAction } from "@/lib/academy/solver";
 import type { AcademyProgressRepository } from "@/lib/repositories/academy-progress";
 
+// These tests exercise the SCORED Push/Fold engine (sessions, reveal, verifier)
+// as it will run once a dataset is independently validated for scored
+// training. Production keeps ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS EMPTY (see
+// docs/ACADEMY_PUSH_FOLD_AUDIT.md); that real, unmocked fail-closed policy is
+// pinned in features/__tests__/academy-push-fold-policy.test.ts.
+vi.mock("@/config/academy/push-fold-trainer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/config/academy/push-fold-trainer")>();
+  return { ...actual, ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS: actual.ACADEMY_PUSH_FOLD_TRAINER_DATASET_IDS };
+});
+
 vi.mock("@/lib/repositories", () => ({ academyProgressRepository: {} }));
 vi.mock("@/lib/repositories/academy-progress", () => ({ academyProgressRepository: {} }));
 

@@ -68,10 +68,10 @@ describe("Quick Mix serve / reveal / verify", () => {
   it("(9) serves answer-free questions whose node is server-derived", () => {
     for (let questionIndex = 0; questionIndex < 10; questionIndex += 1) {
       const question = getAcademyPreflopMixQuestion(PLAYER_ID, { attemptId: ATTEMPT_ID, questionIndex });
-      expect(Object.keys(question).sort()).toEqual(["actions", "hand", "randomizerPercent", "renderedCards", "spot"]);
+      expect(Object.keys(question).sort()).toEqual(["actions", "hand", "renderedCards", "spot"]);
       expect(question.spot.nodeKey).toBe(session()[questionIndex].spot.nodeKey);
       const raw = JSON.stringify(question);
-      for (const leak of ["frequencies", "resolvedAction", "bucket", "preflop-mix-feature-secret"]) expect(raw).not.toContain(leak);
+      for (const leak of ["frequencies", "resolvedAction", "bucket", "randomizer", "preflop-mix-feature-secret"]) expect(raw).not.toContain(leak);
     }
   });
 
@@ -87,6 +87,7 @@ describe("Quick Mix serve / reveal / verify", () => {
     expect(reveal.frequencies).toBe(question.frequencies);
     expect(reveal.resolvedAction).toBe(question.resolvedAction);
     expect(reveal.matchesResolvedAction).toBe(false);
+    expect(reveal).toMatchObject({ outcome: "VALID_MIXED", countsAsCorrect: true, randomizerPercent: question.randomizerPercent });
     const feedback = buildSolverAnswerFeedback(reveal, ACADEMY_NEUTRAL_FEEDBACK_WORDING);
     expect(feedback.tone).toBe("mixed");
     expect(feedback.detail).toContain(`Рандомайзер ${reveal.randomizerPercent}`);
@@ -99,7 +100,8 @@ describe("Quick Mix serve / reveal / verify", () => {
     const resolved = mixAnswers((question) => question.resolvedAction);
     expect(verify(resolved)).toMatchObject({ correctAnswers: 10, passed: true });
     const folds = mixAnswers((question) => (question.actions.some((a) => a.code === "FOLD") ? "FOLD" : question.actions[0].code));
-    expect(verify(folds).correctAnswers).toBe(session().filter((q, i) => q.resolvedAction === folds[i].selectedAction).length);
+    // Normal practice: correct wherever the strategy plays the chosen action at all (frequency > 0).
+    expect(verify(folds).correctAnswers).toBe(session().filter((q, i) => (q.frequencies[folds[i].selectedAction] ?? 0) > 0).length);
     expect(verifyAcademyAttempt(getAcademyLessonByCode(LESSON)!, { attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: resolved }, { playerId: PLAYER_ID }))
       .toEqual(verify(resolved));
 

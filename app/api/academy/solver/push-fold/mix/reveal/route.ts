@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { AcademyValidationError, revealAcademyPushFoldMixAnswer } from "@/features/academy";
+import { AcademyTrainerUnavailableError, AcademyValidationError, revealAcademyPushFoldMixAnswer } from "@/features/academy";
 import { getPlayerFromSessionServer } from "@/features/auth-server";
 import { COOKIE_NAME } from "@/lib/telegram-web-session";
 
@@ -27,6 +27,10 @@ export async function POST(request: NextRequest) {
       selectedAction: body.selectedAction,
     }));
   } catch (error) {
+    // Scored Push/Fold is paused (unvalidated multiway data): 409, never a fallback dataset.
+    if (error instanceof AcademyTrainerUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     if (error instanceof AcademyValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

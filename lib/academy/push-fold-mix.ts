@@ -3,7 +3,10 @@ import "server-only";
 /**
  * "Быстрая Push/Fold тренировка" — 10 decisions from DIFFERENT validated
  * nodes of the Push/Fold whitelist (`ACADEMY_PUSH_FOLD_TRAINER_DATASET_IDS`,
- * HoldemMath ante10, 4–15 BB; never MTT / HRC / no-ante / 20 BB data).
+ * HoldemMath ante10, 4–15 BB; never MTT / HRC / no-ante / 20 BB data) whose
+ * dataset is ALSO on the scored whitelist (`ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS`,
+ * currently empty → every Quick session fails closed with
+ * `AcademyPushFoldScoringUnavailableError`; see docs/ACADEMY_PUSH_FOLD_AUDIT.md).
  *
  * Server-authoritative and stateless, like every Solver Lab session: the
  * whole session (nodes, hands, cards, answers) is regenerated on every
@@ -72,7 +75,10 @@ import {
 import { calculateWeightedRangePercentage, CANONICAL_STARTING_HANDS } from "@/lib/academy/preflop";
 import {
   ACADEMY_PUSH_FOLD_HAND_PLAN,
+  AcademyPushFoldScoringUnavailableError,
   buildPushFoldQuestion,
+  isAcademyPushFoldDatasetScored,
+  isAcademyPushFoldScoredTrainingEnabled,
   listAcademyPushFoldSpots,
   pickPushFoldHand,
   pushFoldPureAction,
@@ -126,10 +132,14 @@ export type AcademyPushFoldMixCandidate = {
 
 let candidateIndex: readonly AcademyPushFoldMixCandidate[] | null = null;
 
-/** Every Quick candidate node (= every Push/Fold spot) with policy metadata. Memoized. */
+/**
+ * Every Quick candidate node with policy metadata: the Push/Fold spots whose
+ * dataset is validated for SCORED training (`isAcademyPushFoldDatasetScored`).
+ * Empty while no dataset is validated. Memoized.
+ */
 export function listAcademyPushFoldMixCandidates(): readonly AcademyPushFoldMixCandidate[] {
   if (!candidateIndex) {
-    candidateIndex = Object.freeze(listAcademyPushFoldSpots().map((spot) => {
+    candidateIndex = Object.freeze(listAcademyPushFoldSpots().filter((spot) => isAcademyPushFoldDatasetScored(spot.datasetId)).map((spot) => {
       if (!ACADEMY_PUSH_FOLD_TRAINER_DATASET_IDS.includes(spot.datasetId)) {
         throw new Error(`Push/Fold Quick candidate outside the whitelist: ${spot.datasetId}`);
       }
@@ -224,6 +234,8 @@ function mixDerivationParts(key: AcademyPushFoldMixSessionKey): string[] {
 
 /** Regenerates the whole Quick session for (player, attempt). */
 export function buildAcademyPushFoldMixSession(key: AcademyPushFoldMixSessionKey): readonly AcademyPushFoldSessionQuestion[] {
+  // Fail closed before any sampling: no validated dataset → no scored Quick session.
+  if (!isAcademyPushFoldScoredTrainingEnabled()) throw new AcademyPushFoldScoringUnavailableError();
   const parts = mixDerivationParts(key);
   const nodes = selectPushFoldMixNodes(createDeterministicRandom([...parts, "node-selection"]));
   const hands = selectPushFoldMixHands(nodes, createDeterministicRandom([...parts, "hand-selection"]));

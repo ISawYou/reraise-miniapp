@@ -37,11 +37,13 @@ import {
 } from "@/lib/academy/solver";
 import { createDeterministicRandom, deriveDeterministicUnit } from "@/lib/academy/solver-session";
 import { ACADEMY_SOLVER_QUESTION_COUNT, toPublicSolverAction } from "@/lib/academy/solver-training";
+import { classifyStrategyAnswer, strategyAnswerCountsAsCorrect } from "@/lib/academy/strategy-answer";
 import { renderStartingHand } from "@/lib/academy/training";
 import type {
   AcademyPreflopTableScene,
   AcademyPreflopTrainerPublicQuestion,
   AcademyPreflopTrainerPublicSpot,
+  AcademyPreflopTrainerReveal,
   AcademyPreflopTrainerSituation,
   AcademyPreflopTrainerSpot,
   AcademySolverAction,
@@ -305,15 +307,47 @@ export function buildAcademyPreflopTrainerSession(
   }));
 }
 
-/** Strips everything that would reveal the answer before the player responds. */
+/**
+ * Strips everything that would reveal the answer before the player responds —
+ * including the randomizer: normal practice is answered from the strategy, and
+ * the randomizer is only explained (secondarily) in the reveal.
+ */
 export function toPublicPreflopTrainerQuestion(
   question: AcademyPreflopTrainerSessionQuestion,
 ): AcademyPreflopTrainerPublicQuestion {
   return {
     hand: question.hand,
     renderedCards: question.renderedCards,
-    randomizerPercent: question.randomizerPercent,
     actions: question.actions,
     spot: question.spot,
+  };
+}
+
+/**
+ * Post-answer reveal of one question (fixed node or Quick Mix). The outcome
+ * and `countsAsCorrect` are computed HERE, server-side, with the same
+ * `classifyStrategyAnswer` the verifier uses — never by the client.
+ * `selectedAction` must already be validated against the node's actions.
+ */
+export function toPreflopTrainerReveal(
+  question: AcademyPreflopTrainerSessionQuestion,
+  selectedAction: AcademySolverAction,
+): AcademyPreflopTrainerReveal {
+  const outcome = classifyStrategyAnswer({
+    frequencies: question.frequencies,
+    selectedAction,
+    resolvedAction: question.resolvedAction,
+  });
+  return {
+    ...toPublicPreflopTrainerQuestion(question),
+    questionIndex: question.questionIndex,
+    frequencies: question.frequencies,
+    randomizerPercent: question.randomizerPercent,
+    resolvedAction: question.resolvedAction,
+    selectedAction,
+    bucket: question.bucket,
+    matchesResolvedAction: selectedAction === question.resolvedAction,
+    outcome,
+    countsAsCorrect: strategyAnswerCountsAsCorrect(outcome),
   };
 }

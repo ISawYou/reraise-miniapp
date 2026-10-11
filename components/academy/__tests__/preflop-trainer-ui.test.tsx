@@ -28,6 +28,7 @@ const {
   getPreflopTrainerPublicActions,
   listAcademyPreflopTrainerSpots,
   requireAcademyPreflopTrainerSpot,
+  toPreflopTrainerReveal,
   toPublicPreflopTrainerQuestion,
 } = await import("@/lib/academy/preflop-trainer");
 const { CANONICAL_STARTING_HANDS } = await import("@/lib/academy/preflop");
@@ -212,17 +213,15 @@ describe("trainer session UI", () => {
     expect(container.textContent).not.toMatch(FORBIDDEN_SOURCE_COPY);
   });
 
-  it("(15) mixed-hand mismatch shows non-judgmental feedback; answers carry the node selection", async () => {
+  it("(15) a valid mixed action (≠ randomizer, > 0%) is shown as correct, never as a mistake; answers carry the node selection", async () => {
     const { session } = load();
     const index = session.findIndex((entry) => entry.bucket === "MIXED");
     const question = session[index];
     const other = question.actions.map((action) => action.code)
       .find((code) => code !== question.resolvedAction && question.frequencies[code] > 0)!;
     sessionPayload = toPublicPreflopTrainerQuestion(question);
-    revealPayload = {
-      ...toPublicPreflopTrainerQuestion(question), questionIndex: index, frequencies: question.frequencies,
-      resolvedAction: question.resolvedAction, selectedAction: other, bucket: question.bucket, matchesResolvedAction: false,
-    };
+    revealPayload = toPreflopTrainerReveal(question, other);
+    expect(revealPayload).toMatchObject({ outcome: "VALID_MIXED", countsAsCorrect: true, matchesResolvedAction: false });
     await render(<PreflopTrainer selection={selection} />);
     await click(container.querySelector(`button[data-action-code="${other}"]`)!);
 
@@ -231,10 +230,13 @@ describe("trainer session UI", () => {
       body: { datasetId: selection.datasetId, nodeKey: selection.nodeKey, selectedAction: other },
     });
     const feedback = container.querySelector("[data-feedback-tone]")!;
-    expect(feedback.getAttribute("data-feedback-tone")).toBe("mixed");
-    expect(feedback.textContent).toContain("Смешанная рука");
-    expect(feedback.textContent).toContain("Частота стратегии");
-    expect(feedback.textContent).not.toMatch(/неправильн|неверн|ошибк|wrong|солвер/i);
+    expect(feedback.getAttribute("data-feedback-tone")).toBe("valid");
+    expect(feedback.textContent).toContain("Допустимое решение");
+    expect(feedback.textContent).toContain("входит в стратегию");
+    expect(container.querySelector('[data-testid="feedback-note"]')!.textContent).toMatch(/^По рандомайзеру в этой раздаче выпал /);
+    expect(feedback.textContent).not.toMatch(/неправильн|неверн|ошибк|wrong|солвер|Не входит/i);
+    // The chosen button is styled as accepted (green), not as an error.
+    expect(container.querySelector(`button[data-action-code="${other}"]`)!.getAttribute("data-action-selected")).toBe("correct");
   });
 });
 

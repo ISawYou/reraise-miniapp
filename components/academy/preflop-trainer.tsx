@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { solverActionGridColumnsClass } from "@/components/academy/solver-training";
 import {
   TRAINER_PRIMARY_BUTTON_CLASS,
@@ -10,6 +10,7 @@ import {
   TrainerDecisionHeader,
   TrainerFeedbackPanel,
   TrainerHandScene,
+  TrainerNextBar,
   type TrainerReviewEntry,
   TrainerSessionTopBar,
   TrainerSpotContext,
@@ -25,8 +26,8 @@ import {
 } from "@/config/academy/preflop-trainer";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
 import {
-  ACADEMY_NEUTRAL_FEEDBACK_WORDING,
-  buildSolverAnswerFeedback,
+  buildPracticeAnswerFeedback,
+  formatPracticeFrequencyList,
   solverActionButtonLabel,
 } from "@/lib/academy/solver-feedback";
 import type {
@@ -104,29 +105,29 @@ const SETUP_BACK = { href: ACADEMY_PREFLOP_SETUP_ROUTE, label: "К выбору 
 const TRAINERS_BACK = { href: ACADEMY_TRAINERS_ROUTE, label: "Тренажёры" } as const;
 
 /**
- * Review entry for a question that did not count as correct (selected ≠
- * resolved), built from the reveal the server already returned — the same
- * feedback copy the player saw after answering.
+ * "Разобрать ошибки" entry, built from the reveal the server already returned.
+ * Only a genuine mistake — an action the strategy never plays here (server
+ * outcome `NOT_IN_STRATEGY`) — is listed. A valid mixed action (frequency > 0,
+ * different from the randomizer) counted as correct and is never a mistake.
  */
 export function preflopTrainerReviewEntry(reveal: AcademyPreflopTrainerReveal): TrainerReviewEntry | null {
-  if (reveal.selectedAction === reveal.resolvedAction) return null;
-  const feedback = buildSolverAnswerFeedback(reveal, ACADEMY_NEUTRAL_FEEDBACK_WORDING);
+  if (reveal.outcome !== "NOT_IN_STRATEGY") return null;
+  const feedback = buildPracticeAnswerFeedback(reveal);
   const label = (code: AcademySolverAction) => {
     const action = reveal.actions.find((candidate) => candidate.code === code);
     return action ? solverActionButtonLabel(action) : code;
   };
-  const mixedHand = !reveal.actions.some((action) => (reveal.frequencies[action.code] ?? 0) >= 1);
   return {
     questionNumber: reveal.questionIndex + 1,
     title: reveal.spot.title,
     stackBb: reveal.spot.stackBb,
     hand: reveal.hand,
-    tone: feedback.tone === "mixed" ? "mixed" : "incorrect",
+    tone: "incorrect",
     verdict: feedback.title,
     yourAnswer: label(reveal.selectedAction),
-    expectedLabel: mixedHand ? "Выпало на рандомайзере" : "Стратегия",
-    expectedAnswer: label(reveal.resolvedAction),
-    detail: `${feedback.summary} ${feedback.detail}`,
+    expectedLabel: "Стратегия",
+    expectedAnswer: formatPracticeFrequencyList(reveal.frequencies, reveal.actions),
+    detail: feedback.summary,
   };
 }
 
@@ -191,12 +192,14 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
   const [reveal, setReveal] = useState<AcademyPreflopTrainerReveal | null>(null);
   const [answers, setAnswers] = useState<PreflopTrainerAnyAnswer[]>([]);
   const [review, setReview] = useState<TrainerReviewEntry[]>([]);
+  const [validMixedCount, setValidMixedCount] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AcademyTrainingResult | null>(null);
   const [updatedProgress, setUpdatedProgress] = useState<AcademyLessonProgress | null>(null);
   const [newBest, setNewBest] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
+  const feedbackRef = useRef<HTMLElement>(null);
   const loadQuestion = useCallback(async (currentAttemptId: string, index: number) => {
     setPending(true);
     setError(null);
@@ -216,6 +219,21 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
     if (hydrated) void loadQuestion(attemptId, questionIndex);
   }, [hydrated, attemptId, questionIndex, loadQuestion]);
 
+  // A new hand always starts at the top: the whole table (top seats included)
+  // is visible below the Telegram top chrome, not left scrolled under it.
+  useEffect(() => {
+    if (hydrated && typeof window.scrollTo === "function") window.scrollTo({ top: 0 });
+  }, [hydrated, attemptId, questionIndex]);
+
+  // After answering, bring the compact feedback into view above the sticky
+  // next-step bar (only scrolls when it is not visible already).
+  useEffect(() => {
+    const panel = feedbackRef.current;
+    if (reveal && panel && typeof panel.scrollIntoView === "function") {
+      panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [reveal]);
+
   async function handleAnswer(selectedAction: AcademySolverAction) {
     if (!question || reveal || pending) return;
     setPending(true);
@@ -229,6 +247,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
       setAnswers((current) => [...current, source.toAnswer(questionIndex, selectedAction, question)]);
       const entry = preflopTrainerReviewEntry(revealed);
       if (entry) setReview((current) => [...current, entry]);
+      if (revealed.outcome === "VALID_MIXED") setValidMixedCount((count) => count + 1);
     } catch (answerError) {
       setError(answerError instanceof Error ? answerError.message : "Не удалось проверить ответ");
     } finally {
@@ -273,6 +292,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
     setReveal(null);
     setAnswers([]);
     setReview([]);
+    setValidMixedCount(0);
     setResult(null);
     setUpdatedProgress(null);
     setNewBest(false);
@@ -301,12 +321,13 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
           trainers={TRAINERS_LINK}
           links={source.resultLinks}
           review={review}
+          validMixedCount={validMixedCount}
         />
       </main>
     );
   }
 
-  const feedback = reveal ? buildSolverAnswerFeedback(reveal, ACADEMY_NEUTRAL_FEEDBACK_WORDING) : null;
+  const feedback = reveal ? buildPracticeAnswerFeedback(reveal) : null;
   const isLastQuestion = questionIndex === ACADEMY_TRAINING_QUESTION_COUNT - 1;
   const spot = question?.spot;
 
@@ -325,19 +346,11 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
           <>
             <TrainerSpotContext title={spot.title} history={spot.history} stackBb={spot.stackBb} />
             <TrainerHandScene scene={spot.scene} stackBb={spot.stackBb} cards={question.renderedCards} hand={question.hand} />
-            <TrainerDecisionHeader hand={question.hand}>
-              <span className="flex items-center gap-2 text-xs text-white/55">
-                <span>Рандомайзер</span>
-                <span className="rounded-lg border border-[#d7b55a]/30 bg-[#d7b55a]/10 px-2 py-0.5 text-sm font-semibold tabular-nums text-[#e4c97a]">
-                  {question.randomizerPercent}
-                </span>
-              </span>
-            </TrainerDecisionHeader>
+            <TrainerDecisionHeader hand={question.hand} />
             <TrainerActionButtons
               actions={question.actions}
               columnsClass={solverActionGridColumnsClass(question.actions.length)}
               reveal={reveal}
-              mixedTone={feedback?.tone === "mixed"}
               disabled={pending}
               onAnswer={(action) => void handleAnswer(action)}
             />
@@ -346,7 +359,17 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
           <p className="mt-10 text-center text-sm text-white/50">{error ? "" : "Готовим раздачу..."}</p>
         )}
 
-        {feedback ? <TrainerFeedbackPanel {...feedback} /> : null}
+        {feedback ? (
+          <TrainerFeedbackPanel
+            key={questionIndex}
+            ref={feedbackRef}
+            tone={feedback.tone}
+            title={feedback.title}
+            summary={feedback.summary}
+            note={feedback.randomizerNote}
+            detail={feedback.detail}
+          />
+        ) : null}
 
         {error ? (
           <div className="mt-5 rounded-2xl border border-[#b95b5f]/30 bg-[#5b292c]/20 p-4">
@@ -366,16 +389,19 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
         ) : null}
 
         {reveal ? (
-          <button
-            type="button"
-            onClick={handleNext}
-            disabled={saveState === "saving"}
-            className={`mt-5 ${TRAINER_PRIMARY_BUTTON_CLASS}`}
-          >
-            {saveState === "saving"
-              ? "Сохраняем..."
-              : isLastQuestion ? "Посмотреть результат" : "Следующая рука"}
-          </button>
+          <TrainerNextBar>
+            <button
+              type="button"
+              onClick={handleNext}
+              disabled={saveState === "saving"}
+              data-testid="trainer-next"
+              className={TRAINER_PRIMARY_BUTTON_CLASS}
+            >
+              {saveState === "saving"
+                ? "Сохраняем..."
+                : isLastQuestion ? "Посмотреть результат" : "Следующая рука"}
+            </button>
+          </TrainerNextBar>
         ) : null}
       </div>
     </main>

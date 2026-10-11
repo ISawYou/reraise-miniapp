@@ -18,6 +18,7 @@ vi.mock("@/components/academy/use-academy-progress", () => ({
 const { default: PushFoldHomePage } = await import("@/app/academy/solver/push-fold/page");
 const { default: PushFoldSpotPage } = await import("@/app/academy/solver/push-fold/[stack]/[node]/page");
 const { default: PushFoldTrainPage } = await import("@/app/academy/solver/push-fold/[stack]/[node]/train/page");
+const { default: PushFoldMixPage } = await import("@/app/academy/solver/push-fold/mix/page");
 const { default: AcademyPage } = await import("@/app/academy/page");
 const { default: TrainersPage } = await import("@/app/academy/trainers/page");
 const { PokerPositionTable } = await import("@/components/academy/poker-position-table");
@@ -53,6 +54,15 @@ function expectAttribution() {
   expect(links).toContain("https://creativecommons.org/licenses/by/4.0/");
 }
 
+/** Part 1A: every Push/Fold screen is an honest, non-scored reference (no "start training"). */
+function expectReferenceOnly() {
+  const notice = container.querySelector('[data-testid="push-fold-reference-notice"]');
+  expect(notice?.textContent).toContain("Справочник · без оценки");
+  expect(notice?.textContent).toContain("приблизительный ориентир, а не проверенный точный ответ");
+  expect(Array.from(container.querySelectorAll("a")).map((link) => link.textContent)).not.toContain("Начать тренировку");
+  expect(Array.from(container.querySelectorAll("a")).map((link) => link.getAttribute("href") ?? "").filter((href) => /\/train$|\/push-fold\/mix$/.test(href))).toEqual([]);
+}
+
 function expectNeutralCopy() {
   const text = container.textContent ?? "";
   expect(text).not.toMatch(/GTO|HRC|RERAISE-calculated|точный Nash|солверн/i);
@@ -72,10 +82,11 @@ afterEach(() => {
 });
 
 describe("/academy/solver/push-fold (home)", () => {
-  it("shows the Quick CTA, the two families, and the attribution", async () => {
+  it("(Part 1A) reference only: no scored Quick CTA, the two families, honest notice, and the attribution", async () => {
     await render(PushFoldHomePage());
-    expect(container.querySelector('[data-testid="push-fold-quick-start"]')?.getAttribute("href")).toBe("/academy/solver/push-fold/mix");
-    expect(container.textContent).toContain("Быстрая Push/Fold тренировка");
+    expect(container.querySelector('[data-testid="push-fold-quick-start"]')).toBeNull();
+    expect(container.textContent).not.toContain("Быстрая Push/Fold тренировка");
+    expectReferenceOnly();
     const families = Array.from(container.querySelectorAll("[data-family]")).map((button) => button.textContent);
     expect(families[0]).toContain("Пушить первым");
     expect(families[1]).toContain("Коллировать пуш");
@@ -83,7 +94,7 @@ describe("/academy/solver/push-fold (home)", () => {
     expectNeutralCopy();
   });
 
-  it("manual first-in flow: family → stack (4–15, no 20) → BTN on the table → study / train links", async () => {
+  it("manual first-in flow: family → stack (4–15, no 20) → BTN on the table → study link only (no scored training)", async () => {
     await render(PushFoldHomePage());
     await click(container.querySelector('[data-family="FIRST_IN_SHOVE"]'));
     const stacks = Array.from(container.querySelectorAll('[data-option^="stack-"]')).map((chip) => chip.getAttribute("data-option"));
@@ -94,7 +105,7 @@ describe("/academy/solver/push-fold (home)", () => {
     await click(container.querySelector('button[data-seat="BTN"]'));
     expect(container.querySelector("[data-selected-node]")?.getAttribute("data-selected-node")).toBe("FIRST_IN_SHOVE_BTN");
     const hrefs = Array.from(container.querySelectorAll("[data-selected-node] a")).map((link) => link.getAttribute("href"));
-    expect(hrefs).toEqual(["/academy/solver/push-fold/10/first_in_shove_btn/train", "/academy/solver/push-fold/10/first_in_shove_btn"]);
+    expect(hrefs).toEqual(["/academy/solver/push-fold/10/first_in_shove_btn"]);
   });
 
   it("manual call flow: family → stack → hero BB → shover SB", async () => {
@@ -113,7 +124,7 @@ describe("/academy/solver/push-fold (home)", () => {
 });
 
 describe("/academy/solver/push-fold/[stack]/[node] (study)", () => {
-  it("(17) 10 BB BTN: grid cells match the raw dataAnte10 s-array (shove colour vs fold), coverage p, table, attribution — no disclosure", async () => {
+  it("(17) 10 BB BTN: grid cells match the raw dataAnte10 s-array (shove colour vs fold), coverage p, table, attribution — reference only", async () => {
     await render(await PushFoldSpotPage(params("10", "first_in_shove_btn")));
     const members = new Set(charts.dataAnte10.max9["10"].BTN.s.map((index) => charts.order[index]));
     const cells = Array.from(container.querySelectorAll('[role="gridcell"]'));
@@ -134,9 +145,8 @@ describe("/academy/solver/push-fold/[stack]/[node] (study)", () => {
     expect(container.querySelector('[data-testid="range-coverage"]')?.textContent).toBe("Олл-ин: 75.6% рук");
     expect(container.querySelector('[data-table-mode="TRAINING_SCENE"]')).not.toBeNull();
     expect(container.querySelector("details")).toBeNull();
-    const train = Array.from(container.querySelectorAll("a")).find((link) => link.textContent === "Начать тренировку");
-    expect(train?.getAttribute("href")).toBe("/academy/solver/push-fold/10/first_in_shove_btn/train");
-    expect(container.textContent).toContain("Push/Fold · 10 BB · Пушить первым");
+    expectReferenceOnly();
+    expect(container.textContent).toContain("Справочник Push/Fold · 10 BB · Пушить первым");
     expect(container.querySelector('[data-testid="push-fold-model-note"]')?.textContent).toContain("приближение");
     expectAttribution();
     expectNeutralCopy();
@@ -152,7 +162,24 @@ describe("/academy/solver/push-fold/[stack]/[node] (study)", () => {
     expect(container.querySelector('[data-seat-action="SB"]')?.getAttribute("data-seat-role")).toBe("villain");
     expect(container.querySelector('[data-testid="range-coverage"]')?.textContent)
       .toBe(`Колл: ${charts.dataAnte10.max9["8"]["BB|SB"].p}% рук`);
+    expectReferenceOnly();
     expectAttribution();
+  });
+
+  it("(Part 1A) the scored routes stay but are paused: no session starts, a link leads to the reference", async () => {
+    const fetchSpy = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchSpy);
+    await render(await PushFoldTrainPage(params("10", "first_in_shove_btn")));
+    expect(container.querySelector('[data-testid="push-fold-training-paused"]')).not.toBeNull();
+    expect(container.querySelector("button[data-action-code]")).toBeNull();
+    expect(container.querySelector('[data-testid="push-fold-paused-reference"]')?.getAttribute("href")).toBe("/academy/solver/push-fold/10/first_in_shove_btn");
+    expectAttribution();
+    await render(PushFoldMixPage());
+    expect(container.querySelector('[data-testid="push-fold-training-paused"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="push-fold-paused-reference"]')?.getAttribute("href")).toBe("/academy/solver/push-fold");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expectAttribution();
+    vi.unstubAllGlobals();
   });
 
   it("not found for 20 BB, unknown / prototype nodes and malformed params", async () => {
@@ -189,16 +216,17 @@ describe("(23) shared PokerPositionTable renders Push/Fold scenes without a fork
 
 // Product UX v3: practice entries live on "Тренажёры" (linked from /academy).
 describe("/academy → Тренажёры", () => {
-  it("links both Push/Fold modes (and keeps the preflop trainer links), with the attribution", async () => {
+  it("links Quick Mix + manual setup (scored) and the Push/Fold reference (not scored), with the attribution", async () => {
     await render(AcademyPage());
     expect(container.querySelector('[data-destination="trainers"]')?.getAttribute("href")).toBe("/academy/trainers");
     await render(TrainersPage());
     const practice = Array.from(container.querySelectorAll("a[data-practice-code]")).map((link) => [link.getAttribute("data-practice-code"), link.getAttribute("href")]);
     expect(practice).toEqual([
+      ["solver_preflop_trainer", "/academy/solver/preflop/mix"],
       ["solver_preflop_trainer", "/academy/solver/preflop#setup"],
-      ["solver_push_fold_trainer", "/academy/solver/push-fold/mix"],
-      ["solver_push_fold_trainer", "/academy/solver/push-fold#setup"],
+      ["solver_push_fold_trainer", "/academy/solver/push-fold"],
     ]);
+    expect(container.querySelector('[data-trainer-link="push-fold-reference"]')?.getAttribute("data-trainer-kind")).toBe("reference");
     expect(container.querySelector('[data-trainer-link="quick-mix"]')?.getAttribute("href")).toBe("/academy/solver/preflop/mix");
     expectAttribution();
   });

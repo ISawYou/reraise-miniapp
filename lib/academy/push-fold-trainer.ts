@@ -21,8 +21,13 @@ import "server-only";
  *   — disjoint from every MTT / HRC session input.
  * - Answers: push/fold ranges are PURE, so each hand has exactly one correct
  *   action (`pushFoldPureAction`); a MIXED hand is a data error and throws.
+ * - Reference vs scored: the spot index (study pages) covers the REFERENCE
+ *   whitelist; SCORED questions additionally require the dataset to be on
+ *   `ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS` (currently empty — see
+ *   docs/ACADEMY_PUSH_FOLD_AUDIT.md). `buildPushFoldQuestion` enforces it.
  */
 import {
+  ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS,
   ACADEMY_PUSH_FOLD_TRAINER_DATASET_IDS,
   ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE,
 } from "@/config/academy/push-fold-trainer";
@@ -41,11 +46,13 @@ import {
 } from "@/lib/academy/solver";
 import { createDeterministicRandom } from "@/lib/academy/solver-session";
 import { ACADEMY_SOLVER_QUESTION_COUNT, toPublicSolverAction } from "@/lib/academy/solver-training";
+import { classifyStrategyAnswer, strategyAnswerCountsAsCorrect } from "@/lib/academy/strategy-answer";
 import { renderStartingHand } from "@/lib/academy/training";
 import type {
   AcademyPreflopTableScene,
   AcademyPushFoldPublicQuestion,
   AcademyPushFoldPublicSpot,
+  AcademyPushFoldReveal,
   AcademyPushFoldSpot,
   AcademySolverAction,
   AcademySolverPublicAction,
@@ -61,6 +68,35 @@ export class AcademyPushFoldSelectionError extends Error {
     super(message);
     this.name = "AcademyPushFoldSelectionError";
   }
+}
+
+/**
+ * Scored Push/Fold training is unavailable for this dataset (not on
+ * `ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS`). Thrown instead of serving,
+ * revealing or verifying a scored question — fail closed, never a fallback.
+ */
+export class AcademyPushFoldScoringUnavailableError extends Error {
+  constructor(message = "Тренировка Push/Fold с оценкой временно недоступна — диапазоны доступны как справочник") {
+    super(message);
+    this.name = "AcademyPushFoldScoringUnavailableError";
+  }
+}
+
+/** True iff `datasetId` is validated for SCORED training (reference ≠ scored). */
+export function isAcademyPushFoldDatasetScored(datasetId: unknown): boolean {
+  return typeof datasetId === "string"
+    && ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS.includes(datasetId)
+    && ACADEMY_PUSH_FOLD_TRAINER_DATASET_IDS.includes(datasetId);
+}
+
+/** True iff any scored Push/Fold training (fixed or Quick) can be served. */
+export function isAcademyPushFoldScoredTrainingEnabled(): boolean {
+  return ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS.some((datasetId) => isAcademyPushFoldDatasetScored(datasetId));
+}
+
+/** Single choke point: every scored question / session passes through here. */
+export function assertAcademyPushFoldDatasetScored(datasetId: unknown): void {
+  if (!isAcademyPushFoldDatasetScored(datasetId)) throw new AcademyPushFoldScoringUnavailableError();
 }
 
 function hasOwn(object: object, key: string): boolean {
@@ -326,7 +362,12 @@ function derivationParts(key: AcademyPushFoldSessionKey): string[] {
   ];
 }
 
-/** One session question for a resolved node + hand (shared by fixed-node and Quick). */
+/**
+ * One SCORED session question for a resolved node + hand (shared by fixed-node
+ * and Quick). The scored-dataset gate lives here, so no scored question can be
+ * built from a node outside `ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS`, whichever
+ * path asks for it.
+ */
 export function buildPushFoldQuestion(
   resolved: AcademyPushFoldResolvedSpot,
   questionIndex: number,
@@ -334,6 +375,7 @@ export function buildPushFoldQuestion(
   category: AcademyPushFoldHandCategory,
   cardsRandom: AcademySolverRandom,
 ): AcademyPushFoldSessionQuestion {
+  assertAcademyPushFoldDatasetScored(resolved.dataset.id);
   return Object.freeze({
     questionIndex,
     hand,
@@ -353,6 +395,7 @@ export function buildPushFoldQuestion(
  */
 export function buildAcademyPushFoldSession(key: AcademyPushFoldSessionKey): readonly AcademyPushFoldSessionQuestion[] {
   const resolved = requireAcademyPushFoldSpot(key.datasetId, key.nodeKey);
+  assertAcademyPushFoldDatasetScored(resolved.dataset.id);
   const parts = derivationParts(key);
   const random = createDeterministicRandom([...parts, "hand-selection"]);
   const plan = shuffleWithRandom(ACADEMY_PUSH_FOLD_HAND_PLAN, random);
@@ -377,5 +420,25 @@ export function toPublicPushFoldQuestion(question: AcademyPushFoldSessionQuestio
     renderedCards: question.renderedCards,
     actions: question.actions,
     spot: question.spot,
+  };
+}
+
+/**
+ * Post-answer reveal; outcome computed server-side with the same generic
+ * three-state rule as the preflop trainer (for pure push/fold data a choice is
+ * either the range's action or a 0% action, so it is never VALID_MIXED).
+ * `selectedAction` must already be validated against the node's actions.
+ */
+export function toPushFoldReveal(question: AcademyPushFoldSessionQuestion, selectedAction: AcademySolverAction): AcademyPushFoldReveal {
+  const outcome = classifyStrategyAnswer({ frequencies: question.frequencies, selectedAction, resolvedAction: question.resolvedAction });
+  return {
+    ...toPublicPushFoldQuestion(question),
+    questionIndex: question.questionIndex,
+    frequencies: question.frequencies,
+    resolvedAction: question.resolvedAction,
+    selectedAction,
+    matchesResolvedAction: selectedAction === question.resolvedAction,
+    outcome,
+    countsAsCorrect: strategyAnswerCountsAsCorrect(outcome),
   };
 }

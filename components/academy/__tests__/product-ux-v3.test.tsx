@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AcademyPreflopTableScene,
   AcademyPreflopTrainerReveal,
-  AcademyPushFoldReveal,
   AcademySolverPublicAction,
   RenderedPlayingCard,
 } from "@/types/academy";
@@ -49,7 +48,7 @@ const { default: PushFoldSpotPage } = await import("@/app/academy/solver/push-fo
 const { default: PushFoldSpotTrainPage } = await import("@/app/academy/solver/push-fold/[stack]/[node]/train/page");
 const { PokerPositionTable, trainingSceneSlotOf } = await import("@/components/academy/poker-position-table");
 const { PreflopTrainer, PreflopQuickMix } = await import("@/components/academy/preflop-trainer");
-const { PushFoldTrainer, PushFoldQuickMix } = await import("@/components/academy/push-fold-trainer");
+const { PushFoldTrainer } = await import("@/components/academy/push-fold-trainer");
 const { PreflopTrainerHome } = await import("@/components/academy/preflop-trainer-home");
 const {
   ACADEMY_ADDITIONAL_PRACTICE_ACTIVITIES,
@@ -62,17 +61,12 @@ const { ACADEMY_PREFLOP_POSITIONS } = await import("@/lib/academy/preflop");
 const {
   buildAcademyPreflopTrainerSession,
   listAcademyPreflopTrainerSpots,
+  toPreflopTrainerReveal,
   toPublicPreflopTrainerQuestion,
   toPublicPreflopTrainerSpot,
 } = await import("@/lib/academy/preflop-trainer");
 const { buildAcademyPreflopMixSession } = await import("@/lib/academy/preflop-mix");
-const {
-  buildAcademyPushFoldSession,
-  getPushFoldSpotScene,
-  listAcademyPushFoldSpots,
-  toPublicPushFoldQuestion,
-} = await import("@/lib/academy/push-fold-trainer");
-const { buildAcademyPushFoldMixSession } = await import("@/lib/academy/push-fold-mix");
+const { getPushFoldSpotScene, listAcademyPushFoldSpots } = await import("@/lib/academy/push-fold-trainer");
 
 const PLAYER_ID = "33333333-3333-4333-8333-333333333333";
 const ATTEMPT_ID = "44444444-4444-4444-8444-444444444444";
@@ -195,16 +189,18 @@ describe("destination pages (existing content, existing URLs)", () => {
   it("(2) Тренажёры presents every registered practice activity by goal, linking to the existing trainer routes", async () => {
     await render(TrainersPage());
     const entries = $$("[data-trainer-entry]").map((entry) => entry.dataset.trainerEntry);
-    expect(entries).toEqual(["quick-mix", "setup", "push-fold-quick", "push-fold-setup"]);
+    expect(entries).toEqual(["quick-mix", "setup", "push-fold-reference"]);
     expect($$("[data-trainer-link]").map((link) => [link.dataset.trainerLink, link.getAttribute("href")])).toEqual([
       ["quick-mix", "/academy/solver/preflop/mix"],
       ["setup", "/academy/solver/preflop#setup"],
-      ["push-fold-quick", "/academy/solver/push-fold/mix"],
-      ["push-fold-setup", "/academy/solver/push-fold#setup"],
+      ["push-fold-reference", "/academy/solver/push-fold"],
     ]);
-    for (const title of ["Быстрая тренировка", "Настроить ситуацию", "Push/Fold", "Быстрая Push/Fold тренировка"]) {
+    for (const title of ["Быстрая тренировка", "Выбрать ситуацию", "Короткий стек"]) {
       expect(container.textContent).toContain(title);
     }
+    // Part 1A: the short-stack entry is an honest, non-scored reference.
+    expect(container.textContent).not.toContain("Быстрая Push/Fold тренировка");
+    expect($('[data-trainer-link="push-fold-reference"]')!.textContent).toContain("без оценки");
     // Same practice lesson codes as the catalog registers — no new identity.
     const registered = [...ACADEMY_PRACTICE_ACTIVITIES, ...ACADEMY_ADDITIONAL_PRACTICE_ACTIVITIES].map((activity) => activity.lesson.code);
     expect(new Set(ACADEMY_TRAINER_ENTRIES.map((entry) => entry.practiceLessonCode))).toEqual(new Set(registered));
@@ -401,12 +397,15 @@ async function playSession<Q extends AnyQuestion>({
   publicQuestion,
   reveal,
   wrong,
+  choose,
 }: {
   element: ReactElement;
   session: readonly Q[];
   publicQuestion: (question: Q) => unknown;
   reveal: (question: Q, selectedAction: string) => unknown;
-  wrong: ReadonlySet<number>;
+  wrong?: ReadonlySet<number>;
+  /** Optional explicit choice per question (defaults: `wrong` → another action, else the resolved one). */
+  choose?: (question: Q) => string;
 }) {
   const submitted: Array<Record<string, unknown>> = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
@@ -417,7 +416,8 @@ async function playSession<Q extends AnyQuestion>({
     else {
       submitted.push(body);
       const answers = body.questions as Array<{ questionIndex: number; selectedAction: string }>;
-      const correct = answers.filter((answer) => answer.selectedAction === session[answer.questionIndex].resolvedAction).length;
+      // Mirrors the server's normal-practice rule: any action with frequency > 0 is correct.
+      const correct = answers.filter((answer) => (session[answer.questionIndex].frequencies[answer.selectedAction] ?? 0) > 0).length;
       payload = {
         result: { correctAnswers: correct, totalQuestions: 10, percentage: correct * 10, passed: correct >= 8, feedback: "Готово" },
         progress: { lessonCode: body.lessonCode, attemptsCount: 3 }, isNewAttempt: true, firstPass: false, newBest: false,
@@ -427,9 +427,11 @@ async function playSession<Q extends AnyQuestion>({
   }));
   await render(element);
   for (const question of session) {
-    const choice = wrong.has(question.questionIndex)
-      ? question.actions.find((action) => action.code !== question.resolvedAction)!.code
-      : question.resolvedAction;
+    const choice = choose
+      ? choose(question)
+      : wrong?.has(question.questionIndex)
+        ? question.actions.find((action) => action.code !== question.resolvedAction)!.code
+        : question.resolvedAction;
     await click($(`button[data-action-code="${choice}"]`));
     await click($$("button").find((button) => /Следующая рука|Посмотреть результат/.test(button.textContent ?? "")));
   }
@@ -479,23 +481,37 @@ async function expectRestartResets() {
 const WRONG = new Set([1, 4, 7]);
 
 describe("(8) completion screens", () => {
-  it("configurable preflop trainer (fixed node)", async () => {
+  it("configurable preflop trainer (fixed node): only 0% actions are reviewed; valid mixed choices are a neutral note", async () => {
     const selection = { datasetId: "external_mtt_preflop_9max_40bb_v1", nodeKey: "FACING_3BET_UTG_VS_SB", stackBb: 40 };
     const session = buildAcademyPreflopTrainerSession({ playerId: PLAYER_ID, attemptId: ATTEMPT_ID, datasetId: selection.datasetId, nodeKey: selection.nodeKey });
+    // Mixed hands → pick a DIFFERENT action the strategy also plays (valid mixed);
+    // WRONG indices → pick a 0% action when the hand has one.
+    const zeroAction = (question: (typeof session)[number]) =>
+      question.actions.find((action) => (question.frequencies[action.code] ?? 0) === 0)?.code;
+    const validOther = (question: (typeof session)[number]) =>
+      question.actions.find((action) => action.code !== question.resolvedAction && (question.frequencies[action.code] ?? 0) > 0)?.code;
+    const choices = session.map((question) =>
+      (WRONG.has(question.questionIndex) ? zeroAction(question) : undefined) ?? validOther(question) ?? question.resolvedAction);
+    const expectedWrong = session.filter((question, index) => (question.frequencies[choices[index]] ?? 0) === 0).map((question) => question.questionIndex);
+    const expectedValidMixed = session.filter((question, index) =>
+      choices[index] !== question.resolvedAction && (question.frequencies[choices[index]] ?? 0) > 0).length;
+    expect(expectedWrong.length).toBeGreaterThan(0);
+    expect(expectedValidMixed).toBeGreaterThan(0);
     const submitted = await playSession({
       element: <PreflopTrainer selection={selection} />,
       session,
       publicQuestion: toPublicPreflopTrainerQuestion,
-      reveal: (question, selectedAction) => ({
-        ...toPublicPreflopTrainerQuestion(question), questionIndex: question.questionIndex, frequencies: question.frequencies,
-        resolvedAction: question.resolvedAction, selectedAction, bucket: question.bucket, matchesResolvedAction: selectedAction === question.resolvedAction,
-      } satisfies AcademyPreflopTrainerReveal),
-      wrong: WRONG,
+      reveal: (question, selectedAction) => toPreflopTrainerReveal(question, selectedAction) satisfies AcademyPreflopTrainerReveal,
+      choose: (question) => choices[question.questionIndex],
     });
     expect(submitted).toHaveLength(1);
-    expect(container.textContent).toContain("7 / 10");
+    expect(container.textContent).toContain(`${10 - expectedWrong.length} / 10`);
     expectCompletionNavigation({ setupHref: "/academy/solver/preflop#setup", extra: "/academy/solver/preflop/40/facing_3bet_utg_vs_sb" });
-    await expectReview([...WRONG]);
+    expect($('[data-testid="trainer-valid-mixed-note"]')!.textContent).toContain("отличал");
+    expect($('[data-testid="trainer-valid-mixed-note"]')!.textContent).toContain("входил");
+    expect($('[data-testid="trainer-valid-mixed-note"]')!.textContent).not.toMatch(/ошибк/i);
+    await expectReview(expectedWrong);
+    for (const entry of $$("[data-review-question]")) expect(entry.dataset.reviewTone).toBe("incorrect");
     await expectRestartResets();
   });
 
@@ -505,10 +521,7 @@ describe("(8) completion screens", () => {
       element: <PreflopQuickMix />,
       session,
       publicQuestion: toPublicPreflopTrainerQuestion,
-      reveal: (question, selectedAction) => ({
-        ...toPublicPreflopTrainerQuestion(question), questionIndex: question.questionIndex, frequencies: question.frequencies,
-        resolvedAction: question.resolvedAction, selectedAction, bucket: question.bucket, matchesResolvedAction: selectedAction === question.resolvedAction,
-      } satisfies AcademyPreflopTrainerReveal),
+      reveal: (question, selectedAction) => toPreflopTrainerReveal(question, selectedAction) satisfies AcademyPreflopTrainerReveal,
       wrong: new Set(),
     });
     expectCompletionNavigation({ setupHref: "/academy/solver/preflop#setup" });
@@ -517,43 +530,9 @@ describe("(8) completion screens", () => {
     await expectRestartResets();
   });
 
-  it("Push/Fold manual trainer (attribution on completion)", async () => {
-    const selection = { datasetId: "holdemmath_pushfold_9max_10bb_ante10_v1", nodeKey: "FIRST_IN_SHOVE_BTN", stackBb: 10 };
-    const session = buildAcademyPushFoldSession({ playerId: PLAYER_ID, attemptId: ATTEMPT_ID, datasetId: selection.datasetId, nodeKey: selection.nodeKey });
-    await playSession({
-      element: <PushFoldTrainer selection={selection} />,
-      session,
-      publicQuestion: toPublicPushFoldQuestion,
-      reveal: (question, selectedAction) => ({
-        ...toPublicPushFoldQuestion(question), questionIndex: question.questionIndex, frequencies: question.frequencies,
-        resolvedAction: question.resolvedAction, selectedAction, matchesResolvedAction: selectedAction === question.resolvedAction,
-      } satisfies AcademyPushFoldReveal),
-      wrong: WRONG,
-    });
-    expectCompletionNavigation({ setupHref: "/academy/solver/push-fold#setup", extra: "/academy/solver/push-fold/10/first_in_shove_btn" });
-    expect($('[data-testid="push-fold-attribution"]')?.textContent).toContain("Данные Push/Fold: HoldemMath · CC BY 4.0");
-    await expectReview([...WRONG]);
-    for (const entry of $$("[data-review-question]")) expect(entry.textContent).toMatch(/Правильно: (Олл-ин|Фолд)/);
-    await expectRestartResets();
-  });
-
-  it("Push/Fold Quick mode", async () => {
-    const session = buildAcademyPushFoldMixSession({ playerId: PLAYER_ID, attemptId: ATTEMPT_ID });
-    await playSession({
-      element: <PushFoldQuickMix />,
-      session,
-      publicQuestion: toPublicPushFoldQuestion,
-      reveal: (question, selectedAction) => ({
-        ...toPublicPushFoldQuestion(question), questionIndex: question.questionIndex, frequencies: question.frequencies,
-        resolvedAction: question.resolvedAction, selectedAction, matchesResolvedAction: selectedAction === question.resolvedAction,
-      } satisfies AcademyPushFoldReveal),
-      wrong: new Set([0, 9]),
-    });
-    expectCompletionNavigation({ setupHref: "/academy/solver/push-fold#setup" });
-    expect($('[data-testid="push-fold-attribution"]')).not.toBeNull();
-    await expectReview([0, 9]);
-    await expectRestartResets();
-  });
+  // The Push/Fold manual / Quick completion screens run only once a dataset is
+  // validated for scored training (Part 1A); they are covered against a
+  // simulated validated whitelist in push-fold-scored-ui.test.tsx.
 
   it("in-session back links lead to the right place (quick → Тренажёры, fixed → the picker)", async () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));

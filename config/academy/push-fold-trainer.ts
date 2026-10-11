@@ -25,13 +25,41 @@ export const ACADEMY_SOLVER_PUSH_FOLD_ROUTE = "/academy/solver/push-fold";
 export const ACADEMY_PUSH_FOLD_PLAYER_STACKS_BB = Object.freeze([4, 6, 8, 10, 12, 15] as const);
 
 /**
- * The ONLY datasets the Push/Fold trainer may serve: the 0.1 BB ante
- * (`dataAnte10`) variant at the player-facing stacks. The no-ante variant and
- * 20 BB are registered but never reachable from a player route.
+ * REFERENCE whitelist: the only datasets any player-facing Push/Fold screen
+ * may read — the 0.1 BB ante (`dataAnte10`) variant at the player-facing
+ * stacks. The no-ante variant and 20 BB are registered but never reachable
+ * from a player route. Being on this list makes a node available as
+ * clearly-labelled, NON-SCORED study material (range grid, table scene) — it
+ * does NOT make it eligible for scored training (see below).
  */
 export const ACADEMY_PUSH_FOLD_TRAINER_DATASET_IDS: readonly string[] = Object.freeze(
   ACADEMY_PUSH_FOLD_PLAYER_STACKS_BB.map((stackBb) => holdemMathPushFoldDatasetId(stackBb, "ante10")),
 );
+
+/** Alias that names the reference-only role of the whitelist above. */
+export const ACADEMY_PUSH_FOLD_REFERENCE_DATASET_IDS = ACADEMY_PUSH_FOLD_TRAINER_DATASET_IDS;
+
+/**
+ * SCORED whitelist — datasets whose nodes may be served as SCORED questions
+ * (fixed-node training, Quick Push/Fold, attempt verification). Intentionally
+ * EMPTY.
+ *
+ * Why (docs/ACADEMY_PUSH_FOLD_AUDIT.md): every HoldemMath 9-max dataset solves
+ * each first-in seat's sub-game against a SINGLE caller (the source's own
+ * documented approximation, `assumptions.multiwayModel =
+ * "SINGLE_CALLER_APPROXIMATION"`). For early seats this yields implausibly wide
+ * ranges, e.g. 10 BB ante10: UTG1 shoves 78.3% of hands and BB calls a UTG1
+ * shove with 59.6% (incl. Q4o, EV +0.354 BB in the source). An independent
+ * external MTT reference shows ~17% / ~15% for the comparable spots. Telling a
+ * player "wrong" on the basis of this approximation is not acceptable, so no
+ * HoldemMath multiway dataset is scored until it is independently validated
+ * against an MTT-appropriate source.
+ *
+ * Adding an id here is a product decision that requires that validation; a
+ * test fails if any dataset built on the single-caller approximation is
+ * listed. Raw data, attribution and the reference whitelist are unaffected.
+ */
+export const ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS: readonly string[] = Object.freeze([]);
 
 /** Marker carried by every answer of a "Быстрая Push/Fold тренировка" attempt. */
 export const ACADEMY_PUSH_FOLD_QUICK_MODE = "PUSH_FOLD_QUICK" as const;

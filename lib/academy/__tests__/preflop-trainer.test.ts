@@ -346,13 +346,13 @@ describe("deterministic 10-question session (8)", () => {
     })).toThrow("SESSION_SECRET is not set");
   });
 
-  it("(11) the public question has no frequencies, resolved action or bucket", () => {
+  it("(11) the public question has no frequencies, resolved action, bucket or randomizer", () => {
     for (const { datasetId, nodeKey } of combos) {
       for (const question of buildAcademyPreflopTrainerSession({ playerId: PLAYER_ID, attemptId: ATTEMPT_ID, datasetId, nodeKey })) {
         const publicQuestion = toPublicPreflopTrainerQuestion(question);
-        expect(Object.keys(publicQuestion).sort()).toEqual(["actions", "hand", "randomizerPercent", "renderedCards", "spot"]);
+        expect(Object.keys(publicQuestion).sort()).toEqual(["actions", "hand", "renderedCards", "spot"]);
         const raw = JSON.stringify(publicQuestion);
-        for (const leak of ["frequencies", "frequency", "resolvedAction", "correctAction", "bucket", "PURE:", "MIXED", "evBb", "preflop-trainer-test-secret"]) {
+        for (const leak of ["frequencies", "frequency", "resolvedAction", "correctAction", "bucket", "PURE:", "MIXED", "evBb", "randomizer", "preflop-trainer-test-secret"]) {
           expect(raw).not.toContain(leak);
         }
         const { actions, ...rest } = publicQuestion;

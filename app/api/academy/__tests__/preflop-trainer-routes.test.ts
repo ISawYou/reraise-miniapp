@@ -61,15 +61,15 @@ describe("POST /api/academy/solver/preflop/session", () => {
     expect(response.status).toBe(401);
   });
 
-  it("(11) returns ONLY hand, cards, randomizer, safe actions and the spot — no strategy leakage", async () => {
+  it("(11) returns ONLY hand, cards, safe actions and the spot — no strategy leakage, no randomizer", async () => {
     const response = await sessionPost(post("/api/academy/solver/preflop/session", {
       datasetId: DATASET, nodeKey: NODE, attemptId: ATTEMPT_ID, questionIndex: 4,
     }));
     expect(response.status).toBe(200);
     const body = await response.json() as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["actions", "hand", "randomizerPercent", "renderedCards", "spot"]);
+    expect(Object.keys(body).sort()).toEqual(["actions", "hand", "renderedCards", "spot"]);
     const raw = JSON.stringify(body);
-    for (const leak of ["correctAction", "resolvedAction", "frequencies", "frequency", "bucket", "evBb", "MIXED", "PURE:", SECRET]) {
+    for (const leak of ["correctAction", "resolvedAction", "frequencies", "frequency", "bucket", "evBb", "MIXED", "PURE:", "randomizer", SECRET]) {
       expect(raw).not.toContain(leak);
     }
     const { actions, ...rest } = body;
@@ -88,9 +88,9 @@ describe("POST /api/academy/solver/preflop/session", () => {
       const response = await sessionPost(post("/api/academy/solver/preflop/session", {
         playerId: ATTACKER_ID, datasetId: DATASET, nodeKey: NODE, attemptId: ATTEMPT_ID, questionIndex,
       }));
-      const body = await response.json() as { hand: string; randomizerPercent: number };
+      const body = await response.json() as { hand: string };
       expect(body.hand).toBe(mine[questionIndex].hand);
-      expect(body.randomizerPercent).toBe(mine[questionIndex].randomizerPercent);
+      expect(body).not.toHaveProperty("randomizerPercent");
     }
     const reveal = await revealPost(post("/api/academy/solver/preflop/reveal", {
       playerId: ATTACKER_ID, datasetId: DATASET, nodeKey: NODE, attemptId: ATTEMPT_ID, questionIndex: 0, selectedAction: "FOLD",
@@ -132,6 +132,10 @@ describe("POST /api/academy/solver/preflop/reveal", () => {
     expect(body.frequencies).toEqual(expected[2].frequencies);
     expect(body.resolvedAction).toBe(expected[2].resolvedAction);
     expect(body.matchesResolvedAction).toBe(expected[2].resolvedAction === "CALL");
+    // (Part 2A) The randomizer is revealed only now, as secondary information.
+    expect(body.randomizerPercent).toBe(expected[2].randomizerPercent);
+    const callPlayed = (expected[2].frequencies.CALL ?? 0) > 0;
+    expect(body.countsAsCorrect).toBe(expected[2].resolvedAction === "CALL" || callPlayed);
   });
 
   it("(13) rejects an action the node does not offer", async () => {

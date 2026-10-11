@@ -69,12 +69,21 @@ function Step({ index, title, children }: { index: number; title: string; childr
 }
 
 /**
- * Push/Fold home: the primary zero-setup "Быстрая Push/Fold тренировка", then
- * the manual path — family ("Пушить первым" / "Коллировать пуш") → stack →
- * seat(s) on the shared table (POSITION_SELECTION). Every option is backed by
- * a real node of `spots` (server-derived from the whitelisted datasets).
+ * Push/Fold home: family ("Пушить первым" / "Коллировать пуш") → stack →
+ * seat(s) on the shared table (POSITION_SELECTION) → the node's range page.
+ * Every option is backed by a real node of `spots` (server-derived from the
+ * whitelisted datasets). Scored entry points (the "Быстрая Push/Fold
+ * тренировка" card, "Начать тренировку") are rendered ONLY for datasets in
+ * `scoredDatasetIds` — currently none, so the page is a non-scored reference.
  */
-export function PushFoldHome({ spots }: { spots: readonly AcademyPushFoldSpot[] }) {
+export function PushFoldHome({
+  spots,
+  scoredDatasetIds = [],
+}: {
+  spots: readonly AcademyPushFoldSpot[];
+  /** Datasets validated for SCORED training (server-provided). Empty → reference only. */
+  scoredDatasetIds?: readonly string[];
+}) {
   const headingId = useId();
   const [situation, setSituation] = useState<AcademyPushFoldSituation | null>(null);
   const [stackBb, setStackBb] = useState<number | null>(null);
@@ -118,9 +127,11 @@ export function PushFoldHome({ spots }: { spots: readonly AcademyPushFoldSpot[] 
       findPushFoldSpot(spots, { stackBb, situation, heroPosition: entry.hero, villainPosition: entry.villain }))
     : [];
   const copy = spot ? describePushFoldSpot(spot) : null;
+  const spotScored = spot !== null && scoredDatasetIds.includes(spot.datasetId);
 
   return (
     <div className="mt-6" data-testid="push-fold-home">
+      {scoredDatasetIds.length > 0 ? (
       <section
         data-entry="quick"
         aria-labelledby={`${headingId}-quick`}
@@ -139,6 +150,7 @@ export function PushFoldHome({ spots }: { spots: readonly AcademyPushFoldSpot[] 
           Начать
         </Link>
       </section>
+      ) : null}
 
       <section
         id={ACADEMY_PREFLOP_SETUP_HASH}
@@ -147,7 +159,7 @@ export function PushFoldHome({ spots }: { spots: readonly AcademyPushFoldSpot[] 
         className="mt-4 rounded-[24px] border border-white/[0.09] bg-white/[0.03] p-5"
       >
         <h2 id={`${headingId}-manual`} className="text-lg font-semibold">Выбрать ситуацию</h2>
-        <p className="mt-1 text-sm leading-6 text-white/55">Что тренируем?</p>
+        <p className="mt-1 text-sm leading-6 text-white/55">{scoredDatasetIds.length > 0 ? "Что тренируем?" : "Какой диапазон посмотреть?"}</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           {ACADEMY_PUSH_FOLD_SITUATIONS.map((value) => (
             <button
@@ -255,17 +267,21 @@ export function PushFoldHome({ spots }: { spots: readonly AcademyPushFoldSpot[] 
             </p>
             <p className="mt-2 text-lg font-semibold">{copy.title}</p>
             <p className="mt-1 text-sm text-white/55">{copy.history}</p>
-            <div className="mt-4 grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
-              <Link
-                href={pushFoldTrainRoute(spot.stackBb, spot.nodeKey)}
-                className="flex min-h-12 items-center justify-center rounded-2xl bg-[#d7b55a] px-4 py-3 text-sm font-semibold text-[#11120f]"
-              >
-                Начать тренировку
-              </Link>
+            <div className={`mt-4 grid grid-cols-1 gap-2 ${spotScored ? "min-[380px]:grid-cols-2" : ""}`}>
+              {spotScored ? (
+                <Link
+                  href={pushFoldTrainRoute(spot.stackBb, spot.nodeKey)}
+                  className="flex min-h-12 items-center justify-center rounded-2xl bg-[#d7b55a] px-4 py-3 text-sm font-semibold text-[#11120f]"
+                >
+                  Начать тренировку
+                </Link>
+              ) : null}
               <Link
                 href={pushFoldSpotRoute(spot.stackBb, spot.nodeKey)}
                 data-testid="push-fold-study-link"
-                className="flex min-h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm font-medium text-white/75"
+                className={spotScored
+                  ? "flex min-h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm font-medium text-white/75"
+                  : "flex min-h-12 items-center justify-center rounded-2xl bg-[#d7b55a] px-4 py-3 text-sm font-semibold text-[#11120f]"}
               >
                 Посмотреть диапазон
               </Link>

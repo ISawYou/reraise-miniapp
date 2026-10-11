@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PokerPositionTable } from "@/components/academy/poker-position-table";
 import { PushFoldAttribution } from "@/components/academy/push-fold-attribution";
+import { PushFoldReferenceNotice } from "@/components/academy/push-fold-reference";
 import { SolverActionMixGrid } from "@/components/academy/SolverActionMixGrid";
 import { BackButton } from "@/components/ui/back-button";
 import { ACADEMY_SOLVER_PUSH_FOLD_ROUTE, pushFoldTrainRoute } from "@/config/academy/push-fold-trainer";
@@ -9,6 +10,7 @@ import { ACADEMY_PUSH_FOLD_MODEL_NOTE } from "@/lib/academy/push-fold-copy";
 import {
   getPushFoldPublicActions,
   getPushFoldSourceCoveragePercent,
+  isAcademyPushFoldDatasetScored,
   toPublicPushFoldSpot,
 } from "@/lib/academy/push-fold-trainer";
 import { solverActionButtonLabel } from "@/lib/academy/solver-feedback";
@@ -19,9 +21,12 @@ type PushFoldSpotPageProps = {
 };
 
 /**
- * One Push/Fold node (study mode). Everything is visible on arrival — table
- * scene, stack, situation, the 13x13 pure range with the source's own
- * coverage, "Начать тренировку" and the attribution — no second click.
+ * One Push/Fold node (study / REFERENCE mode). Everything is visible on
+ * arrival — table scene, stack, situation, the 13x13 pure range with the
+ * source's own coverage and the attribution. While the dataset is not
+ * validated for scored training (docs/ACADEMY_PUSH_FOLD_AUDIT.md) the page is
+ * explicitly labelled as an approximate, non-scored reference and offers no
+ * "Начать тренировку".
  */
 export default async function AcademyPushFoldSpotPage({ params }: PushFoldSpotPageProps) {
   const { stack, node } = await params;
@@ -32,6 +37,7 @@ export default async function AcademyPushFoldSpotPage({ params }: PushFoldSpotPa
   const actions = getPushFoldPublicActions(resolved);
   const rangeAction = actions.find((action) => action.code !== "FOLD") ?? actions[0];
   const coverage = getPushFoldSourceCoveragePercent(resolved);
+  const scored = isAcademyPushFoldDatasetScored(resolved.spot.datasetId);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#09100d_0%,#080a09_36%,#070707_100%)] px-3 py-6 pb-40 text-white min-[375px]:px-4">
@@ -40,11 +46,13 @@ export default async function AcademyPushFoldSpotPage({ params }: PushFoldSpotPa
 
         <header className="mt-7">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d7b55a]">
-            Push/Fold · {spot.stackBb} BB · {spot.situationLabel}
+            {scored ? "Push/Fold" : "Справочник Push/Fold"} · {spot.stackBb} BB · {spot.situationLabel}
           </p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">{spot.title}</h1>
           <p className="mt-2 text-sm text-white/55">{spot.history}</p>
         </header>
+
+        {scored ? null : <PushFoldReferenceNotice className="mt-4" />}
 
         <section className="mt-5">
           <PokerPositionTable mode="TRAINING_SCENE" scene={spot.scene} stackBb={spot.stackBb} />
@@ -67,12 +75,14 @@ export default async function AcademyPushFoldSpotPage({ params }: PushFoldSpotPa
           />
         </section>
 
-        <Link
-          href={pushFoldTrainRoute(spot.stackBb, spot.nodeKey)}
-          className="mt-6 flex min-h-14 items-center justify-center rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f] active:bg-[#e2c66f]"
-        >
-          Начать тренировку
-        </Link>
+        {scored ? (
+          <Link
+            href={pushFoldTrainRoute(spot.stackBb, spot.nodeKey)}
+            className="mt-6 flex min-h-14 items-center justify-center rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f] active:bg-[#e2c66f]"
+          >
+            Начать тренировку
+          </Link>
+        ) : null}
 
         <p className="mt-5 text-xs leading-5 text-white/45" data-testid="push-fold-model-note">{ACADEMY_PUSH_FOLD_MODEL_NOTE}</p>
         <PushFoldAttribution className="mt-4" />

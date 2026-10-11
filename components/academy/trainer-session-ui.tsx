@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useId, useState } from "react";
+import { forwardRef, type ReactNode, useId, useState } from "react";
 import { AcademyPlayingCard } from "@/components/academy/academy-playing-card";
 import { PokerPositionTable } from "@/components/academy/poker-position-table";
 import { BackButton } from "@/components/ui/back-button";
@@ -9,10 +9,11 @@ import type {
   AcademyPreflopTableScene,
   AcademySolverAction,
   AcademySolverPublicAction,
+  AcademyStrategyHandFrequencies,
   AcademyTrainingResult,
   RenderedPlayingCard,
 } from "@/types/academy";
-import { solverActionButtonLabel } from "@/lib/academy/solver-feedback";
+import { formatSolverFrequencyPercent, solverActionButtonLabel } from "@/lib/academy/solver-feedback";
 
 /**
  * Presentation shared by the configurable preflop trainer (fixed node + Quick
@@ -27,7 +28,19 @@ export const TRAINER_PRIMARY_BUTTON_CLASS =
 export const TRAINER_SECONDARY_LINK_CLASS =
   "mt-3 flex min-h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035] px-5 py-4 text-base font-medium text-white/75 active:bg-white/[0.07]";
 
-export type TrainerFeedbackTone = "correct" | "incorrect" | "mixed";
+/**
+ * `valid` = a mixed-strategy action other than the randomizer's pick: counted
+ * as correct and styled like "correct" (never red). `mixed` is kept for the
+ * legacy gold look.
+ */
+export type TrainerFeedbackTone = "correct" | "valid" | "incorrect" | "mixed";
+
+/**
+ * Bottom clearance of the app's fixed bottom nav (its 10px offset + ~68px
+ * height + 8px gap) plus the device's bottom safe area. The sticky next-step
+ * bar sits exactly above it.
+ */
+export const TRAINER_BOTTOM_NAV_CLEARANCE = "calc(env(safe-area-inset-bottom, 0px) + 86px)";
 
 export function TrainerSessionTopBar({
   backHref,
@@ -102,6 +115,7 @@ export function TrainerHandScene({
     <div className="-mx-1 mt-2" data-testid="hand-scene">
       <PokerPositionTable
         mode="TRAINING_SCENE"
+        fitViewport
         scene={scene}
         stackBb={stackBb}
         heroCards={(
@@ -127,19 +141,31 @@ export function TrainerDecisionHeader({ hand, children }: { hand: string; childr
   );
 }
 
+/** What the action buttons show after the server revealed the answer. */
+export type TrainerActionReveal = {
+  readonly selectedAction: AcademySolverAction;
+  readonly frequencies: AcademyStrategyHandFrequencies;
+  /** Server-computed: the verifier counts the selected action as correct. */
+  readonly countsAsCorrect: boolean;
+};
+
+/**
+ * Decision buttons. After the answer every button shows its strategy
+ * frequency (the primary feedback); actions the strategy plays get a green
+ * outline, the chosen one is filled — green when it counts as correct, red
+ * only when the strategy never plays it (0%). The randomizer's pick is not
+ * highlighted here: it is secondary information in the feedback text.
+ */
 export function TrainerActionButtons({
   actions,
   columnsClass,
   reveal,
-  mixedTone,
   disabled,
   onAnswer,
 }: {
   actions: readonly AcademySolverPublicAction[];
   columnsClass: string;
-  reveal: { readonly selectedAction: AcademySolverAction; readonly resolvedAction: AcademySolverAction } | null;
-  /** The selected-but-not-resolved button is styled as "mixed" (gold) instead of "wrong" (red). */
-  mixedTone?: boolean;
+  reveal: TrainerActionReveal | null;
   disabled: boolean;
   onAnswer: (action: AcademySolverAction) => void;
 }) {
@@ -147,27 +173,35 @@ export function TrainerActionButtons({
     <div className={`mt-3 grid ${columnsClass} gap-3`} data-action-count={actions.length}>
       {actions.map((action) => {
         const isSelected = reveal?.selectedAction === action.code;
-        const isResolved = reveal?.resolvedAction === action.code;
+        const frequency = reveal ? reveal.frequencies[action.code] ?? 0 : 0;
+        const inStrategy = frequency > 0;
         return (
           <button
             key={action.code}
             type="button"
             data-action-code={action.code}
+            data-action-frequency={reveal ? frequency : undefined}
+            data-action-selected={reveal && isSelected ? (reveal.countsAsCorrect ? "correct" : "incorrect") : undefined}
             disabled={Boolean(reveal) || disabled}
             onClick={() => onAnswer(action.code)}
-            className={`min-h-16 min-w-0 break-words rounded-2xl border px-3 py-4 text-base font-semibold transition-colors disabled:cursor-default ${
+            className={`flex min-h-16 min-w-0 flex-col items-center justify-center break-words rounded-2xl border px-3 py-3 text-base font-semibold transition-colors disabled:cursor-default ${
               reveal
-                ? isResolved
-                  ? "border-[#72b28e] bg-[#315f48] text-white"
-                  : isSelected
-                    ? mixedTone
-                      ? "border-[#d7b55a]/60 bg-[#d7b55a]/15 text-white"
-                      : "border-[#b95b5f] bg-[#5b292c] text-white"
-                    : "border-white/10 bg-white/[0.045] text-white/45"
+                ? isSelected
+                  ? reveal.countsAsCorrect
+                    ? "border-[#72b28e] bg-[#315f48] text-white"
+                    : "border-[#b95b5f] bg-[#5b292c] text-white"
+                  : inStrategy
+                    ? "border-[#72b28e]/45 bg-white/[0.045] text-white/80"
+                    : "border-white/10 bg-white/[0.03] text-white/40"
                 : "border-white/10 bg-white/[0.06] text-white/85 active:bg-white/[0.1]"
             }`}
           >
-            {solverActionButtonLabel(action)}
+            <span>{solverActionButtonLabel(action)}</span>
+            {reveal ? (
+              <span className="mt-0.5 text-xs font-semibold tabular-nums opacity-80" data-testid="action-frequency">
+                {formatSolverFrequencyPercent(frequency)}
+              </span>
+            ) : null}
           </button>
         );
       })}
@@ -177,22 +211,79 @@ export function TrainerActionButtons({
 
 const TONE_BOX: Record<TrainerFeedbackTone, string> = {
   correct: "border-[#5f9a77]/35 bg-[#315f48]/20",
+  valid: "border-[#5f9a77]/35 bg-[#315f48]/20",
   mixed: "border-[#d7b55a]/30 bg-[#d7b55a]/10",
   incorrect: "border-[#b95b5f]/30 bg-[#5b292c]/20",
 };
 const TONE_TITLE: Record<TrainerFeedbackTone, string> = {
   correct: "text-[#9dd2b3]",
+  valid: "text-[#9dd2b3]",
   mixed: "text-[#e4c97a]",
   incorrect: "text-[#e0a4a6]",
 };
 
-export function TrainerFeedbackPanel({ tone, title, summary, detail }: { tone: TrainerFeedbackTone; title: string; summary: string; detail: string }) {
+/**
+ * Compact post-answer feedback: a title and AT MOST ~2 short lines (`summary`,
+ * plus an optional secondary `note`, e.g. the randomizer explanation). The
+ * longer `detail` sits behind "Подробнее" (collapsed by default) so the
+ * next-step button is never pushed off screen by an explanation.
+ */
+export const TrainerFeedbackPanel = forwardRef<HTMLElement, {
+  tone: TrainerFeedbackTone;
+  title: string;
+  summary: string;
+  note?: string | null;
+  detail?: string | null;
+}>(function TrainerFeedbackPanel({ tone, title, summary, note, detail }, ref) {
+  const [open, setOpen] = useState(false);
+  const detailId = useId();
   return (
-    <section className={`mt-5 rounded-[22px] border p-4 ${TONE_BOX[tone]}`} data-feedback-tone={tone}>
-      <p className={`text-lg font-semibold ${TONE_TITLE[tone]}`}>{title}</p>
-      <p className="mt-2 text-sm font-medium text-white/80">{summary}</p>
-      <p className="mt-2 text-sm leading-5 text-white/55">{detail}</p>
+    <section
+      ref={ref}
+      className={`mt-4 rounded-[22px] border p-4 ${TONE_BOX[tone]}`}
+      data-feedback-tone={tone}
+      style={{ scrollMarginBottom: `calc(${TRAINER_BOTTOM_NAV_CLEARANCE} + 96px)` }}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <p className={`text-lg font-semibold ${TONE_TITLE[tone]}`} data-testid="feedback-title">{title}</p>
+        {detail ? (
+          <button
+            type="button"
+            data-testid="feedback-more"
+            aria-expanded={open}
+            aria-controls={detailId}
+            onClick={() => setOpen((value) => !value)}
+            className="shrink-0 text-xs font-semibold text-white/55 underline decoration-white/25 underline-offset-2"
+          >
+            {open ? "Свернуть" : "Подробнее"}
+          </button>
+        ) : null}
+      </div>
+      <p className="mt-1.5 text-sm font-medium leading-5 text-white/85" data-testid="feedback-summary">{summary}</p>
+      {note ? <p className="mt-1 text-[13px] leading-5 text-white/50" data-testid="feedback-note">{note}</p> : null}
+      {detail && open ? (
+        <p id={detailId} className="mt-2 text-[13px] leading-5 text-white/55" data-testid="feedback-detail">{detail}</p>
+      ) : null}
     </section>
+  );
+});
+
+/**
+ * "Следующая рука" / "Посмотреть результат": sticky at the bottom of the
+ * visible viewport, just above the app's bottom nav (and the bottom safe
+ * area), so it is reachable right after answering however long the feedback
+ * is. It sits after the feedback in the DOM and never overlaps the action
+ * buttons on arrival (the feedback is scrolled into view above it).
+ */
+export function TrainerNextBar({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-testid="trainer-next-bar"
+      className="sticky z-20 -mx-4 mt-3 bg-[linear-gradient(180deg,rgba(7,7,7,0),rgba(7,7,7,0.92)_30%)] px-4 pb-2 pt-4"
+      style={{ bottom: TRAINER_BOTTOM_NAV_CLEARANCE }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -206,7 +297,7 @@ export type TrainerReviewEntry = {
   readonly title: string;
   readonly stackBb: number;
   readonly hand: string;
-  readonly tone: Exclude<TrainerFeedbackTone, "correct">;
+  readonly tone: Exclude<TrainerFeedbackTone, "correct" | "valid">;
   readonly verdict: string;
   readonly yourAnswer: string;
   readonly expectedLabel: string;
@@ -243,6 +334,21 @@ function TrainerReviewList({ entries, id }: { entries: readonly TrainerReviewEnt
   );
 }
 
+function decisionsWord(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "решение";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "решения";
+  return "решений";
+}
+
+/** "2 решения отличались от рандомайзера, но входили в стратегию." */
+export function validMixedNote(count: number): string {
+  return count === 1
+    ? "1 решение отличалось от рандомайзера, но входило в стратегию — оно засчитано."
+    : `${count} ${decisionsWord(count)} отличались от рандомайзера, но входили в стратегию — они засчитаны.`;
+}
+
 export type TrainerCompletionLink = { readonly href: string; readonly label: string; readonly testId: string };
 
 /**
@@ -260,6 +366,7 @@ export function TrainerCompletionScreen({
   trainers,
   links = [],
   review,
+  validMixedCount = 0,
   footer,
 }: {
   result: AcademyTrainingResult;
@@ -271,6 +378,11 @@ export function TrainerCompletionScreen({
   trainers: TrainerCompletionLink;
   links?: readonly TrainerCompletionLink[];
   review: readonly TrainerReviewEntry[];
+  /**
+   * Answers that differed from the randomizer but were part of the strategy
+   * (counted as correct). Shown as a neutral observation — never a mistake.
+   */
+  validMixedCount?: number;
   footer?: ReactNode;
 }) {
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -314,6 +426,12 @@ export function TrainerCompletionScreen({
         </Link>
       ))}
 
+      {validMixedCount > 0 ? (
+        <p className="mt-5 text-center text-sm leading-5 text-white/55" data-testid="trainer-valid-mixed-note">
+          {validMixedNote(validMixedCount)}
+        </p>
+      ) : null}
+
       <section className="mt-6 border-t border-white/[0.07] pt-5" aria-label="Разбор раздач">
         {review.length > 0 ? (
           <>
@@ -332,7 +450,7 @@ export function TrainerCompletionScreen({
           </>
         ) : (
           <p className="text-center text-sm text-white/50" data-testid="trainer-review-empty">
-            Все решения совпали со стратегией — разбирать нечего.
+            Все решения входят в стратегию — разбирать нечего.
           </p>
         )}
       </section>

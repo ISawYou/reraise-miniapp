@@ -1,14 +1,18 @@
 /**
- * Post-answer feedback copy for the Solver Lab trainer (client-safe, pure).
+ * Post-answer feedback copy (client-safe, pure).
  *
- * Scoring and copy are separate concerns: the verifier counts a question as
- * correct only when the choice matches the session's resolved action. The
- * copy, however, never calls a mixed-hand disagreement "wrong" — both actions
- * are part of a mixed strategy; the randomizer just picked one for this deal.
+ * - `buildSolverAnswerFeedback`: the 100bb HRC Solver Lab trainer. Its
+ *   verifier counts a question as correct only when the choice matches the
+ *   session's resolved action (exact-randomizer training, unchanged). The
+ *   copy never calls a mixed-hand disagreement "wrong".
+ * - `buildPracticeAnswerFeedback`: normal practice (configurable trainer +
+ *   Quick Mix). Any action the strategy plays counts as correct; frequencies
+ *   are primary, the randomizer is a secondary explanation.
  */
 import type {
   AcademySolverAction,
   AcademySolverPublicAction,
+  AcademyStrategyAnswerOutcome,
   AcademyStrategyHandFrequencies,
   StartingHandClass,
 } from "@/types/academy";
@@ -151,4 +155,128 @@ export function buildSolverAnswerFeedback({
   return matches
     ? { tone: "correct", title: "Верно", summary, detail: pureDetail }
     : { tone: "incorrect", title: "Не совсем", summary, detail: pureDetail };
+}
+
+// ---------------------------------------------------------------------------
+// Normal practice (configurable preflop trainer + Quick Mix) — NOT the 100bb
+// HRC trainer, which keeps `buildSolverAnswerFeedback` and its exact-randomizer
+// philosophy unchanged.
+// ---------------------------------------------------------------------------
+
+/**
+ * `valid` = a mixed-strategy action that differs from the randomizer but is
+ * part of the strategy: counted as correct and never styled as an error.
+ */
+export type AcademyPracticeFeedbackTone = "correct" | "valid" | "incorrect";
+
+export type AcademyPracticeFeedback = {
+  readonly tone: AcademyPracticeFeedbackTone;
+  /** "Верно" / "Допустимое решение" / "Не входит в стратегию". */
+  readonly title: string;
+  /** PRIMARY feedback, at most ~2 short lines: frequencies + one plain verdict sentence. */
+  readonly summary: string;
+  /** SECONDARY, mixed hands only: what the randomizer picked in this deal, in plain Russian. */
+  readonly randomizerNote: string | null;
+  /** Longer explanation, rendered behind "Подробнее" (collapsed by default). */
+  readonly detail: string;
+};
+
+export type AcademyPracticeFeedbackInput = {
+  readonly hand: StartingHandClass;
+  readonly frequencies: AcademyStrategyHandFrequencies;
+  readonly randomizerPercent: number;
+  readonly resolvedAction: AcademySolverAction;
+  readonly selectedAction: AcademySolverAction;
+  /** Server-computed outcome from the reveal — the copy never re-derives scoring. */
+  readonly outcome: AcademyStrategyAnswerOutcome;
+  readonly actions: readonly AcademySolverActionCopySource[];
+};
+
+function capitalize(text: string): string {
+  return text.length === 0 ? text : `${text[0].toLocaleUpperCase("ru")}${text.slice(1)}`;
+}
+
+/** "3-бет — 77%, колл — 23%" — only actions the strategy plays, most frequent first. */
+export function formatPracticeFrequencyList(
+  frequencies: AcademyStrategyHandFrequencies,
+  actions: readonly AcademySolverActionCopySource[],
+): string {
+  return capitalize(actions
+    .map((action, index) => ({ action, index, frequency: frequencies[action.code] ?? 0 }))
+    .filter((entry) => entry.frequency > 0)
+    .sort((a, b) => b.frequency - a.frequency || a.index - b.index)
+    .map((entry) => `${solverActionShortLabel(entry.action)} — ${formatSolverFrequencyPercent(entry.frequency)}`)
+    .join(", "));
+}
+
+/**
+ * Plain-Russian, three-state feedback for normal practice. Frequencies are the
+ * primary information; the randomizer is a secondary note that explains what
+ * this particular deal "rolled". A valid mixed choice is never called a mistake.
+ * Example (3-бет 77% / колл 23%, player 3-bets, randomizer picked колл):
+ *   title          "Допустимое решение"
+ *   summary        "3-бет — 77%, колл — 23%. Твой 3-бет входит в стратегию."
+ *   randomizerNote "По рандомайзеру в этой раздаче выпал колл."
+ */
+export function buildPracticeAnswerFeedback({
+  hand,
+  frequencies,
+  randomizerPercent,
+  resolvedAction,
+  selectedAction,
+  outcome,
+  actions,
+}: AcademyPracticeFeedbackInput): AcademyPracticeFeedback {
+  const selected = findAction(actions, selectedAction);
+  const resolved = findAction(actions, resolvedAction);
+  const pureAction = actions.find((action) => (frequencies[action.code] ?? 0) >= 1);
+  const selectedShort = solverActionShortLabel(selected);
+
+  if (pureAction) {
+    const always = pureAction.ru?.always ?? `всегда играем: ${solverActionInlineLabel(pureAction)}`;
+    const line = `С ${hand} здесь ${always}.`;
+    const detail = "Эта рука не смешанная: стратегия всегда выбирает одно действие, рандомайзер на неё не влияет.";
+    return outcome === "NOT_IN_STRATEGY"
+      ? {
+        tone: "incorrect",
+        title: "Не входит в стратегию",
+        summary: `${line} ${capitalize(selectedShort)} здесь не играют.`,
+        randomizerNote: null,
+        detail,
+      }
+      : { tone: "correct", title: "Верно", summary: line, randomizerNote: null, detail };
+  }
+
+  const list = `${formatPracticeFrequencyList(frequencies, actions)}.`;
+  const mixedDetail =
+    "Это смешанная рука: стратегия играет её разными действиями с разной частотой. " +
+    "В зачёт идёт любое действие, которое входит в стратегию (частота больше 0%). " +
+    `Рандомайзер — число от 0 до 99 (здесь ${randomizerPercent}) — лишь показывает, какое из действий ` +
+    "выпало бы в этой конкретной раздаче.";
+  if (outcome === "NOT_IN_STRATEGY") {
+    return {
+      tone: "incorrect",
+      title: "Не входит в стратегию",
+      summary: `${list} ${capitalize(selectedShort)} с этой рукой здесь не играют.`,
+      randomizerNote: null,
+      detail: `${mixedDetail} Действие с частотой 0% стратегия здесь не выбирает никогда — поэтому оно не засчитано.`,
+    };
+  }
+  const verdict = `Твой ${selectedShort} входит в стратегию.`;
+  if (outcome === "VALID_MIXED") {
+    return {
+      tone: "valid",
+      title: "Допустимое решение",
+      summary: `${list} ${verdict}`,
+      randomizerNote: `По рандомайзеру в этой раздаче выпал ${solverActionShortLabel(resolved)}.`,
+      detail: `${mixedDetail} Твой выбор засчитан как верный.`,
+    };
+  }
+  return {
+    tone: "correct",
+    title: "Верно",
+    summary: `${list} ${verdict}`,
+    randomizerNote: `По рандомайзеру в этой раздаче тоже выпал ${solverActionShortLabel(resolved)}.`,
+    detail: mixedDetail,
+  };
 }

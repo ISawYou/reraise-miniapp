@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { PushFoldAttribution } from "@/components/academy/push-fold-attribution";
 import {
   TRAINER_PRIMARY_BUTTON_CLASS,
@@ -10,6 +10,7 @@ import {
   TrainerDecisionHeader,
   TrainerFeedbackPanel,
   TrainerHandScene,
+  TrainerNextBar,
   type TrainerReviewEntry,
   TrainerSessionTopBar,
   TrainerSpotContext,
@@ -80,9 +81,13 @@ type SessionSource = {
 
 const TRAINERS_LINK: TrainerCompletionLink = { href: ACADEMY_TRAINERS_ROUTE, label: "К тренажёрам", testId: "trainers" };
 
-/** Review entry for a question answered differently from the range (built from the server's reveal). */
+/**
+ * Review entry, built from the server's reveal: only answers the strategy
+ * never plays (server outcome `NOT_IN_STRATEGY`) are listed — the same rule as
+ * the preflop trainer.
+ */
 export function pushFoldReviewEntry(reveal: AcademyPushFoldReveal): TrainerReviewEntry | null {
-  if (reveal.selectedAction === reveal.resolvedAction) return null;
+  if (reveal.outcome !== "NOT_IN_STRATEGY") return null;
   const feedback = buildPushFoldFeedback(reveal);
   const label = (code: AcademySolverAction) => {
     const action = reveal.actions.find((candidate) => candidate.code === code);
@@ -161,6 +166,7 @@ function PushFoldSession({ source }: { source: SessionSource }) {
   const [updatedProgress, setUpdatedProgress] = useState<AcademyLessonProgress | null>(null);
   const [newBest, setNewBest] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
+  const feedbackRef = useRef<HTMLElement>(null);
 
   const loadQuestion = useCallback(async (currentAttemptId: string, index: number) => {
     setPending(true);
@@ -177,6 +183,19 @@ function PushFoldSession({ source }: { source: SessionSource }) {
   useEffect(() => {
     if (hydrated) void loadQuestion(attemptId, questionIndex);
   }, [hydrated, attemptId, questionIndex, loadQuestion]);
+
+  // New hand → back to the top (table fully below the Telegram top chrome).
+  useEffect(() => {
+    if (hydrated && typeof window.scrollTo === "function") window.scrollTo({ top: 0 });
+  }, [hydrated, attemptId, questionIndex]);
+
+  // After answering, show the compact feedback above the sticky next-step bar.
+  useEffect(() => {
+    const panel = feedbackRef.current;
+    if (reveal && panel && typeof panel.scrollIntoView === "function") {
+      panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [reveal]);
 
   async function handleAnswer(selectedAction: AcademySolverAction) {
     if (!question || reveal || pending) return;
@@ -298,7 +317,15 @@ function PushFoldSession({ source }: { source: SessionSource }) {
           <p className="mt-10 text-center text-sm text-white/50">{error ? "" : "Готовим раздачу..."}</p>
         )}
 
-        {feedback ? <TrainerFeedbackPanel {...feedback} /> : null}
+        {feedback ? (
+          <TrainerFeedbackPanel
+            key={questionIndex}
+            ref={feedbackRef}
+            tone={feedback.tone}
+            title={feedback.title}
+            summary={`${feedback.summary} ${feedback.detail}`}
+          />
+        ) : null}
 
         {error ? (
           <div className="mt-5 rounded-2xl border border-[#b95b5f]/30 bg-[#5b292c]/20 p-4">
@@ -318,14 +345,17 @@ function PushFoldSession({ source }: { source: SessionSource }) {
         ) : null}
 
         {reveal ? (
-          <button
-            type="button"
-            onClick={handleNext}
-            disabled={saveState === "saving"}
-            className={`mt-5 ${TRAINER_PRIMARY_BUTTON_CLASS}`}
-          >
-            {saveState === "saving" ? "Сохраняем..." : isLastQuestion ? "Посмотреть результат" : "Следующая рука"}
-          </button>
+          <TrainerNextBar>
+            <button
+              type="button"
+              onClick={handleNext}
+              disabled={saveState === "saving"}
+              data-testid="trainer-next"
+              className={TRAINER_PRIMARY_BUTTON_CLASS}
+            >
+              {saveState === "saving" ? "Сохраняем..." : isLastQuestion ? "Посмотреть результат" : "Следующая рука"}
+            </button>
+          </TrainerNextBar>
         ) : null}
 
         <PushFoldAttribution className="mt-8" />

@@ -26,6 +26,19 @@ export const ACADEMY_PUSH_FOLD_MODEL_NOTE =
   "Чипы (chip EV), анте 0.1 BB, без ICM и рейка. Для стола 9-max это приближение: " +
   "каждый пуш считается против одного коллирующего соперника.";
 
+/** Banner title of every Push/Fold screen while scored training is paused. */
+export const ACADEMY_PUSH_FOLD_REFERENCE_TITLE = "Справочник · без оценки";
+
+/** Why these ranges are reference-only (docs/ACADEMY_PUSH_FOLD_AUDIT.md), in plain Russian. */
+export const ACADEMY_PUSH_FOLD_REFERENCE_NOTE =
+  "Это приблизительный ориентир, а не проверенный точный ответ для турнира. " +
+  "С ранних позиций диапазоны здесь заметно шире реальных, поэтому за них мы не ставим оценку.";
+
+/** Shown on the scored Push/Fold routes while scored training is paused. */
+export const ACADEMY_PUSH_FOLD_TRAINING_PAUSED_NOTE =
+  "Мы проверяем данные Push/Fold: для стола 9-max они приблизительные, и оценивать по ним твои решения было бы нечестно. " +
+  "Диапазоны можно смотреть в справочнике.";
+
 function seatIndex(seat: string): number {
   return (ACADEMY_PUSH_FOLD_SEAT_ORDER as readonly string[]).indexOf(seat);
 }
@@ -85,7 +98,7 @@ export function buildPushFoldFeedback(input: FeedbackInput): AcademyPushFoldFeed
   const matches = input.selectedAction === input.resolvedAction;
   return {
     tone: matches ? "correct" : "incorrect",
-    title: matches ? "Верно" : "Не совсем",
+    title: matches ? "Верно" : "Не входит в стратегию",
     summary: `Правильно: ${inline}.`,
     detail,
   };

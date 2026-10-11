@@ -31,14 +31,17 @@ import { getTeachingAction, isCanonicalStartingHand } from "@/lib/academy/preflo
 import {
   AcademyPreflopTrainerSelectionError,
   buildAcademyPreflopTrainerSession,
+  toPreflopTrainerReveal,
   toPublicPreflopTrainerQuestion,
   type AcademyPreflopTrainerSessionQuestion,
 } from "@/lib/academy/preflop-trainer";
 import { buildAcademyPreflopMixSession } from "@/lib/academy/preflop-mix";
 import {
+  AcademyPushFoldScoringUnavailableError,
   AcademyPushFoldSelectionError,
   buildAcademyPushFoldSession,
   toPublicPushFoldQuestion,
+  toPushFoldReveal,
   type AcademyPushFoldSessionQuestion,
 } from "@/lib/academy/push-fold-trainer";
 import { buildAcademyPushFoldMixSession } from "@/lib/academy/push-fold-mix";
@@ -47,6 +50,7 @@ import {
   calculateAcademyModuleProgress,
   calculateAcademyProgressForLessons,
 } from "@/lib/academy/progress";
+import { classifyStrategyAnswer, strategyAnswerCountsAsCorrect } from "@/lib/academy/strategy-answer";
 import { scoreTrainingSession } from "@/lib/academy/training";
 import {
   academyProgressRepository,
@@ -69,6 +73,7 @@ import type {
   AcademySolverAction,
   AcademySolverPublicQuestion,
   AcademySolverQuestionReveal,
+  AcademyStrategyHandFrequencies,
   AcademyTrainerKind,
   AcademyTrainingResult,
   PreflopAction,
@@ -83,6 +88,14 @@ export {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class AcademyValidationError extends Error {}
+
+/**
+ * The requested trainer exists but is deliberately not available for scored
+ * practice right now (e.g. Push/Fold while its multiway data is unvalidated).
+ * A subclass of `AcademyValidationError`, so every route fails closed with a
+ * 4xx; trainer routes may map it to 409 specifically.
+ */
+export class AcademyTrainerUnavailableError extends AcademyValidationError {}
 
 export type SubmitAcademyAttemptInput = {
   readonly attemptId: string;
@@ -508,6 +521,23 @@ export function verifyAcademySolverAttempt(
 // so each node has its own deterministic session.
 // ---------------------------------------------------------------------------
 
+/**
+ * Normal-practice scoring rule shared by the configurable preflop trainer,
+ * Quick Mix and Push/Fold: correct iff the selected action has frequency > 0
+ * (three-state outcome, see lib/academy/strategy-answer.ts). The 100bb HRC
+ * verifier above keeps its exact resolved-action match and does not use this.
+ */
+function countsAsCorrect(
+  question: { readonly frequencies: AcademyStrategyHandFrequencies; readonly resolvedAction: AcademySolverAction },
+  selectedAction: AcademySolverAction,
+): boolean {
+  return strategyAnswerCountsAsCorrect(classifyStrategyAnswer({
+    frequencies: question.frequencies,
+    selectedAction,
+    resolvedAction: question.resolvedAction,
+  }));
+}
+
 export type AcademyPreflopTrainerQuestionInput = {
   readonly datasetId: unknown;
   readonly nodeKey: unknown;
@@ -556,7 +586,7 @@ export function getAcademyPreflopTrainerQuestion(
   return toPublicPreflopTrainerQuestion(session[requireQuestionIndex(input.questionIndex)]);
 }
 
-/** Post-answer reveal: exact node frequencies, resolved action, match flag. */
+/** Post-answer reveal: exact node frequencies, randomizer + resolved action, server-computed outcome. */
 export function revealAcademyPreflopTrainerAnswer(
   playerId: string,
   input: AcademyPreflopTrainerRevealInput,
@@ -565,15 +595,7 @@ export function revealAcademyPreflopTrainerAnswer(
   const question = session[requireQuestionIndex(input.questionIndex)];
   const actionCodes = question.actions.map((action) => action.code);
   if (!isSolverAction(input.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-  return {
-    ...toPublicPreflopTrainerQuestion(question),
-    questionIndex: question.questionIndex,
-    frequencies: question.frequencies,
-    resolvedAction: question.resolvedAction,
-    selectedAction: input.selectedAction,
-    bucket: question.bucket,
-    matchesResolvedAction: input.selectedAction === question.resolvedAction,
-  };
+  return toPreflopTrainerReveal(question, input.selectedAction);
 }
 
 /**
@@ -581,8 +603,13 @@ export function revealAcademyPreflopTrainerAnswer(
  * the same `{datasetId, nodeKey}` selection (validated against the registry;
  * mixed or forged selections are rejected) plus `selectedAction`, the only
  * scored input. The session is re-derived from (playerId, attemptId,
- * datasetId, nodeKey) + SESSION_SECRET; scoring is identical to the 100bb
- * Solver Lab trainer (match against the resolved action).
+ * datasetId, nodeKey) + SESSION_SECRET.
+ *
+ * Scoring (normal practice, NOT the 100bb HRC trainer): an answer is correct
+ * iff the strategy plays the selected action (frequency > 0) for that hand —
+ * the randomizer-resolved action OR any other action of a mixed strategy
+ * (`classifyStrategyAnswer` / `strategyAnswerCountsAsCorrect`). Only a 0%
+ * action is wrong. Computed here, server-side; nothing client-sent is trusted.
  */
 export function verifyAcademyPreflopTrainerAttempt(
   input: SubmitAcademyAttemptInput,
@@ -627,7 +654,7 @@ export function verifyAcademyPreflopTrainerAttempt(
       throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
     }
     if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-    if (answer.selectedAction === session[index].resolvedAction) correctAnswers += 1;
+    if (countsAsCorrect(session[index], answer.selectedAction)) correctAnswers += 1;
   });
   return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
 }
@@ -676,7 +703,7 @@ export function getAcademyPreflopMixQuestion(
   return toPublicPreflopTrainerQuestion(session[requireQuestionIndex(input.questionIndex)]);
 }
 
-/** Quick Mix reveal: re-derives node, hand, randomizer and resolved action. */
+/** Quick Mix reveal: re-derives node, hand, randomizer, resolved action and outcome. */
 export function revealAcademyPreflopMixAnswer(
   playerId: string,
   input: AcademyPreflopMixRevealInput,
@@ -685,15 +712,7 @@ export function revealAcademyPreflopMixAnswer(
   const question = session[requireQuestionIndex(input.questionIndex)];
   const actionCodes = question.actions.map((action) => action.code);
   if (!isSolverAction(input.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-  return {
-    ...toPublicPreflopTrainerQuestion(question),
-    questionIndex: question.questionIndex,
-    frequencies: question.frequencies,
-    resolvedAction: question.resolvedAction,
-    selectedAction: input.selectedAction,
-    bucket: question.bucket,
-    matchesResolvedAction: input.selectedAction === question.resolvedAction,
-  };
+  return toPreflopTrainerReveal(question, input.selectedAction);
 }
 
 function verifyAcademyPreflopMixAnswers(
@@ -716,13 +735,19 @@ function verifyAcademyPreflopMixAnswers(
     }
     const actionCodes = question.actions.map((action) => action.code);
     if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-    if (answer.selectedAction === question.resolvedAction) correctAnswers += 1;
+    if (countsAsCorrect(question, answer.selectedAction)) correctAnswers += 1;
   });
   return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
 }
 
 // ---------------------------------------------------------------------------
 // Push/Fold trainer (PUSH_FOLD_PURE) — own lesson code, own whitelist.
+//
+// SCORED Push/Fold is currently unavailable: no HoldemMath dataset is on
+// `ACADEMY_PUSH_FOLD_SCORED_DATASET_IDS` (single-caller multiway
+// approximation, see docs/ACADEMY_PUSH_FOLD_AUDIT.md). Serve, reveal and
+// verify all fail closed with `AcademyTrainerUnavailableError`; the study
+// pages stay available as non-scored reference.
 //
 // Fixed-node: the selection (datasetId + nodeKey) is client-supplied and
 // validated against the Push/Fold whitelist + registry (fail closed). Quick:
@@ -776,26 +801,26 @@ function requirePushFoldSession(
   try {
     return buildAcademyPushFoldSession({ playerId: player, attemptId, datasetId: datasetId as string, nodeKey: nodeKey as string });
   } catch (error) {
+    if (error instanceof AcademyPushFoldScoringUnavailableError) throw new AcademyTrainerUnavailableError(error.message);
     if (error instanceof AcademyPushFoldSelectionError) throw new AcademyValidationError(error.message);
     throw error;
   }
 }
 
 function requirePushFoldMixSession(playerId: string | undefined, attemptId: string): readonly AcademyPushFoldSessionQuestion[] {
-  return buildAcademyPushFoldMixSession({ playerId: requirePushFoldPreconditions(playerId, attemptId), attemptId });
+  const player = requirePushFoldPreconditions(playerId, attemptId);
+  try {
+    return buildAcademyPushFoldMixSession({ playerId: player, attemptId });
+  } catch (error) {
+    if (error instanceof AcademyPushFoldScoringUnavailableError) throw new AcademyTrainerUnavailableError(error.message);
+    throw error;
+  }
 }
 
 function revealPushFoldQuestion(question: AcademyPushFoldSessionQuestion, selectedAction: unknown): AcademyPushFoldReveal {
   const actionCodes = question.actions.map((action) => action.code);
   if (!isSolverAction(selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-  return {
-    ...toPublicPushFoldQuestion(question),
-    questionIndex: question.questionIndex,
-    frequencies: question.frequencies,
-    resolvedAction: question.resolvedAction,
-    selectedAction,
-    matchesResolvedAction: selectedAction === question.resolvedAction,
-  };
+  return toPushFoldReveal(question, selectedAction);
 }
 
 /** One fixed-node Push/Fold question (answer-free), regenerated server-side. */
@@ -825,7 +850,9 @@ export function revealAcademyPushFoldMixAnswer(playerId: string, input: AcademyP
 /**
  * Server verifier for the Push/Fold trainer (both modes, one lesson code).
  * Only `selectedAction` is scored; everything else is re-derived from
- * (playerId, attemptId[, datasetId, nodeKey]) + SESSION_SECRET.
+ * (playerId, attemptId[, datasetId, nodeKey]) + SESSION_SECRET. Same
+ * normal-practice rule as the preflop trainer (frequency > 0 is correct).
+ * Fails closed while no dataset is validated for scored training.
  */
 export function verifyAcademyPushFoldAttempt(
   input: SubmitAcademyAttemptInput,
@@ -874,7 +901,7 @@ export function verifyAcademyPushFoldAttempt(
     }
     const actionCodes = question.actions.map((action) => action.code);
     if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-    if (answer.selectedAction === question.resolvedAction) correctAnswers += 1;
+    if (countsAsCorrect(question, answer.selectedAction)) correctAnswers += 1;
   });
   return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
 }

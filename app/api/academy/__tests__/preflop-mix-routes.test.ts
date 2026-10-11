@@ -74,9 +74,10 @@ describe("POST /api/academy/solver/preflop/mix/session", () => {
     for (let questionIndex = 0; questionIndex < 10; questionIndex += 1) {
       const response = await mixSessionPost(post("/api/academy/solver/preflop/mix/session", { attemptId: ATTEMPT_ID, questionIndex }));
       const body = await response.json() as Record<string, unknown>;
-      expect(Object.keys(body).sort()).toEqual(["actions", "hand", "randomizerPercent", "renderedCards", "spot"]);
+      // (Part 2A) No randomizer before answering — it is secondary, post-answer information.
+      expect(Object.keys(body).sort()).toEqual(["actions", "hand", "renderedCards", "spot"]);
       const raw = JSON.stringify(body);
-      for (const leak of ["correctAction", "resolvedAction", "frequencies", "frequency", "bucket", "evBb", "MIXED", "PURE:", "weight", SECRET]) {
+      for (const leak of ["correctAction", "resolvedAction", "frequencies", "frequency", "bucket", "evBb", "MIXED", "PURE:", "weight", "randomizer", SECRET]) {
         expect(raw).not.toContain(leak);
       }
       const { actions, ...rest } = body;
@@ -97,11 +98,11 @@ describe("POST /api/academy/solver/preflop/mix/session", () => {
         attemptId: ATTEMPT_ID, questionIndex, playerId: ATTACKER_ID,
         datasetId: "hrc_scenario_b_rfi_9max_100bb_v1", nodeKey: forgedNode.nodeKey, stackBb: forgedNode.stackBb,
       }));
-      const body = await response.json() as { hand: string; randomizerPercent: number; spot: { nodeKey: string; datasetId: string } };
+      const body = await response.json() as { hand: string; spot: { nodeKey: string; datasetId: string } };
       expect(body.spot.nodeKey).toBe(session[questionIndex].spot.nodeKey);
       expect(body.spot.datasetId).toBe(session[questionIndex].spot.datasetId);
       expect(body.hand).toBe(session[questionIndex].hand);
-      expect(body.randomizerPercent).toBe(session[questionIndex].randomizerPercent);
+      expect(body).not.toHaveProperty("randomizerPercent");
     }
     expect(mockGetPlayerFromSessionServer).toHaveBeenCalledWith("signed");
   });
@@ -135,6 +136,10 @@ describe("POST /api/academy/solver/preflop/mix/reveal", () => {
       expect(body.resolvedAction).toBe(expected.resolvedAction);
       expect(body.selectedAction).toBe(selectedAction);
       expect(body.matchesResolvedAction).toBe(selectedAction === expected.resolvedAction);
+      // Server-computed three-state outcome (normal practice scoring).
+      const played = (expected.frequencies[selectedAction] ?? 0) > 0;
+      expect(body.outcome).toBe(selectedAction === expected.resolvedAction ? "RESOLVED_MATCH" : played ? "VALID_MIXED" : "NOT_IN_STRATEGY");
+      expect(body.countsAsCorrect).toBe(selectedAction === expected.resolvedAction || played);
     }
   });
 

@@ -14,7 +14,7 @@ type PreflopTrainerSessionRequestBody = {
  * Serves one configurable preflop-trainer question for the authenticated
  * player (player id from the session cookie only — never from the body).
  * `datasetId` / `nodeKey` are validated against the registry (fail closed).
- * Responds with ONLY `{hand, renderedCards, randomizerPercent, actions, spot}`
+ * Responds with ONLY `{hand, renderedCards, actions, spot}`
  * — never frequencies, the resolved action or derivation inputs.
  */
 export async function POST(request: NextRequest) {
@@ -32,7 +32,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       hand: question.hand,
       renderedCards: question.renderedCards,
-      randomizerPercent: question.randomizerPercent,
       actions: question.actions,
       spot: question.spot,
     });
