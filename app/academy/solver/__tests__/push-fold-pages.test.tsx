@@ -19,6 +19,7 @@ const { default: PushFoldHomePage } = await import("@/app/academy/solver/push-fo
 const { default: PushFoldSpotPage } = await import("@/app/academy/solver/push-fold/[stack]/[node]/page");
 const { default: PushFoldTrainPage } = await import("@/app/academy/solver/push-fold/[stack]/[node]/train/page");
 const { default: AcademyPage } = await import("@/app/academy/page");
+const { default: TrainersPage } = await import("@/app/academy/trainers/page");
 const { PokerPositionTable } = await import("@/components/academy/poker-position-table");
 const { solverActionMixColor, solverActionMixGradient } = await import("@/components/academy/SolverActionMixGrid");
 const { getPushFoldSpotScene, requireAcademyPushFoldSpotByStack } = await import("@/lib/academy/push-fold-trainer");
@@ -186,14 +187,19 @@ describe("(23) shared PokerPositionTable renders Push/Fold scenes without a fork
   });
 });
 
-describe("/academy course card", () => {
-  it("links the Push/Fold practice activity on the Solver Lab card (and keeps the preflop trainer link)", async () => {
+// Product UX v3: practice entries live on "Тренажёры" (linked from /academy).
+describe("/academy → Тренажёры", () => {
+  it("links both Push/Fold modes (and keeps the preflop trainer links), with the attribution", async () => {
     await render(AcademyPage());
-    const solverCard = container.querySelector('[data-course-code="solver_lab"]')!;
-    const practice = Array.from(solverCard.querySelectorAll("[data-practice-code]")).map((link) => [link.getAttribute("data-practice-code"), link.getAttribute("href")]);
+    expect(container.querySelector('[data-destination="trainers"]')?.getAttribute("href")).toBe("/academy/trainers");
+    await render(TrainersPage());
+    const practice = Array.from(container.querySelectorAll("a[data-practice-code]")).map((link) => [link.getAttribute("data-practice-code"), link.getAttribute("href")]);
     expect(practice).toEqual([
-      ["solver_preflop_trainer", "/academy/solver/preflop"],
-      ["solver_push_fold_trainer", "/academy/solver/push-fold"],
+      ["solver_preflop_trainer", "/academy/solver/preflop#setup"],
+      ["solver_push_fold_trainer", "/academy/solver/push-fold/mix"],
+      ["solver_push_fold_trainer", "/academy/solver/push-fold#setup"],
     ]);
+    expect(container.querySelector('[data-trainer-link="quick-mix"]')?.getAttribute("href")).toBe("/academy/solver/preflop/mix");
+    expectAttribution();
   });
 });

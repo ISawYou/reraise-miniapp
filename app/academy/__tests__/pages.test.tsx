@@ -78,7 +78,9 @@ afterEach(() => {
 });
 
 describe("/academy", () => {
-  it("renders the catalog course hub with progress from the API", async () => {
+  // Landing redesigned (product UX v3): four plain destinations instead of the
+  // catalog course cards; База MTT progress is shown on "Новичкам".
+  it("renders the four destinations with База MTT progress on Новичкам", async () => {
     mocks.progress = {
       ...mocks.progress,
       data: progressPayload(["preflop_rfi_9max_100bb_utg", "preflop_rfi_9max_100bb_ep"]),
@@ -86,15 +88,13 @@ describe("/academy", () => {
     await render(<AcademyPage />);
     const course = getPrimaryAcademyCourse();
 
-    const cards = container.querySelectorAll("[data-course-code]");
-    expect(cards).toHaveLength(ACADEMY_CATALOG.length);
-    expect(cards[0].getAttribute("data-course-code")).toBe(course.code);
-    expect(container.textContent).toContain("База MTT");
-    expect(container.textContent).toContain(course.description);
-    expect(container.textContent).toContain("Open Raise · 100 BB");
-    expect(container.textContent).toContain("2 из 7");
-    expect(container.textContent).toContain("29%");
-    expect(hrefs()).toContain("/academy/preflop");
+    const destinations = Array.from(container.querySelectorAll("[data-destination]"));
+    expect(destinations.map((node) => node.getAttribute("data-destination"))).toEqual(["beginner", "intermediate", "advanced", "trainers"]);
+    const beginner = container.querySelector('[data-destination="beginner"]')!;
+    expect(beginner.getAttribute("href")).toBe("/academy/beginner");
+    expect(beginner.textContent).toContain("2 из 7 уроков");
+    expect(course.code).toBe("base_mtt");
+    expect(ACADEMY_CATALOG.length).toBe(2);
     expect(container.textContent).not.toContain("Позиции");
   });
 

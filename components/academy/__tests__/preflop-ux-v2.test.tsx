@@ -105,7 +105,8 @@ afterEach(() => {
 });
 
 describe("(1) preflop trainer home", () => {
-  it("exposes 'Быстрая тренировка' and 'Настроить спот' as distinct, labelled entry points", async () => {
+  // Product UX v3: "Настроить спот" is now worded "Настроить ситуацию".
+  it("exposes 'Быстрая тренировка' and 'Настроить ситуацию' as distinct, labelled entry points", async () => {
     await render(SetupPage());
     const quick = $('[data-entry="quick-mix"]')!;
     const manual = $('[data-entry="manual"]')!;
@@ -115,7 +116,7 @@ describe("(1) preflop trainer home", () => {
     expect(quick.textContent).toContain("10 случайных решений из разных стеков и ситуаций");
     expect(quick.querySelector('[data-testid="quick-mix-start"]')!.getAttribute("href")).toBe("/academy/solver/preflop/mix");
     expect(quick.querySelector('[data-testid="quick-mix-start"]')!.textContent).toBe("Начать");
-    expect(manual.textContent).toContain("Настроить спот");
+    expect(manual.textContent).toContain("Настроить ситуацию");
     expect(manual.textContent).toContain("Выбери стек, ситуацию и позиции сам");
     // Quick Mix comes first; the manual picker is not forced on arrival.
     expect(quick.compareDocumentPosition(manual) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

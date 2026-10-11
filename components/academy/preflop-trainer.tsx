@@ -1,14 +1,26 @@
 "use client";
 
-import Link from "next/link";
-import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { AcademyPlayingCard } from "@/components/academy/academy-playing-card";
-import { PokerPositionTable } from "@/components/academy/poker-position-table";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { solverActionGridColumnsClass } from "@/components/academy/solver-training";
+import {
+  TRAINER_PRIMARY_BUTTON_CLASS,
+  TrainerActionButtons,
+  TrainerCompletionScreen,
+  type TrainerCompletionLink,
+  TrainerDecisionHeader,
+  TrainerFeedbackPanel,
+  TrainerHandScene,
+  type TrainerReviewEntry,
+  TrainerSessionTopBar,
+  TrainerSpotContext,
+} from "@/components/academy/trainer-session-ui";
+import {
+  ACADEMY_PREFLOP_SETUP_ROUTE,
+  ACADEMY_TRAINERS_ROUTE,
+} from "@/config/academy/navigation-routes";
 import {
   ACADEMY_PREFLOP_QUICK_MIX_MODE,
   ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
-  ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE,
   preflopTrainerSpotRoute,
 } from "@/config/academy/preflop-trainer";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
@@ -79,14 +91,44 @@ type PreflopTrainerSessionSource = {
     selectedAction: AcademySolverAction,
     question: AcademyPreflopTrainerPublicQuestion,
   ) => PreflopTrainerAnyAnswer;
-  readonly backLabel: string;
+  /** In-session and completion "back": where this session was started from. */
+  readonly back: { readonly href: string; readonly label: string };
   readonly eyebrow?: string;
   readonly passedLabel: string;
-  readonly resultLinks: ReactNode;
+  /** Optional completion links after "Пройти ещё раз" / "К тренажёрам". */
+  readonly resultLinks: readonly TrainerCompletionLink[];
 };
 
-const SECONDARY_LINK_CLASS =
-  "mt-3 flex min-h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035] px-5 py-4 text-base font-medium text-white/70";
+const TRAINERS_LINK: TrainerCompletionLink = { href: ACADEMY_TRAINERS_ROUTE, label: "К тренажёрам", testId: "trainers" };
+const SETUP_BACK = { href: ACADEMY_PREFLOP_SETUP_ROUTE, label: "К выбору ситуации" } as const;
+const TRAINERS_BACK = { href: ACADEMY_TRAINERS_ROUTE, label: "Тренажёры" } as const;
+
+/**
+ * Review entry for a question that did not count as correct (selected ≠
+ * resolved), built from the reveal the server already returned — the same
+ * feedback copy the player saw after answering.
+ */
+export function preflopTrainerReviewEntry(reveal: AcademyPreflopTrainerReveal): TrainerReviewEntry | null {
+  if (reveal.selectedAction === reveal.resolvedAction) return null;
+  const feedback = buildSolverAnswerFeedback(reveal, ACADEMY_NEUTRAL_FEEDBACK_WORDING);
+  const label = (code: AcademySolverAction) => {
+    const action = reveal.actions.find((candidate) => candidate.code === code);
+    return action ? solverActionButtonLabel(action) : code;
+  };
+  const mixedHand = !reveal.actions.some((action) => (reveal.frequencies[action.code] ?? 0) >= 1);
+  return {
+    questionNumber: reveal.questionIndex + 1,
+    title: reveal.spot.title,
+    stackBb: reveal.spot.stackBb,
+    hand: reveal.hand,
+    tone: feedback.tone === "mixed" ? "mixed" : "incorrect",
+    verdict: feedback.title,
+    yourAnswer: label(reveal.selectedAction),
+    expectedLabel: mixedHand ? "Выпало на рандомайзере" : "Стратегия",
+    expectedAnswer: label(reveal.resolvedAction),
+    detail: `${feedback.summary} ${feedback.detail}`,
+  };
+}
 
 /**
  * Configurable preflop trainer session. Questions come from
@@ -103,18 +145,12 @@ export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelecti
     questionBody: (attemptId, questionIndex) => ({ datasetId, nodeKey, attemptId, questionIndex }),
     revealBody: (attemptId, questionIndex, selectedAction) => ({ datasetId, nodeKey, attemptId, questionIndex, selectedAction }),
     toAnswer: (questionIndex, selectedAction) => ({ questionIndex, selectedAction, datasetId, nodeKey }),
-    backLabel: "← К выбору спота",
+    back: SETUP_BACK,
     passedLabel: "Спот пройден",
-    resultLinks: (
-      <>
-        <Link href={preflopTrainerSpotRoute(stackBb, nodeKey)} className={SECONDARY_LINK_CLASS}>
-          Посмотреть диапазон
-        </Link>
-        <Link href={ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE} className={SECONDARY_LINK_CLASS}>
-          Выбрать другой спот
-        </Link>
-      </>
-    ),
+    resultLinks: [
+      { href: ACADEMY_PREFLOP_SETUP_ROUTE, label: "Настроить другую ситуацию", testId: "setup" },
+      { href: preflopTrainerSpotRoute(stackBb, nodeKey), label: "Посмотреть диапазон", testId: "range" },
+    ],
   }), [datasetId, nodeKey, stackBb]);
   return <PreflopTrainerSession source={source} />;
 }
@@ -139,14 +175,10 @@ export function PreflopQuickMix() {
       nodeKey: question.spot.nodeKey,
       mode: ACADEMY_PREFLOP_QUICK_MIX_MODE,
     }),
-    backLabel: "← Назад",
+    back: TRAINERS_BACK,
     eyebrow: "Быстрая тренировка",
     passedLabel: "Тренировка пройдена",
-    resultLinks: (
-      <Link href={ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE} className={SECONDARY_LINK_CLASS}>
-        Настроить спот
-      </Link>
-    ),
+    resultLinks: [{ href: ACADEMY_PREFLOP_SETUP_ROUTE, label: "Настроить ситуацию", testId: "setup" }],
   }), []);
   return <PreflopTrainerSession source={source} />;
 }
@@ -158,6 +190,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
   const [question, setQuestion] = useState<AcademyPreflopTrainerPublicQuestion | null>(null);
   const [reveal, setReveal] = useState<AcademyPreflopTrainerReveal | null>(null);
   const [answers, setAnswers] = useState<PreflopTrainerAnyAnswer[]>([]);
+  const [review, setReview] = useState<TrainerReviewEntry[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AcademyTrainingResult | null>(null);
@@ -194,6 +227,8 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
       );
       setReveal(revealed);
       setAnswers((current) => [...current, source.toAnswer(questionIndex, selectedAction, question)]);
+      const entry = preflopTrainerReviewEntry(revealed);
+      if (entry) setReview((current) => [...current, entry]);
     } catch (answerError) {
       setError(answerError instanceof Error ? answerError.message : "Не удалось проверить ответ");
     } finally {
@@ -237,6 +272,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
     setQuestion(null);
     setReveal(null);
     setAnswers([]);
+    setReview([]);
     setResult(null);
     setUpdatedProgress(null);
     setNewBest(false);
@@ -255,35 +291,17 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
   if (result) {
     return (
       <main className="min-h-screen bg-[linear-gradient(180deg,#09100d,#070707)] px-4 py-6 pb-32 text-white">
-        <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center">
-          <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${result.passed ? "text-[#90c9a8]" : "text-[#d7b55a]"}`}>
-            {result.passed ? source.passedLabel : "Продолжим тренировку"}
-          </p>
-          <h1 className="mt-3 text-3xl font-bold tracking-tight">Тренировка завершена</h1>
-          <p className="mt-3 text-lg text-white/60">{result.feedback}</p>
-
-          <div className="mt-8 rounded-[28px] border border-white/10 bg-white/[0.055] p-6 text-center">
-            <p className="text-5xl font-bold tracking-tight">
-              {result.correctAnswers} <span className="text-white/25">/</span> {result.totalQuestions}
-            </p>
-            <p className={`mt-3 text-xl font-semibold ${result.passed ? "text-[#90c9a8]" : "text-[#e0c477]"}`}>
-              {result.percentage}%
-            </p>
-            {newBest ? <p className="mt-2 text-sm text-[#d7b55a]">Новый лучший результат</p> : null}
-            {updatedProgress ? (
-              <p className="mt-2 text-xs text-white/40">Попыток в тренажёре: {updatedProgress.attemptsCount}</p>
-            ) : null}
-          </div>
-
-          <button
-            type="button"
-            onClick={restart}
-            className="mt-7 min-h-14 rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f]"
-          >
-            Пройти ещё раз
-          </button>
-          {source.resultLinks}
-        </div>
+        <TrainerCompletionScreen
+          result={result}
+          passedLabel={source.passedLabel}
+          attemptsLabel={updatedProgress ? `Попыток в тренажёре: ${updatedProgress.attemptsCount}` : null}
+          newBest={newBest}
+          onRestart={restart}
+          back={source.back}
+          trainers={TRAINERS_LINK}
+          links={source.resultLinks}
+          review={review}
+        />
       </main>
     );
   }
@@ -293,117 +311,42 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
   const spot = question?.spot;
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#09100d,#070707)] px-4 py-6 pb-32 text-white">
+    <main className="min-h-screen bg-[linear-gradient(180deg,#09100d,#070707)] px-4 pb-32 pt-4 text-white">
       <div className="mx-auto max-w-md">
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            href={ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE}
-            className="inline-flex items-center rounded-full border border-white/[0.08] px-3.5 py-2 text-sm text-white/65"
-          >
-            {source.backLabel}
-          </Link>
-          <p className="whitespace-nowrap text-sm text-white/50">
-            {source.eyebrow ? <span className="mr-2 text-[#d7b55a]">{source.eyebrow}</span> : null}
-            {questionIndex + 1} из {ACADEMY_TRAINING_QUESTION_COUNT}
-          </p>
-        </div>
-
-        <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
-          <div
-            className="h-full rounded-full bg-[#568b70] transition-[width] duration-300"
-            style={{ width: `${((questionIndex + 1) / ACADEMY_TRAINING_QUESTION_COUNT) * 100}%` }}
-          />
-        </div>
+        <TrainerSessionTopBar
+          backHref={source.back.href}
+          backLabel={source.back.label}
+          eyebrow={source.eyebrow}
+          questionIndex={questionIndex}
+          total={ACADEMY_TRAINING_QUESTION_COUNT}
+        />
 
         {question && spot ? (
           <>
-            <div className="mt-6 flex flex-wrap items-center gap-2 text-xs" data-testid="spot-facts">
-              <span className="rounded-full border border-[#d7b55a]/30 bg-[#d7b55a]/10 px-2.5 py-1 font-semibold text-[#e4c97a]">
-                Стек {spot.stackBb} BB
+            <TrainerSpotContext title={spot.title} history={spot.history} stackBb={spot.stackBb} />
+            <TrainerHandScene scene={spot.scene} stackBb={spot.stackBb} cards={question.renderedCards} hand={question.hand} />
+            <TrainerDecisionHeader hand={question.hand}>
+              <span className="flex items-center gap-2 text-xs text-white/55">
+                <span>Рандомайзер</span>
+                <span className="rounded-lg border border-[#d7b55a]/30 bg-[#d7b55a]/10 px-2 py-0.5 text-sm font-semibold tabular-nums text-[#e4c97a]">
+                  {question.randomizerPercent}
+                </span>
               </span>
-              <span className="rounded-full border border-white/10 px-2.5 py-1 text-white/70">Ты: {spot.heroPosition}</span>
-              {spot.villainPosition ? (
-                <span className="rounded-full border border-white/10 px-2.5 py-1 text-white/70">Соперник: {spot.villainPosition}</span>
-              ) : null}
-            </div>
-            <h1 className="mt-4 text-2xl font-semibold tracking-tight">{spot.title}</h1>
-            <p className="mt-1 text-sm text-white/55">{spot.history}</p>
-
-            {spot.scene ? (
-              <div className="mx-auto mt-3 max-w-[320px]">
-                <PokerPositionTable mode="TRAINING_SCENE" scene={spot.scene} stackBb={spot.stackBb} />
-              </div>
-            ) : null}
-
-            <div className="mt-4 flex justify-center gap-3" aria-label={`Рука ${question.hand}`}>
-              <AcademyPlayingCard card={question.renderedCards[0]} />
-              <AcademyPlayingCard card={question.renderedCards[1]} />
-            </div>
-            <p className="mt-2 text-center text-sm font-medium text-white/45">{question.hand}</p>
-
-            <div className="mt-3 flex items-center justify-center gap-2 text-sm text-white/60">
-              <span>Рандомайзер</span>
-              <span className="rounded-lg border border-[#d7b55a]/30 bg-[#d7b55a]/10 px-2.5 py-1 font-semibold tabular-nums text-[#e4c97a]">
-                {question.randomizerPercent}
-              </span>
-            </div>
-
-            <p className="mt-4 text-center text-sm font-semibold text-white/80" data-testid="your-move">Твой ход</p>
-            <div
-              className={`mt-3 grid ${solverActionGridColumnsClass(question.actions.length)} gap-3`}
-              data-action-count={question.actions.length}
-            >
-              {question.actions.map((action) => {
-                const isSelected = reveal?.selectedAction === action.code;
-                const isResolved = reveal?.resolvedAction === action.code;
-                return (
-                  <button
-                    key={action.code}
-                    type="button"
-                    data-action-code={action.code}
-                    disabled={Boolean(reveal) || pending}
-                    onClick={() => void handleAnswer(action.code)}
-                    className={`min-h-16 min-w-0 break-words rounded-2xl border px-3 py-4 text-base font-semibold transition-colors disabled:cursor-default ${
-                      reveal
-                        ? isResolved
-                          ? "border-[#72b28e] bg-[#315f48] text-white"
-                          : isSelected
-                            ? feedback?.tone === "mixed"
-                              ? "border-[#d7b55a]/60 bg-[#d7b55a]/15 text-white"
-                              : "border-[#b95b5f] bg-[#5b292c] text-white"
-                            : "border-white/10 bg-white/[0.045] text-white/45"
-                        : "border-white/10 bg-white/[0.045] text-white/75"
-                    }`}
-                  >
-                    {solverActionButtonLabel(action)}
-                  </button>
-                );
-              })}
-            </div>
+            </TrainerDecisionHeader>
+            <TrainerActionButtons
+              actions={question.actions}
+              columnsClass={solverActionGridColumnsClass(question.actions.length)}
+              reveal={reveal}
+              mixedTone={feedback?.tone === "mixed"}
+              disabled={pending}
+              onAnswer={(action) => void handleAnswer(action)}
+            />
           </>
         ) : (
           <p className="mt-10 text-center text-sm text-white/50">{error ? "" : "Готовим раздачу..."}</p>
         )}
 
-        {feedback ? (
-          <section className={`mt-5 rounded-[22px] border p-4 ${
-            feedback.tone === "correct"
-              ? "border-[#5f9a77]/35 bg-[#315f48]/20"
-              : feedback.tone === "mixed"
-                ? "border-[#d7b55a]/30 bg-[#d7b55a]/10"
-                : "border-[#b95b5f]/30 bg-[#5b292c]/20"
-          }`} data-feedback-tone={feedback.tone}>
-            <p className={`text-lg font-semibold ${
-              feedback.tone === "correct"
-                ? "text-[#9dd2b3]"
-                : feedback.tone === "mixed" ? "text-[#e4c97a]" : "text-[#e0a4a6]"
-            }`}>
-              {feedback.title}
-            </p>
-            <p className="mt-2 text-sm font-medium text-white/80">{feedback.summary}</p>
-            <p className="mt-2 text-sm leading-5 text-white/55">{feedback.detail}</p>
-          </section>
-        ) : null}
+        {feedback ? <TrainerFeedbackPanel {...feedback} /> : null}
 
         {error ? (
           <div className="mt-5 rounded-2xl border border-[#b95b5f]/30 bg-[#5b292c]/20 p-4">
@@ -427,7 +370,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
             type="button"
             onClick={handleNext}
             disabled={saveState === "saving"}
-            className="mt-5 min-h-14 w-full rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f]"
+            className={`mt-5 ${TRAINER_PRIMARY_BUTTON_CLASS}`}
           >
             {saveState === "saving"
               ? "Сохраняем..."

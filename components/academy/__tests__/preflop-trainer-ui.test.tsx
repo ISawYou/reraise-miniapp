@@ -22,6 +22,7 @@ const { default: SetupPage } = await import("@/app/academy/solver/preflop/page")
 const { default: SpotPage } = await import("@/app/academy/solver/preflop/[stack]/[node]/page");
 const { default: TrainPage } = await import("@/app/academy/solver/preflop/[stack]/[node]/train/page");
 const { default: AcademyPage } = await import("@/app/academy/page");
+const { default: TrainersPage } = await import("@/app/academy/trainers/page");
 const {
   buildAcademyPreflopTrainerSession,
   getPreflopTrainerPublicActions,
@@ -188,8 +189,10 @@ describe("trainer session UI", () => {
     expect(Object.keys(requests[0].body).sort()).toEqual(["attemptId", "datasetId", "nodeKey", "questionIndex"]);
     const facts = container.querySelector('[data-testid="spot-facts"]')!.textContent!;
     expect(facts).toContain("Стек 40 BB");
-    expect(facts).toContain("Ты: BB");
-    expect(facts).toContain("Соперник: BTN");
+    // Product UX v3: hero / villain are no longer repeated as pills above the
+    // table — the table itself marks them.
+    expect(container.querySelector('[data-table-seat="BB"]')!.getAttribute("aria-label")).toBe("BB, ты");
+    expect(container.querySelector('[data-table-seat="BTN"]')!.getAttribute("aria-label")).toBe("BTN, соперник");
     expect(container.textContent).toContain("BTN открыл — ты на BB");
     expect(container.querySelector(`[aria-label="Рука ${question.hand}"]`)).not.toBeNull();
 
@@ -309,15 +312,16 @@ describe("pages", () => {
     }
   });
 
-  it("/academy shows the Префлоп-тренажёр entry on the Solver Lab card only", async () => {
+  // Product UX v3: practice moved from the Solver Lab course card to the
+  // "Тренажёры" destination; the landing links there.
+  it("/academy links to Тренажёры, which hosts the Префлоп-тренажёр entries", async () => {
     await render(<AcademyPage />);
-    const solverCard = container.querySelector('[data-course-code="solver_lab"]')!;
-    const baseCard = container.querySelector('[data-course-code="base_mtt"]')!;
-    const entry = solverCard.querySelector('[data-practice-code="solver_preflop_trainer"]')!;
-    expect(entry.getAttribute("href")).toBe("/academy/solver/preflop");
-    expect(entry.textContent).toContain("Префлоп-тренажёр");
-    expect(baseCard.querySelector("[data-practice-code]")).toBeNull();
-    // The 100bb module entry point is still there.
-    expect(Array.from(solverCard.querySelectorAll("a")).map((link) => link.getAttribute("href"))).toContain("/academy/solver/rfi/100bb");
+    expect(container.querySelector('[data-destination="trainers"]')!.getAttribute("href")).toBe("/academy/trainers");
+    expect(container.querySelector("[data-practice-code]")).toBeNull();
+    await render(TrainersPage());
+    const entries = Array.from(container.querySelectorAll('[data-practice-code="solver_preflop_trainer"]'));
+    expect(entries.map((entry) => entry.getAttribute("data-trainer-entry"))).toEqual(["quick-mix", "setup"]);
+    expect(Array.from(container.querySelectorAll("[data-trainer-link]")).map((link) => link.getAttribute("href")))
+      .toEqual(expect.arrayContaining(["/academy/solver/preflop/mix", "/academy/solver/preflop#setup"]));
   });
 });

@@ -74,30 +74,29 @@ afterEach(() => {
 });
 
 describe("/academy with two courses", () => {
-  it("renders each course card with its OWN progress", async () => {
+  // Landing redesigned (product UX v3): each course's progress now shows on
+  // the destination that presents it — База MTT on "Новичкам", Solver Lab on
+  // "Продолжающим" — still read from that course's OWN payload.
+  it("renders each learning destination with its OWN course progress", async () => {
     const base = coursePayload("base_mtt", ["preflop_rfi_9max_100bb_utg", "preflop_rfi_9max_100bb_ep"]);
     const solver = coursePayload("solver_lab", ["solver_rfi_9max_100bb_btn"]);
     mocks.progress = { ...mocks.progress, data: { ...base, courses: [base, solver] } };
     await render(<AcademyPage />);
 
-    const baseCard = container.querySelector('[data-course-code="base_mtt"]')!;
-    const solverCard = container.querySelector('[data-course-code="solver_lab"]')!;
-    expect(baseCard.textContent).toContain("База MTT");
-    expect(baseCard.textContent).toContain("2 из 7");
-    expect(baseCard.textContent).toContain("29%");
-    expect(solverCard.textContent).toContain("Solver Lab");
-    expect(solverCard.textContent).toContain("1 из 7");
-    expect(solverCard.textContent).toContain("14%");
-    expect(solverCard.textContent).not.toContain("2 из 7");
-    expect(hrefs()).toContain("/academy/solver/rfi/100bb");
+    const beginner = container.querySelector('[data-destination="beginner"]')!;
+    const intermediate = container.querySelector('[data-destination="intermediate"]')!;
+    expect(beginner.textContent).toContain("2 из 7 уроков");
+    expect(intermediate.textContent).toContain("1 из 7 уроков");
+    expect(intermediate.textContent).not.toContain("2 из 7");
+    expect(hrefs()).toContain("/academy/intermediate");
   });
 
-  it("never shows База MTT numbers on the Solver Lab card for a legacy-shaped payload", async () => {
+  it("never shows База MTT numbers on Продолжающим for a legacy-shaped payload", async () => {
     mocks.progress = { ...mocks.progress, data: coursePayload("base_mtt", ["preflop_rfi_9max_100bb_utg"]) };
     await render(<AcademyPage />);
-    const solverCard = container.querySelector('[data-course-code="solver_lab"]')!;
-    expect(solverCard.textContent).not.toContain("1 из 7");
-    expect(container.querySelector('[data-course-code="base_mtt"]')!.textContent).toContain("1 из 7");
+    const intermediate = container.querySelector('[data-destination="intermediate"]')!;
+    expect(intermediate.textContent).not.toContain("1 из 7");
+    expect(container.querySelector('[data-destination="beginner"]')!.textContent).toContain("1 из 7");
   });
 });
 

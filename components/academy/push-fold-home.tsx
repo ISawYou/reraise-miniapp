@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type ReactNode, useId, useMemo, useState } from "react";
 import { PokerPositionTable } from "@/components/academy/poker-position-table";
+import { ACADEMY_PREFLOP_SETUP_HASH } from "@/config/academy/navigation-routes";
 import {
   ACADEMY_PUSH_FOLD_QUICK_ROUTE,
   pushFoldSpotRoute,
@@ -140,11 +141,12 @@ export function PushFoldHome({ spots }: { spots: readonly AcademyPushFoldSpot[] 
       </section>
 
       <section
+        id={ACADEMY_PREFLOP_SETUP_HASH}
         data-entry="manual"
         aria-labelledby={`${headingId}-manual`}
         className="mt-4 rounded-[24px] border border-white/[0.09] bg-white/[0.03] p-5"
       >
-        <h2 id={`${headingId}-manual`} className="text-lg font-semibold">Выбрать спот</h2>
+        <h2 id={`${headingId}-manual`} className="text-lg font-semibold">Выбрать ситуацию</h2>
         <p className="mt-1 text-sm leading-6 text-white/55">Что тренируем?</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           {ACADEMY_PUSH_FOLD_SITUATIONS.map((value) => (

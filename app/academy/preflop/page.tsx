@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useAcademyProgress } from "@/components/academy/use-academy-progress";
 import { BackButton } from "@/components/ui/back-button";
+import { ACADEMY_BEGINNER_ROUTE, requireAcademyDestination } from "@/config/academy/navigation";
 import {
   ACADEMY_PREFLOP_OPEN_RAISE_MODULE_CODE,
   getAcademyModule,
@@ -23,7 +24,7 @@ export default function AcademyPreflopPage() {
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#09100d_0%,#080a09_45%,#070707_100%)] px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-md">
-        <BackButton href="/academy" />
+        <BackButton href={ACADEMY_BEGINNER_ROUTE} label={requireAcademyDestination("beginner").title} />
 
         <p className="mt-7 text-xs font-semibold uppercase tracking-[0.18em] text-[#d7b55a]">
           Префлоп

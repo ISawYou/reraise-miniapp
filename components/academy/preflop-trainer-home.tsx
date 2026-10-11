@@ -1,18 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useId, useState, useSyncExternalStore } from "react";
 import { PreflopTrainerSetup } from "@/components/academy/preflop-trainer-setup";
+import { ACADEMY_PREFLOP_SETUP_HASH } from "@/config/academy/navigation-routes";
 import { ACADEMY_PREFLOP_QUICK_MIX_ROUTE } from "@/config/academy/preflop-trainer";
 import type { AcademyPreflopTrainerSpot } from "@/types/academy";
 
+function subscribeToHash(onChange: () => void) {
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
+}
+
+function setupRequestedByHash(): boolean {
+  return window.location.hash === `#${ACADEMY_PREFLOP_SETUP_HASH}`;
+}
+
 /**
  * Two clearly separated entry points: the primary zero-configuration
- * "Быстрая тренировка" and the secondary "Настроить спот", which reveals the
- * manual picker in place. The picker is never forced before Quick Mix.
+ * "Быстрая тренировка" and the secondary "Настроить ситуацию", which reveals
+ * the manual picker in place. The picker is never forced before Quick Mix —
+ * it opens on arrival only when the link asked for it (`#setup`, e.g. from
+ * "Тренажёры → Настроить ситуацию"); the server render is always closed.
  */
 export function PreflopTrainerHome({ spots }: { spots: readonly AcademyPreflopTrainerSpot[] }) {
-  const [manualOpen, setManualOpen] = useState(false);
+  const setupRequested = useSyncExternalStore(subscribeToHash, setupRequestedByHash, () => false);
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const manualOpen = toggled ?? setupRequested;
   const manualId = useId();
 
   return (
@@ -35,21 +49,22 @@ export function PreflopTrainerHome({ spots }: { spots: readonly AcademyPreflopTr
       </section>
 
       <section
+        id={ACADEMY_PREFLOP_SETUP_HASH}
         data-entry="manual"
         aria-labelledby={`${manualId}-manual`}
         className="mt-4 rounded-[24px] border border-white/[0.09] bg-white/[0.03] p-5"
       >
-        <h2 id={`${manualId}-manual`} className="text-lg font-semibold">Настроить спот</h2>
+        <h2 id={`${manualId}-manual`} className="text-lg font-semibold">Настроить ситуацию</h2>
         <p className="mt-1 text-sm leading-6 text-white/55">Выбери стек, ситуацию и позиции сам</p>
         <button
           type="button"
           data-testid="manual-toggle"
           aria-expanded={manualOpen}
           aria-controls={`${manualId}-setup`}
-          onClick={() => setManualOpen((open) => !open)}
+          onClick={() => setToggled(!manualOpen)}
           className="mt-4 flex min-h-12 w-full items-center justify-center rounded-2xl border border-white/12 bg-white/[0.05] px-4 py-3 text-sm font-semibold text-white/85 active:bg-white/[0.08]"
         >
-          {manualOpen ? "Скрыть настройку" : "Настроить спот"}
+          {manualOpen ? "Скрыть настройку" : "Выбрать ситуацию"}
         </button>
         <div id={`${manualId}-setup`} hidden={!manualOpen}>
           {manualOpen ? <PreflopTrainerSetup spots={spots} /> : null}

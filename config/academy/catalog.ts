@@ -23,6 +23,12 @@
  * The preflop lessons below are derived from `ACADEMY_PREFLOP_LESSONS` — the
  * one place their codes/copy physically live.
  */
+import {
+  ACADEMY_BASE_MTT_COURSE_CODE,
+  ACADEMY_PREFLOP_OPEN_RAISE_MODULE_CODE,
+  ACADEMY_SOLVER_LAB_COURSE_CODE,
+  ACADEMY_SOLVER_RFI_MODULE_CODE,
+} from "@/config/academy/catalog-codes";
 import { ACADEMY_PREFLOP_LESSONS } from "@/config/academy/lessons";
 import {
   ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
@@ -44,10 +50,13 @@ import type {
   AcademyModule,
 } from "@/types/academy";
 
-export const ACADEMY_BASE_MTT_COURSE_CODE = "base_mtt";
-export const ACADEMY_PREFLOP_OPEN_RAISE_MODULE_CODE = "preflop_open_raise_100bb";
-export const ACADEMY_SOLVER_LAB_COURSE_CODE = "solver_lab";
-export const ACADEMY_SOLVER_RFI_MODULE_CODE = "preflop_rfi_9max_100bb";
+// Codes live in a dependency-free module (light client imports); same values.
+export {
+  ACADEMY_BASE_MTT_COURSE_CODE,
+  ACADEMY_PREFLOP_OPEN_RAISE_MODULE_CODE,
+  ACADEMY_SOLVER_LAB_COURSE_CODE,
+  ACADEMY_SOLVER_RFI_MODULE_CODE,
+};
 
 const PREFLOP_OPEN_RAISE_LESSONS: readonly AcademyLesson[] = Object.freeze(
   ACADEMY_PREFLOP_POSITIONS.map((position, index): AcademyLesson => {
@@ -166,7 +175,8 @@ export function listAcademyCoursePracticeActivities(courseCode: string): readonl
  * verifier registry, never counted in a course's lesson totals), kept in a
  * second list so that the established contract of
  * `listAcademyCoursePracticeActivities` (Solver Lab → the preflop trainer
- * only) is unchanged. The course card renders both lists.
+ * only) is unchanged. "Тренажёры" (/academy/trainers, config/academy/navigation.ts)
+ * presents both lists' activities.
  *
  * Solver Lab "Push/Fold": ONE stable lesson code for every stack / seat /
  * family and both modes (HoldemMath push/fold charts, CC BY 4.0).
