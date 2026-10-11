@@ -86,8 +86,16 @@ describe("strategy dataset registry", () => {
     }
   });
 
-  it("never registers the TEST ONLY fixture or anything besides the reviewed 100bb dataset", () => {
-    expect(listAcademyStrategyDatasetIds()).toEqual([DATASET_ID]);
+  it("never registers the TEST ONLY fixture; registers exactly HRC 100bb + the 5 external MTT reference datasets", () => {
+    expect(listAcademyStrategyDatasetIds()).toEqual([
+      DATASET_ID,
+      "external_mtt_preflop_9max_5bb_v1",
+      "external_mtt_preflop_9max_10bb_v1",
+      "external_mtt_preflop_9max_20bb_v1",
+      "external_mtt_preflop_9max_40bb_v1",
+      "external_mtt_preflop_9max_100bb_v1",
+    ]);
+    expect(listAcademyStrategyDatasetIds()).not.toContain(TEST_ONLY_MULTI_ACTION_DATASET_ID);
   });
 
   it("rejects duplicate dataset ids when building a registry", () => {

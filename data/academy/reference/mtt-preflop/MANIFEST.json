@@ -1,0 +1,55 @@
+{
+  "manifestVersion": 1,
+  "status": "EXTERNAL_REFERENCE_UNVERIFIED",
+  "description": "Raw third-party MTT preflop reference frequencies, vendored byte-for-byte unchanged. Internal/developer-facing provenance only. These are NOT RERAISE-produced solver outputs and have not been independently verified.",
+  "source": {
+    "repositoryUrl": "https://github.com/jensbaagaard/poker-practice",
+    "commit": "449993f78d995c77b72d0bcac418a8507dd6f783",
+    "rawUrlTemplate": "https://raw.githubusercontent.com/jensbaagaard/poker-practice/449993f78d995c77b72d0bcac418a8507dd6f783/{originalPath}",
+    "readmePath": "data/openSourcePokerData/README.md",
+    "semanticsReferencePath": "scripts/build-ranges.mjs",
+    "originNote": "Per the upstream README, these range sets were extracted from the inline JSON blobs of a third-party poker trainer app's built-in ranges. Licensing and solver provenance are not established by the upstream repository."
+  },
+  "files": [
+    {
+      "vendoredFile": "MTT_5_GTO.json",
+      "originalPath": "data/openSourcePokerData/MTT_5_GTO.json",
+      "effectiveStackBb": 5,
+      "sha256": "43fb474b134e57a4636c88367b797d313652eb60e01b119830ab18d6f33e95c7",
+      "missingHandPolicy": "REJECT",
+      "sparsity": "DENSE"
+    },
+    {
+      "vendoredFile": "MTT_10_GTO.json",
+      "originalPath": "data/openSourcePokerData/MTT_10_GTO.json",
+      "effectiveStackBb": 10,
+      "sha256": "611ab44222edb2ddef7e53086db75ab5498249aeaa1447e0f37165358709bc0c",
+      "missingHandPolicy": "ZERO",
+      "sparsity": "OBSERVED_SPARSE_UNDOCUMENTED"
+    },
+    {
+      "vendoredFile": "MTT_20_GTO.json",
+      "originalPath": "data/openSourcePokerData/MTT_20_GTO.json",
+      "effectiveStackBb": 20,
+      "sha256": "87d432c8bf364ec7990422bad446e8d141e3f2d45f1897a59499e70c8b888e0b",
+      "missingHandPolicy": "ZERO",
+      "sparsity": "OBSERVED_SPARSE_UNDOCUMENTED"
+    },
+    {
+      "vendoredFile": "MTT_40_GTO.json",
+      "originalPath": "data/openSourcePokerData/MTT_40_GTO.json",
+      "effectiveStackBb": 40,
+      "sha256": "043d0ae8ae926069ce3d2188a469e9776a7f74c9e147920147a734f063a5c70b",
+      "missingHandPolicy": "REJECT",
+      "sparsity": "DENSE"
+    },
+    {
+      "vendoredFile": "MTT_100_GTO.json",
+      "originalPath": "data/openSourcePokerData/MTT_100_GTO.json",
+      "effectiveStackBb": 100,
+      "sha256": "1ea6c6335a890e5b8bea7b53e5233234bf766937a14cd62f310a851960a3df15",
+      "missingHandPolicy": "ZERO",
+      "sparsity": "DOCUMENTED_SPARSE"
+    }
+  ]
+}

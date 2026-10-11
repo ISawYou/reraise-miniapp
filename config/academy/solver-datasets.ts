@@ -20,6 +20,7 @@
  * The dataset id is a version: if the strategy ever has to change, ship a new
  * id and update the content fingerprint test deliberately.
  */
+import { ACADEMY_MTT_REFERENCE_DATASETS } from "@/config/academy/mtt-reference-datasets";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
 import { ACADEMY_HRC_SCENARIO_B_RFI_100BB_DATASET_ID } from "@/config/academy/solver-dataset-ids";
 import {
@@ -146,9 +147,15 @@ function buildHrcRfi100bbDataset(): AcademyStrategyDataset {
 /**
  * Production registry. ONLY real, reviewed datasets belong here — never test
  * fixtures, never unfinished/placeholder strategies.
+ *
+ * After the HRC dataset come the 5 external MTT preflop reference datasets
+ * (EXTERNAL_REFERENCE_UNVERIFIED, config/academy/mtt-reference-datasets.ts).
+ * They are registry-only: no lesson binding references them, so no
+ * player-facing route can reach them.
  */
 export const ACADEMY_STRATEGY_DATASETS = createAcademyStrategyDatasetRegistry([
   buildHrcRfi100bbDataset(),
+  ...ACADEMY_MTT_REFERENCE_DATASETS,
 ]);
 
 export function listAcademyStrategyDatasetIds(): readonly string[] {
