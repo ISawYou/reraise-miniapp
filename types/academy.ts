@@ -138,7 +138,7 @@ export type AcademyModuleProgress = AcademyLessonCollectionProgress & {
  * Presentation kind of a catalog lesson. Phase 1 has exactly one real kind:
  * a preflop raise-first-in lesson (theory + range grid).
  */
-export type AcademyLessonKind = "PREFLOP_RFI" | "PREFLOP_TRAINER";
+export type AcademyLessonKind = "PREFLOP_RFI" | "PREFLOP_TRAINER" | "PUSH_FOLD_TRAINER";
 
 /**
  * Interaction/validation kind of a lesson's trainer. Each member must have a
@@ -150,11 +150,14 @@ export type AcademyLessonKind = "PREFLOP_RFI" | "PREFLOP_TRAINER";
  * - `PREFLOP_CONFIGURABLE_FREQUENCY`: the configurable Solver Lab preflop
  *   trainer (player-chosen stack / situation / seats → one dataset node, any
  *   number of actions), scored the same way. One lesson code for all spots.
+ * - `PUSH_FOLD_PURE`: the Solver Lab Push/Fold trainer (HoldemMath push/fold
+ *   charts, pure shove/call-or-fold ranges). One lesson code for all spots.
  */
 export type AcademyTrainerKind =
   | "PREFLOP_RFI_BINARY"
   | "PREFLOP_RFI_FREQUENCY"
-  | "PREFLOP_CONFIGURABLE_FREQUENCY";
+  | "PREFLOP_CONFIGURABLE_FREQUENCY"
+  | "PUSH_FOLD_PURE";
 
 export type AcademyLesson = {
   readonly code: AcademyLessonCode;
@@ -538,4 +541,79 @@ export type AcademyPreflopTrainerAnswer = AcademySolverAnswer & {
  */
 export type AcademyPreflopQuickMixAnswer = AcademyPreflopTrainerAnswer & {
   readonly mode: "QUICK_MIX";
+};
+
+// ---------------------------------------------------------------------------
+// Push/Fold trainer (Solver Lab · "Push/Fold")
+// ---------------------------------------------------------------------------
+
+/**
+ * Decision family of a Push/Fold node (values of the dataset's node sources):
+ * - `FIRST_IN_SHOVE`: everyone before hero folded; hero shoves or folds.
+ * - `CALL_VS_SHOVE`: one seat shoved first in, everyone between folded; hero
+ *   calls or folds.
+ */
+export type AcademyPushFoldSituation = "FIRST_IN_SHOVE" | "CALL_VS_SHOVE";
+
+/**
+ * One selectable Push/Fold spot = one real, validated dataset node. Contains
+ * no frequencies and no range coverage, so it is safe in a question payload.
+ */
+export type AcademyPushFoldSpot = {
+  readonly datasetId: string;
+  readonly nodeKey: AcademyStrategyNodeKey;
+  readonly stackBb: number;
+  readonly situation: AcademyPushFoldSituation;
+  readonly heroPosition: string;
+  /** The shover; absent for first-in spots. */
+  readonly villainPosition?: string;
+};
+
+/** Russian, answer-free copy describing a Push/Fold spot. */
+export type AcademyPushFoldSpotCopy = {
+  /** e.g. "BB против пуша SB". */
+  readonly title: string;
+  /** e.g. "SB пошёл олл-ин — ты на BB". */
+  readonly history: string;
+  /** "Пушить первым" / "Коллировать пуш". */
+  readonly situationLabel: string;
+};
+
+/** Public spot: descriptor + Russian copy + table scene (no frequencies). */
+export type AcademyPushFoldPublicSpot = AcademyPushFoldSpot & AcademyPushFoldSpotCopy & {
+  readonly scene: AcademyPreflopTableScene;
+};
+
+/**
+ * Public Push/Fold question: the hand and the node's actions — never the
+ * frequencies, the correct action or any derivation input. (No randomizer:
+ * push/fold ranges are pure, so there is nothing to randomize.)
+ */
+export type AcademyPushFoldPublicQuestion = {
+  readonly hand: StartingHandClass;
+  readonly renderedCards: readonly [RenderedPlayingCard, RenderedPlayingCard];
+  readonly actions: readonly AcademySolverPublicAction[];
+  readonly spot: AcademyPushFoldPublicSpot;
+};
+
+/** Returned only after the player answered one Push/Fold question. */
+export type AcademyPushFoldReveal = AcademyPushFoldPublicQuestion & {
+  readonly questionIndex: number;
+  readonly frequencies: AcademyStrategyHandFrequencies;
+  /** The node's (pure) action for this hand. */
+  readonly resolvedAction: AcademySolverAction;
+  readonly selectedAction: AcademySolverAction;
+  readonly matchesResolvedAction: boolean;
+};
+
+/**
+ * One submitted Push/Fold answer. Fixed-node attempts carry the selected node
+ * on every answer; Quick attempts additionally carry `mode:
+ * "PUSH_FOLD_QUICK"` and echo the server-derived node. Only `selectedAction`
+ * is scored.
+ */
+export type AcademyPushFoldAnswer = AcademySolverAnswer & {
+  readonly datasetId: string;
+  readonly nodeKey: AcademyStrategyNodeKey;
+  readonly mode?: "PUSH_FOLD_QUICK";
 };

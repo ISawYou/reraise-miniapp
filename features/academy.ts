@@ -15,6 +15,10 @@ import {
   ACADEMY_PREFLOP_QUICK_MIX_MODE,
   ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
 } from "@/config/academy/preflop-trainer";
+import {
+  ACADEMY_PUSH_FOLD_QUICK_MODE,
+  ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE,
+} from "@/config/academy/push-fold-trainer";
 import { getAcademySolverLessonBinding } from "@/config/academy/solver-lessons";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
 import {
@@ -31,6 +35,13 @@ import {
   type AcademyPreflopTrainerSessionQuestion,
 } from "@/lib/academy/preflop-trainer";
 import { buildAcademyPreflopMixSession } from "@/lib/academy/preflop-mix";
+import {
+  AcademyPushFoldSelectionError,
+  buildAcademyPushFoldSession,
+  toPublicPushFoldQuestion,
+  type AcademyPushFoldSessionQuestion,
+} from "@/lib/academy/push-fold-trainer";
+import { buildAcademyPushFoldMixSession } from "@/lib/academy/push-fold-mix";
 import {
   calculateAcademyCourseProgress,
   calculateAcademyModuleProgress,
@@ -53,6 +64,8 @@ import type {
   AcademyModuleProgress,
   AcademyPreflopTrainerPublicQuestion,
   AcademyPreflopTrainerReveal,
+  AcademyPushFoldPublicQuestion,
+  AcademyPushFoldReveal,
   AcademySolverAction,
   AcademySolverPublicQuestion,
   AcademySolverQuestionReveal,
@@ -708,13 +721,171 @@ function verifyAcademyPreflopMixAnswers(
   return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
 }
 
+// ---------------------------------------------------------------------------
+// Push/Fold trainer (PUSH_FOLD_PURE) — own lesson code, own whitelist.
+//
+// Fixed-node: the selection (datasetId + nodeKey) is client-supplied and
+// validated against the Push/Fold whitelist + registry (fail closed). Quick:
+// the client never names a node — the session is re-derived from
+// (authenticated player, attemptId) alone; a datasetId / nodeKey in a serve or
+// reveal body is ignored, and in a submitted answer it must equal the
+// server-derived node of that question. Push/fold ranges are pure, so the
+// answer of a question is the hand's single pure action at the node.
+// ---------------------------------------------------------------------------
+
+export type AcademyPushFoldQuestionInput = {
+  readonly datasetId: unknown;
+  readonly nodeKey: unknown;
+  readonly attemptId: string;
+  readonly questionIndex: unknown;
+};
+
+export type AcademyPushFoldRevealInput = AcademyPushFoldQuestionInput & {
+  readonly selectedAction: unknown;
+};
+
+export type AcademyPushFoldMixQuestionInput = {
+  readonly attemptId: string;
+  readonly questionIndex: unknown;
+};
+
+export type AcademyPushFoldMixRevealInput = AcademyPushFoldMixQuestionInput & {
+  readonly selectedAction: unknown;
+};
+
+function requirePushFoldPreconditions(playerId: string | undefined, attemptId: string): string {
+  if (getAcademyLessonByCode(ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE)?.trainerKind !== "PUSH_FOLD_PURE") {
+    throw new Error("Academy catalog is missing the Push/Fold trainer");
+  }
+  if (!UUID_PATTERN.test(attemptId)) {
+    throw new AcademyValidationError("Некорректный идентификатор попытки");
+  }
+  if (typeof playerId !== "string" || playerId.length === 0) {
+    throw new AcademyValidationError("Попытка тренажёра требует авторизованного игрока");
+  }
+  return playerId;
+}
+
+function requirePushFoldSession(
+  playerId: string | undefined,
+  datasetId: unknown,
+  nodeKey: unknown,
+  attemptId: string,
+): readonly AcademyPushFoldSessionQuestion[] {
+  const player = requirePushFoldPreconditions(playerId, attemptId);
+  try {
+    return buildAcademyPushFoldSession({ playerId: player, attemptId, datasetId: datasetId as string, nodeKey: nodeKey as string });
+  } catch (error) {
+    if (error instanceof AcademyPushFoldSelectionError) throw new AcademyValidationError(error.message);
+    throw error;
+  }
+}
+
+function requirePushFoldMixSession(playerId: string | undefined, attemptId: string): readonly AcademyPushFoldSessionQuestion[] {
+  return buildAcademyPushFoldMixSession({ playerId: requirePushFoldPreconditions(playerId, attemptId), attemptId });
+}
+
+function revealPushFoldQuestion(question: AcademyPushFoldSessionQuestion, selectedAction: unknown): AcademyPushFoldReveal {
+  const actionCodes = question.actions.map((action) => action.code);
+  if (!isSolverAction(selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
+  return {
+    ...toPublicPushFoldQuestion(question),
+    questionIndex: question.questionIndex,
+    frequencies: question.frequencies,
+    resolvedAction: question.resolvedAction,
+    selectedAction,
+    matchesResolvedAction: selectedAction === question.resolvedAction,
+  };
+}
+
+/** One fixed-node Push/Fold question (answer-free), regenerated server-side. */
+export function getAcademyPushFoldQuestion(playerId: string, input: AcademyPushFoldQuestionInput): AcademyPushFoldPublicQuestion {
+  const session = requirePushFoldSession(playerId, input.datasetId, input.nodeKey, input.attemptId);
+  return toPublicPushFoldQuestion(session[requireQuestionIndex(input.questionIndex)]);
+}
+
+/** Fixed-node Push/Fold reveal: node frequencies + the hand's pure action. */
+export function revealAcademyPushFoldAnswer(playerId: string, input: AcademyPushFoldRevealInput): AcademyPushFoldReveal {
+  const session = requirePushFoldSession(playerId, input.datasetId, input.nodeKey, input.attemptId);
+  return revealPushFoldQuestion(session[requireQuestionIndex(input.questionIndex)], input.selectedAction);
+}
+
+/** One Quick Push/Fold question (answer-free); the node is server-derived. */
+export function getAcademyPushFoldMixQuestion(playerId: string, input: AcademyPushFoldMixQuestionInput): AcademyPushFoldPublicQuestion {
+  const session = requirePushFoldMixSession(playerId, input.attemptId);
+  return toPublicPushFoldQuestion(session[requireQuestionIndex(input.questionIndex)]);
+}
+
+/** Quick Push/Fold reveal: re-derives node, hand and answer from (player, attempt, index). */
+export function revealAcademyPushFoldMixAnswer(playerId: string, input: AcademyPushFoldMixRevealInput): AcademyPushFoldReveal {
+  const session = requirePushFoldMixSession(playerId, input.attemptId);
+  return revealPushFoldQuestion(session[requireQuestionIndex(input.questionIndex)], input.selectedAction);
+}
+
+/**
+ * Server verifier for the Push/Fold trainer (both modes, one lesson code).
+ * Only `selectedAction` is scored; everything else is re-derived from
+ * (playerId, attemptId[, datasetId, nodeKey]) + SESSION_SECRET.
+ */
+export function verifyAcademyPushFoldAttempt(
+  input: SubmitAcademyAttemptInput,
+  context: AcademyAttemptVerificationContext = {},
+): AcademyTrainingResult {
+  if (input.lessonCode !== ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE) {
+    throw new AcademyValidationError("Неизвестный урок тренажёра");
+  }
+  if (!UUID_PATTERN.test(input.attemptId)) {
+    throw new AcademyValidationError("Некорректный идентификатор попытки");
+  }
+  if (!Array.isArray(input.questions) || input.questions.length !== ACADEMY_SOLVER_QUESTION_COUNT) {
+    throw new AcademyValidationError(
+      `Завершённая тренировка должна содержать ${ACADEMY_SOLVER_QUESTION_COUNT} ответов`,
+    );
+  }
+  const answers = input.questions.map((rawAnswer) => {
+    if (!rawAnswer || typeof rawAnswer !== "object") {
+      throw new AcademyValidationError("Попытка содержит некорректный ответ");
+    }
+    return rawAnswer as { questionIndex?: unknown; selectedAction?: unknown; datasetId?: unknown; nodeKey?: unknown; mode?: unknown };
+  });
+
+  let session: readonly AcademyPushFoldSessionQuestion[];
+  if (answers.some((answer) => answer.mode !== undefined)) {
+    if (answers.some((answer) => answer.mode !== ACADEMY_PUSH_FOLD_QUICK_MODE)) {
+      throw new AcademyValidationError("Все ответы попытки должны относиться к одному режиму");
+    }
+    session = requirePushFoldMixSession(context.playerId, input.attemptId);
+  } else {
+    const { datasetId, nodeKey } = answers[0];
+    if (answers.some((answer) => answer.datasetId !== datasetId || answer.nodeKey !== nodeKey)) {
+      throw new AcademyValidationError("Все ответы попытки должны относиться к одной ситуации");
+    }
+    session = requirePushFoldSession(context.playerId, datasetId, nodeKey, input.attemptId);
+  }
+
+  let correctAnswers = 0;
+  answers.forEach((answer, index) => {
+    const question = session[index];
+    if (answer.questionIndex !== undefined && answer.questionIndex !== index) {
+      throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
+    }
+    if (answer.datasetId !== question.spot.datasetId || answer.nodeKey !== question.spot.nodeKey) {
+      throw new AcademyValidationError("Ответ не относится к ситуации этого вопроса");
+    }
+    const actionCodes = question.actions.map((action) => action.code);
+    if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
+    if (answer.selectedAction === question.resolvedAction) correctAnswers += 1;
+  });
+  return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
+}
+
 export type AcademyAttemptVerifier = (
   input: SubmitAcademyAttemptInput,
   context?: AcademyAttemptVerificationContext,
 ) => AcademyTrainingResult;
 
 /** Trainer kinds of practice activities (see `ACADEMY_PRACTICE_ACTIVITIES`). */
-type AcademyPracticeTrainerKind = "PREFLOP_CONFIGURABLE_FREQUENCY";
+type AcademyPracticeTrainerKind = "PREFLOP_CONFIGURABLE_FREQUENCY" | "PUSH_FOLD_PURE";
 
 /**
  * Trainer registry: one server-authoritative verifier per trainer kind of the
@@ -730,6 +901,7 @@ export const ACADEMY_TRAINER_VERIFIERS: Readonly<Record<Exclude<AcademyTrainerKi
 export const ACADEMY_PRACTICE_TRAINER_VERIFIERS: Readonly<Record<AcademyPracticeTrainerKind, AcademyAttemptVerifier>> =
   Object.freeze({
     PREFLOP_CONFIGURABLE_FREQUENCY: verifyAcademyPreflopTrainerAttempt,
+    PUSH_FOLD_PURE: verifyAcademyPushFoldAttempt,
   });
 
 function lookupAcademyAttemptVerifier(trainerKind: string): AcademyAttemptVerifier | undefined {

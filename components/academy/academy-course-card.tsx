@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useAcademyProgress } from "@/components/academy/use-academy-progress";
-import { listAcademyCourseLessonCodes, listAcademyCoursePracticeActivities } from "@/config/academy/catalog";
+import {
+  listAcademyCourseAdditionalPracticeActivities,
+  listAcademyCourseLessonCodes,
+  listAcademyCoursePracticeActivities,
+} from "@/config/academy/catalog";
 import type { AcademyCourse } from "@/types/academy";
 
 function CourseIcon() {
@@ -32,7 +36,10 @@ export function AcademyCourseCard({ course }: { course: AcademyCourse }) {
   const [firstModule] = course.modules;
   // Practice activities (e.g. Solver Lab's configurable trainer) are extra
   // entry points; they never count toward the course's lesson total.
-  const practiceActivities = listAcademyCoursePracticeActivities(course.code);
+  const practiceActivities = [
+    ...listAcademyCoursePracticeActivities(course.code),
+    ...listAcademyCourseAdditionalPracticeActivities(course.code),
+  ];
   // Lesson count always comes from the catalog; the server supplies passed counts.
   const totalLessons = listAcademyCourseLessonCodes(course).length;
   // Each course reads its OWN payload from the additive `courses` list; the

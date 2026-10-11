@@ -1,0 +1,47 @@
+{
+  "manifestVersion": 1,
+  "status": "EXTERNAL_REFERENCE_LICENSED",
+  "description": "HoldemMath Nash push/fold charts (heads-up / 6-max / 9-max shove and call ranges, 4-20 BB, no-ante and 0.1 BB ante variants), vendored byte-for-byte unchanged. Licensed CC BY 4.0. These are NOT RERAISE-produced solver outputs.",
+  "license": "CC-BY-4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/legalcode",
+  "attribution": {
+    "text": "Data source: HoldemMath — https://holdemmath.com/",
+    "url": "https://holdemmath.com/",
+    "sourceOfText": "LICENSE-DATA (suggested attribution, verbatim)",
+    "playerFacingText": "Данные Push/Fold: HoldemMath · CC BY 4.0"
+  },
+  "source": {
+    "repositoryUrl": "https://github.com/Julian-cloud-max/holdemmath-data",
+    "commit": "7c72b1261f08c63cf8366120dc531631935c21cd",
+    "rawUrlTemplate": "https://raw.githubusercontent.com/Julian-cloud-max/holdemmath-data/7c72b1261f08c63cf8366120dc531631935c21cd/{originalPath}",
+    "readmePath": "README.md",
+    "licensePath": "LICENSE-DATA"
+  },
+  "modelNotes": {
+    "headsUp": "Near-exact Nash equilibrium (fictitious play, best-response deviation <= 0.05 BB; <= 0.13 BB in the ante variant).",
+    "multiway": "6-max / 9-max tables solve each first-in seat's sub-game independently with a SINGLE-CALLER APPROXIMATION, and fix the SB first-in range to the heads-up solution so tables stay mutually consistent. This is NOT a true multi-way Nash equilibrium.",
+    "scope": "Chip EV only. No rake, no limps, no ICM. The 0.1 BB ante variant follows the common convention: every player posts 0.1 BB before the cards are dealt.",
+    "degeneracy": "Push/fold games have multiple equilibria; other charts may differ slightly and still be equilibria (compare EVs, not exact hand lists).",
+    "rangeShape": "Ranges are pure hand-class membership lists (no partial frequencies)."
+  },
+  "files": [
+    {
+      "vendoredFile": "pushfold_charts.json",
+      "originalPath": "pushfold/pushfold_charts.json",
+      "sha256": "00bc184e6b514888d23a8c2d8e9c3c83af2ac960b441310ba594c06b6cba9bec",
+      "role": "DATA"
+    },
+    {
+      "vendoredFile": "LICENSE-DATA",
+      "originalPath": "LICENSE-DATA",
+      "sha256": "425705200f7957eb0713fc54bf080945ffea549e246ba8c62f51f1e59bd9c785",
+      "role": "LICENSE"
+    },
+    {
+      "vendoredFile": "README.md",
+      "originalPath": "README.md",
+      "sha256": "1a99a2aba01c48914d3fe59ca1ebba70d1c6ae7fafc7ad3c0f16a63ebca626c6",
+      "role": "DOCUMENTATION"
+    }
+  ]
+}

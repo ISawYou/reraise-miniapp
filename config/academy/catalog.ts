@@ -29,6 +29,10 @@ import {
   ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE,
 } from "@/config/academy/preflop-trainer";
 import {
+  ACADEMY_SOLVER_PUSH_FOLD_ROUTE,
+  ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE,
+} from "@/config/academy/push-fold-trainer";
+import {
   ACADEMY_SOLVER_RFI_LESSONS,
   ACADEMY_SOLVER_RFI_MODULE_ROUTE,
 } from "@/config/academy/solver-lessons";
@@ -155,8 +159,45 @@ export function listAcademyCoursePracticeActivities(courseCode: string): readonl
     .map((activity) => activity.lesson);
 }
 
+/**
+ * Additional practice activities: exactly the same kind of entry as
+ * `ACADEMY_PRACTICE_ACTIVITIES` (recorded under one stable lesson code,
+ * resolvable via `getAcademyLessonByCode`, verified through the practice
+ * verifier registry, never counted in a course's lesson totals), kept in a
+ * second list so that the established contract of
+ * `listAcademyCoursePracticeActivities` (Solver Lab → the preflop trainer
+ * only) is unchanged. The course card renders both lists.
+ *
+ * Solver Lab "Push/Fold": ONE stable lesson code for every stack / seat /
+ * family and both modes (HoldemMath push/fold charts, CC BY 4.0).
+ */
+export const ACADEMY_ADDITIONAL_PRACTICE_ACTIVITIES: readonly AcademyPracticeActivity[] = Object.freeze([
+  Object.freeze({
+    courseCode: ACADEMY_SOLVER_LAB_COURSE_CODE,
+    lesson: Object.freeze({
+      code: ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE,
+      title: "Push/Fold",
+      subtitle: "4–15 BB · пуш первым и колл олл-ина",
+      description:
+        "Короткий стек: когда идти олл-ин первым и когда коллировать чужой пуш — по таблицам Push/Fold.",
+      order: 2,
+      route: ACADEMY_SOLVER_PUSH_FOLD_ROUTE,
+      lessonKind: "PUSH_FOLD_TRAINER",
+      trainerKind: "PUSH_FOLD_PURE",
+    } satisfies AcademyLesson),
+  }),
+]);
+
+/** Additional practice activities of one course, in order. */
+export function listAcademyCourseAdditionalPracticeActivities(courseCode: string): readonly AcademyLesson[] {
+  return ACADEMY_ADDITIONAL_PRACTICE_ACTIVITIES
+    .filter((activity) => activity.courseCode === courseCode)
+    .map((activity) => activity.lesson);
+}
+
 const PRACTICE_LESSON_BY_CODE: ReadonlyMap<AcademyLessonCode, AcademyLesson> = new Map(
-  ACADEMY_PRACTICE_ACTIVITIES.map((activity) => [activity.lesson.code, activity.lesson] as const),
+  [...ACADEMY_PRACTICE_ACTIVITIES, ...ACADEMY_ADDITIONAL_PRACTICE_ACTIVITIES]
+    .map((activity) => [activity.lesson.code, activity.lesson] as const),
 );
 
 export type AcademyLessonContext = {
