@@ -138,7 +138,7 @@ export type AcademyModuleProgress = AcademyLessonCollectionProgress & {
  * Presentation kind of a catalog lesson. Phase 1 has exactly one real kind:
  * a preflop raise-first-in lesson (theory + range grid).
  */
-export type AcademyLessonKind = "PREFLOP_RFI";
+export type AcademyLessonKind = "PREFLOP_RFI" | "PREFLOP_TRAINER";
 
 /**
  * Interaction/validation kind of a lesson's trainer. Each member must have a
@@ -147,8 +147,14 @@ export type AcademyLessonKind = "PREFLOP_RFI";
  * - `PREFLOP_RFI_BINARY`: the original OPEN/FOLD preflop RFI trainer (База MTT).
  * - `PREFLOP_RFI_FREQUENCY`: the Solver Lab frequency-aware RFI trainer, scored
  *   against a server-derived randomizer outcome per hand.
+ * - `PREFLOP_CONFIGURABLE_FREQUENCY`: the configurable Solver Lab preflop
+ *   trainer (player-chosen stack / situation / seats → one dataset node, any
+ *   number of actions), scored the same way. One lesson code for all spots.
  */
-export type AcademyTrainerKind = "PREFLOP_RFI_BINARY" | "PREFLOP_RFI_FREQUENCY";
+export type AcademyTrainerKind =
+  | "PREFLOP_RFI_BINARY"
+  | "PREFLOP_RFI_FREQUENCY"
+  | "PREFLOP_CONFIGURABLE_FREQUENCY";
 
 export type AcademyLesson = {
   readonly code: AcademyLessonCode;
@@ -416,4 +422,75 @@ export type AcademySolverQuestionReveal = AcademySolverPublicQuestion & {
 export type AcademySolverAnswer = {
   readonly questionIndex: number;
   readonly selectedAction: AcademySolverAction;
+};
+
+// ---------------------------------------------------------------------------
+// Configurable preflop trainer (Solver Lab · "Префлоп-тренажёр")
+// ---------------------------------------------------------------------------
+
+/**
+ * Generic, strategy-neutral sampler bucket of a hand at a node with any
+ * number of actions: `PURE:<actionCode>` when one action has frequency 1
+ * (within `ACADEMY_STRATEGY_FREQUENCY_SUM_EPSILON`), otherwise `MIXED`.
+ */
+export type AcademyStrategyHandBucket = "MIXED" | `PURE:${AcademyStrategyActionCode}`;
+
+/** Decision situation of a preflop trainer node (values of the dataset's node sources). */
+export type AcademyPreflopTrainerSituation =
+  | "RFI"
+  | "FACING_OPEN"
+  | "FACING_3BET"
+  | "FACING_4BET"
+  | "FACING_5BET";
+
+/**
+ * One selectable trainer spot = one real, validated dataset node. Derived at
+ * runtime from the registered datasets (never a hand-written copy). Contains
+ * no frequencies and no action codes, so it is safe to send to the client.
+ */
+export type AcademyPreflopTrainerSpot = {
+  readonly datasetId: string;
+  readonly nodeKey: AcademyStrategyNodeKey;
+  readonly stackBb: number;
+  readonly situation: AcademyPreflopTrainerSituation;
+  readonly heroPosition: string;
+  /** Absent for first-in (RFI) spots. */
+  readonly villainPosition?: string;
+  /** Number of actions the node offers (2-4); not answer-revealing. */
+  readonly actionCount: number;
+};
+
+/** Russian, answer-free copy describing a spot. */
+export type AcademyPreflopTrainerSpotCopy = {
+  /** e.g. "BB против BTN". */
+  readonly title: string;
+  /** e.g. "BTN открыл — ты на BB". */
+  readonly history: string;
+  /** e.g. "Против открытия". */
+  readonly situationLabel: string;
+};
+
+/** Public question of the configurable trainer: Solver Lab public question + spot. */
+export type AcademyPreflopTrainerPublicQuestion = AcademySolverPublicQuestion & {
+  readonly spot: AcademyPreflopTrainerSpot & AcademyPreflopTrainerSpotCopy;
+};
+
+/** Returned only after the player answered one configurable-trainer question. */
+export type AcademyPreflopTrainerReveal = AcademyPreflopTrainerPublicQuestion & {
+  readonly questionIndex: number;
+  readonly frequencies: AcademyStrategyHandFrequencies;
+  readonly resolvedAction: AcademySolverAction;
+  readonly selectedAction: AcademySolverAction;
+  readonly bucket: AcademyStrategyHandBucket;
+  readonly matchesResolvedAction: boolean;
+};
+
+/**
+ * One submitted configurable-trainer answer. The selection (`datasetId`,
+ * `nodeKey`) travels with every answer and is re-validated against the
+ * registry server-side; only `selectedAction` is scored.
+ */
+export type AcademyPreflopTrainerAnswer = AcademySolverAnswer & {
+  readonly datasetId: string;
+  readonly nodeKey: AcademyStrategyNodeKey;
 };

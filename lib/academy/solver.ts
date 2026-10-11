@@ -17,11 +17,13 @@ import {
 import type {
   AcademySolverHandBucket,
   AcademyStrategyActionCode,
+  AcademyStrategyHandBucket,
   AcademyStrategyActionDefinition,
   AcademyStrategyActionKind,
   AcademyStrategyDataset,
   AcademyStrategyHandFrequencies,
   AcademyStrategyNode,
+  AcademyStrategyNodeHands,
   AcademyStrategyPositionFrequencies,
   StartingHandClass,
 } from "@/types/academy";
@@ -607,5 +609,132 @@ export function sampleBalancedSolverHands({
     selected.push({ hand: pools[best].shift()!, bucket: best });
   }
 
+  return Object.freeze(shuffleWithRandom(selected, random));
+}
+
+// ---------------------------------------------------------------------------
+// Generic N-action balanced sampler (configurable preflop trainer)
+//
+// Strategy-neutral generalization of `sampleBalancedSolverHands`, which stays
+// untouched for the shipped 100bb lessons (their deterministic sessions must
+// reproduce byte-for-byte). Nothing here names an action: buckets are
+// `MIXED` plus one `PURE:<code>` bucket per action of the node that actually
+// has pure hands. For a 2-action RAISE/FOLD node that has mixed, pure-raise
+// and pure-fold hands it yields the same 4 / 3 / 3 composition and the same
+// hands as the original sampler for the same random stream.
+// ---------------------------------------------------------------------------
+
+export const ACADEMY_STRATEGY_MIXED_BUCKET = "MIXED" as const;
+
+/** Preferred number of mixed hands in a 10-hand session (same as the 100bb trainer). */
+export const ACADEMY_STRATEGY_MIXED_TARGET = 4;
+
+/**
+ * A hand is PURE for an action when that action's frequency is 1 within
+ * `ACADEMY_STRATEGY_FREQUENCY_SUM_EPSILON` (so a float residue such as
+ * 0.9999999999999999 from `1 - raise - call` still counts as pure);
+ * otherwise MIXED. Mixed hands are not sub-categorized by which actions split them.
+ */
+export function classifyStrategyHandBucket(
+  frequencies: AcademyStrategyHandFrequencies,
+  actionCodes: readonly AcademyStrategyActionCode[],
+): AcademyStrategyHandBucket {
+  for (const code of actionCodes) {
+    if ((frequencies[code] ?? 0) >= 1 - ACADEMY_STRATEGY_FREQUENCY_SUM_EPSILON) return `PURE:${code}`;
+  }
+  return ACADEMY_STRATEGY_MIXED_BUCKET;
+}
+
+/**
+ * Bucket order + targets for one node: MIXED first (target
+ * `ACADEMY_STRATEGY_MIXED_TARGET` when the node has mixed hands), then one
+ * PURE bucket per action in the node's own action order — only buckets with
+ * at least one candidate exist. The remaining slots are split evenly across
+ * the pure buckets; any remainder goes to the earlier ones.
+ */
+export function buildStrategyBucketTargets(
+  bucketSizes: ReadonlyMap<AcademyStrategyHandBucket, number>,
+  actionCodes: readonly AcademyStrategyActionCode[],
+  total: number,
+): { order: readonly AcademyStrategyHandBucket[]; targets: ReadonlyMap<AcademyStrategyHandBucket, number> } {
+  const hasMixed = (bucketSizes.get(ACADEMY_STRATEGY_MIXED_BUCKET) ?? 0) > 0;
+  const pureBuckets = actionCodes
+    .map((code): AcademyStrategyHandBucket => `PURE:${code}`)
+    .filter((bucket) => (bucketSizes.get(bucket) ?? 0) > 0);
+  const order: AcademyStrategyHandBucket[] = [...(hasMixed ? [ACADEMY_STRATEGY_MIXED_BUCKET] : []), ...pureBuckets];
+  const targets = new Map<AcademyStrategyHandBucket, number>();
+  const mixedTarget = hasMixed ? Math.min(ACADEMY_STRATEGY_MIXED_TARGET, total) : 0;
+  if (hasMixed) targets.set(ACADEMY_STRATEGY_MIXED_BUCKET, mixedTarget);
+  const remaining = total - mixedTarget;
+  pureBuckets.forEach((bucket, index) => {
+    const base = Math.floor(remaining / pureBuckets.length);
+    targets.set(bucket, base + (index < remaining % pureBuckets.length ? 1 : 0));
+  });
+  // No pure buckets at all: every slot goes to MIXED.
+  if (pureBuckets.length === 0 && hasMixed) targets.set(ACADEMY_STRATEGY_MIXED_BUCKET, total);
+  return { order: Object.freeze(order), targets };
+}
+
+export type SampleBalancedStrategyHandsInput = {
+  readonly hands: AcademyStrategyNodeHands;
+  /** The node's action codes, in resolver order. */
+  readonly actionCodes: readonly AcademyStrategyActionCode[];
+  readonly random: AcademySolverRandom;
+  /** Number of unique hands to pick (default 10). */
+  readonly total?: number;
+};
+
+export type SampledStrategyHand = {
+  readonly hand: StartingHandClass;
+  readonly bucket: AcademyStrategyHandBucket;
+};
+
+/**
+ * Picks `total` UNIQUE hands across the node's buckets (see
+ * `buildStrategyBucketTargets`). Same algorithm as `sampleBalancedSolverHands`:
+ * 1. candidates per bucket (canonical 13x13 order) are shuffled with `random`
+ *    in bucket order;
+ * 2. each bucket contributes min(target, available);
+ * 3. shortfall: take from the bucket with the most remaining candidates,
+ *    ties broken by bucket order, one hand per step;
+ * 4. the selection is shuffled once more.
+ */
+export function sampleBalancedStrategyHands({
+  hands,
+  actionCodes,
+  random,
+  total = 10,
+}: SampleBalancedStrategyHandsInput): readonly SampledStrategyHand[] {
+  const candidateHands = CANONICAL_STARTING_HANDS.filter((hand) => hasOwn(hands, hand));
+  if (candidateHands.length < total) {
+    throw new Error(`Need ${total} candidate hands, found ${candidateHands.length}`);
+  }
+  const bucketOf = new Map(candidateHands.map((hand) => [hand, classifyStrategyHandBucket(hands[hand], actionCodes)]));
+  const sizes = new Map<AcademyStrategyHandBucket, number>();
+  for (const bucket of bucketOf.values()) sizes.set(bucket, (sizes.get(bucket) ?? 0) + 1);
+  const { order, targets } = buildStrategyBucketTargets(sizes, actionCodes, total);
+
+  const pools = new Map(order.map((bucket) => [
+    bucket,
+    shuffleWithRandom(candidateHands.filter((hand) => bucketOf.get(hand) === bucket), random),
+  ]));
+
+  const selected: SampledStrategyHand[] = [];
+  for (const bucket of order) {
+    const pool = pools.get(bucket)!;
+    for (const hand of pool.splice(0, Math.min(targets.get(bucket) ?? 0, pool.length))) {
+      selected.push({ hand, bucket });
+    }
+  }
+  while (selected.length < total) {
+    let best: AcademyStrategyHandBucket | null = null;
+    for (const bucket of order) {
+      const size = pools.get(bucket)!.length;
+      if (size === 0) continue;
+      if (best === null || size > pools.get(best)!.length) best = bucket;
+    }
+    if (best === null) throw new Error("Strategy sampler ran out of candidate hands");
+    selected.push({ hand: pools.get(best)!.shift()!, bucket: best });
+  }
   return Object.freeze(shuffleWithRandom(selected, random));
 }

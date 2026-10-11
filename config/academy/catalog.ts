@@ -25,6 +25,10 @@
  */
 import { ACADEMY_PREFLOP_LESSONS } from "@/config/academy/lessons";
 import {
+  ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
+  ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE,
+} from "@/config/academy/preflop-trainer";
+import {
   ACADEMY_SOLVER_RFI_LESSONS,
   ACADEMY_SOLVER_RFI_MODULE_ROUTE,
 } from "@/config/academy/solver-lessons";
@@ -115,6 +119,46 @@ export const ACADEMY_CATALOG: readonly AcademyCourse[] = Object.freeze([
   }),
 ]);
 
+/**
+ * Practice activities: lessons attached to a course that are trained and
+ * recorded like any lesson (same tables, same verifier registry) but are NOT
+ * part of the course's module lesson list, so they never change a course's
+ * lesson count / progress percent. Solver Lab's configurable preflop trainer
+ * is one such activity: ONE stable lesson code for every spot it can train.
+ */
+export type AcademyPracticeActivity = {
+  readonly courseCode: string;
+  readonly lesson: AcademyLesson;
+};
+
+export const ACADEMY_PRACTICE_ACTIVITIES: readonly AcademyPracticeActivity[] = Object.freeze([
+  Object.freeze({
+    courseCode: ACADEMY_SOLVER_LAB_COURSE_CODE,
+    lesson: Object.freeze({
+      code: ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
+      title: "Префлоп-тренажёр",
+      subtitle: "5–100 BB · первый вход, защита блайндов, 3-бет и дальше",
+      description:
+        "Выбери стек, ситуацию и позиции — и тренируй частоты стратегии именно в этом споте.",
+      order: 1,
+      route: ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE,
+      lessonKind: "PREFLOP_TRAINER",
+      trainerKind: "PREFLOP_CONFIGURABLE_FREQUENCY",
+    } satisfies AcademyLesson),
+  }),
+]);
+
+/** Practice activities of one course, in order. */
+export function listAcademyCoursePracticeActivities(courseCode: string): readonly AcademyLesson[] {
+  return ACADEMY_PRACTICE_ACTIVITIES
+    .filter((activity) => activity.courseCode === courseCode)
+    .map((activity) => activity.lesson);
+}
+
+const PRACTICE_LESSON_BY_CODE: ReadonlyMap<AcademyLessonCode, AcademyLesson> = new Map(
+  ACADEMY_PRACTICE_ACTIVITIES.map((activity) => [activity.lesson.code, activity.lesson] as const),
+);
+
 export type AcademyLessonContext = {
   readonly course: AcademyCourse;
   readonly module: AcademyModule;
@@ -156,8 +200,12 @@ export function getAcademyLessonContext(lessonCode: string): AcademyLessonContex
   return LESSON_CONTEXT_BY_CODE.get(lessonCode) ?? null;
 }
 
+/**
+ * Any recordable lesson: a module lesson of the catalog or a practice
+ * activity. Unknown codes → null (callers fail closed).
+ */
 export function getAcademyLessonByCode(lessonCode: string): AcademyLesson | null {
-  return LESSON_CONTEXT_BY_CODE.get(lessonCode)?.lesson ?? null;
+  return LESSON_CONTEXT_BY_CODE.get(lessonCode)?.lesson ?? PRACTICE_LESSON_BY_CODE.get(lessonCode) ?? null;
 }
 
 /** Fail-closed lookup: throws for any code not present in the catalog. */

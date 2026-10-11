@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useAcademyProgress } from "@/components/academy/use-academy-progress";
-import { listAcademyCourseLessonCodes } from "@/config/academy/catalog";
+import { listAcademyCourseLessonCodes, listAcademyCoursePracticeActivities } from "@/config/academy/catalog";
 import type { AcademyCourse } from "@/types/academy";
 
 function CourseIcon() {
@@ -30,6 +30,9 @@ function CourseIcon() {
 export function AcademyCourseCard({ course }: { course: AcademyCourse }) {
   const { data, error, retry } = useAcademyProgress();
   const [firstModule] = course.modules;
+  // Practice activities (e.g. Solver Lab's configurable trainer) are extra
+  // entry points; they never count toward the course's lesson total.
+  const practiceActivities = listAcademyCoursePracticeActivities(course.code);
   // Lesson count always comes from the catalog; the server supplies passed counts.
   const totalLessons = listAcademyCourseLessonCodes(course).length;
   // Each course reads its OWN payload from the additive `courses` list; the
@@ -76,6 +79,21 @@ export function AcademyCourseCard({ course }: { course: AcademyCourse }) {
           </span>
         </Link>
       ) : null}
+
+      {practiceActivities.map((activity) => (
+        <Link
+          key={activity.code}
+          href={activity.route}
+          data-practice-code={activity.code}
+          className="mt-3 block rounded-2xl border border-[#d7b55a]/20 bg-[#d7b55a]/[0.06] px-4 py-3 active:bg-[#d7b55a]/10"
+        >
+          <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d7b55a]">
+            Тренажёр
+          </span>
+          <span className="mt-1 block text-[15px] font-medium text-white/85">{activity.title}</span>
+          <span className="mt-0.5 block text-xs leading-5 text-white/45">{activity.subtitle}</span>
+        </Link>
+      ))}
 
       <div className="mt-4">
         <div className="flex items-center justify-between gap-3 text-sm">

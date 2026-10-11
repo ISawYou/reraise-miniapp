@@ -11,6 +11,7 @@ import {
 } from "@/config/academy/catalog";
 import { getAcademyPreflopLessonByCode } from "@/config/academy/lessons";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
+import { ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE } from "@/config/academy/preflop-trainer";
 import { getAcademySolverLessonBinding } from "@/config/academy/solver-lessons";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
 import {
@@ -20,6 +21,12 @@ import {
   type AcademySolverSessionQuestion,
 } from "@/lib/academy/solver-training";
 import { getTeachingAction, isCanonicalStartingHand } from "@/lib/academy/preflop";
+import {
+  AcademyPreflopTrainerSelectionError,
+  buildAcademyPreflopTrainerSession,
+  toPublicPreflopTrainerQuestion,
+  type AcademyPreflopTrainerSessionQuestion,
+} from "@/lib/academy/preflop-trainer";
 import {
   calculateAcademyCourseProgress,
   calculateAcademyModuleProgress,
@@ -40,6 +47,8 @@ import type {
   AcademyLessonCode,
   AcademyLessonProgress,
   AcademyModuleProgress,
+  AcademyPreflopTrainerPublicQuestion,
+  AcademyPreflopTrainerReveal,
   AcademySolverAction,
   AcademySolverPublicQuestion,
   AcademySolverQuestionReveal,
@@ -473,19 +482,165 @@ export function verifyAcademySolverAttempt(
   return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
 }
 
+// ---------------------------------------------------------------------------
+// Configurable preflop trainer (PREFLOP_CONFIGURABLE_FREQUENCY)
+//
+// One lesson code for every spot. The selection (datasetId + nodeKey) is
+// client-supplied, so it is validated against the real registry before any
+// use (fail closed, never defaulted), and it is an HMAC input of the session
+// so each node has its own deterministic session.
+// ---------------------------------------------------------------------------
+
+export type AcademyPreflopTrainerQuestionInput = {
+  readonly datasetId: unknown;
+  readonly nodeKey: unknown;
+  readonly attemptId: string;
+  readonly questionIndex: unknown;
+};
+
+export type AcademyPreflopTrainerRevealInput = AcademyPreflopTrainerQuestionInput & {
+  readonly selectedAction: unknown;
+};
+
+function requirePreflopTrainerSession(
+  playerId: string | undefined,
+  datasetId: unknown,
+  nodeKey: unknown,
+  attemptId: string,
+): readonly AcademyPreflopTrainerSessionQuestion[] {
+  if (getAcademyLessonByCode(ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE)?.trainerKind !== "PREFLOP_CONFIGURABLE_FREQUENCY") {
+    throw new Error("Academy catalog is missing the configurable preflop trainer");
+  }
+  if (!UUID_PATTERN.test(attemptId)) {
+    throw new AcademyValidationError("Некорректный идентификатор попытки");
+  }
+  if (typeof playerId !== "string" || playerId.length === 0) {
+    throw new AcademyValidationError("Попытка тренажёра требует авторизованного игрока");
+  }
+  try {
+    return buildAcademyPreflopTrainerSession({
+      playerId,
+      attemptId,
+      datasetId: datasetId as string,
+      nodeKey: nodeKey as string,
+    });
+  } catch (error) {
+    if (error instanceof AcademyPreflopTrainerSelectionError) throw new AcademyValidationError(error.message);
+    throw error;
+  }
+}
+
+/** One configurable-trainer question (answer-free), regenerated server-side. */
+export function getAcademyPreflopTrainerQuestion(
+  playerId: string,
+  input: AcademyPreflopTrainerQuestionInput,
+): AcademyPreflopTrainerPublicQuestion {
+  const session = requirePreflopTrainerSession(playerId, input.datasetId, input.nodeKey, input.attemptId);
+  return toPublicPreflopTrainerQuestion(session[requireQuestionIndex(input.questionIndex)]);
+}
+
+/** Post-answer reveal: exact node frequencies, resolved action, match flag. */
+export function revealAcademyPreflopTrainerAnswer(
+  playerId: string,
+  input: AcademyPreflopTrainerRevealInput,
+): AcademyPreflopTrainerReveal {
+  const session = requirePreflopTrainerSession(playerId, input.datasetId, input.nodeKey, input.attemptId);
+  const question = session[requireQuestionIndex(input.questionIndex)];
+  const actionCodes = question.actions.map((action) => action.code);
+  if (!isSolverAction(input.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
+  return {
+    ...toPublicPreflopTrainerQuestion(question),
+    questionIndex: question.questionIndex,
+    frequencies: question.frequencies,
+    resolvedAction: question.resolvedAction,
+    selectedAction: input.selectedAction,
+    bucket: question.bucket,
+    matchesResolvedAction: input.selectedAction === question.resolvedAction,
+  };
+}
+
+/**
+ * Server verifier for the configurable preflop trainer. Every answer carries
+ * the same `{datasetId, nodeKey}` selection (validated against the registry;
+ * mixed or forged selections are rejected) plus `selectedAction`, the only
+ * scored input. The session is re-derived from (playerId, attemptId,
+ * datasetId, nodeKey) + SESSION_SECRET; scoring is identical to the 100bb
+ * Solver Lab trainer (match against the resolved action).
+ */
+export function verifyAcademyPreflopTrainerAttempt(
+  input: SubmitAcademyAttemptInput,
+  context: AcademyAttemptVerificationContext = {},
+): AcademyTrainingResult {
+  if (input.lessonCode !== ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE) {
+    throw new AcademyValidationError("Неизвестный урок тренажёра");
+  }
+  if (!UUID_PATTERN.test(input.attemptId)) {
+    throw new AcademyValidationError("Некорректный идентификатор попытки");
+  }
+  if (!Array.isArray(input.questions) || input.questions.length !== ACADEMY_SOLVER_QUESTION_COUNT) {
+    throw new AcademyValidationError(
+      `Завершённая тренировка должна содержать ${ACADEMY_SOLVER_QUESTION_COUNT} ответов`,
+    );
+  }
+  const answers = input.questions.map((rawAnswer) => {
+    if (!rawAnswer || typeof rawAnswer !== "object") {
+      throw new AcademyValidationError("Попытка содержит некорректный ответ");
+    }
+    return rawAnswer as { questionIndex?: unknown; selectedAction?: unknown; datasetId?: unknown; nodeKey?: unknown };
+  });
+  const { datasetId, nodeKey } = answers[0];
+  if (answers.some((answer) => answer.datasetId !== datasetId || answer.nodeKey !== nodeKey)) {
+    throw new AcademyValidationError("Все ответы попытки должны относиться к одной ситуации");
+  }
+
+  const session = requirePreflopTrainerSession(context.playerId, datasetId, nodeKey, input.attemptId);
+  if (new Set(session.map((question) => question.hand)).size !== session.length) {
+    throw new Error("Preflop trainer session invariant violated: duplicate hands");
+  }
+  const actionCodes = session[0].actions.map((action) => action.code);
+  let correctAnswers = 0;
+  answers.forEach((answer, index) => {
+    if (answer.questionIndex !== undefined && answer.questionIndex !== index) {
+      throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
+    }
+    if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
+    if (answer.selectedAction === session[index].resolvedAction) correctAnswers += 1;
+  });
+  return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
+}
+
 export type AcademyAttemptVerifier = (
   input: SubmitAcademyAttemptInput,
   context?: AcademyAttemptVerificationContext,
 ) => AcademyTrainingResult;
 
+/** Trainer kinds of practice activities (see `ACADEMY_PRACTICE_ACTIVITIES`). */
+type AcademyPracticeTrainerKind = "PREFLOP_CONFIGURABLE_FREQUENCY";
+
 /**
- * Trainer registry: one server-authoritative verifier per trainer kind.
+ * Trainer registry: one server-authoritative verifier per trainer kind of the
+ * catalog's module lessons.
  */
-export const ACADEMY_TRAINER_VERIFIERS: Readonly<Record<AcademyTrainerKind, AcademyAttemptVerifier>> =
+export const ACADEMY_TRAINER_VERIFIERS: Readonly<Record<Exclude<AcademyTrainerKind, AcademyPracticeTrainerKind>, AcademyAttemptVerifier>> =
   Object.freeze({
     PREFLOP_RFI_BINARY: verifyAcademyTrainingAttempt,
     PREFLOP_RFI_FREQUENCY: verifyAcademySolverAttempt,
   });
+
+/** Verifiers of practice-activity trainer kinds (same contract, separate registry). */
+export const ACADEMY_PRACTICE_TRAINER_VERIFIERS: Readonly<Record<AcademyPracticeTrainerKind, AcademyAttemptVerifier>> =
+  Object.freeze({
+    PREFLOP_CONFIGURABLE_FREQUENCY: verifyAcademyPreflopTrainerAttempt,
+  });
+
+function lookupAcademyAttemptVerifier(trainerKind: string): AcademyAttemptVerifier | undefined {
+  for (const registry of [ACADEMY_TRAINER_VERIFIERS, ACADEMY_PRACTICE_TRAINER_VERIFIERS] as const) {
+    if (Object.prototype.hasOwnProperty.call(registry, trainerKind)) {
+      return (registry as Readonly<Record<string, AcademyAttemptVerifier>>)[trainerKind];
+    }
+  }
+  return undefined;
+}
 
 /** Dispatches attempt verification by the catalog lesson's trainer kind. */
 export function verifyAcademyAttempt(
@@ -496,9 +651,7 @@ export function verifyAcademyAttempt(
   if (input.lessonCode !== lesson.code) {
     throw new AcademyValidationError("Попытка не относится к этому уроку Academy");
   }
-  const verifier = Object.prototype.hasOwnProperty.call(ACADEMY_TRAINER_VERIFIERS, lesson.trainerKind)
-    ? ACADEMY_TRAINER_VERIFIERS[lesson.trainerKind]
-    : undefined;
+  const verifier = lookupAcademyAttemptVerifier(lesson.trainerKind);
   if (!verifier) throw new AcademyValidationError("Неподдерживаемый тип тренажёра Academy");
   return verifier(input, context);
 }

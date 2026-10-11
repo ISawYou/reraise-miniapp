@@ -35,6 +35,23 @@ export type AcademySolverFeedbackInput = {
   readonly actions: readonly AcademySolverActionCopySource[];
 };
 
+/**
+ * Wording knobs (presentation only). Defaults reproduce the original 100bb
+ * Solver Lab copy exactly; the configurable trainer passes neutral wording.
+ */
+export type AcademySolverFeedbackWording = {
+  /** Subject of the mixed-hand summary, default "Солверная частота". */
+  readonly frequencySubject?: string;
+  /** Lead-in of the pure-hand detail, default "С этой позиции". */
+  readonly spotLead?: string;
+};
+
+/** Neutral wording for trainers whose data is not presented as solver output. */
+export const ACADEMY_NEUTRAL_FEEDBACK_WORDING: AcademySolverFeedbackWording = Object.freeze({
+  frequencySubject: "Частота стратегии",
+  spotLead: "В этом споте",
+});
+
 export function formatSolverFrequencyPercent(frequency: number): string {
   const percent = frequency * 100;
   if (percent > 0 && percent < 1) return "<1%";
@@ -74,6 +91,15 @@ export function formatSolverFrequencySplit(
     .join(" / ");
 }
 
+/**
+ * Feedback copy for any number of actions. Tones:
+ * - pure hand: "correct" / "incorrect";
+ * - mixed hand, matched the randomizer: "correct";
+ * - mixed hand, chose another action the strategy also plays (> 0%):
+ *   "mixed" — non-judgmental, never "wrong";
+ * - mixed hand, chose an action the strategy never plays here (0%, only
+ *   possible with 3+ actions): "incorrect", stated plainly.
+ */
 export function buildSolverAnswerFeedback({
   hand,
   frequencies,
@@ -81,7 +107,9 @@ export function buildSolverAnswerFeedback({
   resolvedAction,
   selectedAction,
   actions,
-}: AcademySolverFeedbackInput): AcademySolverFeedback {
+}: AcademySolverFeedbackInput, wording: AcademySolverFeedbackWording = {}): AcademySolverFeedback {
+  const frequencySubject = wording.frequencySubject ?? "Солверная частота";
+  const spotLead = wording.spotLead ?? "С этой позиции";
   const split = formatSolverFrequencySplit(frequencies, actions);
   const matches = selectedAction === resolvedAction;
   const resolved = findAction(actions, resolvedAction);
@@ -89,6 +117,16 @@ export function buildSolverAnswerFeedback({
 
   if (!pureAction) {
     const outcome = `Рандомайзер ${randomizerPercent} → в этой раздаче выпал ${solverActionShortLabel(resolved)}.`;
+    if (!matches && (frequencies[selectedAction] ?? 0) <= 0) {
+      return {
+        tone: "incorrect",
+        title: "Не совсем",
+        summary: `${frequencySubject} для ${hand}: ${split}.`,
+        detail:
+          `${outcome} Действие «${solverActionShortLabel(findAction(actions, selectedAction))}» ` +
+          "в этой руке стратегия не играет совсем.",
+      };
+    }
     if (matches) {
       return {
         tone: "correct",
@@ -100,7 +138,7 @@ export function buildSolverAnswerFeedback({
     return {
       tone: "mixed",
       title: "Смешанная рука",
-      summary: `Солверная частота для ${hand} смешанная: ${split}.`,
+      summary: `${frequencySubject} для ${hand} смешанная: ${split}.`,
       detail:
         `${outcome} Но ${solverActionShortLabel(findAction(actions, selectedAction))} здесь тоже часть стратегии — ` +
         "просто с другой частотой. В зачёт тренировки идёт действие, выпавшее на рандомайзере.",
@@ -108,7 +146,7 @@ export function buildSolverAnswerFeedback({
   }
 
   const always = pureAction.ru?.always ?? `всегда играем: ${solverActionInlineLabel(pureAction)}`;
-  const pureDetail = `С этой позиции ${hand} ${always} (${split}).`;
+  const pureDetail = `${spotLead} ${hand} ${always} (${split}).`;
   const summary = `Действие: ${solverActionInlineLabel(resolved)}.`;
   return matches
     ? { tone: "correct", title: "Верно", summary, detail: pureDetail }
