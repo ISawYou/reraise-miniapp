@@ -28,7 +28,7 @@ const dataset = getAcademySolverDataset();
 describe("SolverFrequencyGrid", () => {
   it("(37) renders 169 cells with hand + action + percentage aria-labels", async () => {
     await act(async () => {
-      root.render(<SolverFrequencyGrid hands={dataset.positions.UTG} label="UTG" />);
+      root.render(<SolverFrequencyGrid hands={dataset.nodes.UTG.hands} label="UTG" actions={dataset.actions} />);
     });
     const cells = container.querySelectorAll('[role="gridcell"]');
     expect(cells).toHaveLength(169);
@@ -49,7 +49,7 @@ describe("SolverFrequencyGrid", () => {
   it("(38) never displays EV", async () => {
     for (const position of ACADEMY_PREFLOP_POSITIONS) {
       await act(async () => {
-        root.render(<SolverFrequencyGrid hands={dataset.positions[position]} label={position} />);
+        root.render(<SolverFrequencyGrid hands={dataset.nodes[position].hands} label={position} actions={dataset.actions} />);
       });
       expect(container.innerHTML).not.toMatch(/\bEV\b/i);
     }
@@ -63,12 +63,12 @@ describe("Solver Lab feedback copy", () => {
     let checked = 0;
     for (const position of ACADEMY_PREFLOP_POSITIONS) {
       for (const hand of CANONICAL_STARTING_HANDS) {
-        const frequencies = dataset.positions[position][hand];
+        const frequencies = dataset.nodes[position].hands[hand];
         if (classifySolverHandBucket(frequencies, "RAISE_2_25BB") !== "MIXED") continue;
         for (const resolvedAction of ["RAISE_2_25BB", "FOLD"] as AcademySolverAction[]) {
           const selectedAction: AcademySolverAction = resolvedAction === "FOLD" ? "RAISE_2_25BB" : "FOLD";
           const feedback = buildSolverAnswerFeedback({
-            hand, frequencies, randomizerPercent: 50, resolvedAction, selectedAction,
+            hand, frequencies, randomizerPercent: 50, resolvedAction, selectedAction, actions: dataset.actions,
           });
           const text = `${feedback.title} ${feedback.summary} ${feedback.detail}`;
           expect(feedback.tone).toBe("mixed");
@@ -86,10 +86,11 @@ describe("Solver Lab feedback copy", () => {
   it("formats the UTG AJo mixed example exactly", () => {
     const feedback = buildSolverAnswerFeedback({
       hand: "AJo",
-      frequencies: dataset.positions.UTG.AJo,
+      frequencies: dataset.nodes.UTG.hands.AJo,
       randomizerPercent: 63,
       resolvedAction: "FOLD",
       selectedAction: "RAISE_2_25BB",
+      actions: dataset.actions,
     });
     expect(feedback.summary).toBe("Солверная частота для AJo смешанная: рейз 41% / фолд 59%.");
     expect(feedback.detail).toContain("Рандомайзер 63 → в этой раздаче выпал фолд.");
@@ -97,7 +98,9 @@ describe("Solver Lab feedback copy", () => {
   });
 
   it("uses normal correct/incorrect feedback for pure hands", () => {
-    const pureRaise = { hand: "AA" as const, frequencies: dataset.positions.UTG.AA, randomizerPercent: 99 };
+    const pureRaise = {
+      hand: "AA" as const, frequencies: dataset.nodes.UTG.hands.AA, randomizerPercent: 99, actions: dataset.actions,
+    };
     expect(buildSolverAnswerFeedback({ ...pureRaise, resolvedAction: "RAISE_2_25BB", selectedAction: "RAISE_2_25BB" }))
       .toMatchObject({ tone: "correct", title: "Верно" });
     expect(buildSolverAnswerFeedback({ ...pureRaise, resolvedAction: "RAISE_2_25BB", selectedAction: "FOLD" }))
@@ -106,8 +109,8 @@ describe("Solver Lab feedback copy", () => {
 
   it("never mentions EV or exact GTO", () => {
     const feedback = buildSolverAnswerFeedback({
-      hand: "AJo", frequencies: dataset.positions.UTG.AJo, randomizerPercent: 3,
-      resolvedAction: "RAISE_2_25BB", selectedAction: "RAISE_2_25BB",
+      hand: "AJo", frequencies: dataset.nodes.UTG.hands.AJo, randomizerPercent: 3,
+      resolvedAction: "RAISE_2_25BB", selectedAction: "RAISE_2_25BB", actions: dataset.actions,
     });
     expect(JSON.stringify(feedback)).not.toMatch(/\bEV\b|GTO/);
   });

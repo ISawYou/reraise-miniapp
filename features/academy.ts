@@ -11,11 +11,11 @@ import {
 } from "@/config/academy/catalog";
 import { getAcademyPreflopLessonByCode } from "@/config/academy/lessons";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
-import { getAcademySolverRfiLessonByCode } from "@/config/academy/solver-lessons";
+import { getAcademySolverLessonBinding } from "@/config/academy/solver-lessons";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
 import {
   ACADEMY_SOLVER_QUESTION_COUNT,
-  buildAcademySolverSession,
+  buildAcademySolverSessionForLesson,
   toPublicSolverQuestion,
   type AcademySolverSessionQuestion,
 } from "@/lib/academy/solver-training";
@@ -317,8 +317,21 @@ export type AcademySolverRevealInput = AcademySolverQuestionInput & {
   readonly selectedAction: unknown;
 };
 
-function isSolverAction(action: unknown): action is AcademySolverAction {
-  return action === "RAISE_2_25BB" || action === "FOLD";
+/** Valid answers are exactly the bound node's action codes (any count). */
+function sessionActionCodes(session: readonly AcademySolverSessionQuestion[]): readonly string[] {
+  return session[0].actions.map((action) => action.code);
+}
+
+function isSolverAction(action: unknown, actionCodes: readonly string[]): action is AcademySolverAction {
+  return typeof action === "string" && actionCodes.includes(action);
+}
+
+/** "Допустимые действия: A или B" / "A, B или C" — generated from the node. */
+function invalidSolverActionError(actionCodes: readonly string[]): AcademyValidationError {
+  const list = actionCodes.length <= 2
+    ? actionCodes.join(" или ")
+    : `${actionCodes.slice(0, -1).join(", ")} или ${actionCodes[actionCodes.length - 1]}`;
+  return new AcademyValidationError(`Допустимые действия: ${list}`);
 }
 
 function requireSolverSession(
@@ -326,9 +339,11 @@ function requireSolverSession(
   lessonCode: string,
   attemptId: string,
 ): readonly AcademySolverSessionQuestion[] {
-  const solverLesson = getAcademySolverRfiLessonByCode(lessonCode);
+  // The lesson → dataset → node binding is the only source of which strategy
+  // a lesson trains; the catalog must agree that it is a frequency lesson.
+  const binding = getAcademySolverLessonBinding(lessonCode);
   const catalogLesson = getAcademyLessonByCode(lessonCode);
-  if (!solverLesson || catalogLesson?.trainerKind !== "PREFLOP_RFI_FREQUENCY") {
+  if (!binding || catalogLesson?.trainerKind !== "PREFLOP_RFI_FREQUENCY") {
     throw new AcademyValidationError("Неизвестный урок Solver Lab");
   }
   if (!UUID_PATTERN.test(attemptId)) {
@@ -337,11 +352,10 @@ function requireSolverSession(
   if (typeof playerId !== "string" || playerId.length === 0) {
     throw new AcademyValidationError("Попытка Solver Lab требует авторизованного игрока");
   }
-  return buildAcademySolverSession({
+  return buildAcademySolverSessionForLesson({
     playerId,
-    lessonCode: solverLesson.code,
+    lessonCode: binding.lessonCode,
     attemptId,
-    position: solverLesson.position,
   });
 }
 
@@ -356,8 +370,9 @@ function requireQuestionIndex(value: unknown): number {
 
 /**
  * One Solver Lab question, regenerated deterministically server-side. Returns
- * only `{hand, renderedCards, randomizerPercent}` — never the frequencies or
- * the resolved action. Idempotent for the same (player, lesson, attempt, index).
+ * only `{hand, renderedCards, randomizerPercent, actions}` (actions = safe
+ * display metadata of the node's actions) — never the frequencies or the
+ * resolved action. Idempotent for the same (player, lesson, attempt, index).
  */
 export function getAcademySolverQuestion(
   playerId: string,
@@ -378,9 +393,8 @@ export function revealAcademySolverAnswer(
 ): AcademySolverQuestionReveal {
   const session = requireSolverSession(playerId, input.lessonCode, input.attemptId);
   const question = session[requireQuestionIndex(input.questionIndex)];
-  if (!isSolverAction(input.selectedAction)) {
-    throw new AcademyValidationError("Допустимые действия: RAISE_2_25BB или FOLD");
-  }
+  const actionCodes = sessionActionCodes(session);
+  if (!isSolverAction(input.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
   return {
     ...toPublicSolverQuestion(question),
     questionIndex: question.questionIndex,
@@ -413,7 +427,7 @@ export function verifyAcademySolverAttempt(
   input: SubmitAcademyAttemptInput,
   context: AcademyAttemptVerificationContext = {},
 ): AcademyTrainingResult {
-  if (!getAcademySolverRfiLessonByCode(input.lessonCode)) {
+  if (!getAcademySolverLessonBinding(input.lessonCode)) {
     throw new AcademyValidationError("Неизвестный урок Solver Lab");
   }
   if (!UUID_PATTERN.test(input.attemptId)) {
@@ -430,6 +444,7 @@ export function verifyAcademySolverAttempt(
     throw new Error("Solver Lab session invariant violated: duplicate hands");
   }
 
+  const actionCodes = sessionActionCodes(session);
   const submittedHands = new Set<string>();
   let correctAnswers = 0;
 
@@ -441,9 +456,7 @@ export function verifyAcademySolverAttempt(
     if (answer.questionIndex !== undefined && answer.questionIndex !== index) {
       throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
     }
-    if (!isSolverAction(answer.selectedAction)) {
-      throw new AcademyValidationError("Допустимые действия: RAISE_2_25BB или FOLD");
-    }
+    if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
     if (answer.hand !== undefined) {
       if (typeof answer.hand !== "string" || !isCanonicalStartingHand(answer.hand)) {
         throw new AcademyValidationError("Попытка содержит некорректную стартовую руку");

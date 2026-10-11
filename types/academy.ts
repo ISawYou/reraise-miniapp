@@ -229,66 +229,177 @@ export type AcademyTrainingAnswer = {
   readonly selectedAction: PreflopAction;
 };
 
+// ---------------------------------------------------------------------------
+// Solver strategy datasets (generic platform)
+//
+// Nothing below assumes 9-max, 100 BB, RFI, Raise/Fold, HRC or a single
+// dataset: those are VALUES of the current dataset, not types. Codes are
+// stable open strings (validated at runtime), not closed enums, so a future
+// import (e.g. 30 BB multi-action MTT) needs no type redesign.
+// ---------------------------------------------------------------------------
+
 /**
- * Strategy action code inside an `AcademyStrategyDataset` (e.g.
- * `"RAISE_2_25BB"`, `"FOLD"`). Deliberately an open string so future spots with
- * three or more actions fit without a type redesign.
+ * Stable strategy action code inside a dataset (e.g. `"RAISE_2_25BB"`,
+ * `"FOLD"`, `"CALL"`, `"ALL_IN"`). The CODE — never the kind or label — is the
+ * identity used by frequencies, sessions, the resolver and answers.
  */
 export type AcademyStrategyActionCode = string;
+
+/** Generic, reusable poker action vocabulary. */
+export type AcademyStrategyActionKind = "FOLD" | "CHECK" | "CALL" | "BET" | "RAISE" | "ALL_IN";
+
+/**
+ * Optional localized display copy for one action (Russian UI). Pure
+ * presentation: never part of the strategy content fingerprint.
+ */
+export type AcademyStrategyActionLocalizedCopy = {
+  /** Button text, e.g. "Рейз 2.25 BB". */
+  readonly button: string;
+  /** Inline text inside a sentence, e.g. "рейз 2.25 BB". */
+  readonly inline: string;
+  /** Short name used in frequency splits, e.g. "рейз". */
+  readonly short: string;
+  /** Predicate for a pure (100%) strategy, e.g. "всегда открываем рейзом". */
+  readonly always?: string;
+};
+
+export type AcademyStrategyActionDefinition = {
+  readonly code: AcademyStrategyActionCode;
+  readonly kind: AcademyStrategyActionKind;
+  /** Canonical (English) label, e.g. "Raise 2.25 BB". */
+  readonly label: string;
+  /** Bet/raise size in big blinds, when the action has a size. */
+  readonly amountBb?: number;
+  /** Russian display copy; UIs fall back to `label` when absent. */
+  readonly ru?: AcademyStrategyActionLocalizedCopy;
+};
+
+/**
+ * Generic description of what a dataset models. All open string/number
+ * codes, e.g. `{game: "NLHE", format: "MTT", strategyModel: "CHIP_EV",
+ * tableSize: 9, effectiveStackBb: 100, spotCode: "RFI"}`.
+ */
+export type AcademyStrategyMetadata = {
+  readonly game: string;
+  readonly format: string;
+  readonly strategyModel: string;
+  readonly tableSize: number;
+  readonly effectiveStackBb: number;
+  readonly spotCode: string;
+};
+
+/** Free-form scalar assumptions (ante, rake, sizing, ...). */
+export type AcademyStrategyAssumptions = Readonly<Record<string, string | number | boolean>>;
+
+export type AcademyStrategyProvenance = {
+  /** Upstream provider/tool, e.g. "HRC". */
+  readonly provider: string;
+  /** Upstream scenario/source description. */
+  readonly scenario: string;
+  /** Human provenance note (caveats, approximations). */
+  readonly note: string;
+  /** How this dataset was derived from the upstream source. */
+  readonly derivation: string;
+  /** Named reference URLs, e.g. `{rangeUrl, contextUrl}`. */
+  readonly references: Readonly<Record<string, string>>;
+  /** Optional per-node upstream details (e.g. upstream position naming). */
+  readonly nodeSources?: Readonly<Record<string, Readonly<Record<string, string | number>>>>;
+};
+
+/** Identifies one decision point inside a dataset (e.g. "UTG", "BB_VS_BTN_OPEN"). */
+export type AcademyStrategyNodeKey = string;
 
 /** Action code → frequency in [0, 1]; frequencies of one hand sum to 1. */
 export type AcademyStrategyHandFrequencies = Readonly<Record<AcademyStrategyActionCode, number>>;
 
-export type AcademyStrategyPositionFrequencies = Readonly<
-  Record<StartingHandClass, AcademyStrategyHandFrequencies>
->;
+/** All 169 canonical hand classes → action frequencies for one node. */
+export type AcademyStrategyNodeHands = Readonly<Record<StartingHandClass, AcademyStrategyHandFrequencies>>;
 
 /**
- * Versioned, provenance-carrying strategy dataset (frequencies only — there is
- * intentionally no EV concept in this model).
+ * @deprecated Alias kept for existing call sites; a node's hand map is not
+ * tied to a position.
  */
-export type AcademyStrategyDataset = {
-  /** Immutable version id. A data change must ship under a new id. */
-  readonly id: string;
-  readonly title: string;
-  readonly game: AcademyGame;
-  readonly format: AcademyFormat;
-  readonly tableSize: 9;
-  readonly effectiveStackBb: 100;
-  readonly spot: PreflopSpot;
-  readonly provenance: {
-    readonly provider: AcademyPreflopRange["source"]["provider"];
-    readonly scenario: AcademyPreflopRange["source"]["scenario"];
-    readonly rangeUrl: string;
-    readonly contextUrl: string;
-    readonly provenanceNote: string;
-    /** How this dataset was derived from the upstream source. */
-    readonly derivation: string;
-    readonly assumptions: AcademyPreflopRange["assumptions"];
-    readonly positions: Readonly<Record<PreflopPosition, {
-      readonly sourcePosition: AcademyPreflopRange["source"]["sourcePosition"];
-      readonly reportedWeightedRangePercentage: number;
-    }>>;
-  };
-  /** Action codes in their stable canonical order (used by the resolver). */
-  readonly actions: readonly AcademyStrategyActionCode[];
-  readonly positions: Readonly<Record<PreflopPosition, AcademyStrategyPositionFrequencies>>;
+export type AcademyStrategyPositionFrequencies = AcademyStrategyNodeHands;
+
+/** One decision point: every hand class's strategy over the node's actions. */
+export type AcademyStrategyNode = {
+  readonly key: AcademyStrategyNodeKey;
+  /**
+   * Action codes available at this node, in the dataset's declared relative
+   * order. This order is the resolver's cumulative-walk order.
+   */
+  readonly actionCodes: readonly AcademyStrategyActionCode[];
+  readonly hands: AcademyStrategyNodeHands;
 };
 
-export type AcademySolverAction = "RAISE_2_25BB" | "FOLD";
+/**
+ * Versioned, provenance-carrying strategy dataset (frequencies only — the
+ * runtime model intentionally carries no EV).
+ */
+export type AcademyStrategyDataset = {
+  /** Immutable dataset id. A strategy change must ship under a new id. */
+  readonly id: string;
+  readonly version: number;
+  readonly title: string;
+  readonly metadata: AcademyStrategyMetadata;
+  readonly provenance: AcademyStrategyProvenance;
+  readonly assumptions: AcademyStrategyAssumptions;
+  /** Every action definition used by any node, in canonical order. */
+  readonly actions: readonly AcademyStrategyActionDefinition[];
+  readonly nodes: Readonly<Record<AcademyStrategyNodeKey, AcademyStrategyNode>>;
+};
+
+/**
+ * Selects the strategy a lesson trains. Deliberately a small node-key
+ * abstraction (no action-tree model): RFI lessons select a position node;
+ * a future spot can select any other node key.
+ */
+export type AcademyStrategyNodeSelector = {
+  readonly nodeKey: AcademyStrategyNodeKey;
+};
+
+/** Canonical lesson → dataset → node binding for frequency trainers. */
+export type AcademySolverLessonBinding = {
+  readonly lessonCode: AcademyLessonCode;
+  readonly datasetId: string;
+  readonly selector: AcademyStrategyNodeSelector;
+  /** Action whose frequency defines the sampler's pure/mixed buckets. */
+  readonly primaryActionCode: AcademyStrategyActionCode;
+};
+
+/**
+ * Selected/resolved action code in a Solver Lab session. Open string: valid
+ * codes are the bound node's `actionCodes` (validated at runtime).
+ */
+export type AcademySolverAction = AcademyStrategyActionCode;
 
 /** Composition bucket of a hand for the Solver Lab balanced sampler. */
 export type AcademySolverHandBucket = "MIXED" | "PURE_RAISE" | "PURE_FOLD";
 
 /**
- * What `POST /api/academy/solver/session` returns for one question: only the
- * hand and the server-derived randomizer, never the answer.
+ * Safe, answer-free action display metadata sent with every question. Same
+ * for every question of a node, so it reveals nothing about the answer.
+ */
+export type AcademySolverPublicAction = {
+  readonly code: AcademyStrategyActionCode;
+  readonly kind: AcademyStrategyActionKind;
+  readonly label: string;
+  readonly amountBb?: number;
+  readonly ru?: AcademyStrategyActionLocalizedCopy;
+};
+
+/**
+ * What `POST /api/academy/solver/session` returns for one question: the hand,
+ * the server-derived randomizer and the available actions' display metadata —
+ * never frequencies, the resolved action, EV or any derivation input.
  */
 export type AcademySolverPublicQuestion = {
   readonly hand: StartingHandClass;
   readonly renderedCards: readonly [RenderedPlayingCard, RenderedPlayingCard];
   /** Integer in [0, 99]. See `resolveActionFromFrequencies` for semantics. */
   readonly randomizerPercent: number;
+  /** Available actions in resolver order. */
+  readonly actions: readonly AcademySolverPublicAction[];
 };
 
 /** Returned only after the player has answered a question. */

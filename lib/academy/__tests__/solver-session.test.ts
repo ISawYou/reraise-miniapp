@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAcademySolverDataset } from "@/config/academy/solver-datasets";
 import { createDeterministicRandom, deriveDeterministicUnit } from "@/lib/academy/solver-session";
 import {
-  buildAcademySolverSession,
+  buildAcademySolverSession as buildAcademySolverSessionForNode,
+  buildAcademySolverSessionForLesson as buildAcademySolverSession,
   deriveSolverRandomizerPercent,
   toPublicSolverQuestion,
 } from "@/lib/academy/solver-training";
@@ -13,7 +14,6 @@ const KEY = {
   playerId: "11111111-1111-4111-8111-111111111111",
   lessonCode: "solver_rfi_9max_100bb_utg",
   attemptId: "22222222-2222-4222-8222-222222222222",
-  position: "UTG" as const,
 };
 
 beforeEach(() => {
@@ -86,7 +86,7 @@ describe("HMAC-derived Solver Lab session", () => {
     expect(counts).toEqual({ MIXED: 4, PURE_RAISE: 3, PURE_FOLD: 3 });
     session.forEach((question, index) => {
       expect(question.questionIndex).toBe(index);
-      expect(question.frequencies).toBe(getAcademySolverDataset().positions.UTG[question.hand]);
+      expect(question.frequencies).toBe(getAcademySolverDataset().nodes.UTG.hands[question.hand]);
       expect(question.randomizerPercent).toBe(deriveSolverRandomizerPercent(KEY, index));
       expect(question.resolvedAction).toBe(resolveActionFromFrequencies(
         question.frequencies,
@@ -112,7 +112,10 @@ describe("HMAC-derived Solver Lab session", () => {
 
     for (const run of [
       () => deriveDeterministicUnit([]),
-      () => buildAcademySolverSession({ ...KEY, position: "XX" as never }),
+      () => buildAcademySolverSessionForNode(
+        { ...KEY, nodeKey: "XX" },
+        { dataset: getAcademySolverDataset(), primaryActionCode: "RAISE_2_25BB" },
+      ),
     ]) {
       try {
         run();
@@ -124,8 +127,9 @@ describe("HMAC-derived Solver Lab session", () => {
     }
   });
 
-  it("public question carries only hand, renderedCards and randomizerPercent", () => {
+  it("public question carries only hand, renderedCards, randomizerPercent and safe action display metadata", () => {
     const publicQuestion = toPublicSolverQuestion(buildAcademySolverSession(KEY)[0]);
-    expect(Object.keys(publicQuestion).sort()).toEqual(["hand", "randomizerPercent", "renderedCards"]);
+    expect(Object.keys(publicQuestion).sort()).toEqual(["actions", "hand", "randomizerPercent", "renderedCards"]);
+    expect(publicQuestion.actions.map((action) => action.code)).toEqual(["RAISE_2_25BB", "FOLD"]);
   });
 });

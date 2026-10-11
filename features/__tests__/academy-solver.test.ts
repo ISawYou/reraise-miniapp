@@ -7,7 +7,7 @@ import {
 } from "@/config/academy/catalog";
 import { ACADEMY_PASS_THRESHOLD } from "@/config/academy/training";
 import { CANONICAL_STARTING_HANDS } from "@/lib/academy/preflop";
-import { buildAcademySolverSession } from "@/lib/academy/solver-training";
+import { buildAcademySolverSessionForLesson } from "@/lib/academy/solver-training";
 import { buildSolverAnswerFeedback } from "@/lib/academy/solver-feedback";
 import { scoreTrainingSession } from "@/lib/academy/training";
 import type {
@@ -39,7 +39,7 @@ const ATTEMPT_ID = "22222222-2222-4222-8222-222222222222";
 const LESSON = "solver_rfi_9max_100bb_hj";
 
 function session(attemptId = ATTEMPT_ID, playerId = PLAYER_ID, lessonCode = LESSON) {
-  return buildAcademySolverSession({ playerId, lessonCode, attemptId, position: "HJ" });
+  return buildAcademySolverSessionForLesson({ playerId, lessonCode, attemptId });
 }
 
 function flip(action: AcademySolverAction): AcademySolverAction {
@@ -167,6 +167,7 @@ describe("verifyAcademySolverAttempt", () => {
       randomizerPercent: mixed.randomizerPercent,
       resolvedAction: mixed.resolvedAction,
       selectedAction: flip(mixed.resolvedAction),
+      actions: mixed.actions,
     });
     expect(feedback.tone).toBe("mixed");
 
@@ -177,6 +178,7 @@ describe("verifyAcademySolverAttempt", () => {
       randomizerPercent: pure.randomizerPercent,
       resolvedAction: pure.resolvedAction,
       selectedAction: flip(pure.resolvedAction),
+      actions: pure.actions,
     }).tone).toBe("incorrect");
   });
 

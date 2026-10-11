@@ -8,6 +8,7 @@
  */
 import type {
   AcademySolverAction,
+  AcademySolverPublicAction,
   AcademyStrategyHandFrequencies,
   StartingHandClass,
 } from "@/types/academy";
@@ -21,12 +22,17 @@ export type AcademySolverFeedback = {
   readonly detail: string;
 };
 
+/** Display source of an action: its canonical label plus optional Russian copy. */
+export type AcademySolverActionCopySource = Pick<AcademySolverPublicAction, "code" | "label" | "ru">;
+
 export type AcademySolverFeedbackInput = {
   readonly hand: StartingHandClass;
   readonly frequencies: AcademyStrategyHandFrequencies;
   readonly randomizerPercent: number;
   readonly resolvedAction: AcademySolverAction;
   readonly selectedAction: AcademySolverAction;
+  /** The node's action definitions, in resolver order (labels come from here). */
+  readonly actions: readonly AcademySolverActionCopySource[];
 };
 
 export function formatSolverFrequencyPercent(frequency: number): string {
@@ -36,12 +42,36 @@ export function formatSolverFrequencyPercent(frequency: number): string {
   return `${Math.round(percent)}%`;
 }
 
-export function solverActionLabel(action: AcademySolverAction): string {
-  return action === "RAISE_2_25BB" ? "рейз 2.25 BB" : "фолд";
+/** Button text: localized copy when present, else the canonical label. */
+export function solverActionButtonLabel(action: AcademySolverActionCopySource): string {
+  return action.ru?.button ?? action.label;
 }
 
-function solverActionShortLabel(action: AcademySolverAction): string {
-  return action === "RAISE_2_25BB" ? "рейз" : "фолд";
+/** In-sentence text, e.g. "рейз 2.25 BB". */
+export function solverActionInlineLabel(action: AcademySolverActionCopySource): string {
+  return action.ru?.inline ?? action.label;
+}
+
+/** Short name for frequency splits, e.g. "рейз". */
+export function solverActionShortLabel(action: AcademySolverActionCopySource): string {
+  return action.ru?.short ?? action.label;
+}
+
+function findAction(
+  actions: readonly AcademySolverActionCopySource[],
+  code: AcademySolverAction,
+): AcademySolverActionCopySource {
+  return actions.find((action) => action.code === code) ?? { code, label: code };
+}
+
+/** "рейз 41% / фолд 59%" — one entry per node action, in resolver order. */
+export function formatSolverFrequencySplit(
+  frequencies: AcademyStrategyHandFrequencies,
+  actions: readonly AcademySolverActionCopySource[],
+): string {
+  return actions
+    .map((action) => `${solverActionShortLabel(action)} ${formatSolverFrequencyPercent(frequencies[action.code] ?? 0)}`)
+    .join(" / ");
 }
 
 export function buildSolverAnswerFeedback({
@@ -50,14 +80,15 @@ export function buildSolverAnswerFeedback({
   randomizerPercent,
   resolvedAction,
   selectedAction,
+  actions,
 }: AcademySolverFeedbackInput): AcademySolverFeedback {
-  const raise = frequencies.RAISE_2_25BB ?? 0;
-  const fold = frequencies.FOLD ?? 0;
-  const split = `рейз ${formatSolverFrequencyPercent(raise)} / фолд ${formatSolverFrequencyPercent(fold)}`;
+  const split = formatSolverFrequencySplit(frequencies, actions);
   const matches = selectedAction === resolvedAction;
+  const resolved = findAction(actions, resolvedAction);
+  const pureAction = actions.find((action) => (frequencies[action.code] ?? 0) >= 1);
 
-  if (raise > 0 && raise < 1) {
-    const outcome = `Рандомайзер ${randomizerPercent} → в этой раздаче выпал ${solverActionShortLabel(resolvedAction)}.`;
+  if (!pureAction) {
+    const outcome = `Рандомайзер ${randomizerPercent} → в этой раздаче выпал ${solverActionShortLabel(resolved)}.`;
     if (matches) {
       return {
         tone: "correct",
@@ -71,16 +102,15 @@ export function buildSolverAnswerFeedback({
       title: "Смешанная рука",
       summary: `Солверная частота для ${hand} смешанная: ${split}.`,
       detail:
-        `${outcome} Но ${solverActionShortLabel(selectedAction)} здесь тоже часть стратегии — ` +
+        `${outcome} Но ${solverActionShortLabel(findAction(actions, selectedAction))} здесь тоже часть стратегии — ` +
         "просто с другой частотой. В зачёт тренировки идёт действие, выпавшее на рандомайзере.",
     };
   }
 
-  const pureAction: AcademySolverAction = raise >= 1 ? "RAISE_2_25BB" : "FOLD";
-  const pureDetail = pureAction === "RAISE_2_25BB"
-    ? `С этой позиции ${hand} всегда открываем рейзом (${split}).`
-    : `С этой позиции ${hand} всегда сбрасываем (${split}).`;
+  const always = pureAction.ru?.always ?? `всегда играем: ${solverActionInlineLabel(pureAction)}`;
+  const pureDetail = `С этой позиции ${hand} ${always} (${split}).`;
+  const summary = `Действие: ${solverActionInlineLabel(resolved)}.`;
   return matches
-    ? { tone: "correct", title: "Верно", summary: `Действие: ${solverActionLabel(resolvedAction)}.`, detail: pureDetail }
-    : { tone: "incorrect", title: "Не совсем", summary: `Действие: ${solverActionLabel(resolvedAction)}.`, detail: pureDetail };
+    ? { tone: "correct", title: "Верно", summary, detail: pureDetail }
+    : { tone: "incorrect", title: "Не совсем", summary, detail: pureDetail };
 }

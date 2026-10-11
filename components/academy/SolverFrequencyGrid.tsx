@@ -1,27 +1,42 @@
 import { CANONICAL_STARTING_HANDS } from "@/lib/academy/preflop";
-import { formatSolverFrequencyPercent } from "@/lib/academy/solver-feedback";
-import type { AcademyStrategyPositionFrequencies, StartingHandClass } from "@/types/academy";
+import {
+  formatSolverFrequencyPercent,
+  solverActionShortLabel,
+  type AcademySolverActionCopySource,
+} from "@/lib/academy/solver-feedback";
+import type {
+  AcademyStrategyHandFrequencies,
+  AcademyStrategyNodeHands,
+  StartingHandClass,
+} from "@/types/academy";
 
 type SolverFrequencyGridProps = {
-  hands: AcademyStrategyPositionFrequencies;
+  hands: AcademyStrategyNodeHands;
   label: string;
-  raiseAction?: string;
+  /** The node's action definitions, in resolver order (aria copy comes from here). */
+  actions: readonly AcademySolverActionCopySource[];
+  /** Action whose frequency fills the cell (the open-raise for RFI). */
+  primaryAction?: string;
 };
 
 export type SolverGridCellKind = "PURE_RAISE" | "MIXED" | "PURE_FOLD";
 
+/**
+ * Cell kind from the primary action's frequency; aria-label lists every
+ * action with a non-zero frequency, e.g. "AJo: рейз 41%, фолд 59%".
+ */
 export function describeSolverGridCell(
   hand: StartingHandClass,
-  raiseFrequency: number,
+  frequencies: AcademyStrategyHandFrequencies,
+  actions: readonly AcademySolverActionCopySource[],
+  primaryAction: string,
 ): { kind: SolverGridCellKind; ariaLabel: string } {
-  if (raiseFrequency >= 1) return { kind: "PURE_RAISE", ariaLabel: `${hand}: рейз 100%` };
-  if (raiseFrequency <= 0) return { kind: "PURE_FOLD", ariaLabel: `${hand}: фолд 100%` };
-  return {
-    kind: "MIXED",
-    ariaLabel:
-      `${hand}: рейз ${formatSolverFrequencyPercent(raiseFrequency)}, ` +
-      `фолд ${formatSolverFrequencyPercent(1 - raiseFrequency)}`,
-  };
+  const primary = frequencies[primaryAction] ?? 0;
+  const kind: SolverGridCellKind = primary >= 1 ? "PURE_RAISE" : primary <= 0 ? "PURE_FOLD" : "MIXED";
+  const parts = actions
+    .filter((action) => (frequencies[action.code] ?? 0) > 0)
+    .map((action) => `${solverActionShortLabel(action)} ${formatSolverFrequencyPercent(frequencies[action.code])}`);
+  return { kind, ariaLabel: `${hand}: ${parts.join(", ")}` };
 }
 
 /**
@@ -33,7 +48,8 @@ export function describeSolverGridCell(
 export function SolverFrequencyGrid({
   hands,
   label,
-  raiseAction = "RAISE_2_25BB",
+  actions,
+  primaryAction = actions[0]?.code ?? "",
 }: SolverFrequencyGridProps) {
   return (
     <div
@@ -42,8 +58,9 @@ export function SolverFrequencyGrid({
       className="grid w-full grid-cols-[repeat(13,minmax(0,1fr))] gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
     >
       {CANONICAL_STARTING_HANDS.map((hand) => {
-        const raise = hands[hand]?.[raiseAction] ?? 0;
-        const { kind, ariaLabel } = describeSolverGridCell(hand, raise);
+        const frequencies = hands[hand] ?? {};
+        const raise = frequencies[primaryAction] ?? 0;
+        const { kind, ariaLabel } = describeSolverGridCell(hand, frequencies, actions, primaryAction);
         const fillPercent = Math.round(raise * 100);
 
         return (

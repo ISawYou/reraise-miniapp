@@ -20,7 +20,7 @@ const { POST: sessionPost } = await import("@/app/api/academy/solver/session/rou
 const { POST: revealPost } = await import("@/app/api/academy/solver/reveal/route");
 const { GET: progressGet } = await import("@/app/api/academy/progress/route");
 const { getAcademyCourseProgress } = await import("@/features/academy");
-const { buildAcademySolverSession } = await import("@/lib/academy/solver-training");
+const { buildAcademySolverSessionForLesson } = await import("@/lib/academy/solver-training");
 
 const PLAYER_ID = "11111111-1111-4111-8111-111111111111";
 const ATTEMPT_ID = "22222222-2222-4222-8222-222222222222";
@@ -53,25 +53,40 @@ describe("POST /api/academy/solver/session", () => {
     expect(response.status).toBe(401);
   });
 
-  it("(23) returns ONLY hand, renderedCards and randomizerPercent", async () => {
+  it("(23) returns ONLY hand, renderedCards, randomizerPercent and safe action display metadata", async () => {
     const response = await sessionPost(post("/api/academy/solver/session", {
       lessonCode: LESSON, attemptId: ATTEMPT_ID, questionIndex: 3,
     }));
     expect(response.status).toBe(200);
     const body = await response.json() as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["hand", "randomizerPercent", "renderedCards"]);
+    expect(Object.keys(body).sort()).toEqual(["actions", "hand", "randomizerPercent", "renderedCards"]);
     const raw = JSON.stringify(body);
-    for (const leak of ["correctAction", "resolvedAction", "frequencies", "RAISE_2_25BB", "FOLD", "bucket", SECRET]) {
+    for (const leak of ["correctAction", "resolvedAction", "frequencies", "frequency", "bucket", "evBb", SECRET]) {
       expect(raw).not.toContain(leak);
     }
+    // Action codes may appear ONLY inside the (answer-independent) action
+    // display metadata — never anywhere else in the payload.
+    const { actions, ...rest } = body;
+    for (const leak of ["RAISE_2_25BB", "FOLD"]) expect(JSON.stringify(rest)).not.toContain(leak);
+    expect(actions).toEqual([
+      {
+        code: "RAISE_2_25BB", kind: "RAISE", label: "Raise 2.25 BB", amountBb: 2.25,
+        ru: { button: "Рейз 2.25 BB", inline: "рейз 2.25 BB", short: "рейз", always: "всегда открываем рейзом" },
+      },
+      {
+        code: "FOLD", kind: "FOLD", label: "Fold",
+        ru: { button: "Фолд", inline: "фолд", short: "фолд", always: "всегда сбрасываем" },
+      },
+    ]);
 
-    const expected = buildAcademySolverSession({
-      playerId: PLAYER_ID, lessonCode: LESSON, attemptId: ATTEMPT_ID, position: "CO",
+    const expected = buildAcademySolverSessionForLesson({
+      playerId: PLAYER_ID, lessonCode: LESSON, attemptId: ATTEMPT_ID,
     })[3];
     expect(body).toEqual({
       hand: expected.hand,
       renderedCards: expected.renderedCards,
       randomizerPercent: expected.randomizerPercent,
+      actions: expected.actions,
     });
   });
 
@@ -125,8 +140,8 @@ describe("POST /api/academy/solver/reveal", () => {
     }));
     expect(response.status).toBe(200);
     const body = await response.json();
-    const expected = buildAcademySolverSession({
-      playerId: PLAYER_ID, lessonCode: LESSON, attemptId: ATTEMPT_ID, position: "CO",
+    const expected = buildAcademySolverSessionForLesson({
+      playerId: PLAYER_ID, lessonCode: LESSON, attemptId: ATTEMPT_ID,
     })[2];
     expect(body).toMatchObject({
       hand: expected.hand,

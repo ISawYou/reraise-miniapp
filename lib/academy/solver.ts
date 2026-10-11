@@ -1,29 +1,43 @@
 /**
  * Pure Solver Lab primitives (no I/O, no secrets):
- * - strategy dataset validation + canonical serialization (fingerprinting),
- * - the canonical randomizer → action resolver,
+ * - generic strategy dataset validation (any table size / stack / spot /
+ *   number of actions / number of nodes),
+ * - canonical serializations: whole dataset, strategy CONTENT only, and
+ *   METADATA only (see `serializeAcademyStrategyContentCanonical`),
+ * - the canonical randomizer → action resolver (N actions),
  * - the balanced hand-composition sampler.
  *
  * These deliberately know nothing about HMAC/session derivation so each piece
  * is unit-testable with an injected random source.
  */
 import {
-  ACADEMY_PREFLOP_POSITIONS,
   CANONICAL_STARTING_HANDS,
   isCanonicalStartingHand,
 } from "@/lib/academy/preflop";
 import type {
   AcademySolverHandBucket,
   AcademyStrategyActionCode,
+  AcademyStrategyActionDefinition,
+  AcademyStrategyActionKind,
   AcademyStrategyDataset,
   AcademyStrategyHandFrequencies,
+  AcademyStrategyNode,
   AcademyStrategyPositionFrequencies,
-  PreflopPosition,
   StartingHandClass,
 } from "@/types/academy";
 
 /** Tolerance for "frequencies of one hand sum to 1". */
 export const ACADEMY_STRATEGY_FREQUENCY_SUM_EPSILON = 1e-9;
+
+/** The generic, reusable action-kind vocabulary. */
+export const ACADEMY_STRATEGY_ACTION_KINDS = Object.freeze([
+  "FOLD",
+  "CHECK",
+  "CALL",
+  "BET",
+  "RAISE",
+  "ALL_IN",
+] as const satisfies readonly AcademyStrategyActionKind[]);
 
 /** Random source returning a value in [0, 1). */
 export type AcademySolverRandom = () => number;
@@ -39,95 +53,313 @@ function fail(datasetId: string, message: string): never {
   throw new AcademyStrategyDatasetValidationError(`Strategy dataset "${datasetId}": ${message}`);
 }
 
-function validateHandFrequencies(
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasOwn(object: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+// ---------------------------------------------------------------------------
+// Validation building blocks (shared with the normalized import schema in
+// data/academy/solver/schema-v1.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates one hand's action → frequency map against the node's declared
+ * action codes: exactly those codes (no missing / extra), every frequency a
+ * finite number in [0, 1], summing to 1 ± `ACADEMY_STRATEGY_FREQUENCY_SUM_EPSILON`.
+ * Never normalizes or clamps.
+ */
+export function validateAcademyStrategyHandFrequencies(
   datasetId: string,
-  position: string,
+  nodeKey: string,
   hand: string,
   frequencies: unknown,
-  actions: readonly AcademyStrategyActionCode[],
+  actionCodes: readonly AcademyStrategyActionCode[],
 ): void {
-  if (!frequencies || typeof frequencies !== "object" || Array.isArray(frequencies)) {
-    fail(datasetId, `${position} ${hand} has no action-frequency map`);
-  }
-  const entries = Object.entries(frequencies as Record<string, unknown>);
-  const seen = new Set<string>();
+  if (!isPlainObject(frequencies)) fail(datasetId, `${nodeKey} ${hand} has no action-frequency map`);
   let sum = 0;
 
-  for (const [action, frequency] of entries) {
-    if (seen.has(action)) fail(datasetId, `${position} ${hand} repeats action ${action}`);
-    seen.add(action);
-    if (!actions.includes(action)) {
-      fail(datasetId, `${position} ${hand} uses unknown action ${action}`);
+  for (const [action, frequency] of Object.entries(frequencies)) {
+    if (!actionCodes.includes(action)) {
+      fail(datasetId, `${nodeKey} ${hand} uses unknown action ${action}`);
     }
     if (typeof frequency !== "number" || !Number.isFinite(frequency) || frequency < 0 || frequency > 1) {
-      fail(datasetId, `${position} ${hand} ${action} frequency ${String(frequency)} is outside [0, 1]`);
+      fail(datasetId, `${nodeKey} ${hand} ${action} frequency ${String(frequency)} is outside [0, 1]`);
     }
     sum += frequency;
   }
 
-  for (const action of actions) {
-    if (!seen.has(action)) fail(datasetId, `${position} ${hand} is missing action ${action}`);
+  for (const action of actionCodes) {
+    if (!hasOwn(frequencies, action)) fail(datasetId, `${nodeKey} ${hand} is missing action ${action}`);
   }
   if (Math.abs(sum - 1) > ACADEMY_STRATEGY_FREQUENCY_SUM_EPSILON) {
-    fail(datasetId, `${position} ${hand} frequencies sum to ${sum}, expected 1`);
+    fail(datasetId, `${nodeKey} ${hand} frequencies sum to ${sum}, expected 1`);
+  }
+}
+
+/** Exactly the 169 canonical hand classes, no unknown/non-canonical keys. */
+export function validateAcademyStrategyHandKeys(datasetId: string, nodeKey: string, hands: unknown): void {
+  if (!isPlainObject(hands)) fail(datasetId, `node ${nodeKey} has no hands`);
+  const handKeys = Object.keys(hands);
+  for (const hand of handKeys) {
+    if (!isCanonicalStartingHand(hand)) fail(datasetId, `${nodeKey} has non-canonical hand ${hand}`);
+  }
+  for (const hand of CANONICAL_STARTING_HANDS) {
+    if (!hasOwn(hands, hand)) fail(datasetId, `${nodeKey} is missing hand ${hand}`);
+  }
+  if (handKeys.length !== CANONICAL_STARTING_HANDS.length) {
+    fail(datasetId, `${nodeKey} has ${handKeys.length} hands, expected ${CANONICAL_STARTING_HANDS.length}`);
+  }
+}
+
+function validateLocalizedCopy(datasetId: string, code: string, copy: unknown): void {
+  if (!isPlainObject(copy)) fail(datasetId, `action ${code} has invalid localized copy`);
+  for (const field of ["button", "inline", "short"] as const) {
+    if (!isNonEmptyString(copy[field])) fail(datasetId, `action ${code} localized copy needs a non-empty ${field}`);
+  }
+  if (copy.always !== undefined && !isNonEmptyString(copy.always)) {
+    fail(datasetId, `action ${code} localized "always" copy must be a non-empty string`);
+  }
+}
+
+/** Non-empty list of valid action definitions with unique codes. */
+export function validateAcademyStrategyActionDefinitions(datasetId: string, actions: unknown): void {
+  if (!Array.isArray(actions) || actions.length === 0) fail(datasetId, "actions must be a non-empty list");
+  const codes = new Set<string>();
+  for (const action of actions as unknown[]) {
+    if (!isPlainObject(action) || !isNonEmptyString(action.code)) {
+      fail(datasetId, "action codes must be non-empty strings");
+    }
+    const code = action.code;
+    if (codes.has(code)) fail(datasetId, `action codes must be unique (duplicate ${code})`);
+    codes.add(code);
+    if (!(ACADEMY_STRATEGY_ACTION_KINDS as readonly unknown[]).includes(action.kind)) {
+      fail(datasetId, `action ${code} has unknown kind ${String(action.kind)}`);
+    }
+    if (!isNonEmptyString(action.label)) fail(datasetId, `action ${code} needs a non-empty label`);
+    if (action.amountBb !== undefined) {
+      if (typeof action.amountBb !== "number" || !Number.isFinite(action.amountBb) || action.amountBb <= 0) {
+        fail(datasetId, `action ${code} amountBb must be a finite positive number`);
+      }
+    }
+    if (action.ru !== undefined) validateLocalizedCopy(datasetId, code, action.ru);
+  }
+}
+
+/** Generic metadata: non-empty codes, integer table size ≥ 2, positive stack. */
+export function validateAcademyStrategyMetadata(datasetId: string, metadata: unknown): void {
+  if (!isPlainObject(metadata)) fail(datasetId, "metadata is missing");
+  for (const field of ["game", "format", "strategyModel", "spotCode"] as const) {
+    if (!isNonEmptyString(metadata[field])) fail(datasetId, `metadata.${field} must be a non-empty string`);
+  }
+  const { tableSize, effectiveStackBb } = metadata;
+  if (typeof tableSize !== "number" || !Number.isInteger(tableSize) || tableSize < 2) {
+    fail(datasetId, "metadata.tableSize must be an integer ≥ 2");
+  }
+  if (typeof effectiveStackBb !== "number" || !Number.isFinite(effectiveStackBb) || effectiveStackBb <= 0) {
+    fail(datasetId, "metadata.effectiveStackBb must be a finite positive number");
+  }
+}
+
+/** Provenance must say where the data came from and how it was derived. */
+export function validateAcademyStrategyProvenance(datasetId: string, provenance: unknown): void {
+  if (!isPlainObject(provenance)) fail(datasetId, "provenance is missing");
+  for (const field of ["provider", "scenario", "derivation"] as const) {
+    if (!isNonEmptyString(provenance[field])) fail(datasetId, `provenance.${field} must be a non-empty string`);
+  }
+  if (typeof provenance.note !== "string") fail(datasetId, "provenance.note must be a string");
+  if (!isPlainObject(provenance.references)
+    || Object.values(provenance.references).some((value) => !isNonEmptyString(value))) {
+    fail(datasetId, "provenance.references must map names to non-empty strings");
+  }
+  if (provenance.nodeSources !== undefined) {
+    if (!isPlainObject(provenance.nodeSources)) fail(datasetId, "provenance.nodeSources must be an object");
+    for (const [nodeKey, details] of Object.entries(provenance.nodeSources)) {
+      if (!isPlainObject(details)) fail(datasetId, `provenance.nodeSources.${nodeKey} must be an object`);
+      for (const value of Object.values(details)) {
+        if (typeof value !== "string" && !(typeof value === "number" && Number.isFinite(value))) {
+          fail(datasetId, `provenance.nodeSources.${nodeKey} values must be strings or finite numbers`);
+        }
+      }
+    }
+  }
+}
+
+/** Assumptions: an object of scalar values (finite numbers only). */
+export function validateAcademyStrategyAssumptions(datasetId: string, assumptions: unknown): void {
+  if (!isPlainObject(assumptions)) fail(datasetId, "assumptions must be an object");
+  for (const [key, value] of Object.entries(assumptions)) {
+    const ok = typeof value === "string"
+      || typeof value === "boolean"
+      || (typeof value === "number" && Number.isFinite(value));
+    if (!ok) fail(datasetId, `assumption ${key} must be a string, boolean or finite number`);
   }
 }
 
 /**
- * Throws `AcademyStrategyDatasetValidationError` unless: the dataset has a
- * non-empty id, a non-empty list of unique action codes, exactly the expected
- * positions, each position has exactly the 169 canonical hands, every
- * frequency is in [0, 1], every hand lists each action exactly once, and each
- * hand's frequencies sum to 1 (±`ACADEMY_STRATEGY_FREQUENCY_SUM_EPSILON`).
+ * A node's action codes: non-empty, unique, all declared by the dataset, and
+ * in the dataset's declared relative order (the resolver walks this order).
+ */
+export function validateAcademyStrategyNodeActionCodes(
+  datasetId: string,
+  nodeKey: string,
+  actionCodes: unknown,
+  datasetActionCodes: readonly AcademyStrategyActionCode[],
+): void {
+  if (!Array.isArray(actionCodes) || actionCodes.length === 0) {
+    fail(datasetId, `node ${nodeKey} actionCodes must be a non-empty list`);
+  }
+  if (new Set(actionCodes).size !== actionCodes.length) {
+    fail(datasetId, `node ${nodeKey} action codes must be unique`);
+  }
+  let previousIndex = -1;
+  for (const code of actionCodes as unknown[]) {
+    const index = typeof code === "string" ? datasetActionCodes.indexOf(code) : -1;
+    if (index === -1) fail(datasetId, `node ${nodeKey} uses undeclared action ${String(code)}`);
+    if (index < previousIndex) {
+      fail(datasetId, `node ${nodeKey} action codes must follow the dataset's declared action order`);
+    }
+    previousIndex = index;
+  }
+}
+
+export type ValidateAcademyStrategyDatasetOptions = {
+  /** When given, the dataset must contain exactly these node keys. */
+  readonly expectedNodeKeys?: readonly string[];
+};
+
+/**
+ * Throws `AcademyStrategyDatasetValidationError` unless the dataset is fully
+ * valid: non-empty id, positive integer version, title, valid metadata,
+ * provenance and assumptions, a non-empty list of valid action definitions
+ * with unique codes, a non-empty set of nodes (each keyed by its own `key`,
+ * with valid `actionCodes`, exactly the 169 canonical hands and per-hand
+ * frequencies over exactly the node's action codes, each in [0, 1], summing
+ * to 1 ± `ACADEMY_STRATEGY_FREQUENCY_SUM_EPSILON`). Fail-closed: no
+ * normalization or clamping.
  */
 export function validateAcademyStrategyDataset(
   dataset: AcademyStrategyDataset,
-  expectedPositions: readonly PreflopPosition[] = ACADEMY_PREFLOP_POSITIONS,
+  options: ValidateAcademyStrategyDatasetOptions = {},
 ): void {
-  const datasetId = typeof dataset?.id === "string" ? dataset.id : "<unknown>";
-  if (!dataset || typeof dataset.id !== "string" || dataset.id.length === 0) {
-    fail(datasetId, "id must be a non-empty string");
+  const raw = dataset as unknown;
+  if (!isPlainObject(raw)) fail("<unknown>", "dataset must be an object");
+  const datasetId = typeof raw.id === "string" && raw.id.length > 0 ? raw.id : "<unknown>";
+  if (!isNonEmptyString(raw.id)) fail(datasetId, "id must be a non-empty string");
+  if (typeof raw.version !== "number" || !Number.isInteger(raw.version) || raw.version < 1) {
+    fail(datasetId, "version must be a positive integer");
   }
-  if (!Array.isArray(dataset.actions) || dataset.actions.length === 0) {
-    fail(datasetId, "actions must be a non-empty list");
+  if (!isNonEmptyString(raw.title)) fail(datasetId, "title must be a non-empty string");
+  validateAcademyStrategyMetadata(datasetId, raw.metadata);
+  validateAcademyStrategyProvenance(datasetId, raw.provenance);
+  validateAcademyStrategyAssumptions(datasetId, raw.assumptions);
+  validateAcademyStrategyActionDefinitions(datasetId, raw.actions);
+  const datasetActionCodes = (raw.actions as AcademyStrategyActionDefinition[]).map((action) => action.code);
+
+  if (!isPlainObject(raw.nodes) || Object.keys(raw.nodes).length === 0) {
+    fail(datasetId, "nodes must be a non-empty object");
   }
-  if (new Set(dataset.actions).size !== dataset.actions.length) {
-    fail(datasetId, "action codes must be unique");
-  }
-  for (const action of dataset.actions) {
-    if (typeof action !== "string" || action.length === 0) fail(datasetId, "action codes must be non-empty strings");
+  const nodes = raw.nodes;
+  const nodeKeys = Object.keys(nodes);
+  if (options.expectedNodeKeys) {
+    for (const nodeKey of options.expectedNodeKeys) {
+      if (!nodeKeys.includes(nodeKey)) fail(datasetId, `missing node ${nodeKey}`);
+    }
+    for (const nodeKey of nodeKeys) {
+      if (!options.expectedNodeKeys.includes(nodeKey)) fail(datasetId, `unexpected node ${nodeKey}`);
+    }
   }
 
-  const positionKeys = Object.keys(dataset.positions ?? {});
-  for (const position of expectedPositions) {
-    if (!positionKeys.includes(position)) fail(datasetId, `missing position ${position}`);
-  }
-  for (const position of positionKeys) {
-    if (!expectedPositions.includes(position as PreflopPosition)) {
-      fail(datasetId, `unexpected position ${position}`);
-    }
-  }
-
-  for (const position of expectedPositions) {
-    const hands = dataset.positions[position] as Record<string, unknown>;
-    if (!hands || typeof hands !== "object") fail(datasetId, `position ${position} has no hands`);
-    const handKeys = Object.keys(hands);
-    for (const hand of handKeys) {
-      if (!isCanonicalStartingHand(hand)) fail(datasetId, `${position} has non-canonical hand ${hand}`);
-    }
+  for (const nodeKey of nodeKeys) {
+    const node = nodes[nodeKey];
+    if (!isPlainObject(node)) fail(datasetId, `node ${nodeKey} must be an object`);
+    if (node.key !== nodeKey) fail(datasetId, `node ${nodeKey} has mismatched key ${String(node.key)}`);
+    validateAcademyStrategyNodeActionCodes(datasetId, nodeKey, node.actionCodes, datasetActionCodes);
+    validateAcademyStrategyHandKeys(datasetId, nodeKey, node.hands);
+    const hands = node.hands as Record<string, unknown>;
     for (const hand of CANONICAL_STARTING_HANDS) {
-      if (!Object.prototype.hasOwnProperty.call(hands, hand)) {
-        fail(datasetId, `${position} is missing hand ${hand}`);
-      }
-    }
-    if (handKeys.length !== CANONICAL_STARTING_HANDS.length) {
-      fail(datasetId, `${position} has ${handKeys.length} hands, expected ${CANONICAL_STARTING_HANDS.length}`);
-    }
-    for (const hand of CANONICAL_STARTING_HANDS) {
-      validateHandFrequencies(datasetId, position, hand, hands[hand], dataset.actions);
+      validateAcademyStrategyHandFrequencies(
+        datasetId, nodeKey, hand, hands[hand], node.actionCodes as readonly string[]);
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Registry
+// ---------------------------------------------------------------------------
+
+export class AcademyUnknownStrategyDatasetError extends Error {
+  constructor(readonly datasetId: string) {
+    super(`Unknown Academy strategy dataset: ${datasetId}`);
+    this.name = "AcademyUnknownStrategyDatasetError";
+  }
+}
+
+export type AcademyStrategyDatasetRegistry = Readonly<Record<string, AcademyStrategyDataset>>;
+
+/**
+ * Builds an immutable id → dataset registry, preserving registration order.
+ * Fails closed on an empty list or a duplicate id. Datasets must already be
+ * validated (and frozen) by their builders.
+ */
+export function createAcademyStrategyDatasetRegistry(
+  datasets: readonly AcademyStrategyDataset[],
+): AcademyStrategyDatasetRegistry {
+  if (datasets.length === 0) throw new AcademyStrategyDatasetValidationError("Strategy registry must not be empty");
+  const registry: Record<string, AcademyStrategyDataset> = {};
+  for (const dataset of datasets) {
+    if (!isNonEmptyString(dataset?.id)) fail("<unknown>", "id must be a non-empty string");
+    if (hasOwn(registry, dataset.id)) fail(dataset.id, "dataset id must be unique within the registry");
+    registry[dataset.id] = dataset;
+  }
+  return Object.freeze(registry);
+}
+
+/** Fail-closed registry lookup (own keys only; throws for unknown ids). */
+export function lookupAcademyStrategyDataset(
+  registry: AcademyStrategyDatasetRegistry,
+  datasetId: string,
+): AcademyStrategyDataset {
+  if (typeof datasetId !== "string" || !hasOwn(registry, datasetId)) {
+    throw new AcademyUnknownStrategyDatasetError(String(datasetId));
+  }
+  return registry[datasetId];
+}
+
+// ---------------------------------------------------------------------------
+// Lookups
+// ---------------------------------------------------------------------------
+
+/** Fail-closed node lookup. */
+export function getAcademyStrategyNode(dataset: AcademyStrategyDataset, nodeKey: string): AcademyStrategyNode {
+  if (!hasOwn(dataset.nodes, nodeKey)) {
+    throw new Error(`Strategy dataset ${dataset.id} has no node ${nodeKey}`);
+  }
+  return dataset.nodes[nodeKey];
+}
+
+/** Action definitions available at a node, in the node's resolver order. */
+export function getAcademyStrategyNodeActions(
+  dataset: AcademyStrategyDataset,
+  node: AcademyStrategyNode,
+): readonly AcademyStrategyActionDefinition[] {
+  return node.actionCodes.map((code) => {
+    const action = dataset.actions.find((candidate) => candidate.code === code);
+    if (!action) throw new Error(`Strategy dataset ${dataset.id} has no action ${code}`);
+    return action;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Canonical serialization / fingerprint inputs
+// ---------------------------------------------------------------------------
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -142,12 +374,54 @@ function canonicalize(value: unknown): unknown {
 }
 
 /**
- * Deterministic JSON serialization: every object's keys are sorted
- * (positions, hands, per-hand actions, provenance fields); arrays keep their
- * order because order is semantic there (e.g. the canonical action order).
+ * Deterministic JSON serialization: every object's keys are sorted; arrays
+ * keep their order because order is semantic there (e.g. action order).
  */
+export function serializeCanonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
+}
+
+/** Canonical serialization of the WHOLE dataset (content + metadata). */
 export function serializeAcademyStrategyDatasetCanonical(dataset: AcademyStrategyDataset): string {
-  return JSON.stringify(canonicalize(dataset));
+  return serializeCanonicalJson(dataset);
+}
+
+/**
+ * Strategy CONTENT projection: action identity (code, kind, size), node keys,
+ * node action order and every hand's frequencies. Excludes id, title,
+ * labels, localized copy, provenance and assumptions, so presentation edits
+ * never look like a strategy change while any frequency change does.
+ */
+export function toAcademyStrategyContent(dataset: AcademyStrategyDataset) {
+  return {
+    actions: dataset.actions.map(({ code, kind, amountBb }) => (
+      amountBb === undefined ? { code, kind } : { code, kind, amountBb })),
+    nodes: Object.fromEntries(Object.keys(dataset.nodes).map((nodeKey) => {
+      const node = dataset.nodes[nodeKey];
+      return [nodeKey, { actionCodes: node.actionCodes, hands: node.hands }];
+    })),
+  };
+}
+
+export function serializeAcademyStrategyContentCanonical(dataset: AcademyStrategyDataset): string {
+  return serializeCanonicalJson(toAcademyStrategyContent(dataset));
+}
+
+/** METADATA projection: everything descriptive, no strategy numbers. */
+export function toAcademyStrategyMetadataProjection(dataset: AcademyStrategyDataset) {
+  return {
+    id: dataset.id,
+    version: dataset.version,
+    title: dataset.title,
+    metadata: dataset.metadata,
+    provenance: dataset.provenance,
+    assumptions: dataset.assumptions,
+    actionLabels: dataset.actions.map(({ code, label, ru }) => (ru === undefined ? { code, label } : { code, label, ru })),
+  };
+}
+
+export function serializeAcademyStrategyMetadataCanonical(dataset: AcademyStrategyDataset): string {
+  return serializeCanonicalJson(toAcademyStrategyMetadataProjection(dataset));
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +475,21 @@ export function resolveActionFromFrequencies(
   }
 
   throw new Error(`Frequencies sum to ${cumulative}, expected 1`);
+}
+
+/**
+ * Resolves one hand at one node for any number of actions. The cumulative
+ * walk order is the node's declared `actionCodes` (the dataset's own action
+ * order) — never re-sorted by kind or label.
+ */
+export function resolveAcademyStrategyNodeAction(
+  node: AcademyStrategyNode,
+  hand: StartingHandClass,
+  randomizerPercent: number,
+): AcademyStrategyActionCode {
+  const frequencies = node.hands[hand];
+  if (!frequencies) throw new Error(`Node ${node.key} has no strategy for ${hand}`);
+  return resolveActionFromFrequencies(frequencies, node.actionCodes, randomizerPercent);
 }
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import { AcademyPlayingCard } from "@/components/academy/academy-playing-card";
 import { getAcademyPreflopLesson } from "@/config/academy/lessons";
 import { getAcademySolverRfiLesson } from "@/config/academy/solver-lessons";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
-import { buildSolverAnswerFeedback } from "@/lib/academy/solver-feedback";
+import { buildSolverAnswerFeedback, solverActionButtonLabel } from "@/lib/academy/solver-feedback";
 import type {
   AcademyLessonProgress,
   AcademySolverAction,
@@ -25,10 +25,13 @@ type SubmitAttemptResponse = {
   newBest: boolean;
 };
 
-const ACTIONS: readonly { action: AcademySolverAction; label: string }[] = [
-  { action: "RAISE_2_25BB", label: "Рейз 2.25 BB" },
-  { action: "FOLD", label: "Фолд" },
-];
+/**
+ * Action-button grid columns by action count: 2 → one row of two (the
+ * original 100bb layout), 3 → one row of three, 4+ → rows of two.
+ */
+export function solverActionGridColumnsClass(actionCount: number): string {
+  return actionCount === 3 ? "grid-cols-3" : "grid-cols-2";
+}
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -255,17 +258,21 @@ export function SolverTraining({ position }: { position: PreflopPosition }) {
               </p>
             </div>
 
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              {ACTIONS.map(({ action, label }) => {
-                const isSelected = reveal?.selectedAction === action;
-                const isResolved = reveal?.resolvedAction === action;
+            <div
+              className={`mt-6 grid ${solverActionGridColumnsClass(question.actions.length)} gap-3`}
+              data-action-count={question.actions.length}
+            >
+              {question.actions.map((action) => {
+                const isSelected = reveal?.selectedAction === action.code;
+                const isResolved = reveal?.resolvedAction === action.code;
                 return (
                   <button
-                    key={action}
+                    key={action.code}
                     type="button"
+                    data-action-code={action.code}
                     disabled={Boolean(reveal) || pending}
-                    onClick={() => void handleAnswer(action)}
-                    className={`min-h-16 rounded-2xl border px-4 py-4 text-base font-semibold transition-colors disabled:cursor-default ${
+                    onClick={() => void handleAnswer(action.code)}
+                    className={`min-h-16 min-w-0 break-words rounded-2xl border px-4 py-4 text-base font-semibold transition-colors disabled:cursor-default ${
                       reveal
                         ? isResolved
                           ? "border-[#72b28e] bg-[#315f48] text-white"
@@ -277,7 +284,7 @@ export function SolverTraining({ position }: { position: PreflopPosition }) {
                         : "border-white/10 bg-white/[0.045] text-white/75"
                     }`}
                   >
-                    {label}
+                    {solverActionButtonLabel(action)}
                   </button>
                 );
               })}

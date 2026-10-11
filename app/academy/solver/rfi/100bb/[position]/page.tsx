@@ -6,12 +6,10 @@ import { SolverFrequencyGrid } from "@/components/academy/SolverFrequencyGrid";
 import { BackButton } from "@/components/ui/back-button";
 import { getAcademyLessonByCode } from "@/config/academy/catalog";
 import { getAcademyPreflopLesson } from "@/config/academy/lessons";
-import {
-  ACADEMY_SOLVER_RAISE_ACTION,
-  getAcademySolverDataset,
-} from "@/config/academy/solver-datasets";
+import { getAcademyStrategyDataset } from "@/config/academy/solver-datasets";
 import {
   ACADEMY_SOLVER_RFI_MODULE_ROUTE,
+  getAcademySolverLessonBinding,
   getAcademySolverRfiLesson,
 } from "@/config/academy/solver-lessons";
 import {
@@ -20,7 +18,11 @@ import {
   calculateWeightedRangePercentage,
   isPreflopPosition,
 } from "@/lib/academy/preflop";
-import { classifySolverHandBucket } from "@/lib/academy/solver";
+import {
+  classifySolverHandBucket,
+  getAcademyStrategyNode,
+  getAcademyStrategyNodeActions,
+} from "@/lib/academy/solver";
 
 type SolverLessonPageProps = {
   params: Promise<{ position: string }>;
@@ -38,16 +40,21 @@ export default async function AcademySolverLessonPage({ params }: SolverLessonPa
   const copy = getAcademyPreflopLesson(canonicalPosition);
   const solverLesson = getAcademySolverRfiLesson(canonicalPosition);
   const lesson = getAcademyLessonByCode(solverLesson.code);
-  if (!lesson) notFound();
+  const binding = getAcademySolverLessonBinding(solverLesson.code);
+  if (!lesson || !binding) notFound();
 
-  const dataset = getAcademySolverDataset();
-  const hands = dataset.positions[canonicalPosition];
+  // Strategy comes only from the lesson's canonical dataset/node binding.
+  const dataset = getAcademyStrategyDataset(binding.datasetId);
+  const node = getAcademyStrategyNode(dataset, binding.selector.nodeKey);
+  const nodeActions = getAcademyStrategyNodeActions(dataset, node);
+  const primaryAction = binding.primaryActionCode;
+  const hands = node.hands;
   const raiseStrategy = Object.fromEntries(
-    CANONICAL_STARTING_HANDS.map((hand) => [hand, hands[hand][ACADEMY_SOLVER_RAISE_ACTION]]),
+    CANONICAL_STARTING_HANDS.map((hand) => [hand, hands[hand][primaryAction]]),
   );
   const weightedRaisePercentage = calculateWeightedRangePercentage(raiseStrategy);
   const mixedHandCount = CANONICAL_STARTING_HANDS.filter(
-    (hand) => classifySolverHandBucket(hands[hand], ACADEMY_SOLVER_RAISE_ACTION) === "MIXED",
+    (hand) => classifySolverHandBucket(hands[hand], primaryAction) === "MIXED",
   ).length;
   const positionNumber = ACADEMY_PREFLOP_POSITIONS.indexOf(canonicalPosition) + 1;
 
@@ -89,7 +96,12 @@ export default async function AcademySolverLessonPage({ params }: SolverLessonPa
             </p>
           </div>
 
-          <SolverFrequencyGrid hands={hands} label={`Частоты открытия ${copy.displayLabel}`} />
+          <SolverFrequencyGrid
+            hands={hands}
+            label={`Частоты открытия ${copy.displayLabel}`}
+            actions={nodeActions}
+            primaryAction={primaryAction}
+          />
 
           <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-white/55">
             <span className="inline-flex items-center gap-2">

@@ -12,8 +12,10 @@ type SolverSessionRequestBody = {
 /**
  * Serves one Solver Lab question, regenerated deterministically server-side
  * from (player, lessonCode, attemptId, questionIndex). Responds with ONLY
- * `{hand, renderedCards, randomizerPercent}` — never frequencies or the
- * resolved action. Idempotent by construction.
+ * `{hand, renderedCards, randomizerPercent, actions}` — `actions` is the
+ * node's answer-free action display metadata (code/kind/label/amountBb and
+ * localized copy), identical for every question. Never frequencies, the
+ * resolved action, EV or derivation inputs. Idempotent by construction.
  */
 export async function POST(request: NextRequest) {
   const player = await getPlayerFromSessionServer(request.cookies.get(COOKIE_NAME)?.value);
@@ -30,6 +32,7 @@ export async function POST(request: NextRequest) {
       hand: question.hand,
       renderedCards: question.renderedCards,
       randomizerPercent: question.randomizerPercent,
+      actions: question.actions,
     });
   } catch (error) {
     if (error instanceof AcademyValidationError) {

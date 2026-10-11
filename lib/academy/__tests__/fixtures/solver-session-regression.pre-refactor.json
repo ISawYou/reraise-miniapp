@@ -1,0 +1,588 @@
+{
+  "capturedFrom": "origin/main bb74517 (pre dataset-platform refactor)",
+  "sessionSecret": "regression-fixture-secret-do-not-use-in-prod",
+  "sessions": [
+    {
+      "key": {
+        "playerId": "11111111-1111-4111-8111-111111111111",
+        "lessonCode": "solver_rfi_9max_100bb_utg",
+        "attemptId": "22222222-2222-4222-8222-222222222222",
+        "position": "UTG"
+      },
+      "questions": [
+        {
+          "questionIndex": 0,
+          "hand": "99",
+          "bucket": "PURE_RAISE",
+          "renderedCards": [
+            {
+              "rank": "9",
+              "suit": "♠",
+              "color": "black"
+            },
+            {
+              "rank": "9",
+              "suit": "♣",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 55,
+          "frequencies": {
+            "RAISE_2_25BB": 1,
+            "FOLD": 0
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        },
+        {
+          "questionIndex": 1,
+          "hand": "KQo",
+          "bucket": "MIXED",
+          "renderedCards": [
+            {
+              "rank": "K",
+              "suit": "♥",
+              "color": "red"
+            },
+            {
+              "rank": "Q",
+              "suit": "♠",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 83,
+          "frequencies": {
+            "RAISE_2_25BB": 0.87,
+            "FOLD": 0.13
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        },
+        {
+          "questionIndex": 2,
+          "hand": "66",
+          "bucket": "PURE_RAISE",
+          "renderedCards": [
+            {
+              "rank": "6",
+              "suit": "♦",
+              "color": "red"
+            },
+            {
+              "rank": "6",
+              "suit": "♣",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 85,
+          "frequencies": {
+            "RAISE_2_25BB": 1,
+            "FOLD": 0
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        },
+        {
+          "questionIndex": 3,
+          "hand": "54s",
+          "bucket": "MIXED",
+          "renderedCards": [
+            {
+              "rank": "5",
+              "suit": "♠",
+              "color": "black"
+            },
+            {
+              "rank": "4",
+              "suit": "♠",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 96,
+          "frequencies": {
+            "RAISE_2_25BB": 0.26,
+            "FOLD": 0.74
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 4,
+          "hand": "JTs",
+          "bucket": "PURE_RAISE",
+          "renderedCards": [
+            {
+              "rank": "J",
+              "suit": "♦",
+              "color": "red"
+            },
+            {
+              "rank": "T",
+              "suit": "♦",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 27,
+          "frequencies": {
+            "RAISE_2_25BB": 1,
+            "FOLD": 0
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        },
+        {
+          "questionIndex": 5,
+          "hand": "62o",
+          "bucket": "PURE_FOLD",
+          "renderedCards": [
+            {
+              "rank": "6",
+              "suit": "♦",
+              "color": "red"
+            },
+            {
+              "rank": "2",
+              "suit": "♥",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 73,
+          "frequencies": {
+            "RAISE_2_25BB": 0,
+            "FOLD": 1
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 6,
+          "hand": "K8s",
+          "bucket": "MIXED",
+          "renderedCards": [
+            {
+              "rank": "K",
+              "suit": "♥",
+              "color": "red"
+            },
+            {
+              "rank": "8",
+              "suit": "♥",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 34,
+          "frequencies": {
+            "RAISE_2_25BB": 0.01,
+            "FOLD": 0.99
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 7,
+          "hand": "T8s",
+          "bucket": "MIXED",
+          "renderedCards": [
+            {
+              "rank": "T",
+              "suit": "♦",
+              "color": "red"
+            },
+            {
+              "rank": "8",
+              "suit": "♦",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 90,
+          "frequencies": {
+            "RAISE_2_25BB": 0.32,
+            "FOLD": 0.6799999999999999
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 8,
+          "hand": "63s",
+          "bucket": "PURE_FOLD",
+          "renderedCards": [
+            {
+              "rank": "6",
+              "suit": "♠",
+              "color": "black"
+            },
+            {
+              "rank": "3",
+              "suit": "♠",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 13,
+          "frequencies": {
+            "RAISE_2_25BB": 0,
+            "FOLD": 1
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 9,
+          "hand": "K2o",
+          "bucket": "PURE_FOLD",
+          "renderedCards": [
+            {
+              "rank": "K",
+              "suit": "♣",
+              "color": "black"
+            },
+            {
+              "rank": "2",
+              "suit": "♦",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 31,
+          "frequencies": {
+            "RAISE_2_25BB": 0,
+            "FOLD": 1
+          },
+          "resolvedAction": "FOLD"
+        }
+      ],
+      "scores": {
+        "allRaise": {
+          "answers": [
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB"
+          ],
+          "result": {
+            "correctAnswers": 4,
+            "totalQuestions": 10,
+            "percentage": 40,
+            "passed": false,
+            "feedback": "Стоит повторить диапазон"
+          }
+        },
+        "allFold": {
+          "answers": [
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD"
+          ],
+          "result": {
+            "correctAnswers": 6,
+            "totalQuestions": 10,
+            "percentage": 60,
+            "passed": false,
+            "feedback": "Стоит повторить диапазон"
+          }
+        },
+        "perfect": {
+          "correctAnswers": 10,
+          "totalQuestions": 10,
+          "percentage": 100,
+          "passed": true,
+          "feedback": "Отлично"
+        }
+      }
+    },
+    {
+      "key": {
+        "playerId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        "lessonCode": "solver_rfi_9max_100bb_btn",
+        "attemptId": "12345678-90ab-4cde-8f01-234567890abc",
+        "position": "BTN"
+      },
+      "questions": [
+        {
+          "questionIndex": 0,
+          "hand": "AQs",
+          "bucket": "PURE_RAISE",
+          "renderedCards": [
+            {
+              "rank": "A",
+              "suit": "♥",
+              "color": "red"
+            },
+            {
+              "rank": "Q",
+              "suit": "♥",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 97,
+          "frequencies": {
+            "RAISE_2_25BB": 1,
+            "FOLD": 0
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        },
+        {
+          "questionIndex": 1,
+          "hand": "97o",
+          "bucket": "MIXED",
+          "renderedCards": [
+            {
+              "rank": "9",
+              "suit": "♠",
+              "color": "black"
+            },
+            {
+              "rank": "7",
+              "suit": "♣",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 72,
+          "frequencies": {
+            "RAISE_2_25BB": 0.01,
+            "FOLD": 0.99
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 2,
+          "hand": "Q4o",
+          "bucket": "PURE_FOLD",
+          "renderedCards": [
+            {
+              "rank": "Q",
+              "suit": "♠",
+              "color": "black"
+            },
+            {
+              "rank": "4",
+              "suit": "♥",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 32,
+          "frequencies": {
+            "RAISE_2_25BB": 0,
+            "FOLD": 1
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 3,
+          "hand": "T3o",
+          "bucket": "PURE_FOLD",
+          "renderedCards": [
+            {
+              "rank": "T",
+              "suit": "♣",
+              "color": "black"
+            },
+            {
+              "rank": "3",
+              "suit": "♥",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 37,
+          "frequencies": {
+            "RAISE_2_25BB": 0,
+            "FOLD": 1
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 4,
+          "hand": "T7o",
+          "bucket": "MIXED",
+          "renderedCards": [
+            {
+              "rank": "T",
+              "suit": "♦",
+              "color": "red"
+            },
+            {
+              "rank": "7",
+              "suit": "♣",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 91,
+          "frequencies": {
+            "RAISE_2_25BB": 0.59,
+            "FOLD": 0.41000000000000003
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 5,
+          "hand": "96s",
+          "bucket": "PURE_RAISE",
+          "renderedCards": [
+            {
+              "rank": "9",
+              "suit": "♦",
+              "color": "red"
+            },
+            {
+              "rank": "6",
+              "suit": "♦",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 19,
+          "frequencies": {
+            "RAISE_2_25BB": 1,
+            "FOLD": 0
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        },
+        {
+          "questionIndex": 6,
+          "hand": "63s",
+          "bucket": "MIXED",
+          "renderedCards": [
+            {
+              "rank": "6",
+              "suit": "♣",
+              "color": "black"
+            },
+            {
+              "rank": "3",
+              "suit": "♣",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 44,
+          "frequencies": {
+            "RAISE_2_25BB": 0.57,
+            "FOLD": 0.43000000000000005
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        },
+        {
+          "questionIndex": 7,
+          "hand": "65o",
+          "bucket": "PURE_FOLD",
+          "renderedCards": [
+            {
+              "rank": "6",
+              "suit": "♥",
+              "color": "red"
+            },
+            {
+              "rank": "5",
+              "suit": "♠",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 18,
+          "frequencies": {
+            "RAISE_2_25BB": 0,
+            "FOLD": 1
+          },
+          "resolvedAction": "FOLD"
+        },
+        {
+          "questionIndex": 8,
+          "hand": "97s",
+          "bucket": "PURE_RAISE",
+          "renderedCards": [
+            {
+              "rank": "9",
+              "suit": "♦",
+              "color": "red"
+            },
+            {
+              "rank": "7",
+              "suit": "♦",
+              "color": "red"
+            }
+          ],
+          "randomizerPercent": 85,
+          "frequencies": {
+            "RAISE_2_25BB": 1,
+            "FOLD": 0
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        },
+        {
+          "questionIndex": 9,
+          "hand": "Q7o",
+          "bucket": "MIXED",
+          "renderedCards": [
+            {
+              "rank": "Q",
+              "suit": "♠",
+              "color": "black"
+            },
+            {
+              "rank": "7",
+              "suit": "♣",
+              "color": "black"
+            }
+          ],
+          "randomizerPercent": 68,
+          "frequencies": {
+            "RAISE_2_25BB": 0.98,
+            "FOLD": 0.020000000000000018
+          },
+          "resolvedAction": "RAISE_2_25BB"
+        }
+      ],
+      "scores": {
+        "allRaise": {
+          "answers": [
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB",
+            "RAISE_2_25BB"
+          ],
+          "result": {
+            "correctAnswers": 5,
+            "totalQuestions": 10,
+            "percentage": 50,
+            "passed": false,
+            "feedback": "Стоит повторить диапазон"
+          }
+        },
+        "allFold": {
+          "answers": [
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD",
+            "FOLD"
+          ],
+          "result": {
+            "correctAnswers": 5,
+            "totalQuestions": 10,
+            "percentage": 50,
+            "passed": false,
+            "feedback": "Стоит повторить диапазон"
+          }
+        },
+        "perfect": {
+          "correctAnswers": 10,
+          "totalQuestions": 10,
+          "percentage": 100,
+          "passed": true,
+          "feedback": "Отлично"
+        }
+      }
+    }
+  ]
+}

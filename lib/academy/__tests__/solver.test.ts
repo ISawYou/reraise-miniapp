@@ -41,7 +41,7 @@ function syntheticHands(mixed: number, pureRaise: number): AcademyStrategyPositi
 describe("balanced Solver Lab sampler", () => {
   it.each(ACADEMY_PREFLOP_POSITIONS)("(9)(10) %s: 10 unique hands, 4 mixed / 3 pure-raise / 3 pure-fold", (position) => {
     for (const seed of [1, 2, 3, 42, 999]) {
-      const hands = dataset.positions[position];
+      const hands = dataset.nodes[position].hands;
       const sample = sampleBalancedSolverHands({ hands, primaryAction: "RAISE_2_25BB", random: seeded(seed) });
       expect(sample).toHaveLength(10);
       expect(new Set(sample.map((entry) => entry.hand)).size).toBe(10);
@@ -94,7 +94,7 @@ describe("balanced Solver Lab sampler", () => {
   });
 
   it("(12) is deterministic for the same random source and (13) varies across seeds", () => {
-    const hands = dataset.positions.CO;
+    const hands = dataset.nodes.CO.hands;
     const a = sampleBalancedSolverHands({ hands, primaryAction: "RAISE_2_25BB", random: seeded(11) });
     const b = sampleBalancedSolverHands({ hands, primaryAction: "RAISE_2_25BB", random: seeded(11) });
     const c = sampleBalancedSolverHands({ hands, primaryAction: "RAISE_2_25BB", random: seeded(12) });
