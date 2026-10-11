@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PokerPositionTable } from "@/components/academy/poker-position-table";
 import { SolverActionMixGrid } from "@/components/academy/SolverActionMixGrid";
 import { BackButton } from "@/components/ui/back-button";
 import { ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE, preflopTrainerTrainRoute } from "@/config/academy/preflop-trainer";
@@ -10,7 +11,11 @@ type PreflopTrainerSpotPageProps = {
   params: Promise<{ stack: string; node: string }>;
 };
 
-/** One trainer spot: description, optional range view, start button. */
+/**
+ * One trainer spot. Everything is visible on arrival — description, the
+ * table, the 13x13 range grid with its legend and "Начать тренировку" — no
+ * second click / disclosure widget.
+ */
 export default async function AcademyPreflopTrainerSpotPage({ params }: PreflopTrainerSpotPageProps) {
   const { stack, node } = await params;
   const resolved = resolvePreflopTrainerRouteSpot(stack, node);
@@ -32,6 +37,27 @@ export default async function AcademyPreflopTrainerSpotPage({ params }: PreflopT
           <p className="mt-2 text-sm text-white/55">{spot.history}</p>
         </header>
 
+        <section className="mt-5">
+          <PokerPositionTable mode="TRAINING_SCENE" scene={spot.scene} stackBb={spot.stackBb} />
+        </section>
+
+        <section className="mt-6" data-testid="range-view">
+          <h2 className="text-lg font-semibold">Диапазон</h2>
+          <p className="mb-3 mt-1 text-sm text-white/45">Частоты стратегии · {spot.title} · {spot.stackBb} BB</p>
+          <SolverActionMixGrid
+            hands={resolved.node.hands}
+            label={`Частоты стратегии: ${spot.title}`}
+            actions={actions}
+          />
+        </section>
+
+        <Link
+          href={preflopTrainerTrainRoute(spot.stackBb, spot.nodeKey)}
+          className="mt-6 flex min-h-14 items-center justify-center rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f] active:bg-[#e2c66f]"
+        >
+          Начать тренировку
+        </Link>
+
         <section className="mt-5 rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4">
           <p className="text-[15px] leading-6 text-white/75">
             Доступные действия: {actions.map((action) => action.ru?.button ?? action.label).join(", ")}.
@@ -41,27 +67,6 @@ export default async function AcademyPreflopTrainerSpotPage({ params }: PreflopT
             стратегии выпала. В зачёт идёт выпавшее действие.
           </p>
         </section>
-
-        <details className="mt-6 rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3" data-testid="range-view">
-          <summary className="cursor-pointer list-none text-sm font-medium text-white/75">
-            Посмотреть диапазон
-          </summary>
-          <div className="mt-4">
-            <p className="mb-3 text-sm text-white/45">Частоты стратегии · {spot.title} · {spot.stackBb} BB</p>
-            <SolverActionMixGrid
-              hands={resolved.node.hands}
-              label={`Частоты стратегии: ${spot.title}`}
-              actions={actions}
-            />
-          </div>
-        </details>
-
-        <Link
-          href={preflopTrainerTrainRoute(spot.stackBb, spot.nodeKey)}
-          className="mt-6 flex min-h-14 items-center justify-center rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f] active:bg-[#e2c66f]"
-        >
-          Начать тренировку
-        </Link>
       </div>
     </main>
   );

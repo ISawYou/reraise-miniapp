@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type ReactNode, useMemo, useState } from "react";
+import { PokerPositionTable } from "@/components/academy/poker-position-table";
 import { preflopTrainerSpotRoute, preflopTrainerTrainRoute } from "@/config/academy/preflop-trainer";
 import {
   ACADEMY_PREFLOP_TRAINER_SEAT_HINTS,
@@ -66,7 +67,10 @@ function Step({ index, title, children }: { index: number; title: string; childr
 }
 
 /**
- * Stack → situation → hero → villain picker. Every step offers ONLY options
+ * Stack → situation → seats picker. Stack and situation are chips; seats are
+ * picked by tapping the table ("Где ты сидишь?" / "Где ты?" → "Кто сделал
+ * действие?"), with a compact chip list as an equivalent alternative. Every
+ * step offers ONLY options
  * backed by a real node in `spots` (the server-derived list of the
  * registered datasets' nodes); changing an earlier step drops later choices
  * that are no longer available.
@@ -111,10 +115,15 @@ export function PreflopTrainerSetup({ spots }: { spots: readonly AcademyPreflopT
     setVillain(null);
   }
 
-  function chooseHero(value: string) {
+  function chooseHero(value: string | null) {
     setHero(value);
     setVillain(null);
   }
+
+  const selectingVillain = needsVillain && hero !== null;
+  const seatPrompt = situation === null || !needsVillain
+    ? "Где ты сидишь?"
+    : selectingVillain ? "Кто сделал действие?" : "Где ты?";
 
   const quickSpots = stackBb === null
     ? []
@@ -176,24 +185,52 @@ export function PreflopTrainerSetup({ spots }: { spots: readonly AcademyPreflopT
       ) : null}
 
       {situation !== null ? (
-        <Step index={3} title="Твоя позиция">
-          <div className="grid grid-cols-3 gap-2 min-[380px]:grid-cols-5">
-            {heroes.map((value) => (
-              <Chip
-                key={value}
-                label={value}
-                hint={ACADEMY_PREFLOP_TRAINER_SEAT_HINTS[value]}
-                selected={hero === value}
-                onSelect={() => chooseHero(value)}
-                testId={`hero-${value}`}
-              />
-            ))}
+        <Step index={3} title="Позиции за столом">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-lg font-semibold" data-testid="seat-prompt">{seatPrompt}</p>
+            {selectingVillain ? (
+              <button
+                type="button"
+                data-testid="change-hero"
+                onClick={() => chooseHero(null)}
+                className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/65"
+              >
+                Сменить позицию
+              </button>
+            ) : null}
           </div>
+          <div className="mt-3">
+            <PokerPositionTable
+              mode="POSITION_SELECTION"
+              selecting={selectingVillain ? "VILLAIN" : "HERO"}
+              heroSeat={hero}
+              villainSeat={villain}
+              selectableSeats={selectingVillain ? villains : heroes}
+              onSelectSeat={selectingVillain ? setVillain : chooseHero}
+            />
+          </div>
+          {!selectingVillain ? (
+            <div className="mt-4">
+              <p className="text-xs text-white/40">Или выбери из списка</p>
+              <div className="mt-2 grid grid-cols-3 gap-2 min-[380px]:grid-cols-5">
+                {heroes.map((value) => (
+                  <Chip
+                    key={value}
+                    label={value}
+                    hint={ACADEMY_PREFLOP_TRAINER_SEAT_HINTS[value]}
+                    selected={hero === value}
+                    onSelect={() => chooseHero(value)}
+                    testId={`hero-${value}`}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </Step>
       ) : null}
 
-      {needsVillain && hero !== null ? (
-        <Step index={4} title="Позиция соперника">
+      {selectingVillain ? (
+        <Step index={4} title="Соперник — или из списка">
           <div className="grid grid-cols-3 gap-2 min-[380px]:grid-cols-5">
             {villains.map((value) => (
               <Chip

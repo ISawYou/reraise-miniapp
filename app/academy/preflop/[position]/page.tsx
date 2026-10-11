@@ -52,7 +52,7 @@ export default async function AcademyLessonPage({ params }: AcademyLessonPagePro
         </header>
 
         <section className="mt-6">
-          <PokerPositionTable activePosition={canonicalPosition} />
+          <PokerPositionTable mode="LESSON_NAVIGATION" activePosition={canonicalPosition} />
         </section>
 
         <section className="mt-4 rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4">

@@ -11,7 +11,10 @@ import {
 } from "@/config/academy/catalog";
 import { getAcademyPreflopLessonByCode } from "@/config/academy/lessons";
 import { getAcademyPreflopRange } from "@/config/academy/preflop-ranges";
-import { ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE } from "@/config/academy/preflop-trainer";
+import {
+  ACADEMY_PREFLOP_QUICK_MIX_MODE,
+  ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
+} from "@/config/academy/preflop-trainer";
 import { getAcademySolverLessonBinding } from "@/config/academy/solver-lessons";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
 import {
@@ -27,6 +30,7 @@ import {
   toPublicPreflopTrainerQuestion,
   type AcademyPreflopTrainerSessionQuestion,
 } from "@/lib/academy/preflop-trainer";
+import { buildAcademyPreflopMixSession } from "@/lib/academy/preflop-mix";
 import {
   calculateAcademyCourseProgress,
   calculateAcademyModuleProgress,
@@ -586,8 +590,14 @@ export function verifyAcademyPreflopTrainerAttempt(
     if (!rawAnswer || typeof rawAnswer !== "object") {
       throw new AcademyValidationError("Попытка содержит некорректный ответ");
     }
-    return rawAnswer as { questionIndex?: unknown; selectedAction?: unknown; datasetId?: unknown; nodeKey?: unknown };
+    return rawAnswer as { questionIndex?: unknown; selectedAction?: unknown; datasetId?: unknown; nodeKey?: unknown; mode?: unknown };
   });
+  // Quick Mix attempts (same lesson code) carry `mode: "QUICK_MIX"` on every
+  // answer and are verified against the server-derived mix. Answers without a
+  // `mode` take the original fixed-node path below, unchanged.
+  if (answers.some((answer) => answer.mode !== undefined)) {
+    return verifyAcademyPreflopMixAnswers(input.attemptId, answers, context);
+  }
   const { datasetId, nodeKey } = answers[0];
   if (answers.some((answer) => answer.datasetId !== datasetId || answer.nodeKey !== nodeKey)) {
     throw new AcademyValidationError("Все ответы попытки должны относиться к одной ситуации");
@@ -605,6 +615,95 @@ export function verifyAcademyPreflopTrainerAttempt(
     }
     if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
     if (answer.selectedAction === session[index].resolvedAction) correctAnswers += 1;
+  });
+  return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
+}
+
+// ---------------------------------------------------------------------------
+// Quick Mix ("Быстрая тренировка") — same lesson code and trainer kind.
+//
+// The client never chooses a node: the session (10 nodes + hands + cards +
+// randomizers + resolved actions) is re-derived from (authenticated player,
+// attemptId) alone. Any datasetId / nodeKey in a request body is ignored by
+// serve and reveal; in a submitted answer it must equal the server-derived
+// node of that question or the attempt is rejected.
+// ---------------------------------------------------------------------------
+
+export type AcademyPreflopMixQuestionInput = {
+  readonly attemptId: string;
+  readonly questionIndex: unknown;
+};
+
+export type AcademyPreflopMixRevealInput = AcademyPreflopMixQuestionInput & {
+  readonly selectedAction: unknown;
+};
+
+function requirePreflopMixSession(
+  playerId: string | undefined,
+  attemptId: string,
+): readonly AcademyPreflopTrainerSessionQuestion[] {
+  if (getAcademyLessonByCode(ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE)?.trainerKind !== "PREFLOP_CONFIGURABLE_FREQUENCY") {
+    throw new Error("Academy catalog is missing the configurable preflop trainer");
+  }
+  if (!UUID_PATTERN.test(attemptId)) {
+    throw new AcademyValidationError("Некорректный идентификатор попытки");
+  }
+  if (typeof playerId !== "string" || playerId.length === 0) {
+    throw new AcademyValidationError("Попытка тренажёра требует авторизованного игрока");
+  }
+  return buildAcademyPreflopMixSession({ playerId, attemptId });
+}
+
+/** One Quick Mix question (answer-free); the node is server-derived. */
+export function getAcademyPreflopMixQuestion(
+  playerId: string,
+  input: AcademyPreflopMixQuestionInput,
+): AcademyPreflopTrainerPublicQuestion {
+  const session = requirePreflopMixSession(playerId, input.attemptId);
+  return toPublicPreflopTrainerQuestion(session[requireQuestionIndex(input.questionIndex)]);
+}
+
+/** Quick Mix reveal: re-derives node, hand, randomizer and resolved action. */
+export function revealAcademyPreflopMixAnswer(
+  playerId: string,
+  input: AcademyPreflopMixRevealInput,
+): AcademyPreflopTrainerReveal {
+  const session = requirePreflopMixSession(playerId, input.attemptId);
+  const question = session[requireQuestionIndex(input.questionIndex)];
+  const actionCodes = question.actions.map((action) => action.code);
+  if (!isSolverAction(input.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
+  return {
+    ...toPublicPreflopTrainerQuestion(question),
+    questionIndex: question.questionIndex,
+    frequencies: question.frequencies,
+    resolvedAction: question.resolvedAction,
+    selectedAction: input.selectedAction,
+    bucket: question.bucket,
+    matchesResolvedAction: input.selectedAction === question.resolvedAction,
+  };
+}
+
+function verifyAcademyPreflopMixAnswers(
+  attemptId: string,
+  answers: ReadonlyArray<{ questionIndex?: unknown; selectedAction?: unknown; datasetId?: unknown; nodeKey?: unknown; mode?: unknown }>,
+  context: AcademyAttemptVerificationContext,
+): AcademyTrainingResult {
+  if (answers.some((answer) => answer.mode !== ACADEMY_PREFLOP_QUICK_MIX_MODE)) {
+    throw new AcademyValidationError("Все ответы попытки должны относиться к одному режиму");
+  }
+  const session = requirePreflopMixSession(context.playerId, attemptId);
+  let correctAnswers = 0;
+  answers.forEach((answer, index) => {
+    const question = session[index];
+    if (answer.questionIndex !== undefined && answer.questionIndex !== index) {
+      throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
+    }
+    if (answer.datasetId !== question.spot.datasetId || answer.nodeKey !== question.spot.nodeKey) {
+      throw new AcademyValidationError("Ответ не относится к ситуации этого вопроса");
+    }
+    const actionCodes = question.actions.map((action) => action.code);
+    if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
+    if (answer.selectedAction === question.resolvedAction) correctAnswers += 1;
   });
   return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
 }

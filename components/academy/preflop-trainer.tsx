@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { AcademyPlayingCard } from "@/components/academy/academy-playing-card";
+import { PokerPositionTable } from "@/components/academy/poker-position-table";
 import { solverActionGridColumnsClass } from "@/components/academy/solver-training";
 import {
+  ACADEMY_PREFLOP_QUICK_MIX_MODE,
   ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
   ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE,
   preflopTrainerSpotRoute,
@@ -17,6 +19,7 @@ import {
 } from "@/lib/academy/solver-feedback";
 import type {
   AcademyLessonProgress,
+  AcademyPreflopQuickMixAnswer,
   AcademyPreflopTrainerAnswer,
   AcademyPreflopTrainerPublicQuestion,
   AcademyPreflopTrainerReveal,
@@ -59,6 +62,32 @@ function subscribeToHydration() {
   return () => undefined;
 }
 
+type PreflopTrainerAnyAnswer = AcademyPreflopTrainerAnswer | AcademyPreflopQuickMixAnswer;
+
+/**
+ * Where a session's questions come from and how its answers are shaped. The
+ * fixed-node trainer names its node in every request; Quick Mix sends only
+ * attemptId + questionIndex and echoes the server-derived node in answers.
+ */
+type PreflopTrainerSessionSource = {
+  readonly sessionUrl: string;
+  readonly revealUrl: string;
+  readonly questionBody: (attemptId: string, questionIndex: number) => Record<string, unknown>;
+  readonly revealBody: (attemptId: string, questionIndex: number, selectedAction: AcademySolverAction) => Record<string, unknown>;
+  readonly toAnswer: (
+    questionIndex: number,
+    selectedAction: AcademySolverAction,
+    question: AcademyPreflopTrainerPublicQuestion,
+  ) => PreflopTrainerAnyAnswer;
+  readonly backLabel: string;
+  readonly eyebrow?: string;
+  readonly passedLabel: string;
+  readonly resultLinks: ReactNode;
+};
+
+const SECONDARY_LINK_CLASS =
+  "mt-3 flex min-h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035] px-5 py-4 text-base font-medium text-white/70";
+
 /**
  * Configurable preflop trainer session. Questions come from
  * `/api/academy/solver/preflop/session` (no frequencies / resolved action),
@@ -67,37 +96,88 @@ function subscribeToHydration() {
  * `solver_preflop_trainer` lesson code; the node travels inside each answer.
  */
 export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelection }) {
+  const { datasetId, nodeKey, stackBb } = selection;
+  const source = useMemo<PreflopTrainerSessionSource>(() => ({
+    sessionUrl: "/api/academy/solver/preflop/session",
+    revealUrl: "/api/academy/solver/preflop/reveal",
+    questionBody: (attemptId, questionIndex) => ({ datasetId, nodeKey, attemptId, questionIndex }),
+    revealBody: (attemptId, questionIndex, selectedAction) => ({ datasetId, nodeKey, attemptId, questionIndex, selectedAction }),
+    toAnswer: (questionIndex, selectedAction) => ({ questionIndex, selectedAction, datasetId, nodeKey }),
+    backLabel: "← К выбору спота",
+    passedLabel: "Спот пройден",
+    resultLinks: (
+      <>
+        <Link href={preflopTrainerSpotRoute(stackBb, nodeKey)} className={SECONDARY_LINK_CLASS}>
+          Посмотреть диапазон
+        </Link>
+        <Link href={ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE} className={SECONDARY_LINK_CLASS}>
+          Выбрать другой спот
+        </Link>
+      </>
+    ),
+  }), [datasetId, nodeKey, stackBb]);
+  return <PreflopTrainerSession source={source} />;
+}
+
+/**
+ * "Быстрая тренировка": 10 questions, each from a server-chosen node
+ * (different stacks / situations / seats). The client never names a node:
+ * requests carry only attemptId + questionIndex; answers echo the node the
+ * server served (re-checked by the verifier) and are marked QUICK_MIX. Same
+ * lesson code as the fixed-node trainer.
+ */
+export function PreflopQuickMix() {
+  const source = useMemo<PreflopTrainerSessionSource>(() => ({
+    sessionUrl: "/api/academy/solver/preflop/mix/session",
+    revealUrl: "/api/academy/solver/preflop/mix/reveal",
+    questionBody: (attemptId, questionIndex) => ({ attemptId, questionIndex }),
+    revealBody: (attemptId, questionIndex, selectedAction) => ({ attemptId, questionIndex, selectedAction }),
+    toAnswer: (questionIndex, selectedAction, question) => ({
+      questionIndex,
+      selectedAction,
+      datasetId: question.spot.datasetId,
+      nodeKey: question.spot.nodeKey,
+      mode: ACADEMY_PREFLOP_QUICK_MIX_MODE,
+    }),
+    backLabel: "← Назад",
+    eyebrow: "Быстрая тренировка",
+    passedLabel: "Тренировка пройдена",
+    resultLinks: (
+      <Link href={ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE} className={SECONDARY_LINK_CLASS}>
+        Настроить спот
+      </Link>
+    ),
+  }), []);
+  return <PreflopTrainerSession source={source} />;
+}
+
+function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource }) {
   const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
   const [attemptId, setAttemptId] = useState<string>(makeAttemptId);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [question, setQuestion] = useState<AcademyPreflopTrainerPublicQuestion | null>(null);
   const [reveal, setReveal] = useState<AcademyPreflopTrainerReveal | null>(null);
-  const [answers, setAnswers] = useState<AcademyPreflopTrainerAnswer[]>([]);
+  const [answers, setAnswers] = useState<PreflopTrainerAnyAnswer[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AcademyTrainingResult | null>(null);
   const [updatedProgress, setUpdatedProgress] = useState<AcademyLessonProgress | null>(null);
   const [newBest, setNewBest] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
-  const { datasetId, nodeKey, stackBb } = selection;
-  const spotRoute = preflopTrainerSpotRoute(stackBb, nodeKey);
-
   const loadQuestion = useCallback(async (currentAttemptId: string, index: number) => {
     setPending(true);
     setError(null);
     try {
-      setQuestion(await postJson<AcademyPreflopTrainerPublicQuestion>("/api/academy/solver/preflop/session", {
-        datasetId,
-        nodeKey,
-        attemptId: currentAttemptId,
-        questionIndex: index,
-      }));
+      setQuestion(await postJson<AcademyPreflopTrainerPublicQuestion>(
+        source.sessionUrl,
+        source.questionBody(currentAttemptId, index),
+      ));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить вопрос");
     } finally {
       setPending(false);
     }
-  }, [datasetId, nodeKey]);
+  }, [source]);
 
   useEffect(() => {
     if (hydrated) void loadQuestion(attemptId, questionIndex);
@@ -108,15 +188,12 @@ export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelecti
     setPending(true);
     setError(null);
     try {
-      const revealed = await postJson<AcademyPreflopTrainerReveal>("/api/academy/solver/preflop/reveal", {
-        datasetId,
-        nodeKey,
-        attemptId,
-        questionIndex,
-        selectedAction,
-      });
+      const revealed = await postJson<AcademyPreflopTrainerReveal>(
+        source.revealUrl,
+        source.revealBody(attemptId, questionIndex, selectedAction),
+      );
       setReveal(revealed);
-      setAnswers((current) => [...current, { questionIndex, selectedAction, datasetId, nodeKey }]);
+      setAnswers((current) => [...current, source.toAnswer(questionIndex, selectedAction, question)]);
     } catch (answerError) {
       setError(answerError instanceof Error ? answerError.message : "Не удалось проверить ответ");
     } finally {
@@ -124,7 +201,7 @@ export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelecti
     }
   }
 
-  async function submitAttempt(completedAnswers: readonly AcademyPreflopTrainerAnswer[]) {
+  async function submitAttempt(completedAnswers: readonly PreflopTrainerAnyAnswer[]) {
     setSaveState("saving");
     setError(null);
     try {
@@ -180,7 +257,7 @@ export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelecti
       <main className="min-h-screen bg-[linear-gradient(180deg,#09100d,#070707)] px-4 py-6 pb-32 text-white">
         <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center">
           <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${result.passed ? "text-[#90c9a8]" : "text-[#d7b55a]"}`}>
-            {result.passed ? "Спот пройден" : "Продолжим тренировку"}
+            {result.passed ? source.passedLabel : "Продолжим тренировку"}
           </p>
           <h1 className="mt-3 text-3xl font-bold tracking-tight">Тренировка завершена</h1>
           <p className="mt-3 text-lg text-white/60">{result.feedback}</p>
@@ -205,18 +282,7 @@ export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelecti
           >
             Пройти ещё раз
           </button>
-          <Link
-            href={spotRoute}
-            className="mt-3 flex min-h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035] px-5 py-4 text-base font-medium text-white/70"
-          >
-            Посмотреть диапазон
-          </Link>
-          <Link
-            href={ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE}
-            className="mt-3 flex min-h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035] px-5 py-4 text-base font-medium text-white/70"
-          >
-            Выбрать другой спот
-          </Link>
+          {source.resultLinks}
         </div>
       </main>
     );
@@ -234,9 +300,10 @@ export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelecti
             href={ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE}
             className="inline-flex items-center rounded-full border border-white/[0.08] px-3.5 py-2 text-sm text-white/65"
           >
-            ← К выбору спота
+            {source.backLabel}
           </Link>
-          <p className="text-sm text-white/50">
+          <p className="whitespace-nowrap text-sm text-white/50">
+            {source.eyebrow ? <span className="mr-2 text-[#d7b55a]">{source.eyebrow}</span> : null}
             {questionIndex + 1} из {ACADEMY_TRAINING_QUESTION_COUNT}
           </p>
         </div>
@@ -262,24 +329,28 @@ export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelecti
             <h1 className="mt-4 text-2xl font-semibold tracking-tight">{spot.title}</h1>
             <p className="mt-1 text-sm text-white/55">{spot.history}</p>
 
-            <div className="mt-6 flex justify-center gap-3" aria-label={`Рука ${question.hand}`}>
+            {spot.scene ? (
+              <div className="mx-auto mt-3 max-w-[320px]">
+                <PokerPositionTable mode="TRAINING_SCENE" scene={spot.scene} stackBb={spot.stackBb} />
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex justify-center gap-3" aria-label={`Рука ${question.hand}`}>
               <AcademyPlayingCard card={question.renderedCards[0]} />
               <AcademyPlayingCard card={question.renderedCards[1]} />
             </div>
-            <p className="mt-3 text-center text-sm font-medium text-white/45">{question.hand}</p>
+            <p className="mt-2 text-center text-sm font-medium text-white/45">{question.hand}</p>
 
-            <div className="mt-5 flex items-center justify-center gap-2 text-sm text-white/60">
+            <div className="mt-3 flex items-center justify-center gap-2 text-sm text-white/60">
               <span>Рандомайзер</span>
               <span className="rounded-lg border border-[#d7b55a]/30 bg-[#d7b55a]/10 px-2.5 py-1 font-semibold tabular-nums text-[#e4c97a]">
                 {question.randomizerPercent}
               </span>
             </div>
-            <p className="mt-2 text-center text-xs text-white/40">
-              Сыграй по частотам стратегии: рандомайзер выбирает, какая часть смешанной стратегии выпала.
-            </p>
 
+            <p className="mt-4 text-center text-sm font-semibold text-white/80" data-testid="your-move">Твой ход</p>
             <div
-              className={`mt-6 grid ${solverActionGridColumnsClass(question.actions.length)} gap-3`}
+              className={`mt-3 grid ${solverActionGridColumnsClass(question.actions.length)} gap-3`}
               data-action-count={question.actions.length}
             >
               {question.actions.map((action) => {

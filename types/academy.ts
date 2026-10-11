@@ -470,9 +470,44 @@ export type AcademyPreflopTrainerSpotCopy = {
   readonly situationLabel: string;
 };
 
+/**
+ * Role of one seat in a trainer table scene. Lower-case display roles (never
+ * strategy action codes) so a public payload carries no action code outside
+ * its `actions` list.
+ */
+export type AcademyPreflopTableSeatRole = "hero" | "villain" | "folded" | "waiting";
+
+/** One seat of a table scene, in 9-max seat order (UTG … BB). */
+export type AcademyPreflopTableSceneSeat = {
+  /** Trainer seat code ("UTG", "UTG1", …, "BB"). */
+  readonly seat: string;
+  readonly role: AcademyPreflopTableSeatRole;
+  /**
+   * Short Russian label of the seat's most recent action BEFORE the decision
+   * ("Фолд", "Рейз", "3-бет", "Олл-ин"). Only actions implied by the node's own
+   * situation / hero / villain; never a size.
+   */
+  readonly actionLabel?: string;
+};
+
+/**
+ * Answer-free picture of a spot on the 9-max table: who the hero is, who
+ * the aggressor is, and which earlier actions the node itself implies.
+ */
+export type AcademyPreflopTableScene = {
+  readonly heroSeat: string;
+  readonly villainSeat?: string;
+  readonly seats: readonly AcademyPreflopTableSceneSeat[];
+};
+
+/** Public spot: descriptor + Russian copy + table scene (no frequencies). */
+export type AcademyPreflopTrainerPublicSpot = AcademyPreflopTrainerSpot & AcademyPreflopTrainerSpotCopy & {
+  readonly scene: AcademyPreflopTableScene;
+};
+
 /** Public question of the configurable trainer: Solver Lab public question + spot. */
 export type AcademyPreflopTrainerPublicQuestion = AcademySolverPublicQuestion & {
-  readonly spot: AcademyPreflopTrainerSpot & AcademyPreflopTrainerSpotCopy;
+  readonly spot: AcademyPreflopTrainerPublicSpot;
 };
 
 /** Returned only after the player answered one configurable-trainer question. */
@@ -493,4 +528,14 @@ export type AcademyPreflopTrainerReveal = AcademyPreflopTrainerPublicQuestion & 
 export type AcademyPreflopTrainerAnswer = AcademySolverAnswer & {
   readonly datasetId: string;
   readonly nodeKey: AcademyStrategyNodeKey;
+};
+
+/**
+ * One submitted Quick Mix answer (marker `mode: "QUICK_MIX"`, same lesson
+ * code as the fixed-node trainer). `datasetId` / `nodeKey` echo the node the
+ * SERVER derived for that question; the verifier re-derives it and rejects
+ * any mismatch. Only `selectedAction` is scored.
+ */
+export type AcademyPreflopQuickMixAnswer = AcademyPreflopTrainerAnswer & {
+  readonly mode: "QUICK_MIX";
 };

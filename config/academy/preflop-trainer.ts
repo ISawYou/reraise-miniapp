@@ -35,6 +35,15 @@ export const ACADEMY_PREFLOP_TRAINER_DATASET_IDS: readonly string[] = Object.fre
   ACADEMY_EXTERNAL_MTT_PREFLOP_100BB_DATASET_ID,
 ]);
 
+/**
+ * "Быстрая тренировка" (Quick Mix): 10 server-chosen nodes across stacks and
+ * situations. Records under the SAME lesson code; every answer carries
+ * `mode: ACADEMY_PREFLOP_QUICK_MIX_MODE` plus the server-derived node.
+ */
+export const ACADEMY_PREFLOP_QUICK_MIX_MODE = "QUICK_MIX" as const;
+
+export const ACADEMY_PREFLOP_QUICK_MIX_ROUTE = `${ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE}/mix`;
+
 /** Spot page route for one node: `/academy/solver/preflop/<stack>/<node_key lower-case>`. */
 export function preflopTrainerSpotRoute(stackBb: number, nodeKey: string): string {
   return `${ACADEMY_SOLVER_PREFLOP_TRAINER_ROUTE}/${stackBb}/${nodeKey.toLowerCase()}`;

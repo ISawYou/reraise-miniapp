@@ -1,12 +1,13 @@
-import { PreflopTrainerSetup } from "@/components/academy/preflop-trainer-setup";
+import { PreflopTrainerHome } from "@/components/academy/preflop-trainer-home";
 import { BackButton } from "@/components/ui/back-button";
 import { ACADEMY_SOLVER_LAB_COURSE_CODE, getAcademyCourse } from "@/config/academy/catalog";
 import { listAcademyPreflopTrainerSpots } from "@/lib/academy/preflop-trainer";
 
 /**
- * Solver Lab · "Префлоп-тренажёр" setup. The selectable options are derived
- * on the server from the registered datasets' real nodes and handed to the
- * client picker (spot descriptors only — no frequencies).
+ * Solver Lab · "Префлоп-тренажёр" home: "Быстрая тренировка" (no setup) first,
+ * "Настроить спот" second. The manual picker's options are derived on the
+ * server from the registered datasets' real nodes (spot descriptors only —
+ * no frequencies).
  */
 export default function AcademySolverPreflopTrainerPage() {
   const course = getAcademyCourse(ACADEMY_SOLVER_LAB_COURSE_CODE);
@@ -22,12 +23,11 @@ export default function AcademySolverPreflopTrainerPage() {
         </p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">Префлоп-тренажёр</h1>
         <p className="mt-3 text-sm leading-6 text-white/55">
-          Выбери стек, ситуацию и позиции. Доступны только споты, для которых есть частоты
-          стратегии. В каждой раздаче рандомайзер покажет, какая часть смешанной стратегии
-          выпала.
+          Решения по частотам стратегии для стеков 5–100 BB. В каждой раздаче рандомайзер
+          покажет, какая часть смешанной стратегии выпала.
         </p>
 
-        <PreflopTrainerSetup spots={spots} />
+        <PreflopTrainerHome spots={spots} />
       </div>
     </main>
   );

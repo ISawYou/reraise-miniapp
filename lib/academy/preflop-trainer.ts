@@ -22,7 +22,12 @@ import {
   ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
 } from "@/config/academy/preflop-trainer";
 import { getAcademyStrategyDataset } from "@/config/academy/solver-datasets";
-import { describePreflopTrainerSpot, localizePreflopTrainerAction } from "@/lib/academy/preflop-trainer-copy";
+import {
+  describePreflopTrainerSpot,
+  localizePreflopTrainerAction,
+  localizePreflopTrainerActionCopy,
+} from "@/lib/academy/preflop-trainer-copy";
+import { buildPreflopTableScene } from "@/lib/academy/preflop-table-scene";
 import { isAcademyPreflopTrainerSituation } from "@/lib/academy/preflop-trainer-selection";
 import {
   getAcademyStrategyNode,
@@ -34,9 +39,11 @@ import { createDeterministicRandom, deriveDeterministicUnit } from "@/lib/academ
 import { ACADEMY_SOLVER_QUESTION_COUNT, toPublicSolverAction } from "@/lib/academy/solver-training";
 import { renderStartingHand } from "@/lib/academy/training";
 import type {
+  AcademyPreflopTableScene,
   AcademyPreflopTrainerPublicQuestion,
+  AcademyPreflopTrainerPublicSpot,
+  AcademyPreflopTrainerSituation,
   AcademyPreflopTrainerSpot,
-  AcademyPreflopTrainerSpotCopy,
   AcademySolverAction,
   AcademySolverPublicAction,
   AcademyStrategyDataset,
@@ -130,11 +137,80 @@ export function requireAcademyPreflopTrainerSpotByStack(stackBb: unknown, nodeKe
   return requireAcademyPreflopTrainerSpot(spot.datasetId, spot.nodeKey);
 }
 
-/** Public spot + Russian copy (answer-free). */
-export function toPublicPreflopTrainerSpot(
-  spot: AcademyPreflopTrainerSpot,
-): AcademyPreflopTrainerSpot & AcademyPreflopTrainerSpotCopy {
-  return Object.freeze({ ...spot, ...describePreflopTrainerSpot(spot) });
+// ---------------------------------------------------------------------------
+// Table scene (prior actions implied by the node)
+// ---------------------------------------------------------------------------
+
+/** The situation whose aggressive action led to each situation. */
+const PREVIOUS_SITUATION: Readonly<Record<AcademyPreflopTrainerSituation, AcademyPreflopTrainerSituation | null>> = {
+  RFI: null,
+  FACING_OPEN: "RFI",
+  FACING_3BET: "FACING_OPEN",
+  FACING_4BET: "FACING_3BET",
+  FACING_5BET: "FACING_4BET",
+};
+
+/**
+ * Russian label ("Рейз", "3-бет", "Олл-ин", …) of the single aggressive
+ * action offered by a REAL node of the same dataset, localized for that
+ * node's situation and without any size. Undefined when the node does not
+ * exist or is ambiguous (zero or several aggressive actions) — the table then
+ * shows no label instead of a guess.
+ */
+function aggressiveActionLabel(
+  stackBb: number,
+  situation: AcademyPreflopTrainerSituation,
+  heroPosition: string,
+  villainPosition: string | undefined,
+): string | undefined {
+  const spot = listAcademyPreflopTrainerSpots().find((candidate) =>
+    candidate.stackBb === stackBb
+    && candidate.situation === situation
+    && candidate.heroPosition === heroPosition
+    && (candidate.villainPosition ?? null) === (villainPosition ?? null));
+  if (!spot) return undefined;
+  const { dataset, node } = requireAcademyPreflopTrainerSpot(spot.datasetId, spot.nodeKey);
+  const aggressive = getAcademyStrategyNodeActions(dataset, node)
+    .filter((action) => action.kind === "RAISE" || action.kind === "ALL_IN" || action.kind === "BET");
+  if (aggressive.length !== 1) return undefined;
+  return localizePreflopTrainerActionCopy({ code: aggressive[0].code, kind: aggressive[0].kind }, situation)?.button;
+}
+
+const sceneCache = new Map<string, AcademyPreflopTableScene>();
+
+/**
+ * Table scene for a spot. The villain's label comes from the node that
+ * created the hero's decision (FACING_OPEN_BB_VS_BTN ← RFI_BTN, FACING_3BET_H_VS_V
+ * ← FACING_OPEN_V_VS_H, …); the hero's label (facing a 3-/4-/5-bet) from the
+ * hero's own previous node (FACING_4BET_H_VS_V ← FACING_OPEN_H_VS_V, …).
+ */
+export function getPreflopTrainerSpotScene(spot: AcademyPreflopTrainerSpot): AcademyPreflopTableScene {
+  const cacheKey = `${spot.datasetId}:${spot.nodeKey}`;
+  const cached = sceneCache.get(cacheKey);
+  if (cached) return cached;
+  const previous = PREVIOUS_SITUATION[spot.situation];
+  const villainLabel = previous && spot.villainPosition
+    ? aggressiveActionLabel(spot.stackBb, previous, spot.villainPosition, previous === "RFI" ? undefined : spot.heroPosition)
+    : undefined;
+  const heroLabel = previous && previous !== "RFI" && spot.situation !== "FACING_OPEN"
+    ? aggressiveActionLabel(
+      spot.stackBb,
+      previous === "FACING_OPEN" ? "RFI" : PREVIOUS_SITUATION[previous]!,
+      spot.heroPosition,
+      previous === "FACING_OPEN" ? undefined : spot.villainPosition,
+    )
+    : undefined;
+  const scene = buildPreflopTableScene(spot, {
+    ...(villainLabel ? { villain: villainLabel } : {}),
+    ...(heroLabel ? { hero: heroLabel } : {}),
+  });
+  sceneCache.set(cacheKey, scene);
+  return scene;
+}
+
+/** Public spot + Russian copy + table scene (answer-free). */
+export function toPublicPreflopTrainerSpot(spot: AcademyPreflopTrainerSpot): AcademyPreflopTrainerPublicSpot {
+  return Object.freeze({ ...spot, ...describePreflopTrainerSpot(spot), scene: getPreflopTrainerSpotScene(spot) });
 }
 
 /** The node's actions as public display metadata with Russian copy, in resolver order. */
@@ -166,7 +242,7 @@ export type AcademyPreflopTrainerSessionQuestion = {
   readonly frequencies: AcademyStrategyHandFrequencies;
   readonly resolvedAction: AcademySolverAction;
   readonly actions: readonly AcademySolverPublicAction[];
-  readonly spot: AcademyPreflopTrainerSpot & AcademyPreflopTrainerSpotCopy;
+  readonly spot: AcademyPreflopTrainerPublicSpot;
 };
 
 function derivationParts(key: AcademyPreflopTrainerSessionKey): string[] {

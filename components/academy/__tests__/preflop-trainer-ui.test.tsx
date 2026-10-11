@@ -274,11 +274,11 @@ describe("(16) range grid for a configurable-trainer node", () => {
 });
 
 describe("pages", () => {
-  it("spot page shows the range view (collapsed) and links to the trainer; no EV / source claims", async () => {
+  it("spot page shows the range view (immediately, no disclosure) and links to the trainer; no EV / source claims", async () => {
     await render(await SpotPage({ params: Promise.resolve({ stack: "20", node: "facing_open_bb_vs_sb" }) }));
     const details = container.querySelector('[data-testid="range-view"]')!;
-    expect(details.tagName).toBe("DETAILS");
-    expect(details.textContent).toContain("Посмотреть диапазон");
+    expect(details.tagName).not.toBe("DETAILS");
+    expect(container.querySelector("details")).toBeNull();
     expect(details.querySelectorAll('[role="gridcell"]')).toHaveLength(169);
     expect(container.textContent).toContain("BB против SB");
     expect(container.textContent).toContain("Олл-ин 20 BB");
