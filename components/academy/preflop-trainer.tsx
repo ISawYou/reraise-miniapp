@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { solverActionGridColumnsClass } from "@/components/academy/solver-training";
 import {
-  TRAINER_PRIMARY_BUTTON_CLASS,
+  TRAINER_NEXT_BUTTON_CLASS,
   TrainerActionButtons,
   TrainerCompletionScreen,
   type TrainerCompletionLink,
@@ -161,21 +161,36 @@ export function revealedTableMoney(
  * from the selected actions. All attempts record under the one
  * `solver_preflop_trainer` lesson code; the node travels inside each answer.
  */
-export function PreflopTrainer({ selection }: { selection: PreflopTrainerSelection }) {
+/**
+ * Presentation of a fixed-node session opened from a ready-made training
+ * ("Готовые тренировки"), a lesson or "Продвинутым": its header label and back
+ * link only. Resolved on the server from whitelisted query params; it never
+ * affects which node is trained, the session or the scoring.
+ */
+export type PreflopTrainerContext = {
+  readonly eyebrow?: string;
+  readonly back?: { readonly href: string; readonly label: string };
+};
+
+export function PreflopTrainer({ selection, context }: { selection: PreflopTrainerSelection; context?: PreflopTrainerContext }) {
   const { datasetId, nodeKey, stackBb } = selection;
+  const backHref = context?.back?.href;
+  const backLabel = context?.back?.label;
+  const eyebrow = context?.eyebrow;
   const source = useMemo<PreflopTrainerSessionSource>(() => ({
     sessionUrl: "/api/academy/solver/preflop/session",
     revealUrl: "/api/academy/solver/preflop/reveal",
     questionBody: (attemptId, questionIndex) => ({ datasetId, nodeKey, attemptId, questionIndex }),
     revealBody: (attemptId, questionIndex, selectedAction) => ({ datasetId, nodeKey, attemptId, questionIndex, selectedAction }),
     toAnswer: (questionIndex, selectedAction) => ({ questionIndex, selectedAction, datasetId, nodeKey }),
-    back: SETUP_BACK,
+    back: backHref && backLabel ? { href: backHref, label: backLabel } : SETUP_BACK,
+    ...(eyebrow ? { eyebrow } : {}),
     passedLabel: "Спот пройден",
     resultLinks: [
       { href: ACADEMY_PREFLOP_SETUP_ROUTE, label: "Настроить другую ситуацию", testId: "setup" },
       { href: preflopTrainerSpotRoute(stackBb, nodeKey), label: "Посмотреть диапазон", testId: "range" },
     ],
-  }), [datasetId, nodeKey, stackBb]);
+  }), [datasetId, nodeKey, stackBb, backHref, backLabel, eyebrow]);
   return <PreflopTrainerSession source={source} />;
 }
 
@@ -427,7 +442,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
               onClick={handleNext}
               disabled={saveState === "saving"}
               data-testid="trainer-next"
-              className={TRAINER_PRIMARY_BUTTON_CLASS}
+              className={TRAINER_NEXT_BUTTON_CLASS}
             >
               {saveState === "saving"
                 ? "Сохраняем..."

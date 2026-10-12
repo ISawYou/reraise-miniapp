@@ -12,6 +12,7 @@ import { formatSizingBb } from "@/lib/academy/preflop-sizing";
 import type {
   AcademyPreflopTableMoney,
   AcademyPreflopTableMoneySeat,
+  AcademyPreflopTablePot,
   AcademyPreflopTableScene,
   AcademyPreflopTableSeatRole,
   PreflopPosition,
@@ -27,8 +28,9 @@ import type {
  *   `selectableSeats` are enabled, every other seat is a disabled button.
  * - `TRAINING_SCENE`: a portrait "seat view" sized for the phone screen —
  *   hero at the bottom centre (optionally with the hole cards on the felt),
- *   villain highlighted, and the earlier actions the node implies ("Фолд",
- *   "Рейз", "3-бет", …) shown as chips in front of the seats.
+ *   villain highlighted with its key action ("Рейз", "3-бет", "Олл-ин", …) as
+ *   a chip in front of the seat. Seats that folded are drawn as small, dim,
+ *   dashed capsules with NO action text (no "Фолд" around the table).
  * Seats are addressed by trainer seat codes ("UTG1", "BB") in the two
  * trainer modes and by lesson position in the two lesson modes.
  */
@@ -472,9 +474,27 @@ const SCENE_WIDTH = 360;
 const SCENE_HEIGHT = 384;
 const SCENE_CENTER_X = 180;
 const SCENE_CENTER_Y = 184;
-const PLATE = { width: 76, height: 40 } as const;
-const HERO_PLATE = { width: 124, height: 46 } as const;
+// Compact capsule seats (v2 polish). Every plate is centred on the SAME slot
+// centre as before and fits inside the previous 76×40 / 124×46 boxes, so all
+// earlier no-overlap guarantees (chips, bets, stacks, pot, cards) still hold.
+/** A seat still to act (or without a role). */
+const PLATE = { width: 66, height: 30 } as const;
+/** The active opponent: a little larger, with a "Соперник" caption. */
+const VILLAIN_PLATE = { width: 74, height: 36 } as const;
+/** A seat that already folded: smaller and quiet — no "Фолд" text anywhere. */
+const FOLDED_PLATE = { width: 58, height: 26 } as const;
+const HERO_PLATE = { width: 116, height: 42 } as const;
 const CHIP_HEIGHT = 20;
+
+/** Plate size of a seat role (hero, villain, folded, waiting). */
+export function trainingScenePlateSize(role: AcademyPreflopTableSeatRole): { readonly width: number; readonly height: number } {
+  switch (role) {
+    case "hero": return HERO_PLATE;
+    case "villain": return VILLAIN_PLATE;
+    case "folded": return FOLDED_PLATE;
+    default: return PLATE;
+  }
+}
 /** Top edge (viewBox units) of the hero-cards area on the felt, above the hero plate. */
 const HERO_CARDS_TOP = 242;
 
@@ -518,7 +538,8 @@ export const TRAINING_SCENE_FIT_MAX_HEIGHT =
 
 /** Top edge (viewBox units) of the highest seat plate of the scene. */
 export function trainingSceneTopSeatEdgeUnits(): number {
-  return Math.min(...SCENE_SLOTS.map((slot, index) => slot.y - (index === 0 ? HERO_PLATE.height : PLATE.height) / 2));
+  // Worst case: the tallest non-hero plate (the villain's) in a top slot.
+  return Math.min(...SCENE_SLOTS.map((slot, index) => slot.y - (index === 0 ? HERO_PLATE.height : VILLAIN_PLATE.height) / 2));
 }
 
 /**
@@ -589,35 +610,48 @@ export function trainingSceneSlotOf(seat: string, heroSeat: string): number {
   return (seatIndex - heroIndex + order.length) % order.length;
 }
 
+/**
+ * Action chips are drawn ONLY for the hero and the active villain (the key
+ * action: open / 3-bet / all-in). Folded seats get no chip at all — they are
+ * shown by their quiet plate alone (v2: no "Фолд" smeared around the table).
+ */
 const CHIP_LOOK = {
   hero: { fill: "#3a3218", stroke: "#d7b55a", text: "#f3dc93", weight: "800" },
   villain: { fill: "#4a1f22", stroke: "#e58a8e", text: "#ffd0d2", weight: "800" },
-  folded: { fill: "rgba(0,0,0,0.35)", stroke: "rgba(255,255,255,0.1)", text: "rgba(255,255,255,0.42)", weight: "500" },
 } as const;
 
+/** Folded seat: dark, dashed outline, dim label — present but out of the hand. */
 const SCENE_FOLDED_LOOK: SeatLook = {
-  fill: "#0d1210", stroke: "rgba(255,255,255,0.1)", strokeWidth: "1", text: "rgba(255,255,255,0.38)", weight: "600",
+  fill: "#0d1210", stroke: "rgba(255,255,255,0.09)", strokeWidth: "1", text: "rgba(255,255,255,0.3)", weight: "600",
 };
+
+/** Seats whose action chip is drawn (see `CHIP_LOOK`). */
+export function trainingSceneShowsActionChip(role: AcademyPreflopTableSeatRole): role is "hero" | "villain" {
+  return role === "hero" || role === "villain";
+}
 
 function chipWidth(label: string): number {
   return Math.max(46, Math.round(label.length * 7 + 18));
 }
 
+/** Felt (inner ellipse) radii: larger than before, so the seats sit on the rail. */
+export const TRAINING_SCENE_FELT = { rx: 131, ry: 159 } as const;
+
 function SceneFelt({ stackBb, center = true }: { stackBb?: number; center?: boolean }) {
   return (
     <>
       <defs>
-        <radialGradient id="academy-scene-felt" cx="50%" cy="42%" r="62%">
-          <stop offset="0" stopColor="#2b5c43" />
-          <stop offset="0.7" stopColor="#1a3f2d" />
-          <stop offset="1" stopColor="#10281d" />
+        <radialGradient id="academy-scene-felt" cx="50%" cy="44%" r="64%">
+          <stop offset="0" stopColor="#2d6046" />
+          <stop offset="0.72" stopColor="#1b412f" />
+          <stop offset="1" stopColor="#11291e" />
         </radialGradient>
       </defs>
-      <ellipse cx={SCENE_CENTER_X} cy={SCENE_CENTER_Y} rx="133" ry="161" fill="#070a08" stroke="#2a3b31" strokeWidth="12" />
-      <ellipse cx={SCENE_CENTER_X} cy={SCENE_CENTER_Y} rx="123" ry="151" fill="url(#academy-scene-felt)" stroke="#4f7561" strokeWidth="1.5" />
-      <ellipse cx={SCENE_CENTER_X} cy={SCENE_CENTER_Y} rx="94" ry="118" fill="none" stroke="rgba(255,255,255,0.07)" />
+      <ellipse cx={SCENE_CENTER_X} cy={SCENE_CENTER_Y} rx={TRAINING_SCENE_FELT.rx + 9} ry={TRAINING_SCENE_FELT.ry + 9} fill="#070a08" stroke="#26362d" strokeWidth="10" />
+      <ellipse cx={SCENE_CENTER_X} cy={SCENE_CENTER_Y} rx={TRAINING_SCENE_FELT.rx} ry={TRAINING_SCENE_FELT.ry} fill="url(#academy-scene-felt)" stroke="#4f7561" strokeWidth="1.5" />
+      <ellipse cx={SCENE_CENTER_X} cy={SCENE_CENTER_Y} rx={TRAINING_SCENE_FELT.rx - 31} ry={TRAINING_SCENE_FELT.ry - 37} fill="none" stroke="rgba(255,255,255,0.05)" />
       {center ? (
-        <text x={SCENE_CENTER_X} y="150" textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="9" fontWeight="700" letterSpacing="2.4">
+        <text x={SCENE_CENTER_X} y="150" textAnchor="middle" fill="rgba(255,255,255,0.16)" fontSize="9" fontWeight="700" letterSpacing="2.4">
           RERAISE
         </text>
       ) : null}
@@ -637,42 +671,46 @@ function SceneFelt({ stackBb, center = true }: { stackBb?: number; center?: bool
 
 function ScenePlate({ seat, slot, role }: { seat: string; slot: SceneSlot; role: AcademyPreflopTableSeatRole }) {
   const hero = role === "hero";
-  const size = hero ? HERO_PLATE : PLATE;
+  const villain = role === "villain";
+  const folded = role === "folded";
+  const size = trainingScenePlateSize(role);
   // Folded seats are dimmed with an OPAQUE plate (no group opacity), so the rail never shows through.
-  const look = hero ? LOOK.active : role === "villain" ? LOOK.villain : role === "folded" ? SCENE_FOLDED_LOOK : LOOK.idle;
-  const caption = hero ? "Ты" : role === "villain" ? "Соперник" : null;
+  const look = hero ? LOOK.active : villain ? LOOK.villain : folded ? SCENE_FOLDED_LOOK : LOOK.idle;
+  const caption = hero ? "Ты" : villain ? "Соперник" : null;
   return (
     <g
       transform={`translate(${slot.x - size.width / 2} ${slot.y - size.height / 2})`}
-      aria-label={`${seat}${hero ? ", ты" : role === "villain" ? ", соперник" : ""}`}
+      aria-label={`${seat}${hero ? ", ты" : villain ? ", соперник" : folded ? ", сбросил" : ""}`}
       data-table-seat={seat}
       data-scene-role={role}
+      data-seat-folded={folded ? "true" : undefined}
     >
       <rect
         width={size.width}
         height={size.height}
-        rx={hero ? 16 : 14}
+        rx={size.height / 2}
         fill={look.fill}
         stroke={look.stroke}
         strokeWidth={hero ? "2.5" : look.strokeWidth}
+        strokeDasharray={folded ? "3 2.5" : undefined}
       />
       <text
         x={size.width / 2}
-        y={caption ? (hero ? 21 : 18) : size.height / 2 + 5}
+        y={caption ? (hero ? 19 : 16) : size.height / 2 + (folded ? 4 : 4.5)}
         textAnchor="middle"
         fill={look.text}
-        fontSize={hero ? 17 : 14}
-        fontWeight={role === "folded" || role === "waiting" ? "600" : "800"}
+        fontSize={hero ? 16 : villain ? 13.5 : folded ? 11.5 : 13}
+        fontWeight={folded || role === "waiting" ? "600" : "800"}
       >
         {seat}
       </text>
       {caption ? (
         <text
           x={size.width / 2}
-          y={hero ? 37 : 32}
+          y={hero ? 34 : 29.5}
           textAnchor="middle"
           fill={hero ? "rgba(17,18,15,0.72)" : "#ffd0d2"}
-          fontSize={hero ? 11 : 9.5}
+          fontSize={hero ? 10.5 : 9}
           fontWeight="800"
           letterSpacing={hero ? "1.4" : "0.3"}
         >
@@ -683,7 +721,7 @@ function ScenePlate({ seat, slot, role }: { seat: string; slot: SceneSlot; role:
   );
 }
 
-function SceneChip({ seat, slot, role, label }: { seat: string; slot: SceneSlot; role: "hero" | "villain" | "folded"; label: string }) {
+function SceneChip({ seat, slot, role, label }: { seat: string; slot: SceneSlot; role: "hero" | "villain"; label: string }) {
   const look = CHIP_LOOK[role];
   const width = chipWidth(label);
   return (
@@ -693,7 +731,7 @@ function SceneChip({ seat, slot, role, label }: { seat: string; slot: SceneSlot;
       data-seat-role={role}
     >
       <rect width={width} height={CHIP_HEIGHT} rx={CHIP_HEIGHT / 2} fill={look.fill} stroke={look.stroke} strokeWidth="1.2" />
-      <text x={width / 2} y="14" textAnchor="middle" fill={look.text} fontSize={role === "folded" ? 10.5 : 12} fontWeight={look.weight}>
+      <text x={width / 2} y="14" textAnchor="middle" fill={look.text} fontSize="12" fontWeight={look.weight}>
         {label}
       </text>
     </g>
@@ -839,41 +877,79 @@ function BetMarker({ seat, spot, role }: { seat: AcademyPreflopTableMoneySeat; s
   );
 }
 
+/**
+ * Compact, honest pot + ante presentation (pure; rendering only). The pot
+ * POLICY is untouched (lib/academy/preflop-sizing.ts): an ambiguous ante is
+ * never added to a total. Only the wording changes — instead of a warning-style
+ * "Банк без анте" + "формат не указан" line, the felt reads like a real table:
+ * - EXACT, no ante:      pot "3.8 BB", no ante label;
+ * - EXACT, trusted ante: pot "4.7 BB" + "с анте", pill "Анте 0.1 BB с игрока";
+ * - WITHOUT_ANTE:        pot "3.8 BB" + "+ анте" (the ante is ON TOP, not in
+ *   the number), pill "Анте 1 BB" restating only what the source declares.
+ *   The source's caveat ("формат не указан") stays in the pill's tooltip and
+ *   in the screen-reader description — never dropped, just not shouted.
+ */
+export type TrainingSceneAntePresentation = {
+  /** Under the pot amount: "+ анте" / "с анте" / null. */
+  readonly potCaption: string | null;
+  /** Small pill above the pot, or null when there is no ante to label. */
+  readonly pill: string | null;
+  /** Full honest wording (tooltip + screen readers). */
+  readonly note: string | null;
+};
+
+export function trainingSceneAntePresentation(table: AcademyPreflopTableMoney): TrainingSceneAntePresentation {
+  const { pot, ante } = table;
+  if (pot.kind === "EXACT") {
+    if (pot.anteTotalBb <= 0) return { potCaption: null, pill: null, note: null };
+    const pill = ante?.kind === "PER_PLAYER"
+      ? `Анте ${formatSizingBb(ante.perPlayerBb)} BB с игрока`
+      : `Анте ${formatSizingBb(pot.anteTotalBb)} BB`;
+    return { potCaption: "с анте", pill, note: `Банк включает анте ${formatSizingBb(pot.anteTotalBb)} BB` };
+  }
+  const pill = ante?.kind === "AMBIGUOUS" && ante.declaredBb !== undefined
+    ? `Анте ${formatSizingBb(ante.declaredBb)} BB`
+    : ante?.kind === "AMBIGUOUS" ? "Анте: размер не указан" : "Анте";
+  return { potCaption: "+ анте", pill, note: `Анте не входит в сумму банка: ${pot.anteNote}` };
+}
+
 function PotBlock({ table }: { table: AcademyPreflopTableMoney }) {
   const box = TRAINING_SCENE_POT_BOX;
   const cx = box.x + box.width / 2;
   const exact = table.pot.kind === "EXACT";
   const amount = exact ? table.pot.totalBb : table.pot.knownBb;
+  const { potCaption } = trainingSceneAntePresentation(table);
   return (
     <g data-table-pot={table.pot.kind} data-pot-bb={amount}>
-      <rect x={box.x} y={box.y} width={box.width} height={box.height} rx="12" fill="rgba(0,0,0,0.28)" stroke="rgba(255,255,255,0.08)" />
-      <text x={cx} y={box.y + 13} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="9" fontWeight="700">
-        {exact ? "Банк" : "Банк без анте"}
+      <rect x={box.x} y={box.y} width={box.width} height={box.height} rx="14" fill="rgba(0,0,0,0.3)" stroke="rgba(255,255,255,0.08)" />
+      <text x={cx} y={box.y + 13} textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="9" fontWeight="700" letterSpacing="0.6">
+        Банк
       </text>
-      <text x={cx} y={box.y + 33} textAnchor="middle" fill="#ffffff" fontSize="19" fontWeight="800">
+      <text x={cx} y={box.y + (potCaption ? 32 : 35)} textAnchor="middle" fill="#ffffff" fontSize="19" fontWeight="800">
         {`${formatSizingBb(amount)} BB`}
       </text>
-      <text x={cx} y={box.y + 46} textAnchor="middle" fill="rgba(255,255,255,0.42)" fontSize="8.5" fontWeight="600">
-        {`старт ${formatSizingBb(table.startingStackBb)} BB`}
-      </text>
+      {potCaption ? (
+        <text x={cx} y={box.y + 45} textAnchor="middle" fill="#e4c97a" fontSize="9" fontWeight="700" data-pot-caption>
+          {potCaption}
+        </text>
+      ) : null}
     </g>
   );
 }
 
-function AnteNote({ note }: { note: string }) {
+function AntePill({ label, note, kind }: { label: string; note: string | null; kind: AcademyPreflopTablePot["kind"] }) {
   const box = TRAINING_SCENE_ANTE_NOTE_BOX;
+  const width = Math.min(box.width, textWidth(label, 5.2, 22));
+  const x = box.x + (box.width - width) / 2;
   return (
-    <text
-      x={box.x + box.width / 2}
-      y={box.y + 10}
-      textAnchor="middle"
-      fill="rgba(255,255,255,0.5)"
-      fontSize="8.5"
-      fontWeight="600"
-      data-ante-note
-    >
-      {note}
-    </text>
+    <g data-ante-note data-ante-kind={kind} transform={`translate(${x} ${box.y})`}>
+      {note ? <title>{note}</title> : null}
+      <rect width={width} height={box.height} rx={box.height / 2} fill="rgba(215,181,90,0.12)" stroke="rgba(215,181,90,0.35)" strokeWidth="0.8" />
+      <circle cx="8" cy={box.height / 2} r="2.6" fill="#d7b55a" />
+      <text x={(width + 8) / 2} y={box.height / 2 + 3.1} textAnchor="middle" fill="#e9d394" fontSize="8.5" fontWeight="700">
+        {label}
+      </text>
+    </g>
   );
 }
 
@@ -889,8 +965,8 @@ function moneyDescription(money: AcademyPreflopTableMoney, scene: AcademyPreflop
       return parts.join(", ");
     });
   const pot = money.pot.kind === "EXACT"
-    ? `банк ${formatSizingBb(money.pot.totalBb)} BB`
-    : `банк без анте ${formatSizingBb(money.pot.knownBb)} BB (${money.pot.anteNote})`;
+    ? `банк ${formatSizingBb(money.pot.totalBb)} BB${money.pot.anteTotalBb > 0 ? ", включая анте" : ""}`
+    : `банк ${formatSizingBb(money.pot.knownBb)} BB плюс анте (${money.pot.anteNote})`;
   return [...seatText, pot];
 }
 
@@ -903,6 +979,7 @@ function TrainingSceneTable({
   table,
 }: Omit<TrainingSceneProps, "mode">) {
   const money = presentation === "ADVANCED" ? table : undefined;
+  const anteLabel = money ? trainingSceneAntePresentation(money) : null;
   const bySeat = new Map(scene.seats.map((entry) => [entry.seat, entry]));
   const folded = scene.seats.filter((entry) => entry.role === "folded").map((entry) => entry.seat);
   const villain = scene.villainSeat ? bySeat.get(scene.villainSeat) : undefined;
@@ -948,7 +1025,7 @@ function TrainingSceneTable({
         >
           <SceneFelt stackBb={stackBb} center={!money} />
           {money ? <PotBlock table={money} /> : null}
-          {money?.pot.kind === "WITHOUT_ANTE" ? <AnteNote note={money.pot.anteNote} /> : null}
+          {anteLabel?.pill ? <AntePill label={anteLabel.pill} note={anteLabel.note} kind={money!.pot.kind} /> : null}
           {dealer ? (
             <g aria-hidden="true" data-dealer-button>
               <circle cx={dealer.x} cy={dealer.y} r="9" fill="#f4f1e6" stroke="#9c9682" strokeWidth="1" />
@@ -956,7 +1033,7 @@ function TrainingSceneTable({
             </g>
           ) : null}
           {seats.map((entry) => <ScenePlate key={entry.seat} seat={entry.seat} slot={entry.slot} role={entry.role} />)}
-          {seats.map((entry) => (entry.actionLabel && entry.role !== "waiting" ? (
+          {seats.map((entry) => (entry.actionLabel && trainingSceneShowsActionChip(entry.role) ? (
             <SceneChip
               key={`action-${entry.seat}`}
               seat={entry.seat}
@@ -968,7 +1045,7 @@ function TrainingSceneTable({
           {money ? seats.map((entry) => {
             const seatMoney = moneyBySeat.get(entry.seat);
             if (!seatMoney) return null;
-            const plateHeight = entry.role === "hero" ? HERO_PLATE.height : PLATE.height;
+            const plateHeight = trainingScenePlateSize(entry.role).height;
             return (
               <g key={`money-${entry.seat}`}>
                 {seatMoney.committedBb > 0 ? (

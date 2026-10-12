@@ -1,5 +1,13 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+import {
+  getAcademySpotProgressUnit,
+  isAcademySpotProgressCode,
+  listAcademySpotProgressCodes,
+  ACADEMY_SPOT_PROGRESS_UNITS,
+  type AcademySpotProgressUnit,
+} from "@/config/academy/spot-progress";
 import {
   getAcademyCourse,
   getAcademyLessonByCode,
@@ -31,6 +39,7 @@ import { getTeachingAction, isCanonicalStartingHand } from "@/lib/academy/preflo
 import {
   AcademyPreflopTrainerSelectionError,
   buildAcademyPreflopTrainerSession,
+  requireAcademyPreflopTrainerSpot,
   toPreflopTrainerReveal,
   toPublicPreflopTrainerQuestion,
   type AcademyPreflopTrainerSessionQuestion,
@@ -119,6 +128,18 @@ export type AcademyProgressPayload = {
  */
 export type AcademyProgressResponse = AcademyProgressPayload & {
   readonly courses?: readonly AcademyProgressPayload[];
+  /** Additive (v2): per-spot practice progress of the tracked spots (config/academy/spot-progress.ts). */
+  readonly spots?: readonly AcademySpotProgress[];
+};
+
+/** Progress of one tracked spot (practice in the configurable trainer's fixed-node mode). */
+export type AcademySpotProgress = {
+  readonly code: string;
+  readonly stackBb: number;
+  readonly nodeKey: string;
+  readonly passed: boolean;
+  readonly bestScorePercent: number;
+  readonly attemptsCount: number;
 };
 
 export type AcademyAllCoursesProgressPayload = {
@@ -196,10 +217,37 @@ export async function getAllAcademyCoursesProgress(
   };
 }
 
+/**
+ * Per-spot practice progress for every tracked spot (one row each; a spot
+ * never trained yet is `passed: false`, 0 attempts). Reads ONLY spot codes —
+ * catalog progress is untouched.
+ */
+export async function getAcademySpotProgress(
+  playerId: string,
+  repository: AcademyProgressRepository = academyProgressRepository,
+): Promise<readonly AcademySpotProgress[]> {
+  const rows = await repository.listCourseProgress(playerId, listAcademySpotProgressCodes());
+  const byCode = new Map(rows.map((row) => [row.lesson_code, row]));
+  return ACADEMY_SPOT_PROGRESS_UNITS.map((unit) => {
+    const row = byCode.get(unit.code);
+    return {
+      code: unit.code,
+      stackBb: unit.stackBb,
+      nodeKey: unit.nodeKey,
+      passed: row?.passed ?? false,
+      bestScorePercent: row?.best_score_percent ?? 0,
+      attemptsCount: row?.attempts_count ?? 0,
+    };
+  });
+}
+
 export async function getAcademyAdminProgress(
   repository: AcademyProgressRepository = academyProgressRepository,
 ): Promise<AcademyAdminProgressPayload> {
-  const rows = await repository.listAdminProgress();
+  // Spot-progress rows are derived duplicates of preflop-trainer attempts
+  // (config/academy/spot-progress.ts), not catalog lessons: the admin view
+  // stays exactly the catalog's.
+  const rows = (await repository.listAdminProgress()).filter((row) => !isAcademySpotProgressCode(row.lesson_code));
   const grouped = new Map<string, typeof rows>();
 
   for (const row of rows) {
@@ -954,6 +1002,32 @@ export function verifyAcademyAttempt(
   return verifier(input, context);
 }
 
+/**
+ * Deterministic UUID (RFC 4122 v5 layout, SHA-1 of attempt id + spot code) for
+ * the derived spot-progress record, so retries of the same attempt never
+ * double-count and the original attempt id is never reused for another code.
+ */
+export function deriveAcademySpotAttemptId(attemptId: string, spotCode: string): string {
+  const bytes = createHash("sha1").update(`academy-spot-progress:${attemptId.toLowerCase()}:${spotCode}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * Tracked spot of an ALREADY VERIFIED fixed-node preflop-trainer attempt, or
+ * null (Quick Mix answers carry `mode`; untracked nodes are ignored). Called
+ * only after `verifyAcademyAttempt` succeeded, which guarantees every answer
+ * names the same registered (datasetId, nodeKey).
+ */
+function verifiedFixedNodeSpotUnit(input: SubmitAcademyAttemptInput): AcademySpotProgressUnit | null {
+  const answers = input.questions as ReadonlyArray<{ datasetId?: unknown; nodeKey?: unknown; mode?: unknown }>;
+  if (answers.length === 0 || answers.some((answer) => answer.mode !== undefined)) return null;
+  const resolved = requireAcademyPreflopTrainerSpot(answers[0].datasetId, answers[0].nodeKey);
+  return getAcademySpotProgressUnit({ stackBb: resolved.spot.stackBb, nodeKey: resolved.spot.nodeKey });
+}
+
 export async function submitAcademyTrainingAttempt(
   playerId: string,
   input: SubmitAcademyAttemptInput,
@@ -970,6 +1044,21 @@ export async function submitAcademyTrainingAttempt(
     scorePercent: result.percentage,
     passed: result.passed,
   });
+
+  // Additive per-spot progress (config/academy/spot-progress.ts): the SAME
+  // verified score, recorded a second time under the tracked spot's code with
+  // a deterministic derived attempt id (idempotent on retries). Never changes
+  // `result` or the trainer's own row.
+  const spotUnit = lesson.code === ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE ? verifiedFixedNodeSpotUnit(input) : null;
+  if (spotUnit) {
+    await repository.recordCompletedAttempt({
+      attemptId: deriveAcademySpotAttemptId(input.attemptId, spotUnit.code),
+      playerId,
+      lessonCode: spotUnit.code,
+      scorePercent: result.percentage,
+      passed: result.passed,
+    });
+  }
 
   return {
     result,

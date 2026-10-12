@@ -190,12 +190,14 @@ describe("(2)(3) Quick Mix session UI", () => {
 describe("(12)(13) TRAINING_SCENE table", () => {
   const sceneOf = (stackBb: number, nodeKey: string) => toPublicPreflopTrainerSpot(requireAcademyPreflopTrainerSpotByStack(stackBb, nodeKey).spot).scene;
   const bubbles = () => Object.fromEntries($$("[data-seat-action]").map((node) => [node.dataset.seatAction, `${node.dataset.seatRole}:${node.textContent}`]));
+  /** v2: folded seats are quiet plates (role "folded", no action chip, no "Фолд" text). */
+  const foldedSeats = () => $$("[data-table-seat][data-scene-role=folded]").map((node) => node.dataset.tableSeat);
 
-  it("RFI node: hero highlighted, earlier seats 'Фолд', no villain, no label on later seats", async () => {
+  it("RFI node: hero highlighted, earlier seats folded quietly (no 'Фолд' chips), no villain, no label on later seats", async () => {
     await render(<PokerPositionTable mode="TRAINING_SCENE" scene={sceneOf(20, "RFI_CO")} stackBb={20} />);
-    expect(bubbles()).toEqual({
-      UTG: "folded:Фолд", UTG1: "folded:Фолд", UTG2: "folded:Фолд", LJ: "folded:Фолд", HJ: "folded:Фолд",
-    });
+    expect(bubbles()).toEqual({});
+    expect(foldedSeats()).toEqual(["UTG", "UTG1", "UTG2", "LJ", "HJ"]);
+    expect(container.textContent).not.toContain("Фолд");
     expect($('[data-table-seat="CO"] rect')!.getAttribute("fill")).toBe("#d7b55a");
     expect($('[role="img"]')!.getAttribute("aria-label")).toContain("Ты на CO");
     expect(container.textContent).not.toContain("Соперник");
@@ -203,10 +205,8 @@ describe("(12)(13) TRAINING_SCENE table", () => {
 
   it("facing-open node: derived 'Рейз' on the opener's seat, villain styled distinctly from hero", async () => {
     await render(<PokerPositionTable mode="TRAINING_SCENE" scene={sceneOf(40, "FACING_OPEN_BB_VS_BTN")} stackBb={40} />);
-    expect(bubbles()).toEqual({
-      UTG: "folded:Фолд", UTG1: "folded:Фолд", UTG2: "folded:Фолд", LJ: "folded:Фолд", HJ: "folded:Фолд", CO: "folded:Фолд",
-      BTN: "villain:Рейз", SB: "folded:Фолд",
-    });
+    expect(bubbles()).toEqual({ BTN: "villain:Рейз" });
+    expect(foldedSeats()).toEqual(["UTG", "UTG1", "UTG2", "LJ", "HJ", "CO", "SB"]);
     const heroFill = $('[data-table-seat="BB"] rect')!.getAttribute("fill");
     const villainFill = $('[data-table-seat="BTN"] rect')!.getAttribute("fill");
     expect(heroFill).toBe("#d7b55a");
@@ -217,7 +217,7 @@ describe("(12)(13) TRAINING_SCENE table", () => {
   it("never renders a size: 20 BB facing-open node (hero has 'Олл-ин 20 BB' button) shows only sizeless labels", async () => {
     await render(<PokerPositionTable mode="TRAINING_SCENE" scene={sceneOf(20, "FACING_OPEN_BB_VS_SB")} stackBb={20} />);
     for (const bubble of $$("[data-seat-action]")) {
-      expect(["Фолд", "Рейз", "3-бет", "4-бет", "5-бет", "Олл-ин"]).toContain(bubble.textContent);
+      expect(["Рейз", "3-бет", "4-бет", "5-бет", "Олл-ин"]).toContain(bubble.textContent);
       expect(bubble.textContent).not.toMatch(/\d\s*BB|BB/);
     }
     expect($('[data-seat-action="BB"]')).toBeNull();

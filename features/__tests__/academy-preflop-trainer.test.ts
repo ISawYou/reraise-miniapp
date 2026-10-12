@@ -99,7 +99,13 @@ describe("one lesson code for the whole configurable trainer", () => {
       expect(result.result).toMatchObject({ correctAnswers: 10, percentage: 100, passed: true });
       expect(result.progress.lessonCode).toBe(LESSON);
     }
-    expect(recorded.map((entry) => entry.lessonCode)).toEqual([LESSON, LESSON]);
+    // The trainer's own rows: one per attempt, always under the single lesson code.
+    // v2 (config/academy/spot-progress.ts): a TRACKED node (40 BB BB vs BTN) also
+    // gets ONE derived spot-progress row with the same score and a derived
+    // attempt id; the untracked 20 BB RFI_SB gets none.
+    expect(recorded.map((entry) => entry.lessonCode)).toEqual([LESSON, "spot_practice_40bb_facing_open_bb_vs_btn", LESSON]);
+    expect(recorded[1]).toMatchObject({ scorePercent: recorded[0].scorePercent, passed: recorded[0].passed });
+    expect(recorded[1].attemptId).not.toBe(ATTEMPT_ID);
     expect(recorded.every((entry) => entry.playerId === PLAYER_ID)).toBe(true);
   });
 

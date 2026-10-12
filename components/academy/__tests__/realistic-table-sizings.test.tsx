@@ -102,9 +102,18 @@ describe("ADVANCED table: stacks, committed chips, pot — readable for EVERY re
     expect(holder.querySelector('[data-seat-bet="SB"]')!.getAttribute("aria-label")).toBe("SB: 20 BB / ALL-IN");
     expect(holder.querySelector('[data-seat-bet="BB"]')!.textContent).toBe("1 BB");
     expect(holder.querySelector('[data-seat-bet="BB"]')!.getAttribute("data-blind")).toBe("BB");
+    // Pot policy unchanged: the ambiguous ante is NOT in the number (23 = 2 + 20 + 1, not 24).
     expect(holder.querySelector("[data-table-pot]")!.getAttribute("data-table-pot")).toBe("WITHOUT_ANTE");
-    expect(holder.querySelector("[data-table-pot]")!.textContent).toBe("Банк без анте23 BBстарт 20 BB");
-    expect(holder.querySelector("[data-ante-note]")!.textContent).toBe("Анте 1 BB · формат не указан");
+    expect(holder.querySelector("[data-table-pot]")!.getAttribute("data-pot-bb")).toBe("23");
+    // v2 presentation: "Банк 23 BB + анте" (ante on top, not folded in) instead of
+    // the warning-style "Банк без анте … старт 20 BB" + a separate disclaimer line.
+    expect(holder.querySelector("[data-table-pot]")!.textContent).toBe("Банк23 BB+ анте");
+    const ante = holder.querySelector("[data-ante-note]")!;
+    expect(ante.getAttribute("data-ante-kind")).toBe("WITHOUT_ANTE");
+    expect(ante.querySelector("text")!.textContent).toBe("Анте 1 BB");
+    // The source's caveat is kept verbatim (tooltip + screen readers), just not shouted on the felt.
+    expect(ante.querySelector("title")!.textContent).toContain("Анте 1 BB · формат не указан");
+    expect(holder.querySelector('[role="img"]')!.getAttribute("aria-label")).toContain("банк 23 BB плюс анте (Анте 1 BB · формат не указан)");
     // The action chip says "Олл-ин"; the amount lives in the chip marker.
     expect(holder.querySelector('[data-seat-action="SB"]')!.textContent).toBe("Олл-ин");
     // Folded seats show no stack numbers.

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
   getAcademyCourseProgress,
+  getAcademySpotProgress,
   getAllAcademyCoursesProgress,
   type AcademyProgressResponse,
 } from "@/features/academy";
@@ -13,12 +14,14 @@ export async function GET(request: NextRequest) {
 
   try {
     // Top-level fields keep the original single-course (База MTT) shape;
-    // `courses` is additive: one payload per catalog course.
-    const [primary, all] = await Promise.all([
+    // `courses` is additive: one payload per catalog course; `spots` is
+    // additive too: per-spot practice progress (config/academy/spot-progress.ts).
+    const [primary, all, spots] = await Promise.all([
       getAcademyCourseProgress(player.id),
       getAllAcademyCoursesProgress(player.id),
+      getAcademySpotProgress(player.id),
     ]);
-    const payload: AcademyProgressResponse = { ...primary, courses: all.courses };
+    const payload: AcademyProgressResponse = { ...primary, courses: all.courses, spots };
     return NextResponse.json(payload);
   } catch (error) {
     console.error("[academy-progress] Failed to load progress:", error);

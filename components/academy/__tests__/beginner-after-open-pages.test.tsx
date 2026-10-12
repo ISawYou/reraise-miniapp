@@ -30,6 +30,7 @@ const { default: LessonPage, generateStaticParams } = await import("@/app/academ
 const { ACADEMY_BEGINNER_AFTER_OPEN_LESSONS, ACADEMY_BEGINNER_TERMS, beginnerAfterOpenLessonRoute } = await import("@/config/academy/beginner-after-open");
 const { getPrimaryAcademyCourse } = await import("@/config/academy/catalog");
 const { preflopTrainerTrainRoute } = await import("@/config/academy/preflop-trainer");
+const { academyTrainingPresetForLesson } = await import("@/config/academy/training-presets");
 const { ACADEMY_PREFLOP_POSITIONS } = await import("@/lib/academy/preflop");
 const { formatSizingBb, formatSizingBbLabel } = await import("@/lib/academy/preflop-sizing");
 const { getPreflopTrainerSpotHandState, requireAcademyPreflopTrainerSpotByStack } = await import("@/lib/academy/preflop-trainer");
@@ -107,8 +108,11 @@ describe("/academy/beginner: Шаг 1 / Шаг 2", () => {
     expect(step1.textContent).toContain("7 из 7");
     expect(step1.textContent).toContain("100%");
     expect(step1.textContent!.match(/Пройдено/g)).toHaveLength(7);
-    // Step 2 shows no fabricated completion counter (its lessons record nothing of their own).
-    expect($('[data-beginner-step="2"]')!.textContent).not.toMatch(/из \d+|Пройдено|%/);
+    // v2: Step 2 has its OWN real counter (per-spot practice progress), fed only by
+    // `spots` — the 7 opening lessons never leak into it (0 из 5, nothing passed).
+    const step2 = $('[data-beginner-step="2"]')!;
+    expect(step2.querySelector('[data-testid="step-two-progress"]')!.textContent).toContain("0 из 5");
+    expect(step2.textContent).not.toMatch(/7 из|Пройдено/);
   });
 
   it("no solver / architecture jargon at the selection level", async () => {
@@ -125,7 +129,7 @@ describe("Шаг 2 lesson pages", () => {
   });
 
   it.each(ACADEMY_BEGINNER_AFTER_OPEN_LESSONS.map((lesson) => [lesson.slug, lesson] as const))(
-    "%s: realistic table, trusted facts, Потренироваться → that node's trainer, real range grid, glossary",
+    "%s: realistic table, trusted facts, Потренироваться → the lesson's own preset on that node's trainer, real range grid, glossary",
     async (_slug, lesson) => {
       await render(await lessonPage(lesson.slug));
       const { spot } = requireAcademyPreflopTrainerSpotByStack(lesson.spot.stackBb, lesson.spot.nodeKey);
@@ -137,13 +141,20 @@ describe("Шаг 2 lesson pages", () => {
       expect(table.querySelector('[data-seat-bet="SB"]')?.getAttribute("data-committed-bb")).toBe(String(state.committedBb.SB));
       expect(table.querySelector('[data-seat-bet="BB"]')?.getAttribute("data-committed-bb")).toBe(String(state.committedBb.BB));
       expect(table.querySelector(`[data-seat-stack="${spot.heroPosition}"]`)).not.toBeNull();
-      // Conservative ante: the MTT reference ante is ambiguous → pot without ante + separate note.
+      // Conservative ante: the MTT reference ante is ambiguous → pot without ante + separate ante label.
       expect(table.querySelector("[data-table-pot]")?.getAttribute("data-table-pot")).toBe("WITHOUT_ANTE");
       expect(table.querySelector("[data-ante-note]")).not.toBeNull();
-      // CTA = the exact node's existing trainer route, above the range grid.
+      // v2 CTA = the lesson's OWN ready-made training: the exact node's existing trainer
+      // route + `?preset=<id>&from=lesson` (header + "К уроку" back link only), above the grid.
       const practice = $('[data-testid="lesson-practice"]')!;
       expect(practice.textContent).toBe("Потренироваться");
-      expect(practice.getAttribute("href")).toBe(preflopTrainerTrainRoute(lesson.spot.stackBb, lesson.spot.nodeKey));
+      const preset = academyTrainingPresetForLesson(lesson.slug)!;
+      expect(preset.lessonSlug).toBe(lesson.slug);
+      expect([preset.stackBb, preset.nodeKey]).toEqual([lesson.spot.stackBb, lesson.spot.nodeKey]);
+      expect(practice.getAttribute("data-practice-preset")).toBe(preset.id);
+      expect(practice.getAttribute("href")).toBe(
+        `${preflopTrainerTrainRoute(lesson.spot.stackBb, lesson.spot.nodeKey)}?preset=${preset.id}&from=lesson`);
+      expect(practice.getAttribute("href")).not.toBe("/academy/trainers");
       const grid = $('[data-testid="range-view"]')!;
       expect(practice.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(grid.textContent).toContain("Какие руки так играем");
@@ -180,12 +191,14 @@ describe("Шаг 2 lesson pages", () => {
     expect($('[data-testid="lesson-compare"]')!.getAttribute("href")).toBe("/academy/solver/preflop/40/facing_open_bb_vs_utg");
   });
 
-  it("facing a 3-bet: both contributions drawn, pot shown as 'Банк без анте'", async () => {
+  it("facing a 3-bet: both contributions drawn, pot shown as 'X BB + анте' (ante never added)", async () => {
     await render(await lessonPage("facing-three-bet"));
     const state = getPreflopTrainerSpotHandState(requireAcademyPreflopTrainerSpotByStack(40, "FACING_3BET_CO_VS_BTN").spot)!;
     expect($('[data-seat-bet="CO"]')!.getAttribute("data-committed-bb")).toBe(String(state.heroCommittedBb));
     expect($('[data-seat-bet="BTN"]')!.getAttribute("data-committed-bb")).toBe(String(state.villainCommittedBb));
-    expect($('[data-fact="POT"]')!.textContent).toContain("Банк без анте");
-    expect($('[data-table-pot]')!.textContent).toContain("Банк без анте");
+    const pot = $('[data-table-pot]')!;
+    expect($('[data-fact="POT"]')!.textContent).toBe(`Банк${formatSizingBbLabel(Number(pot.getAttribute("data-pot-bb")))} + анте`);
+    expect(pot.getAttribute("data-table-pot")).toBe("WITHOUT_ANTE");
+    expect(pot.textContent).toContain("+ анте");
   });
 });

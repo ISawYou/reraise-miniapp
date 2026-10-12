@@ -97,11 +97,15 @@ function timesPhrase(value: number): string {
   return Number.isInteger(whole) && (whole < 2 || whole > 4) ? `в ${text} раз` : `в ${text} раза`;
 }
 
+/**
+ * Pot fact. An ambiguous ante is still NEVER added to the number (same policy
+ * as the table): the value reads "3.8 BB + анте" — the ante is on top.
+ */
 function potValue(pot: AcademyPreflopTablePot | undefined): { label: string; value: string } | null {
   if (!pot) return null;
   return pot.kind === "EXACT"
     ? { label: "Банк", value: bb(pot.totalBb) }
-    : { label: "Банк без анте", value: bb(pot.knownBb) };
+    : { label: "Банк", value: `${bb(pot.knownBb)} + анте` };
 }
 
 function potBbOf(pot: AcademyPreflopTablePot | undefined): number | undefined {
@@ -120,9 +124,9 @@ function uniqueTerms(terms: readonly AcademyBeginnerTermCode[]): AcademyBeginner
   return terms.filter((term, index) => terms.indexOf(term) === index);
 }
 
-/** " (без анте)" when the dataset's ante cannot be safely added to the pot. */
+/** " плюс анте" when the dataset's ante cannot be safely added to the pot (never folded into the number). */
 function potSuffix(pot: AcademyPreflopTablePot | undefined): string {
-  return pot?.kind === "WITHOUT_ANTE" ? " (без анте)" : "";
+  return pot?.kind === "WITHOUT_ANTE" ? " плюс анте" : "";
 }
 
 function hasActionKind(view: AcademyBeginnerLessonSpotView, kind: AcademySolverPublicAction["kind"]): boolean {

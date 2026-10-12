@@ -558,7 +558,20 @@ export type AcademyPreflopTableMoney = {
   readonly pot: AcademyPreflopTablePot;
   /** Chips the hero needs to call the current bet (absent when nothing to call beyond the blind). */
   readonly toCallBb?: number;
+  /**
+   * PRESENTATION ONLY: the dataset's resolved ante semantics (structurally
+   * `AcademyAnteSemantics` from lib/academy/preflop-sizing.ts), so the table can
+   * label the ante compactly ("Анте 1 BB") without ever changing the pot
+   * policy above — an ambiguous ante is still never added to a total.
+   */
+  readonly ante?: AcademyPreflopTableAnte;
 };
+
+/** See `AcademyAnteSemantics` (lib/academy/preflop-sizing.ts) — same shape. */
+export type AcademyPreflopTableAnte =
+  | { readonly kind: "NONE" }
+  | { readonly kind: "PER_PLAYER"; readonly perPlayerBb: number; readonly totalBb: number }
+  | { readonly kind: "AMBIGUOUS"; readonly declaredBb?: number };
 
 /** Public spot: descriptor + Russian copy + table scene (no frequencies). */
 export type AcademyPreflopTrainerPublicSpot = AcademyPreflopTrainerSpot & AcademyPreflopTrainerSpotCopy & {

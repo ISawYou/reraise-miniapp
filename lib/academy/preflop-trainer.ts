@@ -246,7 +246,10 @@ export function getPreflopTrainerSpotTableMoney(spot: AcademyPreflopTrainerSpot)
   const state = getPreflopTrainerSpotHandState(spot);
   if (!state) return undefined;
   const dataset = getAcademyStrategyDataset(spot.datasetId);
-  return buildPreflopTableMoney(state, resolveAnteSemantics(dataset.assumptions, dataset.metadata.tableSize));
+  const ante = resolveAnteSemantics(dataset.assumptions, dataset.metadata.tableSize);
+  // The pot policy is decided by `buildPreflopTableMoney` alone; `ante` only
+  // travels along so the table can label it (presentation, never a total).
+  return Object.freeze({ ...buildPreflopTableMoney(state, ante), ante });
 }
 
 /** Public spot + Russian copy (history with trusted sizes) + table scene + table money (answer-free). */

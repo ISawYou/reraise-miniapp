@@ -468,5 +468,7 @@ export function withHeroAllIn(money: AcademyPreflopTableMoney, heroSeat: string)
       ? Object.freeze({ ...seat, committedBb: money.startingStackBb, allIn: true, remainingBb: 0 })
       : seat))),
     pot: Object.freeze(pot),
+    // Presentation-only ante label travels unchanged (never part of the math).
+    ...(money.ante ? { ante: money.ante } : {}),
   });
 }

@@ -195,8 +195,11 @@ describe("(23) shared PokerPositionTable renders Push/Fold scenes without a fork
   it("first-in BTN: hero highlighted, earlier seats folded, blinds unlabelled", async () => {
     const scene = getPushFoldSpotScene(requireAcademyPushFoldSpotByStack(10, "FIRST_IN_SHOVE_BTN").spot);
     await render(<PokerPositionTable mode="TRAINING_SCENE" scene={scene} stackBb={10} />);
-    expect(container.querySelector('[data-seat-action="CO"]')?.textContent).toBe("Фолд");
-    expect(container.querySelector('[data-seat-action="UTG2"]')?.getAttribute("data-seat-role")).toBe("folded");
+    // v2: folded seats are quiet plates — role "folded", no "Фолд" chip.
+    expect(container.querySelector('[data-table-seat="CO"]')?.getAttribute("data-scene-role")).toBe("folded");
+    expect(container.querySelector('[data-table-seat="UTG2"]')?.getAttribute("data-scene-role")).toBe("folded");
+    expect(container.querySelector('[data-seat-action="CO"]')).toBeNull();
+    expect(container.textContent).not.toContain("Фолд");
     expect(container.querySelector('[data-seat-action="BTN"]')).toBeNull();
     expect(container.querySelector('[data-seat-action="SB"]')).toBeNull();
     expect(container.querySelector('[data-table-seat="BTN"]')?.getAttribute("aria-label")).toBe("BTN, ты");
@@ -209,8 +212,10 @@ describe("(23) shared PokerPositionTable renders Push/Fold scenes without a fork
     expect(container.querySelector('[data-seat-action="CO"]')?.textContent).toBe("Олл-ин");
     expect(container.querySelector('[data-table-seat="CO"]')?.getAttribute("aria-label")).toBe("CO, соперник");
     expect(container.querySelector('[data-table-seat="BB"]')?.getAttribute("aria-label")).toBe("BB, ты");
-    expect(container.querySelector('[data-seat-action="BTN"]')?.textContent).toBe("Фолд");
-    expect(container.querySelector('[data-seat-action="SB"]')?.textContent).toBe("Фолд");
+    expect(container.querySelector('[data-table-seat="BTN"]')?.getAttribute("data-scene-role")).toBe("folded");
+    expect(container.querySelector('[data-table-seat="SB"]')?.getAttribute("data-scene-role")).toBe("folded");
+    expect(container.querySelector('[data-seat-action="BTN"]')).toBeNull();
+    expect(container.querySelector('[data-seat-action="SB"]')).toBeNull();
   });
 });
 

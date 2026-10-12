@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { AcademyModuleLessons } from "@/components/academy/academy-module-lessons";
 import { AcademyNextStepLink, AcademyPageHeader } from "@/components/academy/academy-page-header";
+import { AcademyStepLessonList } from "@/components/academy/academy-spot-progress";
 import {
   ACADEMY_BEGINNER_AFTER_OPEN_LESSONS,
   beginnerAfterOpenLessonRoute,
@@ -12,6 +12,7 @@ import {
   ACADEMY_TRAINERS_ROUTE,
   requireAcademyDestination,
 } from "@/config/academy/navigation";
+import { academySpotProgressCode } from "@/config/academy/spot-progress";
 
 const destination = requireAcademyDestination("beginner");
 const course = getAcademyCourse(destination.courseCode!);
@@ -54,6 +55,8 @@ function StepHeading({ step, title, description }: { step: number; title: string
  *   `/academy/preflop/[position]` URLs, same progress ("X из 7");
  * - Шаг 2: the separate "after the open" block (config/academy/beginner-after-open.ts),
  *   which is NOT part of any catalog course, so Шаг 1's totals never change.
+ *   Its progress is per-spot practice progress (config/academy/spot-progress.ts):
+ *   a lesson counts once its own ready-made training scored ≥ 80%.
  */
 export default function AcademyBeginnerPage() {
   return (
@@ -88,25 +91,16 @@ export default function AcademyBeginnerPage() {
 
         <section id={STEPS[1].id} className="mt-10 scroll-mt-4" data-beginner-step="2" aria-label={`Шаг 2. ${STEPS[1].title}`}>
           <StepHeading {...STEPS[1]} />
-          <div className="mt-5 space-y-2.5">
-            {ACADEMY_BEGINNER_AFTER_OPEN_LESSONS.map((lesson) => (
-              <Link
-                key={lesson.code}
-                href={beginnerAfterOpenLessonRoute(lesson.slug)}
-                data-after-open-lesson={lesson.slug}
-                className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-3.5 active:bg-white/[0.09]"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#315f48] text-sm font-semibold text-white">
-                  {lesson.order}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[17px] font-semibold leading-6 text-white">{lesson.title}</span>
-                  <span className="mt-0.5 block text-[13px] leading-5 text-white/50">{lesson.subtitle}</span>
-                </span>
-                <span aria-hidden="true" className="text-lg text-white/35">→</span>
-              </Link>
-            ))}
-          </div>
+          <AcademyStepLessonList
+            lessons={ACADEMY_BEGINNER_AFTER_OPEN_LESSONS.map((lesson) => ({
+              slug: lesson.slug,
+              order: lesson.order,
+              title: lesson.title,
+              subtitle: lesson.subtitle,
+              href: beginnerAfterOpenLessonRoute(lesson.slug),
+              progressCode: academySpotProgressCode(lesson.spot),
+            }))}
+          />
         </section>
 
         <section className="mt-8" aria-label="Что дальше">

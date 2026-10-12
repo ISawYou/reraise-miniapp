@@ -9,6 +9,7 @@ import {
   beginnerAfterOpenLessonRoute,
 } from "@/config/academy/beginner-after-open";
 import { ACADEMY_BEGINNER_ROUTE } from "@/config/academy/navigation-routes";
+import { academyTrainingPresetForLesson, academyTrainingPresetRoute } from "@/config/academy/training-presets";
 import { getBeginnerAfterOpenLessonView } from "@/lib/academy/beginner-after-open";
 
 type BeginnerAfterOpenLessonPageProps = {
@@ -22,8 +23,9 @@ export function generateStaticParams() {
 /**
  * "Новичкам · Шаг 2" lesson: short plain-language explanation of ONE real
  * node, the realistic table (stacks / chips / pot), a "Потренироваться"
- * deep link into the existing trainer route of that exact node, and the
- * node's real range grid.
+ * deep link into the lesson's OWN ready-made training (config/academy/training-presets.ts:
+ * the existing trainer route of that exact node, opened with the preset's
+ * header and a "К уроку" back link), and the node's real range grid.
  */
 export default async function BeginnerAfterOpenLessonPage({ params }: BeginnerAfterOpenLessonPageProps) {
   const { lesson: slug } = await params;
@@ -31,6 +33,9 @@ export default async function BeginnerAfterOpenLessonPage({ params }: BeginnerAf
   if (!view) notFound();
 
   const { lesson, main, compare, paragraphs, facts, terms, next } = view;
+  const preset = academyTrainingPresetForLesson(lesson.slug);
+  // The preset names this lesson's own node (pinned by a test); fall back to the plain node route.
+  const practiceHref = preset ? academyTrainingPresetRoute(preset, "lesson") : main.practiceHref;
   const [lead, ...rest] = paragraphs;
 
   return (
@@ -75,13 +80,16 @@ export default async function BeginnerAfterOpenLessonPage({ params }: BeginnerAf
         <p className="mt-4 text-[15px] leading-6 text-white/80" data-testid="lesson-lead">{lead}</p>
 
         <Link
-          href={main.practiceHref}
+          href={practiceHref}
           data-testid="lesson-practice"
+          data-practice-preset={preset?.id}
           className="mt-5 flex min-h-14 items-center justify-center rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f] active:bg-[#e2c66f]"
         >
           Потренироваться
         </Link>
-        <p className="mt-2 text-center text-xs text-white/40">10 раздач в этой же ситуации</p>
+        <p className="mt-2 text-center text-xs text-white/40">
+          {preset ? `Готовая тренировка «${preset.title}» · 10 раздач` : "10 раздач в этой же ситуации"}
+        </p>
 
         {rest.length > 0 ? (
           <section className="mt-5 rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4" data-testid="lesson-text">

@@ -121,7 +121,9 @@ export type AcademyTrainerEntry = {
 
 /**
  * "Тренажёры" entries. "Быстрая тренировка" links straight to the running
- * Preflop Quick Mix session (no intermediate page). "Короткий стек" is a
+ * Preflop Quick Mix session (no intermediate page). The ready-made trainings
+ * between it and the manual entries live in config/academy/training-presets.ts.
+ * "Таблицы короткого стека" is a
  * NON-SCORED reference while the HoldemMath multiway data is unvalidated
  * (docs/ACADEMY_PUSH_FOLD_AUDIT.md) — its copy must not promise scored training.
  */
@@ -129,7 +131,7 @@ export const ACADEMY_TRAINER_ENTRIES: readonly AcademyTrainerEntry[] = Object.fr
   Object.freeze({
     code: "quick-mix",
     title: "Быстрая тренировка",
-    description: "Разные префлоп-ситуации, 10 раздач",
+    description: "10 раздач из разных ситуаций и стеков",
     route: ACADEMY_PREFLOP_QUICK_MIX_ROUTE,
     cta: "Начать",
     kind: "scored",
@@ -137,8 +139,8 @@ export const ACADEMY_TRAINER_ENTRIES: readonly AcademyTrainerEntry[] = Object.fr
   }),
   Object.freeze({
     code: "setup",
-    title: "Выбрать ситуацию",
-    description: "Стек, позиция и действие соперника",
+    title: "Выбрать ситуацию самому",
+    description: "Стек, твоя позиция и действие соперника",
     route: ACADEMY_PREFLOP_SETUP_ROUTE,
     cta: "Настроить",
     kind: "scored",
@@ -146,10 +148,10 @@ export const ACADEMY_TRAINER_ENTRIES: readonly AcademyTrainerEntry[] = Object.fr
   }),
   Object.freeze({
     code: "push-fold-reference",
-    title: "Короткий стек",
-    description: "Push/Fold 4–15 BB — справочник диапазонов, без оценки",
+    title: "Таблицы короткого стека",
+    description: "Олл-ин или фолд при 4–15 BB · справочник, без оценки",
     route: ACADEMY_SOLVER_PUSH_FOLD_ROUTE,
-    cta: "Смотреть диапазоны",
+    cta: "Открыть",
     kind: "reference",
     practiceLessonCode: ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE,
   }),

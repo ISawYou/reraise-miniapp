@@ -320,12 +320,18 @@ describe("(6)(7) scene semantics preserved for EVERY real spot; no fabricated la
     expect(allScenes.length).toBeGreaterThan(400);
     for (const [name, scene, stackBb] of allScenes) {
       const { holder, plates, chips } = sceneBoxes(scene, stackBb);
-      // (7) chips == exactly what the scene builder derived (role + label), nothing else.
+      // (7) chips == exactly what the scene builder derived (role + label) for the hero and
+      // the villain, nothing else. v2: folded seats carry the builder's role on their quiet
+      // plate but get NO chip (no "Фолд" smeared around the table).
       const rendered = Object.fromEntries(Array.from(holder.querySelectorAll<HTMLElement>("[data-seat-action]"))
         .map((node) => [node.dataset.seatAction, `${node.dataset.seatRole}:${node.textContent}`]));
-      const expected = Object.fromEntries(scene.seats.filter((seat) => seat.actionLabel && seat.role !== "waiting")
+      const expected = Object.fromEntries(scene.seats.filter((seat) => seat.actionLabel && (seat.role === "hero" || seat.role === "villain"))
         .map((seat) => [seat.seat, `${seat.role}:${seat.actionLabel}`]));
       expect(rendered, name).toEqual(expected);
+      for (const seat of scene.seats) {
+        expect(holder.querySelector(`[data-table-seat="${seat.seat}"]`)?.getAttribute("data-scene-role"), `${name} ${seat.seat}`).toBe(seat.role);
+      }
+      expect(holder.textContent, name).not.toContain("Фолд");
       // (6) hero / villain identity as before.
       expect(holder.querySelector(`[data-table-seat="${scene.heroSeat}"]`)?.getAttribute("aria-label"), name).toBe(`${scene.heroSeat}, ты`);
       expect(holder.querySelector(`[data-table-seat="${scene.heroSeat}"] rect`)?.getAttribute("fill"), name).toBe("#d7b55a");
@@ -361,7 +367,7 @@ describe("(6)(7) scene semantics preserved for EVERY real spot; no fabricated la
     expect(trainingSceneSlotOf("UTG", "BB")).toBe(1);
   });
 
-  it("B1 example: 40 BB, UTG opens, SB 3-bets — 'Ты' + 'Рейз' on UTG, '3-бет' on SB, the rest folded subtly", () => {
+  it("B1 example: 40 BB, UTG opens, SB 3-bets — 'Ты' + 'Рейз' on UTG, '3-бет' on SB, the rest folded quietly (no chips)", () => {
     const spot = listAcademyPreflopTrainerSpots().find((candidate) => candidate.stackBb === 40 && candidate.nodeKey === "FACING_3BET_UTG_VS_SB")!;
     const scene = toPublicPreflopTrainerSpot(spot).scene;
     const { holder } = sceneBoxes(scene, 40);
@@ -372,7 +378,8 @@ describe("(6)(7) scene semantics preserved for EVERY real spot; no fabricated la
     for (const seat of ["UTG1", "UTG2", "LJ", "HJ", "CO", "BTN", "BB"]) {
       expect(holder.querySelector(`[data-table-seat="${seat}"]`)!.getAttribute("data-scene-role")).toBe("folded");
       expect(holder.querySelector(`[data-table-seat="${seat}"] rect`)!.getAttribute("fill")).toBe("#0d1210");
-      expect(holder.querySelector(`[data-seat-action="${seat}"]`)!.textContent).toBe("Фолд");
+      expect(holder.querySelector(`[data-table-seat="${seat}"]`)!.getAttribute("data-seat-folded")).toBe("true");
+      expect(holder.querySelector(`[data-seat-action="${seat}"]`)).toBeNull();
     }
     expect(holder.textContent).toContain("40 BB");
   });

@@ -239,13 +239,18 @@ describe("(14)(15) Тренажёры → Quick Mix starts directly", () => {
     const quick = $('[data-trainer-entry="quick-mix"]')!;
     expect(quick.tagName).toBe("A");
     expect(quick.getAttribute("href")).toBe(ACADEMY_PREFLOP_QUICK_MIX_ROUTE);
-    expect(quick.textContent).toContain("Разные префлоп-ситуации");
+    expect(quick.textContent).toContain("10 раздач из разных ситуаций");
     expect(quick.textContent).toContain("Начать");
-    for (const card of Array.from(container.querySelectorAll("[data-trainer-entry]"))) expect(card.tagName).toBe("A");
+    for (const card of Array.from(container.querySelectorAll("[data-trainer-entry],[data-training-preset]"))) expect(card.tagName).toBe("A");
     expect(container.querySelectorAll("[data-trainer-entry]")).toHaveLength(3);
     expect($('[data-testid="push-fold-attribution"]')?.textContent).toContain("Данные Push/Fold: HoldemMath · CC BY 4.0");
-    // Short copy: the whole landing reads at a glance.
-    expect((container.querySelector("main")?.textContent ?? "").length).toBeLessThan(420);
+    // v2: three tiers, each short. Quick start stays a one-glance card; every
+    // ready-made card is one line of copy + fact chips; the manual tier is brief.
+    expect((container.querySelector('[data-trainers-tier="quick"]')?.textContent ?? "").length).toBeLessThan(80);
+    for (const card of Array.from(container.querySelectorAll("[data-training-preset]"))) {
+      expect((card.textContent ?? "").length, card.getAttribute("data-training-preset")!).toBeLessThan(110);
+    }
+    expect((container.querySelector('[data-trainers-tier="manual"]')?.textContent ?? "").length).toBeLessThan(200);
   });
 
   it("that route IS the session: the first question is requested on arrival, with no intermediate start step", async () => {

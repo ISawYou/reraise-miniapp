@@ -181,7 +181,7 @@ describe("GET /api/academy/progress (additive shape)", () => {
     const body = await response.json();
     const legacy = await getAcademyCourseProgress(PLAYER_ID);
 
-    const { courses, ...topLevel } = body;
+    const { courses, spots, ...topLevel } = body;
     expect(topLevel).toEqual(JSON.parse(JSON.stringify(legacy)));
     expect(topLevel.courseCode).toBe("base_mtt");
     expect(topLevel.lessons.map((l: { lessonCode: string }) => l.lessonCode)).toEqual(["preflop_rfi_9max_100bb_utg"]);
@@ -189,5 +189,9 @@ describe("GET /api/academy/progress (additive shape)", () => {
     expect(courses[0]).toEqual(topLevel);
     expect(courses[1].course).toEqual({ passedLessons: 0, totalLessons: 7, progressPercent: 0 });
     expect(courses[1].lessons.map((l: { lessonCode: string }) => l.lessonCode)).toEqual(["solver_rfi_9max_100bb_btn"]);
+    // v2, additive: per-spot practice progress — every tracked spot, none trained yet here.
+    expect(spots.length).toBeGreaterThanOrEqual(4);
+    expect(spots.every((spot: { code: string; passed: boolean; attemptsCount: number }) =>
+      spot.code.startsWith("spot_practice_") && !spot.passed && spot.attemptsCount === 0)).toBe(true);
   });
 });

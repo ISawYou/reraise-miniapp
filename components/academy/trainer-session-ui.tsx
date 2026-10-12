@@ -62,14 +62,14 @@ export function TrainerSessionTopBar({
         <Link
           href={backHref}
           data-testid="trainer-back"
-          className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-white/[0.08] px-3 py-1.5 text-sm text-white/65 active:bg-white/[0.06]"
+          className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] px-3 py-1.5 text-sm text-white/65 active:bg-white/[0.06]"
         >
           <span aria-hidden="true">←</span>
           <span>{backLabel}</span>
         </Link>
-        <p className="whitespace-nowrap text-sm text-white/50">
-          {eyebrow ? <span className="mr-2 text-[#d7b55a]">{eyebrow}</span> : null}
-          {questionIndex + 1} из {total}
+        <p className="flex min-w-0 items-baseline whitespace-nowrap text-sm text-white/50">
+          {eyebrow ? <span className="mr-2 min-w-0 truncate text-[#d7b55a]" data-testid="trainer-eyebrow">{eyebrow}</span> : null}
+          <span className="shrink-0">{questionIndex + 1} из {total}</span>
         </p>
       </div>
       <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/[0.07]">
@@ -174,6 +174,16 @@ export function trainerActionButtonLabel(action: AcademySolverPublicAction, pres
   return presentation === "ADVANCED" && action.sizing ? action.sizing.button : solverActionButtonLabel(action);
 }
 
+/**
+ * Keeps a trailing amount ("1.3 BB", "до 9.2 BB") on one line so a wrapped
+ * label never orphans "BB" (same text content; layout only).
+ */
+function TrainerActionLabel({ label }: { label: string }) {
+  const match = label.match(/^(.*?)\s((?:до\s)?[\d.]+\sBB)$/);
+  if (!match) return <span>{label}</span>;
+  return <span>{match[1]} <span className="whitespace-nowrap">{match[2]}</span></span>;
+}
+
 export function TrainerActionButtons({
   actions,
   columnsClass,
@@ -216,7 +226,7 @@ export function TrainerActionButtons({
                 : "border-white/10 bg-white/[0.06] text-white/85 active:bg-white/[0.1]"
             }`}
           >
-            <span>{trainerActionButtonLabel(action, presentation)}</span>
+            <TrainerActionLabel label={trainerActionButtonLabel(action, presentation)} />
             {reveal ? (
               <span className="mt-0.5 text-xs font-semibold tabular-nums opacity-80" data-testid="action-frequency">
                 {formatSolverFrequencyPercent(frequency)}
@@ -242,11 +252,20 @@ const TONE_TITLE: Record<TrainerFeedbackTone, string> = {
   incorrect: "text-[#e0a4a6]",
 };
 
+/** The next-step button: a little lower than the primary CTA, so verdict + CTA fit without scrolling. */
+export const TRAINER_NEXT_BUTTON_CLASS =
+  "flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#d7b55a] px-5 py-3 text-base font-semibold text-[#11120f] active:bg-[#e2c66f] disabled:opacity-70";
+
+const TONE_MARK: Record<TrainerFeedbackTone, string | null> = { correct: "✓", valid: "✓", mixed: null, incorrect: null };
+
 /**
- * Compact post-answer feedback: a title and AT MOST ~2 short lines (`summary`,
- * plus an optional secondary `note`, e.g. the randomizer explanation). The
- * longer `detail` sits behind "Подробнее" (collapsed by default) so the
- * next-step button is never pushed off screen by an explanation.
+ * Compact post-answer feedback (v2): one title row (✓ + verdict, plus a
+ * "засчитано" badge for a valid mixed answer, so it never reads like a
+ * mistake) and ONE short paragraph — the `summary` with the optional
+ * randomizer `note` flowing inline after it. The longer `detail` sits behind
+ * "Подробнее" (collapsed by default). Copy comes unchanged from the feedback
+ * builders; only the layout is tighter, so the next-step bar is reached with
+ * less scrolling.
  */
 export const TrainerFeedbackPanel = forwardRef<HTMLElement, {
   tone: TrainerFeedbackTone;
@@ -257,30 +276,43 @@ export const TrainerFeedbackPanel = forwardRef<HTMLElement, {
 }>(function TrainerFeedbackPanel({ tone, title, summary, note, detail }, ref) {
   const [open, setOpen] = useState(false);
   const detailId = useId();
+  const mark = TONE_MARK[tone];
   return (
     <section
       ref={ref}
-      className={`mt-4 rounded-[22px] border p-4 ${TONE_BOX[tone]}`}
+      className={`mt-3 rounded-[18px] border px-3.5 py-3 ${TONE_BOX[tone]}`}
       data-feedback-tone={tone}
-      style={{ scrollMarginBottom: `calc(${TRAINER_BOTTOM_NAV_CLEARANCE} + 96px)` }}
+      data-feedback-layout="compact"
+      style={{ scrollMarginBottom: `calc(${TRAINER_BOTTOM_NAV_CLEARANCE} + 76px)` }}
     >
-      <div className="flex items-baseline justify-between gap-3">
-        <p className={`text-lg font-semibold ${TONE_TITLE[tone]}`} data-testid="feedback-title">{title}</p>
-        {detail ? (
-          <button
-            type="button"
-            data-testid="feedback-more"
-            aria-expanded={open}
-            aria-controls={detailId}
-            onClick={() => setOpen((value) => !value)}
-            className="shrink-0 text-xs font-semibold text-white/55 underline decoration-white/25 underline-offset-2"
-          >
-            {open ? "Свернуть" : "Подробнее"}
-          </button>
+      <p className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-base font-semibold leading-6 ${TONE_TITLE[tone]}`}>
+        {mark ? <span aria-hidden="true" data-testid="feedback-mark">{mark}</span> : null}
+        <span data-testid="feedback-title">{title}</span>
+        {tone === "valid" ? (
+          <span className="rounded-full bg-[#315f48]/70 px-2 py-0.5 text-[11px] font-semibold leading-4 text-[#cdebd9]" data-testid="feedback-counted">
+            засчитано
+          </span>
         ) : null}
-      </div>
-      <p className="mt-1.5 text-sm font-medium leading-5 text-white/85" data-testid="feedback-summary">{summary}</p>
-      {note ? <p className="mt-1 text-[13px] leading-5 text-white/50" data-testid="feedback-note">{note}</p> : null}
+      </p>
+      <p className="mt-1 text-[13px] leading-[18px] text-white/80">
+        <span className="font-medium" data-testid="feedback-summary">{summary}</span>
+        {note ? <>{" "}<span className="text-white/50" data-testid="feedback-note">{note}</span></> : null}
+        {detail ? (
+          <>
+            {" "}
+            <button
+              type="button"
+              data-testid="feedback-more"
+              aria-expanded={open}
+              aria-controls={detailId}
+              onClick={() => setOpen((value) => !value)}
+              className="inline text-xs font-semibold text-white/55 underline decoration-white/25 underline-offset-2"
+            >
+              {open ? "Свернуть" : "Подробнее"}
+            </button>
+          </>
+        ) : null}
+      </p>
       {detail && open ? (
         <p id={detailId} className="mt-2 text-[13px] leading-5 text-white/55" data-testid="feedback-detail">{detail}</p>
       ) : null}
@@ -293,13 +325,14 @@ export const TrainerFeedbackPanel = forwardRef<HTMLElement, {
  * visible viewport, just above the app's bottom nav (and the bottom safe
  * area), so it is reachable right after answering however long the feedback
  * is. It sits after the feedback in the DOM and never overlaps the action
- * buttons on arrival (the feedback is scrolled into view above it).
+ * buttons on arrival (the feedback is scrolled into view above it). v2: a
+ * slimmer bar (shorter fade, 48px button).
  */
 export function TrainerNextBar({ children }: { children: ReactNode }) {
   return (
     <div
       data-testid="trainer-next-bar"
-      className="sticky z-20 -mx-4 mt-3 bg-[linear-gradient(180deg,rgba(7,7,7,0),rgba(7,7,7,0.92)_30%)] px-4 pb-2 pt-4"
+      className="sticky z-20 -mx-4 mt-2 bg-[linear-gradient(180deg,rgba(7,7,7,0),rgba(7,7,7,0.94)_35%)] px-4 pb-1.5 pt-2.5"
       style={{ bottom: TRAINER_BOTTOM_NAV_CLEARANCE }}
     >
       {children}

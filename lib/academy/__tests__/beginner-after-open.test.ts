@@ -237,7 +237,7 @@ describe("facing a 3-bet", () => {
     expect(money.seats.find((seat) => seat.seat === state.villainSeat)?.committedBb).toBe(state.villainCommittedBb);
   });
 
-  it("pot stays conservative: the ambiguous MTT ante is NOT added — 'без анте' + separate note", () => {
+  it("pot stays conservative: the ambiguous MTT ante is NOT added — 'X BB + анте' + separate note", () => {
     const v = view("facing-three-bet");
     const dataset = getAcademyStrategyDataset(requireAcademyPreflopTrainerSpotByStack(40, lesson.spot.nodeKey).spot.datasetId);
     expect(dataset.assumptions.antePerPlayerBb).toBeUndefined();
@@ -245,9 +245,10 @@ describe("facing a 3-bet", () => {
     expect(pot.kind).toBe("WITHOUT_ANTE");
     if (pot.kind === "WITHOUT_ANTE") {
       expect(pot.anteNote).toMatch(/Анте/);
-      expect(fact("facing-three-bet", "POT")).toBe(formatSizingBbLabel(pot.knownBb));
-      expect(v.facts.find((entry) => entry.code === "POT")?.label).toBe("Банк без анте");
-      expect(text("facing-three-bet")).toContain(`${formatSizingBbLabel(pot.knownBb)} (без анте)`);
+      // The number is only the known blinds + bets; the ante is named as being ON TOP of it.
+      expect(fact("facing-three-bet", "POT")).toBe(`${formatSizingBbLabel(pot.knownBb)} + анте`);
+      expect(v.facts.find((entry) => entry.code === "POT")?.label).toBe("Банк");
+      expect(text("facing-three-bet")).toContain(`${formatSizingBbLabel(pot.knownBb)} плюс анте`);
     }
   });
 
