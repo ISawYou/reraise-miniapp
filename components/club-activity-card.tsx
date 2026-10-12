@@ -37,15 +37,55 @@ function getCompactCtaLabel(event: ClubActivityEvent) {
   return (event.cta_label ?? "Перейти").replace(/^Открыть\s+/i, "").replace(/→/g, "").trim();
 }
 
+// Publication image as a real <img> (it used to be a CSS background-image,
+// which the browser downloads for EVERY card as soon as it is styled -- a
+// 12-card feed fetched all of its images up front). Native lazy loading +
+// async decoding; explicit 16:9 width/height + aspect-ratio keep the old
+// crop and reserve the box (no layout shift). Plain <img>, not next/image:
+// uploaded images are already normalized WebP served statically by nginx
+// from /storage, and legacy external http(s) URLs keep working untouched.
+function PublicationImage({
+  src,
+  alt,
+  loading,
+  className = "",
+}: {
+  src: string;
+  alt: string;
+  loading: "lazy" | "eager" | "priority";
+  className?: string;
+}) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      width={1280}
+      height={720}
+      loading={loading === "lazy" ? "lazy" : "eager"}
+      decoding="async"
+      fetchPriority={loading === "priority" ? "high" : undefined}
+      className={`block aspect-[16/9] h-auto w-full rounded-2xl border border-white/10 bg-white/[0.04] object-cover object-center ${className}`}
+    />
+  );
+}
+
 export function ClubActivityCard({
   event,
   compact = false,
   contentHref,
   social,
+  imageLoading = "lazy",
 }: {
   event: ClubActivityEvent;
   compact?: boolean;
   contentHref?: string;
+  /**
+   * "lazy" (default) for feed lists; "eager" for a list's first card that is
+   * likely in the first viewport; "priority" only for a detail page's main
+   * above-the-fold image.
+   */
+  imageLoading?: "lazy" | "eager" | "priority";
   social?: {
     likeCount: number;
     likedByMe: boolean;
@@ -136,20 +176,10 @@ export function ClubActivityCard({
       {event.image_url ? (
         contentHref ? (
           <Link href={contentHref} className="mt-3 block">
-            <span
-              role="img"
-              aria-label={event.title}
-              className="block aspect-[16/9] w-full rounded-2xl border border-white/10 bg-cover bg-center"
-              style={{ backgroundImage: `url("${event.image_url}")` }}
-            />
+            <PublicationImage src={event.image_url} alt={event.title} loading={imageLoading} />
           </Link>
         ) : (
-          <span
-            role="img"
-            aria-label={event.title}
-            className="mt-3 block aspect-[16/9] w-full rounded-2xl border border-white/10 bg-cover bg-center"
-            style={{ backgroundImage: `url("${event.image_url}")` }}
-          />
+          <PublicationImage src={event.image_url} alt={event.title} loading={imageLoading} className="mt-3" />
         )
       ) : null}
       {social ? (

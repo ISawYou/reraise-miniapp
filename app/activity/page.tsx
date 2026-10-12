@@ -60,10 +60,11 @@ export default function ActivityPage() {
           </p>
         ) : null}
         <div className="mt-5 space-y-3">
-          {events.map((event) => (
+          {events.map((event, index) => (
             <ClubActivityCard
               key={event.id}
               event={event}
+              imageLoading={index === 0 ? "eager" : "lazy"}
               contentHref={`/activity/${event.id}`}
               social={{
                 likeCount: event.likeCount,

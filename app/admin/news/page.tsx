@@ -1,7 +1,11 @@
 "use client";
 
 import { BackButton } from "@/components/ui/back-button";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ClubActivityImageField,
+  type PendingClubActivityImage,
+} from "@/components/admin/club-activity-image-field";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { getTelegramInitData } from "@/lib/telegram";
 import type { ClubActivityEvent, ClubActivityEventType } from "@/types/club-activity";
@@ -35,7 +39,27 @@ export default function AdminNewsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingAutomatic, setEditingAutomatic] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [savingStage, setSavingStage] = useState<"upload" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Selected but not yet uploaded file -- uploaded only when Save is pressed,
+  // so picking a photo and then cancelling never stores anything.
+  const [pendingImage, setPendingImage] = useState<PendingClubActivityImage | null>(null);
+  const pendingImageRef = useRef<PendingClubActivityImage | null>(null);
+
+  // Single place that swaps the pending file, always revoking the previous
+  // temporary object URL (replace / remove / successful save / cancel).
+  function replacePendingImage(next: PendingClubActivityImage | null) {
+    const previous = pendingImageRef.current;
+    if (previous && previous.previewUrl !== next?.previewUrl) {
+      URL.revokeObjectURL(previous.previewUrl);
+    }
+    pendingImageRef.current = next;
+    setPendingImage(next);
+  }
+
+  useEffect(() => () => {
+    if (pendingImageRef.current) URL.revokeObjectURL(pendingImageRef.current.previewUrl);
+  }, []);
 
   async function adminHeaders() {
     const initData = await getTelegramInitData();
@@ -72,7 +96,15 @@ export default function AdminNewsPage() {
       .finally(() => setChecked(true));
   }, []);
 
+  function resetForm() {
+    replacePendingImage(null);
+    setForm(EMPTY_FORM);
+    setEditingId(null);
+    setEditingAutomatic(false);
+  }
+
   function editEvent(event: ClubActivityEvent) {
+    replacePendingImage(null);
     setEditingId(event.id);
     setEditingAutomatic(event.source === "automatic");
     setForm({
@@ -87,28 +119,59 @@ export default function AdminNewsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // Uploads + normalizes the selected file; resolves to its permanent
+  // /storage/club-activity/... URL. Throws a user-facing message on failure.
+  async function uploadPendingImage(image: PendingClubActivityImage): Promise<string> {
+    const body = new FormData();
+    body.append("file", image.file);
+    const initData = await getTelegramInitData();
+    const response = await fetch("/api/admin/club-activity/media", {
+      method: "POST",
+      // No Content-Type: the browser sets the multipart boundary itself.
+      headers: initData ? { "x-telegram-init-data": initData } : undefined,
+      body,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || typeof payload.url !== "string") {
+      throw new Error(payload.error ?? "Не удалось загрузить изображение");
+    }
+    return payload.url;
+  }
+
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setLoading(true);
     setError(null);
     try {
+      let imageUrl = form.imageUrl;
+      if (pendingImage) {
+        // Upload FIRST: if it fails, nothing is persisted and the admin
+        // keeps the selected file to retry -- a publication never gets a
+        // blob:/temporary URL.
+        setSavingStage("upload");
+        imageUrl = await uploadPendingImage(pendingImage);
+        // Keep the permanent URL even if the publication save below fails,
+        // so a retry does not upload the same file again.
+        setForm((current) => ({ ...current, imageUrl }));
+        replacePendingImage(null);
+      }
+      setSavingStage("save");
       const response = await fetch(
         editingId ? `/api/admin/club-activity/${editingId}` : "/api/admin/club-activity",
         {
           method: editingId ? "PATCH" : "POST",
           headers: await adminHeaders(),
-          body: JSON.stringify(form),
+          body: JSON.stringify({ ...form, imageUrl }),
         },
       );
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Не удалось сохранить публикацию");
-      setForm(EMPTY_FORM);
-      setEditingId(null);
-      setEditingAutomatic(false);
+      resetForm();
       await loadEvents();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Ошибка сохранения");
     } finally {
+      setSavingStage(null);
       setLoading(false);
     }
   }
@@ -147,7 +210,7 @@ export default function AdminNewsPage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-semibold">{editingId ? "Редактирование" : "Новая публикация"}</h2>
             {editingId ? (
-              <button type="button" onClick={() => { setEditingId(null); setEditingAutomatic(false); setForm(EMPTY_FORM); }} className="text-xs text-white/45">Отмена</button>
+              <button type="button" onClick={resetForm} className="text-xs text-white/45">Отмена</button>
             ) : null}
           </div>
 
@@ -170,9 +233,15 @@ export default function AdminNewsPage() {
           <label className="mt-3 block text-xs text-white/50">Текст
             <textarea value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} maxLength={5000} required rows={5} className={inputClass} />
           </label>
-          <label className="mt-3 block text-xs text-white/50">Изображение URL
-            <input type="url" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} placeholder="https://..." className={inputClass} />
-          </label>
+          <ClubActivityImageField
+            key={editingId ?? "new"}
+            imageUrl={form.imageUrl}
+            onImageUrlChange={(imageUrl) => setForm((current) => ({ ...current, imageUrl }))}
+            pendingImage={pendingImage}
+            onPendingImageChange={replacePendingImage}
+            disabled={loading}
+            inputClassName={inputClass}
+          />
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block text-xs text-white/50">CTA label
               <input value={form.ctaLabel} onChange={(e) => setForm({ ...form, ctaLabel: e.target.value })} placeholder="Открыть Академию" className={inputClass} />
@@ -189,7 +258,11 @@ export default function AdminNewsPage() {
           </label>
           {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
           <button disabled={loading} className="mt-4 w-full rounded-xl bg-[#d7b55a] py-3 text-sm font-bold text-black disabled:opacity-50">
-            {loading ? "Сохраняем..." : editingId ? "Сохранить изменения" : "Создать публикацию"}
+            {savingStage === "upload"
+              ? "Загружаем изображение..."
+              : loading
+                ? "Сохраняем..."
+                : editingId ? "Сохранить изменения" : "Создать публикацию"}
           </button>
         </form>
 

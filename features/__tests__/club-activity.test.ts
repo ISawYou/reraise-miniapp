@@ -206,6 +206,28 @@ describe("Club Activity manual publications", () => {
       label: "Академия", url: "/academy",
     });
   });
+
+  it("persists uploaded /storage URLs and legacy external URLs, never blob:/data: temporaries, and allows no image", async () => {
+    const repository = new MemoryActivityRepository();
+    const uploaded = "https://re-raise.ru/storage/club-activity/1760000000000-0f8fad5b-d9cb-469f-a165-70867728950e.webp";
+    const created = await createManualClubActivity({
+      eventType: "news", title: "Фото", body: "Текст", status: "published", imageUrl: uploaded,
+    }, repository);
+    expect(created.image_url).toBe(uploaded);
+    const external = await updateClubActivityAdmin(created.id, {
+      eventType: "news", title: "Фото", body: "Текст", status: "published", imageUrl: "https://example.com/a.jpg",
+    }, repository);
+    expect(external.image_url).toBe("https://example.com/a.jpg");
+    const removed = await updateClubActivityAdmin(created.id, {
+      eventType: "news", title: "Фото", body: "Текст", status: "published", imageUrl: "",
+    }, repository);
+    expect(removed.image_url).toBeNull();
+    for (const temporary of ["blob:https://re-raise.ru/0f8fad5b", "data:image/png;base64,iVBORw0KGgo="]) {
+      await expect(createManualClubActivity({
+        eventType: "news", title: "Фото", body: "Текст", status: "published", imageUrl: temporary,
+      }, repository)).rejects.toBeInstanceOf(ClubActivityValidationError);
+    }
+  });
 });
 
 describe("Club Activity automatic events", () => {

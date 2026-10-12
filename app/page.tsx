@@ -8,11 +8,7 @@ import {
   completeProfile,
 } from "@/features/auth";
 import { TERMS_VERSION } from "@/lib/terms";
-import {
-  getVisibleOpenTournamentsForPlayer,
-  getPlayerRegistrations,
-  getTournamentRegistrationCounts,
-} from "@/features/tournaments";
+import { getHomeTournamentSnapshot } from "@/features/home";
 import { PromotionToast } from "@/components/promotion-toast";
 import { ClubActivityCard } from "@/components/club-activity-card";
 import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
@@ -238,7 +234,17 @@ export default function HomePage() {
   const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardRow[]>([]);
   const [topTeams, setTopTeams] = useState<HomeTeamStandingRow[] | null>(null);
   const [outOfCompetitionRows, setOutOfCompetitionRows] = useState<LeaderboardRow[]>([]);
+  // Critical, above-the-fold state only: open tournaments + registration
+  // state/counts (+ their card artwork). Below-the-fold/decorative sections
+  // have their own flags so a slow secondary request never holds the
+  // tournament carousel on "Загружаем..." (see refreshHomeData).
   const [homeDataLoading, setHomeDataLoading] = useState(true);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+  const [teamsLoading, setTeamsLoading] = useState(true);
+  const [achievementsLoading, setAchievementsLoading] = useState(true);
+  // Bumped on every refreshHomeData call; a response belonging to an older
+  // call is dropped instead of overwriting newer state.
+  const homeLoadGenerationRef = useRef(0);
   const [homeActivity, setHomeActivity] = useState<ClubActivityEvent[]>([]);
   // Dealer is not an auth role -- this is purely "does the current player
   // have a dealer_profiles row" (active or historical), used only to decide
@@ -403,67 +409,136 @@ export default function HomePage() {
     window.location.href = "/api/auth/telegram";
   }
 
+  // Secondary Home data: every source settles on its own, never rejects, and
+  // never gates the critical tournament state. Measured before this split:
+  // all 11 sources sat in one Promise.all, so e.g. /api/dealer/me (which on
+  // the website waits ~1.2 s in getTelegramInitData for initData that never
+  // comes) or any slow below-the-fold request kept the whole Home --
+  // tournaments included -- on "Загружаем...".
+  function loadHomeSecondaryData(currentPlayer: Player, isCurrent: () => boolean) {
+    void fetch("/api/leaderboard")
+      .then(async (res) => {
+        if (!res.ok) throw new Error("leaderboard fetch failed");
+        const data = (await res.json()) as {
+          season: { id: string; title: string };
+          leaderboard: LeaderboardRow[];
+          outOfCompetition?: LeaderboardRow[];
+        };
+        return {
+          seasonTitle:
+            typeof data.season?.title === "string" && data.season.title.trim()
+              ? data.season.title
+              : "Активный сезон",
+          leaderboard: data.leaderboard ?? [],
+          outOfCompetition: data.outOfCompetition ?? [],
+        };
+      })
+      .catch((error) => {
+        console.error("Home leaderboard load error:", error);
+        return {
+          seasonTitle: "Активный сезон",
+          leaderboard: [] as LeaderboardRow[],
+          outOfCompetition: [] as LeaderboardRow[],
+        };
+      })
+      .then((ratingData) => {
+        if (!isCurrent()) return;
+        setSeasonTitle(ratingData.seasonTitle);
+        setLeaderboardRows(ratingData.leaderboard);
+        setOutOfCompetitionRows(ratingData.outOfCompetition);
+        setLeaderboardLoading(false);
+      });
+
+    // Home "Командный рейтинг" TOP-3 -- current season only, never
+    // fatal (a failed fetch just means the block renders its empty
+    // state, same non-blocking treatment as the leaderboard fetch above).
+    void fetch("/api/teams?scope=current")
+      .then((response) => (response.ok ? response.json() : { standings: [] }))
+      .catch(() => ({ standings: [] as HomeTeamStandingRow[] }))
+      .then((topTeamsData) => {
+        if (!isCurrent()) return;
+        // Only OFFICIALLY ranked (points > 0) teams ever appear in the Home
+        // TOP-3 -- a zero-point team sitting alone never gets padded in here
+        // just to fill the block (see components/teams/team-ui.tsx's
+        // formatRankBadge/formatStandingLine for the same "rank=null" rule
+        // everywhere else this data appears).
+        setTopTeams(
+          ((topTeamsData?.standings ?? []) as HomeTeamStandingRow[]).filter((team) => team.rank !== null).slice(0, 3)
+        );
+        setTeamsLoading(false);
+      });
+
+    void fetch("/api/club-activity?limit=3")
+      .then(async (response) => response.ok ? response.json() : { events: [] })
+      .catch(() => ({ events: [] }))
+      .then((activityData) => {
+        if (!isCurrent()) return;
+        setHomeActivity((activityData.events ?? []) as ClubActivityEvent[]);
+      });
+
+    // Header achievement decoration: rows + featured keys + visual configs
+    // resolve together (resolveFeaturedAchievements needs all three).
+    void Promise.all([
+      fetch(`/api/players/${currentPlayer.id}/achievements`)
+        .then((response) => (response.ok ? response.json() : []))
+        .catch(() => []),
+      fetch(`/api/players/${currentPlayer.id}/featured-achievements`)
+        .then((response) => (response.ok ? response.json() : { keys: [] }))
+        .catch(() => ({ keys: [] })),
+      fetch("/api/achievement-visuals")
+        .then((response) => (response.ok ? response.json() : { visuals: [] }))
+        .catch(() => ({ visuals: [] })),
+    ]).then(([achievementRows, featuredData, visualsData]) => {
+      if (!isCurrent()) return;
+      setCompletedAchievementsCount(
+        (achievementRows as Array<{ completed_at: string | null }>).filter(
+          (row) => row.completed_at
+        ).length
+      );
+      setFeaturedAchievements(resolveFeaturedAchievements(achievementRows as AchievementProgressRow[], featuredData.keys ?? []));
+      setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
+      setAchievementsLoading(false);
+    });
+
+    // "Does the current player have a dealer profile" -- only used to
+    // decide whether the home "Моя работа" card shows for a non-staff
+    // dealer (see isStaff/isDealer precedence below). Never fatal: a
+    // failed check just means no card, not a broken home page.
+    void fetchAdminJson<{ dealer: { isActive: boolean } | null }>("/api/dealer/me")
+      .catch(() => null)
+      .then((dealerMe) => {
+        if (!isCurrent()) return;
+        setIsDealer(Boolean(dealerMe?.dealer));
+      });
+  }
+
   async function refreshHomeData(
     currentPlayer: Player,
     options?: { showPromotionToast?: boolean }
   ) {
-    const [registrations, tournaments, counts, achievementRows, ratingData, topTeamsData, activityData, featuredData, visualsData, tournamentVisualsData, dealerMe] = await Promise.all([
-      getPlayerRegistrations(currentPlayer.id),
-      getVisibleOpenTournamentsForPlayer(currentPlayer),
-      getTournamentRegistrationCounts(),
-      fetch(`/api/players/${currentPlayer.id}/achievements`).then((response) =>
-        response.ok ? response.json() : []
-      ),
-      (async () => {
-        try {
-          const res = await fetch("/api/leaderboard");
-          if (!res.ok) throw new Error("leaderboard fetch failed");
-          const data = (await res.json()) as {
-            season: { id: string; title: string };
-            leaderboard: LeaderboardRow[];
-            outOfCompetition?: LeaderboardRow[];
-          };
-          return {
-            seasonTitle:
-              typeof data.season?.title === "string" && data.season.title.trim()
-                ? data.season.title
-                : "Активный сезон",
-            leaderboard: data.leaderboard ?? [],
-            outOfCompetition: data.outOfCompetition ?? [],
-          };
-        } catch (error) {
-          console.error("Home leaderboard load error:", error);
-          return {
-            seasonTitle: "Активный сезон",
-            leaderboard: [] as LeaderboardRow[],
-            outOfCompetition: [] as LeaderboardRow[],
-          };
-        }
-      })(),
-      // Home "Командный рейтинг" TOP-3 -- current season only, never
-      // fatal (a failed fetch just means the block renders its empty
-      // state, same non-blocking treatment as the leaderboard fetch above).
-      fetch("/api/teams?scope=current")
-        .then((response) => (response.ok ? response.json() : { standings: [] }))
-        .catch(() => ({ standings: [] as HomeTeamStandingRow[] })),
-      fetch("/api/club-activity?limit=3")
-        .then(async (response) => response.ok ? response.json() : { events: [] })
-        .catch(() => ({ events: [] })),
-      fetch(`/api/players/${currentPlayer.id}/featured-achievements`).then((response) =>
-        response.ok ? response.json() : { keys: [] }
-      ),
-      fetch("/api/achievement-visuals").then((response) =>
-        response.ok ? response.json() : { visuals: [] }
-      ),
-      fetch("/api/tournament-visuals").then((response) =>
-        response.ok ? response.json() : { visuals: [] }
-      ),
-      // "Does the current player have a dealer profile" -- only used to
-      // decide whether the home "Моя работа" card shows for a non-staff
-      // dealer (see isStaff/isDealer precedence below). Never fatal: a
-      // failed check just means no card, not a broken home page.
-      fetchAdminJson<{ dealer: { isActive: boolean } | null }>("/api/dealer/me").catch(() => null),
+    const generation = ++homeLoadGenerationRef.current;
+    const isCurrent = () => homeLoadGenerationRef.current === generation;
+
+    // Critical first (first connections / first in the action queue), then
+    // the secondary sections, which fill in independently as they arrive.
+    const criticalData = Promise.all([
+      getHomeTournamentSnapshot({
+        id: currentPlayer.id,
+        can_access_free: currentPlayer.can_access_free,
+        can_access_paid: currentPlayer.can_access_paid,
+        can_access_cash: currentPlayer.can_access_cash,
+      }),
+      // Tournament card artwork -- part of the above-the-fold carousel, so
+      // it stays critical (rendering cards first and swapping art later
+      // would flicker).
+      fetch("/api/tournament-visuals")
+        .then((response) => (response.ok ? response.json() : { visuals: [] }))
+        .catch(() => ({ visuals: [] })),
     ]);
+    loadHomeSecondaryData(currentPlayer, isCurrent);
+
+    const [{ registrations, tournaments, counts }, tournamentVisualsData] = await criticalData;
+    if (!isCurrent()) return;
 
     const nextMap: Record<string, string> = {};
 
@@ -498,26 +573,6 @@ export default function HomePage() {
     setHomeTournaments(tournaments);
     setRegistrationCounts(counts);
     setActiveTournamentIndex(0);
-    setSeasonTitle(ratingData.seasonTitle);
-    setLeaderboardRows(ratingData.leaderboard);
-    setOutOfCompetitionRows(ratingData.outOfCompetition);
-    // Only OFFICIALLY ranked (points > 0) teams ever appear in the Home
-    // TOP-3 -- a zero-point team sitting alone never gets padded in here
-    // just to fill the block (see components/teams/team-ui.tsx's
-    // formatRankBadge/formatStandingLine for the same "rank=null" rule
-    // everywhere else this data appears).
-    setTopTeams(
-      ((topTeamsData?.standings ?? []) as HomeTeamStandingRow[]).filter((team) => team.rank !== null).slice(0, 3)
-    );
-    setIsDealer(Boolean(dealerMe?.dealer));
-    setHomeActivity((activityData.events ?? []) as ClubActivityEvent[]);
-    setCompletedAchievementsCount(
-      (achievementRows as Array<{ completed_at: string | null }>).filter(
-        (row) => row.completed_at
-      ).length
-    );
-    setFeaturedAchievements(resolveFeaturedAchievements(achievementRows as AchievementProgressRow[], featuredData.keys ?? []));
-    setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
     setTournamentVisuals(Object.fromEntries((tournamentVisualsData.visuals ?? []).map((config: TournamentVisualConfig) => [config.tournamentType, config])));
     setHomeDataLoading(false);
   }
@@ -984,6 +1039,10 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
+    // Mount-only boot (auth + first Home load). refreshHomeData guards its own
+    // results with homeLoadGenerationRef, so the mount-time closure is safe;
+    // re-running this effect would re-authenticate and refetch everything.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fail-safe watchdog around ONLY the initial Home boot above -- does not
@@ -1492,7 +1551,7 @@ export default function HomePage() {
                 ) : completedAchievementsCount > 0 ? (
                   <p className="text-[11px] text-white/45">Выберите достижение</p>
                 ) : null}
-                <p className="text-[11px] text-white/55">{homeDataLoading ? "—" : completedAchievementsCount} достижений</p>
+                <p className="text-[11px] text-white/55">{achievementsLoading ? "—" : completedAchievementsCount} достижений</p>
               </div>
             </div>
           </div>
@@ -1617,7 +1676,7 @@ export default function HomePage() {
                 </Link>
               </div>
 
-              {homeDataLoading ? (
+              {leaderboardLoading ? (
                 <div className="mt-3 text-sm text-white/40 animate-pulse">
                   Загружаем...
                 </div>
@@ -1633,9 +1692,9 @@ export default function HomePage() {
 
               <div className="mt-3 border-t border-white/10 pt-3">
                 <p className="text-sm font-semibold text-white/88">
-                  {homeDataLoading ? " " : getCompactLeaderboardSummary()}
+                  {leaderboardLoading ? " " : getCompactLeaderboardSummary()}
                 </p>
-                {!homeDataLoading && !currentPlayerLeaderboardRow && !currentPlayerOutOfCompetitionRow ? (
+                {!leaderboardLoading && !currentPlayerLeaderboardRow && !currentPlayerOutOfCompetitionRow ? (
                   <p className="mt-1 text-sm text-white/60">
                     Сыграйте первый турнир, чтобы попасть в таблицу рейтинга
                   </p>
@@ -1651,7 +1710,7 @@ export default function HomePage() {
                 </Link>
               </div>
 
-              {homeDataLoading ? (
+              {teamsLoading ? (
                 <div className="mt-3 text-sm text-white/40 animate-pulse">Загружаем...</div>
               ) : topTeams && topTeams.length > 0 ? (
                 <div className="mt-3 space-y-2">

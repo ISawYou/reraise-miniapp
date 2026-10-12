@@ -100,6 +100,7 @@ export default function ActivityDetailPage() {
             <div className="mt-5">
               <ClubActivityCard
                 event={detail.event}
+                imageLoading="priority"
                 social={{
                   likeCount: detail.likeCount,
                   likedByMe: detail.likedByMe,
