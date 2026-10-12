@@ -125,7 +125,7 @@ function plateBox(holder: HTMLElement, seat: string) {
 // ---------------------------------------------------------------------------
 
 describe("(1) folded seats are quiet: no 'Фолд' label at every folded seat", () => {
-  it("7 folded seats (40 BB, UTG opens, SB 3-bets): no chip, no text, smaller dashed dim capsules", () => {
+  it("7 folded seats (40 BB, UTG opens, SB 3-bets): no chip, no text, smaller dim capsules (dashed in BASIC, borderless in ADVANCED)", () => {
     const spot = publicSpot(40, "FACING_3BET_UTG_VS_SB");
     for (const presentation of ["BASIC", "ADVANCED"] as const) {
       const holder = staticScene(spot.scene, 40, presentation, spot.table);
@@ -140,13 +140,15 @@ describe("(1) folded seats are quiet: no 'Фолд' label at every folded seat",
         expect(plate.getAttribute("data-seat-folded")).toBe("true");
         expect(plate.querySelector("text")!.textContent).toBe(seat); // just the seat name
         const { w, h, rect } = plateBox(holder, seat);
-        expect([w, h]).toEqual([trainingScenePlateSize("folded").width, trainingScenePlateSize("folded").height]);
-        expect(rect.getAttribute("stroke-dasharray")).toBeTruthy();
+        expect([w, h]).toEqual([trainingScenePlateSize("folded", presentation).width, trainingScenePlateSize("folded", presentation).height]);
+        expect(Boolean(rect.getAttribute("stroke-dasharray"))).toBe(presentation === "BASIC");
         // No stack numbers on folded seats.
         expect(holder.querySelector(`[data-seat-stack="${seat}"]`)).toBeNull();
       }
-      // Only the key actions remain as chips: the hero's open and the villain's 3-bet.
-      expect(Array.from(holder.querySelectorAll("[data-seat-action]")).map((node) => node.getAttribute("data-seat-action")).sort()).toEqual(["SB", "UTG"]);
+      // BASIC: only the key actions remain as chips (the hero's open, the villain's 3-bet).
+      // ADVANCED: both are already shown by their trusted chip markers (2.3 BB / 9.2 BB) → no duplicate pills.
+      expect(Array.from(holder.querySelectorAll("[data-seat-action]")).map((node) => node.getAttribute("data-seat-action")).sort())
+        .toEqual(presentation === "BASIC" ? ["SB", "UTG"] : []);
     }
   });
 
@@ -195,20 +197,23 @@ describe("(3) hero and villain stand out", () => {
     const area = (seat: string) => plateBox(holder, seat).w * plateBox(holder, seat).h;
     expect(area("BB")).toBeGreaterThan(area("BTN"));
     expect(area("BTN")).toBeGreaterThan(area("CO"));
-    expect(holder.querySelector('[data-seat-action="BTN"]')!.textContent).toBe("Рейз");
+    // ADVANCED: the open is told by the BTN's 2.3 BB chips (+ the history line), not by a second "Рейз" pill.
+    expect(holder.querySelector('[data-seat-action="BTN"]')).toBeNull();
+    expect(holder.querySelector('[data-seat-bet="BTN"]')!.textContent).toBe("2.3 BB");
   });
 });
 
 describe("(4) all-in stays very clear", () => {
-  it("20 BB HJ opens, SB jams: red ALL-IN chip marker, 'Олл-ин · 0' stack, 'Олл-ин' action chip", () => {
+  it("20 BB HJ opens, SB jams: ONE red ALL-IN chip marker, '0 BB' stack, no duplicate 'Олл-ин' pill", () => {
     const spot = publicSpot(20, "FACING_3BET_HJ_VS_SB");
     const holder = staticScene(spot.scene, 20, "ADVANCED", spot.table);
     const bet = holder.querySelector('[data-seat-bet="SB"]')!;
     expect(bet.getAttribute("data-all-in")).toBe("true");
     expect(bet.textContent).toContain("ALL-IN");
-    expect(bet.querySelector("rect")!.getAttribute("fill")).toBe("#5a1d21");
-    expect(holder.querySelector('[data-seat-stack="SB"]')!.textContent).toBe("Олл-ин · 0");
-    expect(holder.querySelector('[data-seat-action="SB"]')!.textContent).toBe("Олл-ин");
+    expect(bet.querySelector("[data-bet-all-in]")!.textContent).toBe("ALL-IN");
+    expect(bet.querySelectorAll("ellipse").length).toBeGreaterThan(0); // a small red chip stack
+    expect(holder.querySelector('[data-seat-stack="SB"]')!.textContent).toBe("0 BB");
+    expect(holder.querySelector('[data-seat-action="SB"]')).toBeNull();
   });
 });
 

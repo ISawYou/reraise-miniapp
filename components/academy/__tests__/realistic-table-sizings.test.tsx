@@ -95,8 +95,9 @@ describe("ADVANCED table: stacks, committed chips, pot — readable for EVERY re
     const { spot } = spotOf(20, "FACING_3BET_HJ_VS_SB");
     const holder = render(spot.scene, 20, "ADVANCED", spot.table);
     expect(holder.querySelector('[data-seat-stack="HJ"]')!.textContent).toBe("18 BB");
-    expect(holder.querySelector('[data-seat-stack="SB"]')!.textContent).toBe("Олл-ин · 0");
-    expect(holder.querySelector('[data-seat-stack="SB"]')!.getAttribute("data-all-in")).toBe("true");
+    // Stack badges show the remaining stack only; the all-in lives once, on the chip marker.
+    expect(holder.querySelector('[data-seat-stack="SB"]')!.textContent).toBe("0 BB");
+    expect(holder.querySelector('[data-seat-stack="SB"]')!.getAttribute("data-remaining-bb")).toBe("0");
     expect(holder.querySelector('[data-seat-bet="HJ"]')!.textContent).toBe("2 BB");
     expect(holder.querySelector('[data-seat-bet="SB"]')!.textContent).toBe("ALL-IN20 BB");
     expect(holder.querySelector('[data-seat-bet="SB"]')!.getAttribute("aria-label")).toBe("SB: 20 BB / ALL-IN");
@@ -114,8 +115,8 @@ describe("ADVANCED table: stacks, committed chips, pot — readable for EVERY re
     // The source's caveat is kept verbatim (tooltip + screen readers), just not shouted on the felt.
     expect(ante.querySelector("title")!.textContent).toContain("Анте 1 BB · формат не указан");
     expect(holder.querySelector('[role="img"]')!.getAttribute("aria-label")).toContain("банк 23 BB плюс анте (Анте 1 BB · формат не указан)");
-    // The action chip says "Олл-ин"; the amount lives in the chip marker.
-    expect(holder.querySelector('[data-seat-action="SB"]')!.textContent).toBe("Олл-ин");
+    // ADVANCED: the trusted ALL-IN chip marker is the single all-in label — no duplicate "Олл-ин" pill.
+    expect(holder.querySelector('[data-seat-action="SB"]')).toBeNull();
     // Folded seats show no stack numbers.
     expect(holder.querySelectorAll("[data-seat-stack]")).toHaveLength(2);
   });
@@ -125,7 +126,7 @@ describe("ADVANCED table: stacks, committed chips, pot — readable for EVERY re
     const question = { hand: "AA" as const, renderedCards: [] as never, actions, spot };
     const callAllIn = revealedTableMoney(spot.table, "HJ", question, { selectedAction: "CALL" })!;
     const holder = render(spot.scene, 20, "ADVANCED", callAllIn);
-    expect(holder.querySelector('[data-seat-stack="HJ"]')!.textContent).toBe("Олл-ин · 0");
+    expect(holder.querySelector('[data-seat-stack="HJ"]')!.textContent).toBe("0 BB");
     expect(holder.querySelector('[data-seat-bet="HJ"]')!.getAttribute("data-all-in")).toBe("true");
     expect(holder.querySelector("[data-table-pot]")!.getAttribute("data-pot-bb")).toBe("41");
     expect(revealedTableMoney(spot.table, "HJ", question, { selectedAction: "FOLD" })).toBe(spot.table);

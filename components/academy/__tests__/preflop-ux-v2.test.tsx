@@ -293,7 +293,9 @@ describe("(18) spot page range UX", () => {
     expect(range.querySelectorAll('[role="gridcell"]')).toHaveLength(169);
     expect(range.querySelectorAll("[data-legend-action]")).toHaveLength(3);
     expect($('[data-table-mode="TRAINING_SCENE"]')).not.toBeNull();
-    expect($('[data-seat-action="BTN"]')!.textContent).toBe("Рейз");
+    // ADVANCED table: the open is shown by the BTN's trusted 2.3 BB chips, not a duplicate "Рейз" pill.
+    expect($('[data-seat-action="BTN"]')).toBeNull();
+    expect($('[data-seat-bet="BTN"]')!.textContent).toBe("2.3 BB");
     expect($$("a").map((link) => link.getAttribute("href"))).toContain("/academy/solver/preflop/40/facing_open_bb_vs_btn/train");
   });
 });
