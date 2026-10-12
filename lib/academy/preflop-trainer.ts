@@ -21,9 +21,18 @@ import {
   ACADEMY_PREFLOP_TRAINER_DATASET_IDS,
   ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE,
 } from "@/config/academy/preflop-trainer";
+import { getAcademyPreflopSizingProfile } from "@/config/academy/preflop-sizing-profiles";
 import { getAcademyStrategyDataset } from "@/config/academy/solver-datasets";
 import {
+  type AcademyPreflopHandState,
+  buildPreflopTableMoney,
+  resolveAnteSemantics,
+  resolvePreflopHandState,
+  sizePreflopAction,
+} from "@/lib/academy/preflop-sizing";
+import {
   describePreflopTrainerSpot,
+  describePreflopTrainerSpotHistory,
   localizePreflopTrainerAction,
   localizePreflopTrainerActionCopy,
 } from "@/lib/academy/preflop-trainer-copy";
@@ -40,6 +49,7 @@ import { ACADEMY_SOLVER_QUESTION_COUNT, toPublicSolverAction } from "@/lib/acade
 import { classifyStrategyAnswer, strategyAnswerCountsAsCorrect } from "@/lib/academy/strategy-answer";
 import { renderStartingHand } from "@/lib/academy/training";
 import type {
+  AcademyPreflopTableMoney,
   AcademyPreflopTableScene,
   AcademyPreflopTrainerPublicQuestion,
   AcademyPreflopTrainerPublicSpot,
@@ -210,15 +220,64 @@ export function getPreflopTrainerSpotScene(spot: AcademyPreflopTrainerSpot): Aca
   return scene;
 }
 
-/** Public spot + Russian copy + table scene (answer-free). */
-export function toPublicPreflopTrainerSpot(spot: AcademyPreflopTrainerSpot): AcademyPreflopTrainerPublicSpot {
-  return Object.freeze({ ...spot, ...describePreflopTrainerSpot(spot), scene: getPreflopTrainerSpotScene(spot) });
+const handStateCache = new Map<string, AcademyPreflopHandState | null>();
+
+/**
+ * Chip state of a spot from the dataset's TYPED sizing profile
+ * (config/academy/preflop-sizing-profiles.ts). Null when the source documents
+ * no sizing for any earlier action — then nothing is sized.
+ */
+export function getPreflopTrainerSpotHandState(spot: AcademyPreflopTrainerSpot): AcademyPreflopHandState | null {
+  const cacheKey = `${spot.datasetId}:${spot.nodeKey}`;
+  if (handStateCache.has(cacheKey)) return handStateCache.get(cacheKey)!;
+  const state = resolvePreflopHandState({
+    profile: getAcademyPreflopSizingProfile(spot.datasetId),
+    stackBb: spot.stackBb,
+    situation: spot.situation,
+    heroSeat: spot.heroPosition,
+    ...(spot.villainPosition ? { villainSeat: spot.villainPosition } : {}),
+  });
+  handStateCache.set(cacheKey, state);
+  return state;
 }
 
-/** The node's actions as public display metadata with Russian copy, in resolver order. */
+/** Stacks / committed chips / pot of a spot (ante policy from the dataset's own assumptions). */
+export function getPreflopTrainerSpotTableMoney(spot: AcademyPreflopTrainerSpot): AcademyPreflopTableMoney | undefined {
+  const state = getPreflopTrainerSpotHandState(spot);
+  if (!state) return undefined;
+  const dataset = getAcademyStrategyDataset(spot.datasetId);
+  return buildPreflopTableMoney(state, resolveAnteSemantics(dataset.assumptions, dataset.metadata.tableSize));
+}
+
+/** Public spot + Russian copy (history with trusted sizes) + table scene + table money (answer-free). */
+export function toPublicPreflopTrainerSpot(spot: AcademyPreflopTrainerSpot): AcademyPreflopTrainerPublicSpot {
+  const state = getPreflopTrainerSpotHandState(spot);
+  const table = getPreflopTrainerSpotTableMoney(spot);
+  return Object.freeze({
+    ...spot,
+    ...describePreflopTrainerSpot(spot),
+    history: describePreflopTrainerSpotHistory(spot, state?.steps ?? null),
+    scene: getPreflopTrainerSpotScene(spot),
+    ...(table ? { table } : {}),
+  });
+}
+
+/**
+ * The node's actions as public display metadata with Russian copy, in
+ * resolver order. `ru` stays the generic label; when the source documents a
+ * size for this node, `sizing` (and `amountBb` = total raise-to size for
+ * raises) is attached for the advanced presentation. Codes, kinds and order
+ * are untouched — scoring never sees any of this.
+ */
 export function getPreflopTrainerPublicActions(resolved: AcademyPreflopTrainerResolvedSpot): readonly AcademySolverPublicAction[] {
-  return Object.freeze(getAcademyStrategyNodeActions(resolved.dataset, resolved.node)
-    .map((action) => localizePreflopTrainerAction(toPublicSolverAction(action), resolved.spot.situation)));
+  const state = getPreflopTrainerSpotHandState(resolved.spot);
+  return Object.freeze(getAcademyStrategyNodeActions(resolved.dataset, resolved.node).map((action) => {
+    const localized = localizePreflopTrainerAction(toPublicSolverAction(action), resolved.spot.situation);
+    const sizing = sizePreflopAction(localized, localized.ru?.button ?? localized.label, state);
+    if (!sizing) return localized;
+    const amountBb = sizing.kind === "CALL" ? localized.amountBb : sizing.totalBb;
+    return Object.freeze({ ...localized, ...(amountBb !== undefined ? { amountBb } : {}), sizing });
+  }));
 }
 
 // ---------------------------------------------------------------------------

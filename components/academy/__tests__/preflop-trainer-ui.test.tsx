@@ -194,7 +194,8 @@ describe("trainer session UI", () => {
     // table — the table itself marks them.
     expect(container.querySelector('[data-table-seat="BB"]')!.getAttribute("aria-label")).toBe("BB, ты");
     expect(container.querySelector('[data-table-seat="BTN"]')!.getAttribute("aria-label")).toBe("BTN, соперник");
-    expect(container.textContent).toContain("BTN открыл — ты на BB");
+    // Advanced trainer: the history carries the source-documented open size.
+    expect(container.textContent).toContain("BTN открыл до 2.3 BB — ты на BB");
     expect(container.querySelector(`[aria-label="Рука ${question.hand}"]`)).not.toBeNull();
 
     const row = container.querySelector("[data-action-count]")!;
@@ -202,7 +203,7 @@ describe("trainer session UI", () => {
     expect(row.className).toContain("grid-cols-3");
     const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>("button[data-action-code]"));
     expect(buttons.map((button) => [button.dataset.actionCode, button.textContent])).toEqual([
-      ["RAISE", "3-бет"], ["CALL", "Колл"], ["FOLD", "Фолд"],
+      ["RAISE", "3-бет до 9.2 BB"], ["CALL", "Колл 1.3 BB"], ["FOLD", "Фолд"],
     ]);
     for (const button of buttons) {
       expect(button.className).toContain("min-w-0");

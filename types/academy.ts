@@ -395,6 +395,26 @@ export type AcademySolverPublicAction = {
   readonly label: string;
   readonly amountBb?: number;
   readonly ru?: AcademyStrategyActionLocalizedCopy;
+  /**
+   * Trusted, source-documented sizing of this action AT THIS NODE (advanced
+   * presentation only). Absent whenever the source documents no size — the
+   * UI then keeps the generic `ru.button`.
+   */
+  readonly sizing?: AcademyActionSizing;
+};
+
+/**
+ * Display sizing of one action at one node. `totalBb` is always the TOTAL
+ * bet the player has in front of them after the action ("рейз до X"), never
+ * the chips added on top of the previous bet. `toCallBb` (CALL only) is the
+ * chips the player still has to put in.
+ */
+export type AcademyActionSizing = {
+  readonly kind: "RAISE_TO" | "ALL_IN" | "CALL";
+  readonly totalBb: number;
+  readonly toCallBb?: number;
+  /** e.g. "Рейз до 2.3 BB", "3-бет до 9.2 BB", "Колл 18 BB", "Олл-ин 20 BB". */
+  readonly button: string;
 };
 
 /**
@@ -503,9 +523,48 @@ export type AcademyPreflopTableScene = {
   readonly seats: readonly AcademyPreflopTableSceneSeat[];
 };
 
+/**
+ * Chips of one seat in a table money model. `committedBb` = chips put in
+ * during THIS hand (blinds + raises/calls, antes excluded). `remainingBb`
+ * (= starting stack − committed) is present only for the hero and the active
+ * villain — never for folded seats.
+ */
+export type AcademyPreflopTableMoneySeat = {
+  readonly seat: string;
+  readonly committedBb: number;
+  readonly blind?: "SB" | "BB";
+  readonly allIn: boolean;
+  readonly remainingBb?: number;
+};
+
+/**
+ * Pot of a table money model. `EXACT` only when every contribution
+ * (including the ante) has unambiguous semantics; otherwise `WITHOUT_ANTE`
+ * shows the known blinds/bets and the ante as a separate note — never a
+ * false-precision total.
+ */
+export type AcademyPreflopTablePot =
+  | { readonly kind: "EXACT"; readonly totalBb: number; readonly anteTotalBb: number }
+  | { readonly kind: "WITHOUT_ANTE"; readonly knownBb: number; readonly anteNote: string };
+
+/**
+ * Realistic stacks / committed chips / pot of a spot, derived ONLY from the
+ * source's documented sizing assumptions (see lib/academy/preflop-sizing.ts).
+ * Every seat starts with the dataset's effective stack (`startingStackBb`).
+ */
+export type AcademyPreflopTableMoney = {
+  readonly startingStackBb: number;
+  readonly seats: readonly AcademyPreflopTableMoneySeat[];
+  readonly pot: AcademyPreflopTablePot;
+  /** Chips the hero needs to call the current bet (absent when nothing to call beyond the blind). */
+  readonly toCallBb?: number;
+};
+
 /** Public spot: descriptor + Russian copy + table scene (no frequencies). */
 export type AcademyPreflopTrainerPublicSpot = AcademyPreflopTrainerSpot & AcademyPreflopTrainerSpotCopy & {
   readonly scene: AcademyPreflopTableScene;
+  /** Trusted stacks / chips / pot; absent when the source documents no sizing for this spot. */
+  readonly table?: AcademyPreflopTableMoney;
 };
 
 /**

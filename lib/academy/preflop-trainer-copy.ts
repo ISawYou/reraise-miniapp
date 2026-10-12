@@ -5,6 +5,7 @@
  * generic action codes. Never invents sizes: an action shows `amountBb` only
  * when its definition carries one.
  */
+import { type AcademyPreflopSizingStep, formatSizingBbLabel } from "@/lib/academy/preflop-sizing";
 import type {
   AcademyPreflopTrainerSituation,
   AcademyPreflopTrainerSpot,
@@ -66,6 +67,51 @@ export function describePreflopTrainerSpot(
         history: `Ты открыл с ${hero} — ${villain} 3-бет — ты 4-бет — ${villain} сделал 5-бет`,
         situationLabel,
       };
+  }
+}
+
+const LEVEL_NAME: Readonly<Record<AcademyPreflopSizingStep["level"], string>> = {
+  OPEN: "открыл",
+  THREE_BET: "3-бет",
+  FOUR_BET: "4-бет",
+  FIVE_BET: "5-бет",
+};
+
+/** "открыл до 2.3 BB" / "сделал 3-бет до 9.2 BB" / "пошёл олл-ин 20 BB" (verbFull=false → "3-бет до 9.2 BB"). */
+function stepPhrase(step: AcademyPreflopSizingStep, verbFull = true): string {
+  if (step.allIn) return `пошёл олл-ин ${formatSizingBbLabel(step.totalBb)}`;
+  const size = `до ${formatSizingBbLabel(step.totalBb)}`;
+  if (step.level === "OPEN") return `открыл ${size}`;
+  return `${verbFull ? "сделал " : ""}${LEVEL_NAME[step.level]} ${size}`;
+}
+
+/**
+ * The spot's history line with the TRUSTED sizes of the earlier actions
+ * (`steps` from `resolvePreflopHandState`), e.g.
+ * - "BTN открыл до 2.3 BB — ты на BB"
+ * - "Ты открыл до 2 BB с HJ — SB пошёл олл-ин 20 BB"
+ * Without steps (no documented sizing) it is exactly the plain history.
+ */
+export function describePreflopTrainerSpotHistory(
+  spot: Pick<AcademyPreflopTrainerSpot, "situation" | "heroPosition" | "villainPosition">,
+  steps: readonly AcademyPreflopSizingStep[] | null,
+): string {
+  const plain = describePreflopTrainerSpot(spot).history;
+  if (!steps || steps.length === 0) return plain;
+  const hero = spot.heroPosition;
+  const villain = spot.villainPosition ?? "";
+  const [a, b, c, d] = steps;
+  switch (spot.situation) {
+    case "FACING_OPEN":
+      return `${villain} ${stepPhrase(a)} — ты на ${hero}`;
+    case "FACING_3BET":
+      return `Ты ${stepPhrase(a)} с ${hero} — ${villain} ${stepPhrase(b)}`;
+    case "FACING_4BET":
+      return `${villain} ${stepPhrase(a)} — ты ${stepPhrase(b)} с ${hero} — ${villain} ${stepPhrase(c)}`;
+    case "FACING_5BET":
+      return `Ты ${stepPhrase(a)} с ${hero} — ${villain} ${stepPhrase(b, false)} — ты ${stepPhrase(c, false)} — ${villain} ${stepPhrase(d)}`;
+    default:
+      return plain;
   }
 }
 

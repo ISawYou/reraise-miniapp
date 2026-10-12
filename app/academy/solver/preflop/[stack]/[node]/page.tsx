@@ -38,7 +38,13 @@ export default async function AcademyPreflopTrainerSpotPage({ params }: PreflopT
         </header>
 
         <section className="mt-5">
-          <PokerPositionTable mode="TRAINING_SCENE" scene={spot.scene} stackBb={spot.stackBb} />
+          <PokerPositionTable
+            mode="TRAINING_SCENE"
+            scene={spot.scene}
+            stackBb={spot.stackBb}
+            presentation="ADVANCED"
+            table={spot.table}
+          />
         </section>
 
         <section className="mt-6" data-testid="range-view">
@@ -60,7 +66,7 @@ export default async function AcademyPreflopTrainerSpotPage({ params }: PreflopT
 
         <section className="mt-5 rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4">
           <p className="text-[15px] leading-6 text-white/75">
-            Доступные действия: {actions.map((action) => action.ru?.button ?? action.label).join(", ")}.
+            Доступные действия: {actions.map((action) => action.sizing?.button ?? action.ru?.button ?? action.label).join(", ")}.
           </p>
           <p className="mt-3 text-[15px] leading-6 text-white/75">
             У каждой раздачи есть рандомайзер от 0 до 99: он выбирает, какая часть смешанной

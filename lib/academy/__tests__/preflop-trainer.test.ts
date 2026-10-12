@@ -375,12 +375,13 @@ describe("Russian copy (labels composed, sizes never invented)", () => {
       .toBe("SB открыл — ты сделал 3-бет с BB — SB сделал 4-бет");
   });
 
-  it("localizes the real action codes; RAISE has no size, ALL_IN shows its real stack amount", () => {
+  it("localizes the real action codes; generic ru labels, trusted per-node sizing attached separately, ALL_IN shows its real stack amount", () => {
     const actions = getPreflopTrainerPublicActions(requireAcademyPreflopTrainerSpot(ID(40), "FACING_OPEN_BB_VS_BTN"));
-    expect(actions.map((action) => [action.code, action.kind, action.ru?.button, action.amountBb])).toEqual([
-      ["RAISE", "RAISE", "3-бет", undefined],
-      ["CALL", "CALL", "Колл", undefined],
-      ["FOLD", "FOLD", "Фолд", undefined],
+    // ru.button stays generic; amountBb = the documented 3-bet TOTAL (BB OOP vs BTN 2.3 open: 4× = 9.2).
+    expect(actions.map((action) => [action.code, action.kind, action.ru?.button, action.amountBb, action.sizing?.button])).toEqual([
+      ["RAISE", "RAISE", "3-бет", 9.2, "3-бет до 9.2 BB"],
+      ["CALL", "CALL", "Колл", undefined, "Колл 1.3 BB"],
+      ["FOLD", "FOLD", "Фолд", undefined, undefined],
     ]);
     const jam = getPreflopTrainerPublicActions(requireAcademyPreflopTrainerSpot(ID(20), "FACING_OPEN_BB_VS_BTN"));
     expect(jam.map((action) => action.ru?.button)).toEqual(["Олл-ин 20 BB", "Колл", "Фолд"]);

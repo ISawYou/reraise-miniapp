@@ -25,6 +25,7 @@ import {
   preflopTrainerSpotRoute,
 } from "@/config/academy/preflop-trainer";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
+import { withHeroAllIn } from "@/lib/academy/preflop-sizing";
 import {
   buildPracticeAnswerFeedback,
   formatPracticeFrequencyList,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/academy/solver-feedback";
 import type {
   AcademyLessonProgress,
+  AcademyPreflopTableMoney,
   AcademyPreflopQuickMixAnswer,
   AcademyPreflopTrainerAnswer,
   AcademyPreflopTrainerPublicQuestion,
@@ -129,6 +131,27 @@ export function preflopTrainerReviewEntry(reveal: AcademyPreflopTrainerReveal): 
     expectedAnswer: formatPracticeFrequencyList(reveal.frequencies, reveal.actions),
     detail: feedback.summary,
   };
+}
+
+/**
+ * Table money shown for a question: the spot's trusted model, plus — once the
+ * hero's answer is revealed and it was an all-in (an ALL_IN action, a raise
+ * whose documented size is the whole stack, or a call of an all-in for the
+ * whole remaining stack) — the hero's all-in marks.
+ */
+export function revealedTableMoney(
+  table: AcademyPreflopTableMoney | undefined,
+  heroSeat: string,
+  question: AcademyPreflopTrainerPublicQuestion | null,
+  reveal: Pick<AcademyPreflopTrainerReveal, "selectedAction"> | null,
+): AcademyPreflopTableMoney | undefined {
+  if (!table || !question || !reveal) return table;
+  const chosen = question.actions.find((action) => action.code === reveal.selectedAction);
+  const allIn = chosen && (chosen.kind === "ALL_IN"
+    || chosen.sizing?.kind === "ALL_IN"
+    // Calling an all-in with the whole remaining stack is an all-in too.
+    || (chosen.sizing?.kind === "CALL" && chosen.sizing.totalBb >= table.startingStackBb));
+  return allIn ? withHeroAllIn(table, heroSeat) : table;
 }
 
 /**
@@ -330,6 +353,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
   const feedback = reveal ? buildPracticeAnswerFeedback(reveal) : null;
   const isLastQuestion = questionIndex === ACADEMY_TRAINING_QUESTION_COUNT - 1;
   const spot = question?.spot;
+  const table = spot ? revealedTableMoney(spot.table, spot.heroPosition, question, reveal) : undefined;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#09100d,#070707)] px-4 pb-32 pt-4 text-white">
@@ -345,7 +369,14 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
         {question && spot ? (
           <>
             <TrainerSpotContext title={spot.title} history={spot.history} stackBb={spot.stackBb} />
-            <TrainerHandScene scene={spot.scene} stackBb={spot.stackBb} cards={question.renderedCards} hand={question.hand} />
+            <TrainerHandScene
+              scene={spot.scene}
+              stackBb={spot.stackBb}
+              cards={question.renderedCards}
+              hand={question.hand}
+              presentation="ADVANCED"
+              table={table}
+            />
             <TrainerDecisionHeader hand={question.hand} />
             <TrainerActionButtons
               actions={question.actions}
@@ -353,6 +384,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
               reveal={reveal}
               disabled={pending}
               onAnswer={(action) => void handleAnswer(action)}
+              presentation="ADVANCED"
             />
           </>
         ) : (

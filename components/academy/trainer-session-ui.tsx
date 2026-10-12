@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { forwardRef, type ReactNode, useId, useState } from "react";
 import { AcademyPlayingCard } from "@/components/academy/academy-playing-card";
-import { PokerPositionTable } from "@/components/academy/poker-position-table";
+import { type AcademyTablePresentation, PokerPositionTable } from "@/components/academy/poker-position-table";
 import { BackButton } from "@/components/ui/back-button";
 import type {
+  AcademyPreflopTableMoney,
   AcademyPreflopTableScene,
   AcademySolverAction,
   AcademySolverPublicAction,
@@ -99,17 +100,25 @@ export function TrainerSpotContext({ title, history, stackBb, tag }: { title: st
   );
 }
 
-/** The hand scene: the shared table in TRAINING_SCENE mode with the hero's cards on the felt. */
+/**
+ * The hand scene: the shared table in TRAINING_SCENE mode with the hero's
+ * cards on the felt. `presentation` defaults to BASIC (plain table); only an
+ * explicit ADVANCED caller with a trusted `table` gets stacks / chips / pot.
+ */
 export function TrainerHandScene({
   scene,
   stackBb,
   cards,
   hand,
+  presentation = "BASIC",
+  table,
 }: {
   scene: AcademyPreflopTableScene;
   stackBb: number;
   cards: readonly [RenderedPlayingCard, RenderedPlayingCard];
   hand: string;
+  presentation?: AcademyTablePresentation;
+  table?: AcademyPreflopTableMoney;
 }) {
   return (
     <div className="-mx-1 mt-2" data-testid="hand-scene">
@@ -118,6 +127,8 @@ export function TrainerHandScene({
         fitViewport
         scene={scene}
         stackBb={stackBb}
+        presentation={presentation}
+        table={table}
         heroCards={(
           <div className="flex gap-1.5" aria-label={`Рука ${hand}`}>
             <AcademyPlayingCard card={cards[0]} size="sm" />
@@ -155,19 +166,28 @@ export type TrainerActionReveal = {
  * outline, the chosen one is filled — green when it counts as correct, red
  * only when the strategy never plays it (0%). The randomizer's pick is not
  * highlighted here: it is secondary information in the feedback text.
+ * `presentation="ADVANCED"` shows the trusted size ("3-бет до 9.2 BB",
+ * "Колл 18 BB") where the action carries one; BASIC (default) and any action
+ * without trusted sizing keep the generic label.
  */
+export function trainerActionButtonLabel(action: AcademySolverPublicAction, presentation: AcademyTablePresentation = "BASIC"): string {
+  return presentation === "ADVANCED" && action.sizing ? action.sizing.button : solverActionButtonLabel(action);
+}
+
 export function TrainerActionButtons({
   actions,
   columnsClass,
   reveal,
   disabled,
   onAnswer,
+  presentation = "BASIC",
 }: {
   actions: readonly AcademySolverPublicAction[];
   columnsClass: string;
   reveal: TrainerActionReveal | null;
   disabled: boolean;
   onAnswer: (action: AcademySolverAction) => void;
+  presentation?: AcademyTablePresentation;
 }) {
   return (
     <div className={`mt-3 grid ${columnsClass} gap-3`} data-action-count={actions.length}>
@@ -196,7 +216,7 @@ export function TrainerActionButtons({
                 : "border-white/10 bg-white/[0.06] text-white/85 active:bg-white/[0.1]"
             }`}
           >
-            <span>{solverActionButtonLabel(action)}</span>
+            <span>{trainerActionButtonLabel(action, presentation)}</span>
             {reveal ? (
               <span className="mt-0.5 text-xs font-semibold tabular-nums opacity-80" data-testid="action-frequency">
                 {formatSolverFrequencyPercent(frequency)}

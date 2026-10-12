@@ -23,6 +23,7 @@ import mtt10 from "@/data/academy/reference/mtt-preflop/MTT_10_GTO.json";
 import mtt20 from "@/data/academy/reference/mtt-preflop/MTT_20_GTO.json";
 import mtt40 from "@/data/academy/reference/mtt-preflop/MTT_40_GTO.json";
 import mtt5 from "@/data/academy/reference/mtt-preflop/MTT_5_GTO.json";
+import { ACADEMY_MTT_REFERENCE_SIZING_PROFILES } from "@/config/academy/preflop-sizing-profiles";
 import {
   importMttReferenceDataset,
   type MttReferenceImportResult,
@@ -144,6 +145,22 @@ function buildProfile(stackBb: MttReferenceStackBb): MttReferenceStackProfile {
       ...config.sizing,
     },
   };
+}
+
+/**
+ * The typed sizing profiles (config/academy/preflop-sizing-profiles.ts) are a
+ * machine-readable companion of the descriptive `sizing` strings above. Fail
+ * at load if their all-in levels ever drift from this file's `raiseIsAllIn`.
+ */
+const SIZING_LEVEL_OF_SCENARIO = { RFI: "OPEN", FACING_OPEN: "THREE_BET", FACING_3BET: "FOUR_BET", FACING_4BET: "FIVE_BET" } as const;
+for (const stackBb of MTT_REFERENCE_STACKS_BB) {
+  const profile = ACADEMY_MTT_REFERENCE_SIZING_PROFILES[stackBb];
+  for (const [scenario, level] of Object.entries(SIZING_LEVEL_OF_SCENARIO)) {
+    const allIn = STACK_CONFIGS[stackBb].raiseIsAllIn[scenario as keyof typeof SIZING_LEVEL_OF_SCENARIO];
+    if (profile.stackBb !== stackBb || (profile.levels[level]?.kind === "ALL_IN") !== allIn) {
+      throw new Error(`MTT reference ${stackBb} BB: typed sizing profile disagrees with raiseIsAllIn at ${scenario}`);
+    }
+  }
 }
 
 /** Import result (dataset + coverage report) per stack, built and validated at load. */
