@@ -25,16 +25,21 @@ import {
   TournamentNotFoundError,
 } from "@/lib/tournament-errors";
 import { assertPlayerActive } from "@/features/auth-server";
-import { assertServerActorRole } from "@/lib/admin-auth";
+import { assertServerActorRole, resolveCurrentServerActor } from "@/lib/admin-auth";
 import {
   FINAL_CANCELLATION_REJECTED_MESSAGE,
   FINAL_REGISTRATION_REJECTED_MESSAGE,
 } from "@/lib/tournament-final-policy";
 import {
   admitPlayerToTournament,
+  clearOnlineRegistrationRestrictionOnArrival,
   reconcileTournamentWaitlistCapacity,
   unEliminateTournamentPlayerWithinCapacity,
 } from "@/features/tournament-waitlist-capacity";
+import {
+  getAdminNoShowPolicyState,
+  isPlayerOnlineRegistrationRestricted,
+} from "@/features/tournament-no-show";
 import { commitTournamentCompletion } from "@/features/tournament-completion-commit";
 import type {
   Registration,
@@ -92,6 +97,14 @@ export type AdminTournamentParticipant = {
   status: "registered" | "attended" | "waitlist";
   custom_avatar_url?: string;
   telegram_avatar_url?: string;
+  // No-show waitlist policy -- ADMIN SURFACE ONLY (never on public
+  // participant/profile APIs). no_show_count is DERIVED
+  // (COUNT(registrations.no_show_at IS NOT NULL) for this player, across
+  // all tournaments), fetched in one batched query for the whole list.
+  no_show_count: number;
+  online_registration_restricted: boolean;
+  // THIS tournament's registration no_show_at, if marked "Не пришёл" here.
+  no_show_at: string | null;
 };
 
 function getPreferredPlayerDisplayName(player: {
@@ -331,7 +344,27 @@ export async function registerPlayerForTournament(
   // is re-evaluated here rather than handed back their stale waitlist row:
   // if a seat has been freed since (e.g. by an elimination) and they're
   // first in line, they come back `registered`.
+  //
+  // No-show policy: a player whose online registration is restricted after
+  // a no-show is ALWAYS placed in the waitlist here (decided under the same
+  // lock), even with free seats -- a successful waitlist registration, not
+  // an error; the result carries online_registration_restricted: true so
+  // the UI can explain it. An existing registered seat is never removed
+  // (the early return above), and cancellation stays available.
   return admitPlayerToTournament(tournamentId, playerId);
+}
+
+// The CURRENT session's own no-show restriction flag (never another
+// player's -- resolved from the request's own signed identity, no
+// playerId parameter) -- powers the player-facing "место подтверждает
+// администратор" hint on the tournament page. A restricted player is not
+// banned: viewing, registering (into the waitlist) and cancelling all work.
+export async function getMyOnlineRegistrationRestriction(): Promise<{ restricted: boolean }> {
+  const actor = await resolveCurrentServerActor();
+  if (!actor) {
+    return { restricted: false };
+  }
+  return { restricted: await isPlayerOnlineRegistrationRestricted(actor.id) };
 }
 
 export async function cancelPlayerRegistration(
@@ -628,13 +661,24 @@ export async function getTournamentResultsDraft(tournamentId: string) {
   });
 }
 
+// Invoked directly from app/admin/tournaments/[id]/edit/page.tsx as a
+// Server Action (bypasses middleware.ts's /api/admin/:path* matcher) -- it
+// now carries admin-only no-show/restriction data, so it authorizes itself
+// like the other admin participant actions below.
 export async function getAdminTournamentParticipants(
   tournamentId: string
 ): Promise<AdminTournamentParticipant[]> {
+  await assertServerActorRole(["admin", "operator"]);
+
   const rows = await registrationRepository.findAdminParticipants(tournamentId);
+  const policyState = await getAdminNoShowPolicyState(
+    tournamentId,
+    rows.map((row) => row.player_id)
+  );
 
   return rows.map((row) => {
     const player = row.players;
+    const policy = policyState.get(row.player_id);
 
     return {
       registration_id: row.id,
@@ -643,6 +687,9 @@ export async function getAdminTournamentParticipants(
       status: row.status as "registered" | "attended" | "waitlist",
       telegram_avatar_url: player?.telegram_avatar_url ?? undefined,
       custom_avatar_url: player?.custom_avatar_url ?? undefined,
+      no_show_count: policy?.no_show_count ?? 0,
+      online_registration_restricted: policy?.online_registration_restricted ?? false,
+      no_show_at: policy?.no_show_at ?? null,
     };
   });
 }
@@ -1464,16 +1511,41 @@ export async function getTournamentAttendance(
 // token is trusted here). Same-tab click ordering is guaranteed upstream,
 // entirely client-side, by lib/attendance-write-queue.ts -- this function
 // never sees two competing writes from the same browser tab concurrently.
+//
+// No-show policy: this is ALSO the one canonical place where confirmed
+// physical attendance clears players.online_registration_restricted_at --
+// every arrival path goes through here (the admin attendance route, the
+// Google Sheets live sync's applyLiveFieldsFromSheetSnapshot, pull-sheet's
+// commit), so a Sheet "Пришел = TRUE" lifts the restriction exactly like
+// the admin checkbox does, with no separate "unblock" action. Only
+// arrived=true on a seat-holding (registered/attended) registration
+// clears it; arrived=false never creates or restores a restriction, and
+// no_show_at history is never touched (see
+// clearOnlineRegistrationRestrictionOnArrival). Best-effort: the
+// attendance write above it already succeeded and is never undone.
 export async function setTournamentPlayerAttendance(
   tournamentId: string,
   playerId: string,
   arrived: boolean
 ): Promise<{ arrived: boolean; arrived_at: string | null }> {
-  return tournamentLiveStateRepository.upsertAttendance({
+  const result = await tournamentLiveStateRepository.upsertAttendance({
     tournament_id: tournamentId,
     player_id: playerId,
     arrived,
   });
+
+  if (result.arrived) {
+    try {
+      await clearOnlineRegistrationRestrictionOnArrival(tournamentId, playerId);
+    } catch (error) {
+      console.error(
+        "[setTournamentPlayerAttendance] clearing online-registration restriction failed:",
+        error instanceof Error ? error.name : "unknown error"
+      );
+    }
+  }
+
+  return result;
 }
 
 // Live Re-buy/Add-on state for kind='free' tournaments -- see

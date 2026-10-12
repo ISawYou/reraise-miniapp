@@ -12,9 +12,16 @@ import {
   getPlayerRegistrationForTournament,
   registerPlayerForTournament,
   cancelPlayerRegistration,
+  getMyOnlineRegistrationRestriction,
 } from "@/features/tournaments";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { logEvent } from "@/lib/activity-client";
+import {
+  REGISTRATION_RESERVES_SEAT_HINT,
+  RESTRICTED_WAITLIST_EXPLANATION,
+  RESTRICTED_WAITLIST_JOINED_MESSAGE,
+  RESTRICTED_WAITLIST_STATUS,
+} from "@/lib/registration-policy-copy";
 import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
 import { TournamentCard } from "@/components/tournaments/tournament-card";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
@@ -356,6 +363,10 @@ export default function TournamentDetailsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // No-show policy: this player's own online-registration restriction
+  // (self-registration only reaches the waitlist). Display-only -- the
+  // server enforces the rule regardless.
+  const [registrationRestricted, setRegistrationRestricted] = useState(false);
   const tournamentDateParts = tournament
     ? formatTournamentDateParts(tournament.start_at)
     : null;
@@ -481,6 +492,16 @@ const waitlistParticipants = participants.filter(
 
         setPlayer(currentPlayer);
 
+        // Best-effort, never blocks the page: only drives the restricted
+        // waitlist explanation.
+        try {
+          getMyOnlineRegistrationRestriction()
+            .then((state) => setRegistrationRestricted(state.restricted === true))
+            .catch(() => undefined);
+        } catch {
+          // ignore -- the explanation is optional copy
+        }
+
         await refreshPageData(currentPlayer, tournamentId);
         logEvent("tournament_opened", { metadata: { tournament_id: tournamentId } });
       } catch (err) {
@@ -504,9 +525,19 @@ const waitlistParticipants = participants.filter(
 
       const result = await registerPlayerForTournament(player.id, tournamentId);
 
+      const restrictedWaitlist =
+        result.status === "waitlist" &&
+        (result as { online_registration_restricted?: boolean }).online_registration_restricted === true;
+
       if (result.status === "registered") {
         setMessage("Вы записаны на турнир");
         logEvent("registration_created", { metadata: { tournament_id: tournamentId } });
+      } else if (restrictedWaitlist) {
+        // A SUCCESSFUL waitlist registration under the no-show policy --
+        // never presented as an error.
+        setRegistrationRestricted(true);
+        setMessage(RESTRICTED_WAITLIST_JOINED_MESSAGE);
+        logEvent("waitlist_joined", { metadata: { tournament_id: tournamentId } });
       } else if (result.status === "waitlist") {
         setMessage("Вы добавлены в список ожидания");
         logEvent("waitlist_joined", { metadata: { tournament_id: tournamentId } });
@@ -932,10 +963,15 @@ const waitlistParticipants = participants.filter(
                       : "Кнопка регистрации закреплена внизу экрана и всегда доступна."
                     : registrationStatus === "registered"
                       ? "Вы уже записаны на турнир. Управление записью доступно внизу экрана."
-                      : "Вы в списке ожидания. Управление записью доступно внизу экрана."}
+                      : registrationRestricted
+                        ? RESTRICTED_WAITLIST_STATUS
+                        : "Вы в списке ожидания. Управление записью доступно внизу экрана."}
               </p>
+              {!tournament.is_final && registrationStatus === "waitlist" && registrationRestricted ? (
+                <p className="mt-1 text-xs text-white/55">{RESTRICTED_WAITLIST_EXPLANATION}</p>
+              ) : null}
               {message ? (
-                <p className="mt-2 text-xs text-white/60">{message}</p>
+                <p className="mt-2 whitespace-pre-line text-xs text-white/60">{message}</p>
               ) : null}
             </section>
           ) : null}
@@ -1010,6 +1046,16 @@ const waitlistParticipants = participants.filter(
           <div className="mx-auto max-w-md">
             <div className="pointer-events-auto rounded-[22px] border border-white/10 bg-[#0d0f0f]/78 p-3 backdrop-blur-xl">
               {renderActionButton()}
+              {!tournament.is_final && (!registrationStatus || registrationStatus === "registered") ? (
+                <p className="mt-2 text-center text-[11px] leading-snug text-white/45">
+                  {REGISTRATION_RESERVES_SEAT_HINT}
+                </p>
+              ) : null}
+              {!tournament.is_final && registrationStatus === "waitlist" && registrationRestricted ? (
+                <p className="mt-2 text-center text-[11px] leading-snug text-white/55">
+                  {RESTRICTED_WAITLIST_EXPLANATION}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

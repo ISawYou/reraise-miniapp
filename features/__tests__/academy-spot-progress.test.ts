@@ -313,8 +313,12 @@ describe("(13) no migration: same SQL files, unconstrained lesson_code untouched
   it("still 30 migrations ending at 0029; none mentions spot codes; schema has no lesson_code constraint", () => {
     const dir = path.join(ROOT, "lib/db/migrations");
     const sql = readdirSync(dir).filter((name) => name.endsWith(".sql")).sort();
-    expect(sql).toHaveLength(30);
-    expect(sql.at(-1)).toBe("0029_powerful_argent.sql");
+    // The Academy work itself added no migration: the chain up to it is
+    // intact (0000..0029). Later, unrelated migrations (e.g. 0030, the
+    // no-show waitlist policy) are allowed, and the loop below still proves
+    // none of them mentions an Academy code.
+    expect(sql.length).toBeGreaterThanOrEqual(30);
+    expect(sql[29]).toBe("0029_powerful_argent.sql");
     for (const name of sql) expect(readFileSync(path.join(dir, name), "utf8"), name).not.toContain("spot_practice");
     const schema = readFileSync(path.join(ROOT, "lib/db/schema/academyProgress.ts"), "utf8");
     expect(schema).toContain('lessonCode: text("lesson_code").notNull()');

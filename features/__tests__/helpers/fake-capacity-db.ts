@@ -19,7 +19,9 @@
 // `log` instead.
 import { Param, SQL } from "drizzle-orm";
 import {
+  players,
   registrations,
+  tournamentAttendance,
   tournamentLateRegistration,
   tournamentMysteryBounty,
   tournamentPlayerEliminations,
@@ -32,6 +34,18 @@ export type FakeRegistration = {
   tournamentId: string;
   status: string;
   createdAt: Date;
+  // No-show waitlist policy columns (registrations.no_show_at /
+  // waitlist_promotion_notification_claimed_at).
+  noShowAt?: Date | null;
+  waitlistPromotionNotificationClaimedAt?: Date | null;
+};
+
+// players.online_registration_restricted_at / telegram_id, for the
+// no-show waitlist policy. A player absent from the map is unrestricted
+// and has no telegram_id.
+export type FakePlayer = {
+  restrictedAt: Date | null;
+  telegramId: number | null;
 };
 
 export type FakeLateRegistrationSnapshot = {
@@ -67,6 +81,13 @@ export type FakeCapacityState = {
   mysteryBountySnapshot: Record<string, unknown> | null;
   registrations: FakeRegistration[];
   eliminations: Map<string, boolean>;
+  players: Map<string, FakePlayer>;
+  attendance: Map<string, { arrived: boolean; arrivedAt: Date | null }>;
+  // Tournament meta read by the no-show/admission actions.
+  title: string;
+  startAt: Date;
+  status: string;
+  isFinal: boolean;
   // Every statement, in order: "tx:begin", "lock:tournaments",
   // "select:registrations", "update:registrations", ... -- used to assert
   // lock-first ordering.
@@ -90,6 +111,12 @@ function emptyState(): FakeCapacityState {
     mysteryBountySnapshot: null,
     registrations: [],
     eliminations: new Map(),
+    players: new Map(),
+    attendance: new Map(),
+    title: "Турнир",
+    startAt: new Date("2026-01-01T00:00:00Z"),
+    status: "open",
+    isFinal: false,
     log: [],
   };
 }
@@ -98,7 +125,13 @@ export function resetFakeCapacityDb(
   overrides: Partial<
     Omit<
       FakeCapacityState,
-      "registrations" | "eliminations" | "log" | "lateRegistrationSnapshot" | "mysteryBountySnapshot"
+      | "registrations"
+      | "eliminations"
+      | "log"
+      | "lateRegistrationSnapshot"
+      | "mysteryBountySnapshot"
+      | "players"
+      | "attendance"
     >
   > = {}
 ) {
@@ -136,6 +169,23 @@ export function eliminate(playerId: string, eliminated = true) {
   fake.state.eliminations.set(playerId, eliminated);
 }
 
+export function setPlayer(playerId: string, patch: Partial<FakePlayer>) {
+  const current = fake.state.players.get(playerId) ?? { restrictedAt: null, telegramId: null };
+  fake.state.players.set(playerId, { ...current, ...patch });
+}
+
+export function restrict(playerId: string, at = new Date("2026-01-01T00:00:00Z")) {
+  setPlayer(playerId, { restrictedAt: at });
+}
+
+export function isRestricted(playerId: string): boolean {
+  return fake.state.players.get(playerId)?.restrictedAt != null;
+}
+
+export function registrationOf(playerId: string): FakeRegistration | undefined {
+  return fake.state.registrations.find((row) => row.playerId === playerId);
+}
+
 export function statusOf(playerId: string): string | undefined {
   return fake.state.registrations.find((row) => row.playerId === playerId)?.status;
 }
@@ -166,7 +216,31 @@ function collectParams(chunk: unknown, out: unknown[] = []): unknown[] {
 function selectRows(table: unknown): unknown[] {
   const state = fake.state;
   if (table === tournaments) {
-    return state.tournamentExists ? [{ id: state.tournamentId, maxPlayers: state.maxPlayers }] : [];
+    return state.tournamentExists
+      ? [
+          {
+            id: state.tournamentId,
+            maxPlayers: state.maxPlayers,
+            title: state.title,
+            startAt: new Date(state.startAt),
+            status: state.status,
+            isFinal: state.isFinal,
+          },
+        ]
+      : [];
+  }
+  if (table === players) {
+    return Array.from(state.players.entries()).map(([id, player]) => ({
+      id,
+      restrictedAt: player.restrictedAt,
+      telegramId: player.telegramId,
+    }));
+  }
+  if (table === tournamentAttendance) {
+    return Array.from(state.attendance.entries()).map(([playerId, row]) => ({
+      playerId,
+      arrived: row.arrived,
+    }));
   }
   if (table === tournamentLateRegistration) {
     if (state.lateRegistrationSnapshot) return [{ ...state.lateRegistrationSnapshot }];
@@ -181,6 +255,8 @@ function selectRows(table: unknown): unknown[] {
       playerId: row.playerId,
       status: row.status,
       createdAt: new Date(row.createdAt),
+      noShowAt: row.noShowAt ?? null,
+      waitlistPromotionNotificationClaimedAt: row.waitlistPromotionNotificationClaimedAt ?? null,
     }));
   }
   if (table === tournamentPlayerEliminations) {
@@ -198,6 +274,8 @@ function tableName(table: unknown): string {
   if (table === tournamentMysteryBounty) return "tournament_mystery_bounty";
   if (table === registrations) return "registrations";
   if (table === tournamentPlayerEliminations) return "tournament_player_eliminations";
+  if (table === players) return "players";
+  if (table === tournamentAttendance) return "tournament_attendance";
   return "unknown";
 }
 
@@ -205,6 +283,22 @@ function makeExecutor() {
   return {
     select: () => ({
       from: (table: unknown) => ({
+        // registrations INNER JOIN players -- only the promotion
+        // notification dispatcher's recipient lookup uses this shape.
+        innerJoin: () => ({
+          where: (cond: unknown) => {
+            fake.state.log.push(`select:${tableName(table)}+players`);
+            const params = collectParams(cond);
+            return Promise.resolve(
+              fake.state.registrations
+                .filter((row) => params.includes(row.id))
+                .map((row) => ({
+                  registrationId: row.id,
+                  telegramId: fake.state.players.get(row.playerId)?.telegramId ?? null,
+                }))
+            );
+          },
+        }),
         where: () => {
           let locked = false;
           const run = () => {
@@ -225,14 +319,45 @@ function makeExecutor() {
       }),
     }),
     update: (table: unknown) => ({
-      set: (values: { status: string }) => ({
+      set: (values: Record<string, unknown>) => ({
         where: (cond: unknown) => {
           fake.state.log.push(`update:${tableName(table)}`);
           const params = collectParams(cond);
+          if (table === players) {
+            for (const [id, player] of fake.state.players.entries()) {
+              if (params.includes(id) && "onlineRegistrationRestrictedAt" in values) {
+                player.restrictedAt = (values.onlineRegistrationRestrictedAt as Date | null) ?? null;
+              }
+            }
+            for (const id of params) {
+              if (
+                typeof id === "string" &&
+                !fake.state.players.has(id) &&
+                values.onlineRegistrationRestrictedAt != null &&
+                fake.state.registrations.some((row) => row.playerId === id)
+              ) {
+                fake.state.players.set(id, {
+                  restrictedAt: values.onlineRegistrationRestrictedAt as Date,
+                  telegramId: null,
+                });
+              }
+            }
+            return Promise.resolve();
+          }
           const requiresWaitlist = params.includes("waitlist");
+          const requiresRegistered = params.includes("registered");
+          // The notification claim is only ever written `WHERE ... IS NULL`.
+          const isClaim = "waitlistPromotionNotificationClaimedAt" in values;
           for (const row of fake.state.registrations) {
-            if (params.includes(row.id) && (!requiresWaitlist || row.status === "waitlist")) {
-              row.status = values.status;
+            if (!params.includes(row.id)) continue;
+            if (requiresWaitlist && row.status !== "waitlist") continue;
+            if (requiresRegistered && row.status !== "registered") continue;
+            if (isClaim && row.waitlistPromotionNotificationClaimedAt != null) continue;
+            if ("status" in values) row.status = values.status as string;
+            if ("noShowAt" in values) row.noShowAt = (values.noShowAt as Date | null) ?? null;
+            if (isClaim) {
+              row.waitlistPromotionNotificationClaimedAt =
+                (values.waitlistPromotionNotificationClaimedAt as Date | null) ?? null;
             }
           }
           return Promise.resolve();
@@ -255,6 +380,19 @@ function makeExecutor() {
           }
           fake.state.registrations.push(row);
           return { returning: () => Promise.resolve([{ ...row }]) };
+        }
+        if (table === tournamentAttendance) {
+          return {
+            onConflictDoUpdate: () => {
+              const playerId = values.playerId as string;
+              const existing = fake.state.attendance.get(playerId);
+              fake.state.attendance.set(playerId, {
+                arrived: values.arrived as boolean,
+                arrivedAt: existing?.arrivedAt ?? ((values.arrivedAt as Date | null) ?? null),
+              });
+              return Promise.resolve();
+            },
+          };
         }
         if (table === tournamentPlayerEliminations) {
           return {
@@ -319,6 +457,8 @@ function snapshot(state: FakeCapacityState) {
   return {
     registrations: state.registrations.map((row) => ({ ...row })),
     eliminations: new Map(state.eliminations),
+    players: new Map(Array.from(state.players.entries()).map(([id, p]) => [id, { ...p }])),
+    attendance: new Map(Array.from(state.attendance.entries()).map(([id, a]) => [id, { ...a }])),
     lateRegistrationClosed: state.lateRegistrationClosed,
     lateRegistrationSnapshot: state.lateRegistrationSnapshot
       ? { ...state.lateRegistrationSnapshot }
@@ -340,6 +480,8 @@ export const fakeDb = {
       } catch (error) {
         fake.state.registrations = before.registrations;
         fake.state.eliminations = before.eliminations;
+        fake.state.players = before.players;
+        fake.state.attendance = before.attendance;
         fake.state.lateRegistrationClosed = before.lateRegistrationClosed;
         fake.state.lateRegistrationSnapshot = before.lateRegistrationSnapshot;
         fake.state.mysteryBountySnapshot = before.mysteryBountySnapshot;

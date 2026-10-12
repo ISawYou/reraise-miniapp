@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BackButton } from "@/components/ui/back-button";
 import { PromotionToast } from "@/components/promotion-toast";
+import { RESTRICTED_WAITLIST_JOINED_MESSAGE } from "@/lib/registration-policy-copy";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { logEvent } from "@/lib/activity-client";
 import {
@@ -286,8 +287,16 @@ export default function TournamentsPage() {
 
     try {
       setActionLoadingId(tournamentId);
-      await registerPlayerForTournament(playerId, tournamentId);
+      const result = await registerPlayerForTournament(playerId, tournamentId);
       await refreshPageData(player, { showPromotionToast: false });
+      // No-show policy: a restricted player's registration is a SUCCESSFUL
+      // waitlist entry -- explain it rather than leaving it unexplained.
+      if (
+        result.status === "waitlist" &&
+        (result as { online_registration_restricted?: boolean }).online_registration_restricted === true
+      ) {
+        setPromotionToast(RESTRICTED_WAITLIST_JOINED_MESSAGE);
+      }
     } catch (err) {
       console.error("Register error:", err);
     } finally {

@@ -9,6 +9,26 @@ export const registrations = pgTable("registrations", {
   tournamentId: uuid("tournament_id").notNull().references(() => tournaments.id, { onDelete: "cascade" }),
   status: text().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
+  // No-show waitlist policy (see features/tournament-no-show.ts). Set ONLY
+  // by the explicit admin "Не пришёл" action on THIS registration -- never
+  // inferred automatically (not at completion, not from missing
+  // attendance). Cleared again only if staff later admits this same
+  // registration via "Допустить в игру" (the player did show up for this
+  // tournament after all). A player's no-show history is DERIVED as
+  // COUNT(registrations WHERE no_show_at IS NOT NULL) -- there is
+  // deliberately no mutable counter column anywhere. NULL for every
+  // historical row (no retroactive penalties).
+  noShowAt: timestamp("no_show_at", { withTimezone: true }),
+
+  // At-most-once claim for the "Вы в основной регистрации" Telegram
+  // notification. Set (inside the same transaction, under the
+  // tournament-row lock) the FIRST time this registration transitions
+  // waitlist -> registered; never cleared. A later waitlist -> registered
+  // cycle of the same registration finds it already set and sends nothing.
+  waitlistPromotionNotificationClaimedAt: timestamp("waitlist_promotion_notification_claimed_at", {
+    withTimezone: true,
+  }),
 }, (table) => [
   check("registrations_status_check", sql`${table.status} IN ('registered', 'waitlist', 'cancelled', 'attended')`),
 

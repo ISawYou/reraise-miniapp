@@ -21,6 +21,12 @@ vi.mock("@/lib/current-player", () => ({
   resolveCurrentPlayer: () => Promise.resolve(admin),
 }));
 
+// The edit page also imports the no-show/admission Server Actions; this
+// form-only test never exercises them.
+vi.mock("@/features/tournament-roster-actions", () => ({
+  markTournamentPlayerNoShow: vi.fn(),
+  admitTournamentPlayerFromWaitlist: vi.fn(),
+}));
 vi.mock("@/lib/client-request", () => ({ fetchAdminJson: mocks.fetchAdminJson }));
 
 vi.mock("@/features/tournaments", () => ({

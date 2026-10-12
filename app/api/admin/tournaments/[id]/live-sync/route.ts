@@ -14,6 +14,7 @@ import {
   ensureSpreadsheetTab,
   replaceSpreadsheetTabValues,
 } from "@/lib/google-sheets";
+import { buildLiveTournamentReadmeSheetValues } from "@/lib/tournament-sheet-readme";
 
 function buildTabName(title: string, startAt: string, tournamentId: string) {
   const date = new Date(startAt);
@@ -41,16 +42,6 @@ function formatTournamentDate(date: string) {
 
 function getTournamentStatusLabel(status: string) {
   return status === "completed" ? "Закрыт" : "Открыт";
-}
-
-function buildReadmeSheetValues() {
-  return [
-    ["README - live-данные турниров"],
-    [],
-    ["Эта таблица синхронизируется с Mini App."],
-    ["Редактировать можно поля: Пришел, Оплатил, Нал/карта, Беспл. re-entry, Re-buy, Addon, Nok, Boss-нокауты, Место."],
-    ["Технические поля скрыты и нужны только для синхронизации."],
-  ];
 }
 
 function buildLiveSheetValues(
@@ -152,7 +143,7 @@ export async function syncTournamentLiveSheet(
   const exportData = await getTournamentLiveSheetData(tournamentId);
 
   await ensureReadmeTab();
-  await replaceSpreadsheetTabValues("README", buildReadmeSheetValues());
+  await replaceSpreadsheetTabValues("README", buildLiveTournamentReadmeSheetValues());
 
   const sheet = await ensureSpreadsheetTab(tabName);
   if (sheet.created) {

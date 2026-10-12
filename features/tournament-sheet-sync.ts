@@ -781,3 +781,80 @@ export async function reorderTournamentEliminationsThroughSheet(
 
   return { ok: true };
 }
+
+export type AdmissionSheetSyncResult = {
+  // false when there was nothing to do (not GS-active, already in sync,
+  // the player isn't a currently-admitted arrived seat-holder) or the
+  // sheet couldn't be read/located; never throws for those.
+  arrivedWritten: boolean;
+};
+
+// Mirrors a staff "Допустить в игру" admission into the linked sheet,
+// right after it committed in Postgres (features/tournament-roster-actions.ts):
+//   1. the roster sync (same syncTournamentRosterToSheet the poller runs)
+//      rewrites this row's Статус регистрации waitlist -> registered, or
+//      appends the row if it was missing;
+//   2. the Пришел cell is set TRUE -- otherwise the very next poll would
+//      see the now-eligible row still saying Пришел=FALSE and "correct"
+//      Postgres back to arrived=false.
+// Registration status stays strictly ReRaise -> Sheet; nothing here reads a
+// status back. Everything written is DERIVED from current Postgres state
+// (the player must currently be a registered/attended seat-holder with
+// tournament_attendance.arrived = true), so calling this when that isn't
+// true writes nothing. If a poll slips in between the admission commit and
+// this write, it may briefly mirror arrived=false; the next poll after this
+// write restores arrived=true (self-healing within one tick).
+export async function syncAdmittedPlayerToSheet(
+  tournamentId: string,
+  playerId: string
+): Promise<AdmissionSheetSyncResult> {
+  const tournament = await getTournamentById(tournamentId);
+  const tabName = tournament.google_sheet_tab_name?.trim();
+  if (tournament.kind !== "free" || tournament.status === "completed" || !tabName) {
+    return { arrivedWritten: false };
+  }
+
+  const [draftRoster, attendance] = await Promise.all([
+    getTournamentResultsDraft(tournamentId),
+    getTournamentAttendance(tournamentId),
+  ]);
+  if (
+    !draftRoster.some((row) => row.player_id === playerId) ||
+    attendance.get(playerId)?.arrived !== true
+  ) {
+    return { arrivedWritten: false };
+  }
+
+  let readResult = await readAndParseFreeTournamentSheet(tournament);
+  if (!readResult.ok) {
+    return { arrivedWritten: false };
+  }
+
+  const rosterResult = await syncTournamentRosterToSheet(
+    tournament,
+    readResult.rows,
+    readResult.dataRowCount
+  );
+  if (rosterResult.appended > 0) {
+    readResult = await readAndParseFreeTournamentSheet(tournament);
+    if (!readResult.ok) {
+      return { arrivedWritten: false };
+    }
+  }
+
+  const sheetRow = readResult.rows.get(playerId);
+  if (!sheetRow || sheetRow.arrived) {
+    return { arrivedWritten: false };
+  }
+
+  // Column position comes from the one shared layout (never a new column).
+  const layout = getFreeSheetColumnLayout(tournament.tournament_type);
+  const arrivedIndex = layout.headers.indexOf("Пришел");
+  await batchUpdateSpreadsheetValues([
+    {
+      range: `${tabName}!${columnIndexToLetter(arrivedIndex)}${sheetRow.rowNumber}`,
+      values: [[true]],
+    },
+  ]);
+  return { arrivedWritten: true };
+}

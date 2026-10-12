@@ -15,6 +15,7 @@ import {
   replaceSpreadsheetTabValues,
 } from "@/lib/google-sheets";
 import type { MysteryBountySnapshot } from "@/types/domain";
+import { buildFreeTournamentReadmeSheetValues } from "@/lib/tournament-sheet-readme";
 
 type FreeSheetRowInput = {
   player_id: string;
@@ -116,25 +117,6 @@ function buildRatingEngineHeaderExtra(meta: RatingPointsV2Meta): string[][] {
       // (mysteryBountyHeaderExtra) -- nothing extra to show here.
       return [[], [], [], [], []];
   }
-}
-
-function buildReadmeSheetValues() {
-  return [
-    ["README - Google Sheets для турнирного администратора"],
-    [],
-    ["Что делает этот файл"],
-    [
-      "В этой таблице администратор на площадке заполняет игровые данные и итоговые места участников турнира.",
-    ],
-    [],
-    ["Какие листы в таблице"],
-    ["README - инструкция"],
-    ["Листы турниров - рабочие таблицы по каждому турниру"],
-    [],
-    ["Важно"],
-    ["Не удаляйте строки и не меняйте Player ID"],
-    ["Повторная выгрузка того же турнира обновляет тот же лист, а не создает новый."],
-  ];
 }
 
 function buildFreeSheetValues(
@@ -406,7 +388,7 @@ export async function syncTournamentSheet(
     );
 
   await ensureReadmeTab();
-  await replaceSpreadsheetTabValues("README", buildReadmeSheetValues());
+  await replaceSpreadsheetTabValues("README", buildFreeTournamentReadmeSheetValues());
 
   const sheet = await ensureSpreadsheetTab(tabName);
   if (sheet.created) {

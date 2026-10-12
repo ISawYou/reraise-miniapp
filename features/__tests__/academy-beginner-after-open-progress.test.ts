@@ -149,8 +149,12 @@ describe("the new lessons never leak into the old module / catalog", () => {
   it("no migration was added for the new lessons", () => {
     const dir = path.join(ROOT, "lib/db/migrations");
     const sql = readdirSync(dir).filter((name) => name.endsWith(".sql")).sort();
-    expect(sql).toHaveLength(30);
-    expect(sql.at(-1)).toBe("0029_powerful_argent.sql");
+    // The Academy work itself added no migration: the chain up to it is
+    // intact (0000..0029). Later, unrelated migrations (e.g. 0030, the
+    // no-show waitlist policy) are allowed, and the loop below still proves
+    // none of them mentions an Academy code.
+    expect(sql.length).toBeGreaterThanOrEqual(30);
+    expect(sql[29]).toBe("0029_powerful_argent.sql");
     for (const name of sql) {
       const text = readFileSync(path.join(dir, name), "utf8");
       for (const code of [...NEW_CODES, ACADEMY_BEGINNER_AFTER_OPEN_MODULE_CODE]) expect(text, name).not.toContain(code);

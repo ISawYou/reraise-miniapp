@@ -1,14 +1,17 @@
 import "server-only";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  players,
   registrations,
+  tournamentAttendance,
   tournamentLateRegistration,
   tournamentPlayerEliminations,
   tournaments,
 } from "@/lib/db/schema";
 import { lockTournamentRow, type Executor } from "@/features/tournament-row-lock";
+import { dispatchWaitlistPromotionNotifications } from "@/features/tournament-promotion-notification";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
 import type { Registration, RegistrationStatus } from "@/types/domain";
 
@@ -63,6 +66,29 @@ import type { Registration, RegistrationStatus } from "@/types/domain";
 // (or vice versa): whichever side acquires the lock first runs to
 // completion before the other even reads whether a snapshot exists.
 //
+// NO-SHOW WAITLIST POLICY
+// -----------------------
+// players.online_registration_restricted_at (set by the explicit admin
+// "Не пришёл" action, see markRegistrationNoShowWithinCapacity below) means
+// "this player may self-register, but only into the WAITLIST". The ONE
+// reconciler in this file therefore SKIPS restricted waitlist candidates
+// when filling free seats: a restricted row stays `waitlist`, consumes zero
+// seats, keeps its created_at (queue position) untouched, and never blocks
+// an eligible player behind it -- FIFO is strict AMONG ELIGIBLE candidates
+// only. A restricted player only ever gets a seat through staff
+// "Допустить в игру" (admitWaitlistedRegistrationWithinCapacity), which is
+// a deliberate, documented exception to FIFO for a physically present
+// player. No automatic no-show inference exists anywhere.
+//
+// PROMOTION NOTIFICATION
+// ----------------------
+// Every real waitlist -> registered transition made here (auto-promotion
+// or manual admission) claims registrations.
+// waitlist_promotion_notification_claimed_at inside the same transaction
+// (only if it is still NULL), and the claimed ids are dispatched AFTER the
+// transaction commits (features/tournament-promotion-notification.ts) --
+// at most one message per registration, ever.
+//
 // Postgres-only by design (same precedent as lib/player-merge.ts): this
 // needs real row locks inside one transaction, which the dual-provider
 // repository abstraction can't express, so it talks to Postgres directly via
@@ -106,6 +132,9 @@ type TournamentRegistrationState = {
   playerId: string;
   status: string;
   createdAt: Date;
+  // NULL/undefined until the first waitlist -> registered transition of
+  // this registration claims its one promotion notification.
+  waitlistPromotionNotificationClaimedAt?: Date | null;
 };
 
 type CapacityState = {
@@ -113,6 +142,9 @@ type CapacityState = {
   lateRegistrationClosed: boolean;
   registrations: TournamentRegistrationState[];
   eliminatedPlayerIds: Set<string>;
+  // Waitlisted players whose online registration is restricted after a
+  // no-show -- skipped by automatic promotion (never removed/reordered).
+  restrictedPlayerIds: Set<string>;
 };
 
 // THE capacity formula -- pure, so it can be unit-tested directly. Every
@@ -135,6 +167,31 @@ function oldestWaitlisted(state: CapacityState): TournamentRegistrationState[] {
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
+// The FIFO queue automatic promotion actually draws from: every waitlisted
+// row in created_at order, MINUS restricted players. Skipping (not
+// removing) a restricted row is what lets eligible players behind it
+// promote around it while its own position stays untouched.
+function eligibleWaitlisted(state: CapacityState): TournamentRegistrationState[] {
+  return oldestWaitlisted(state).filter((row) => !state.restrictedPlayerIds.has(row.playerId));
+}
+
+// Restriction state for a set of players, read inside the caller's
+// transaction. Filters in application code as well as in SQL so the
+// result is exact regardless of the executor.
+async function readRestrictedPlayerIds(tx: Executor, playerIds: string[]): Promise<Set<string>> {
+  if (playerIds.length === 0) {
+    return new Set();
+  }
+  const wanted = new Set(playerIds);
+  const rows = await tx
+    .select({ id: players.id, restrictedAt: players.onlineRegistrationRestrictedAt })
+    .from(players)
+    .where(and(inArray(players.id, playerIds), isNotNull(players.onlineRegistrationRestrictedAt)));
+  return new Set(
+    rows.filter((row) => row.restrictedAt != null && wanted.has(row.id)).map((row) => row.id)
+  );
+}
+
 // Reads everything the capacity formula needs. Only meaningful when called
 // AFTER lockTournamentRow inside the same transaction (or, for the
 // advisory pre-check below, knowingly without the lock).
@@ -155,6 +212,7 @@ async function readCapacityState(
       playerId: registrations.playerId,
       status: registrations.status,
       createdAt: registrations.createdAt,
+      waitlistPromotionNotificationClaimedAt: registrations.waitlistPromotionNotificationClaimedAt,
     })
     .from(registrations)
     .where(eq(registrations.tournamentId, tournamentId));
@@ -166,6 +224,18 @@ async function readCapacityState(
     .from(tournamentPlayerEliminations)
     .where(eq(tournamentPlayerEliminations.tournamentId, tournamentId));
 
+  // Final Month (is_final) composition is admin-curated and outside the
+  // no-show policy entirely -- nobody is skipped there. Only read when
+  // there is a waitlist at all (the common full-table case without a
+  // waitlist pays nothing extra).
+  const waitlistedPlayerIds = registrationRows
+    .filter((row) => row.status === "waitlist")
+    .map((row) => row.playerId);
+  const restrictedPlayerIds =
+    waitlistedPlayerIds.length > 0 && !(await isFinalTournament(tx, tournamentId))
+      ? await readRestrictedPlayerIds(tx, waitlistedPlayerIds)
+      : new Set<string>();
+
   return {
     maxPlayers,
     lateRegistrationClosed: lateRegRows.length > 0,
@@ -173,6 +243,7 @@ async function readCapacityState(
     eliminatedPlayerIds: new Set(
       eliminationRows.filter((row) => row.eliminated).map((row) => row.playerId)
     ),
+    restrictedPlayerIds,
   };
 }
 
@@ -183,32 +254,67 @@ function freeSlots(state: CapacityState): number {
   );
 }
 
-// Promotes the oldest waitlisted registrations into currently-free seats.
-// Mutates `state` in place so a caller in the same transaction (e.g. a new
-// entrant's decision) sees the post-promotion state without a re-read.
-async function promoteWithinLock(
+// Claims the one-time promotion notification for registrations that have
+// JUST transitioned waitlist -> registered in this transaction. Only rows
+// whose claim is still NULL are claimed (decided under the tournament-row
+// lock, which every writer of this column holds, and re-asserted in SQL via
+// IS NULL); returns exactly the ids claimed now -- the only ids that may
+// ever be dispatched for these transitions.
+async function claimPromotionNotificationsWithinLock(
   tx: Executor,
-  state: CapacityState
-): Promise<WaitlistReconciliationResult> {
+  rows: TournamentRegistrationState[]
+): Promise<string[]> {
+  const unclaimed = rows.filter((row) => row.waitlistPromotionNotificationClaimedAt == null);
+  if (unclaimed.length === 0) {
+    return [];
+  }
+  const now = new Date();
+  const ids = unclaimed.map((row) => row.id);
+  await tx
+    .update(registrations)
+    .set({ waitlistPromotionNotificationClaimedAt: now })
+    .where(
+      and(
+        inArray(registrations.id, ids),
+        isNull(registrations.waitlistPromotionNotificationClaimedAt)
+      )
+    );
+  for (const row of unclaimed) {
+    row.waitlistPromotionNotificationClaimedAt = now;
+  }
+  return ids;
+}
+
+type PromotionOutcome = {
+  result: WaitlistReconciliationResult;
+  claimedNotificationRegistrationIds: string[];
+};
+
+// Promotes the oldest ELIGIBLE (non-restricted) waitlisted registrations
+// into currently-free seats. Mutates `state` in place so a caller in the
+// same transaction (e.g. a new entrant's decision) sees the post-promotion
+// state without a re-read.
+async function promoteWithinLock(tx: Executor, state: CapacityState): Promise<PromotionOutcome> {
   const result: WaitlistReconciliationResult = {
     promotedRegistrationIds: [],
     promotedPlayerIds: [],
   };
+  const outcome: PromotionOutcome = { result, claimedNotificationRegistrationIds: [] };
 
   // Late Registration closed => no new entrants are seated, ever, even if
   // eliminations freed seats.
   if (state.lateRegistrationClosed) {
-    return result;
+    return outcome;
   }
 
   const slots = freeSlots(state);
   if (slots === 0) {
-    return result;
+    return outcome;
   }
 
-  const toPromote = oldestWaitlisted(state).slice(0, slots);
+  const toPromote = eligibleWaitlisted(state).slice(0, slots);
   if (toPromote.length === 0) {
-    return result;
+    return outcome;
   }
 
   const ids = toPromote.map((row) => row.id);
@@ -223,7 +329,12 @@ async function promoteWithinLock(
     result.promotedPlayerIds.push(row.playerId);
   }
 
-  return result;
+  outcome.claimedNotificationRegistrationIds = await claimPromotionNotificationsWithinLock(
+    tx,
+    toPromote
+  );
+
+  return outcome;
 }
 
 // The canonical reconciler: fills every currently-free seat from the
@@ -236,18 +347,28 @@ export async function reconcileTournamentWaitlistCapacity(
 ): Promise<WaitlistReconciliationResult> {
   assertPostgresMode();
 
-  return db.transaction(async (rawTx) => {
+  const outcome = await db.transaction(async (rawTx): Promise<PromotionOutcome> => {
     const tx = rawTx as unknown as Executor;
     const tournament = await lockTournamentRow(tx, tournamentId);
     if (!tournament) {
       // Deleted concurrently (registrations cascade with it) -- nothing to
       // reconcile.
-      return { promotedRegistrationIds: [], promotedPlayerIds: [] };
+      return {
+        result: { promotedRegistrationIds: [], promotedPlayerIds: [] },
+        claimedNotificationRegistrationIds: [],
+      };
     }
 
     const state = await readCapacityState(tx, tournamentId, tournament.maxPlayers);
     return promoteWithinLock(tx, state);
   });
+
+  // Committed -- only now, best-effort, never throws.
+  await dispatchWaitlistPromotionNotifications(
+    tournamentId,
+    outcome.claimedNotificationRegistrationIds
+  );
+  return outcome.result;
 }
 
 function toRegistration(
@@ -276,16 +397,35 @@ function toRegistration(
 //                                they're first in line comes back registered
 //                                (still `waitlist` if others are ahead);
 //   - cancelled row / no row  => reactivated / created as `registered` iff a
-//                                seat is free and nobody is already waiting
-//                                ahead of them (FIFO -- a newcomer never
-//                                jumps the queue), otherwise `waitlist`.
+//                                seat is free and no ELIGIBLE player is
+//                                already waiting ahead of them (FIFO -- a
+//                                newcomer never jumps the queue; a
+//                                restricted waitlist row never blocks
+//                                anyone), otherwise `waitlist`.
+//
+// NO-SHOW POLICY: if the entrant's players.online_registration_restricted_at
+// is set, a NEW or REACTIVATED row is always `waitlist`, regardless of free
+// capacity (even at 0/40) -- a restricted player never takes a guaranteed
+// seat through this path; their seat is confirmed only by staff
+// "Допустить в игру" when they are physically in the club. An
+// already-registered row is returned untouched (never removed -- they may
+// still cancel it normally); an already-waitlisted restricted row stays
+// waitlisted (the reconciler skips it). This applies to self-registration
+// (registerPlayerForTournament) and to the admin "add existing player"
+// path alike -- EXCEPT on a Final Month (is_final) tournament, whose
+// invite/admin-curated composition is never affected by this policy. When
+// the rule applies, the returned registration carries
+// `online_registration_restricted: true` so the player UI can explain the
+// waitlist outcome (absent otherwise -- unrestricted results are unchanged).
+export type AdmittedRegistration = Registration & { online_registration_restricted?: true };
+
 export async function admitPlayerToTournament(
   tournamentId: string,
   playerId: string
-): Promise<Registration> {
+): Promise<AdmittedRegistration> {
   assertPostgresMode();
 
-  return db.transaction(async (rawTx) => {
+  const outcome = await db.transaction(async (rawTx) => {
     const tx = rawTx as unknown as Executor;
     const tournament = await lockTournamentRow(tx, tournamentId);
     if (!tournament) {
@@ -293,17 +433,26 @@ export async function admitPlayerToTournament(
     }
 
     const state = await readCapacityState(tx, tournamentId, tournament.maxPlayers);
-    await promoteWithinLock(tx, state);
+    const promotion = await promoteWithinLock(tx, state);
+    const claimed = promotion.claimedNotificationRegistrationIds;
+
+    const entrantRestricted =
+      (await readRestrictedPlayerIds(tx, [playerId])).has(playerId) &&
+      !(await isFinalTournament(tx, tournamentId));
+    const withPolicy = (registration: Registration): AdmittedRegistration =>
+      entrantRestricted ? { ...registration, online_registration_restricted: true } : registration;
 
     // (player_id, tournament_id) is unique -- at most one row.
     const existing = state.registrations.find((row) => row.playerId === playerId);
 
     if (existing && existing.status !== "cancelled") {
-      return toRegistration(tournamentId, existing);
+      return { registration: withPolicy(toRegistration(tournamentId, existing)), claimed };
     }
 
     const nextStatus: RegistrationStatus =
-      freeSlots(state) > 0 && oldestWaitlisted(state).length === 0 ? "registered" : "waitlist";
+      !entrantRestricted && freeSlots(state) > 0 && eligibleWaitlisted(state).length === 0
+        ? "registered"
+        : "waitlist";
 
     if (existing) {
       await tx
@@ -311,7 +460,7 @@ export async function admitPlayerToTournament(
         .set({ status: nextStatus })
         .where(eq(registrations.id, existing.id));
       existing.status = nextStatus;
-      return toRegistration(tournamentId, existing);
+      return { registration: withPolicy(toRegistration(tournamentId, existing)), claimed };
     }
 
     const [created] = await tx
@@ -321,13 +470,21 @@ export async function admitPlayerToTournament(
     if (!created) {
       throw new Error("Failed to create registration: no rows returned");
     }
-    return toRegistration(tournamentId, {
-      id: created.id,
-      playerId: created.playerId,
-      status: created.status,
-      createdAt: created.createdAt,
-    });
+    return {
+      registration: withPolicy(
+        toRegistration(tournamentId, {
+          id: created.id,
+          playerId: created.playerId,
+          status: created.status,
+          createdAt: created.createdAt,
+        })
+      ),
+      claimed,
+    };
   });
+
+  await dispatchWaitlistPromotionNotifications(tournamentId, outcome.claimed);
+  return outcome.registration;
 }
 
 // How many seats un-eliminating `playerId` would add: 1 only if they are
@@ -410,4 +567,307 @@ export async function assertTournamentSeatAvailableForReturn(
 
   const state = await readCapacityState(db, tournamentId, row.maxPlayers);
   assertSeatForReturn(state, playerId);
+}
+
+// ---------------------------------------------------------------------------
+// No-show waitlist policy: "Не пришёл" / "Допустить в игру" / arrival.
+// All three take the SAME tournament-row lock first (lockTournamentRow) and
+// use the SAME capacity state/formula as everything above -- there is no
+// second lock and no second promotion engine.
+// ---------------------------------------------------------------------------
+
+export const ADMISSION_NO_SEAT_MESSAGE = "Свободных мест нет — игрок остаётся в листе ожидания";
+
+// An expected, user-facing rejection of a no-show/admission action (wrong
+// state, no seat, ...). Server actions translate it into a returned
+// { ok: false, error } so the exact Russian message reaches the admin UI
+// (production Server Actions don't forward thrown error messages).
+export class TournamentRosterActionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TournamentRosterActionError";
+  }
+}
+
+async function readTournamentMeta(tx: Executor, tournamentId: string) {
+  const [row] = await tx
+    .select({
+      id: tournaments.id,
+      maxPlayers: tournaments.maxPlayers,
+      status: tournaments.status,
+      startAt: tournaments.startAt,
+      isFinal: tournaments.isFinal,
+    })
+    .from(tournaments)
+    .where(eq(tournaments.id, tournamentId));
+  if (!row) {
+    throw new TournamentNotFoundError(tournamentId);
+  }
+  return row;
+}
+
+async function isFinalTournament(tx: Executor, tournamentId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ isFinal: tournaments.isFinal })
+    .from(tournaments)
+    .where(eq(tournaments.id, tournamentId));
+  return rows[0]?.isFinal === true;
+}
+
+async function isPlayerArrived(tx: Executor, tournamentId: string, playerId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ playerId: tournamentAttendance.playerId, arrived: tournamentAttendance.arrived })
+    .from(tournamentAttendance)
+    .where(
+      and(eq(tournamentAttendance.tournamentId, tournamentId), eq(tournamentAttendance.playerId, playerId))
+    );
+  return rows.some((row) => row.playerId === playerId && row.arrived === true);
+}
+
+export type NoShowResult = {
+  registrationId: string;
+  playerId: string;
+  promoted: WaitlistReconciliationResult;
+};
+
+// "Не пришёл" -- an EXPLICIT admin action only (never inferred, never run
+// at completion). Atomically, under the tournament-row lock:
+//   1. tournament not completed, not a Final Month (v1: the behavioral
+//      restriction doesn't apply to invite-only finals -- the action is
+//      unavailable there), start_at already passed;
+//   2. THIS registration is currently `registered` and the player is not
+//      marked arrived;
+//   3. registration registered -> waitlist, no_show_at = now (frees exactly
+//      one seat; the row keeps its created_at);
+//   4. players.online_registration_restricted_at = now;
+//   5. the canonical promotion runs on the post-no-show state -- the freed
+//      seat can go to the next ELIGIBLE waitlisted player; the no-show
+//      player is restricted, so they can never auto-promote straight back.
+export async function markRegistrationNoShowWithinCapacity(
+  tournamentId: string,
+  registrationId: string
+): Promise<NoShowResult> {
+  assertPostgresMode();
+
+  const outcome = await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Executor;
+    const locked = await lockTournamentRow(tx, tournamentId);
+    if (!locked) {
+      throw new TournamentNotFoundError(tournamentId);
+    }
+
+    const tournament = await readTournamentMeta(tx, tournamentId);
+    const now = new Date();
+    if (tournament.status === "completed") {
+      throw new TournamentRosterActionError("Турнир уже завершён — изменить состав нельзя");
+    }
+    if (tournament.isFinal) {
+      throw new TournamentRosterActionError("«Не пришёл» недоступно для Финала месяца");
+    }
+    if (new Date(tournament.startAt).getTime() > now.getTime()) {
+      throw new TournamentRosterActionError(
+        "Турнир ещё не начался — отметить «Не пришёл» можно после старта"
+      );
+    }
+
+    const state = await readCapacityState(tx, tournamentId, locked.maxPlayers);
+    const registration = state.registrations.find((row) => row.id === registrationId);
+    if (!registration) {
+      throw new TournamentRosterActionError("Регистрация не найдена в этом турнире");
+    }
+    if (registration.status !== "registered") {
+      throw new TournamentRosterActionError(
+        "«Не пришёл» можно отметить только для игрока из основной регистрации"
+      );
+    }
+    if (await isPlayerArrived(tx, tournamentId, registration.playerId)) {
+      throw new TournamentRosterActionError("Игрок уже отмечен как пришедший");
+    }
+
+    await tx
+      .update(registrations)
+      .set({ status: "waitlist", noShowAt: now })
+      .where(and(eq(registrations.id, registration.id), eq(registrations.status, "registered")));
+    await tx
+      .update(players)
+      .set({ onlineRegistrationRestrictedAt: now })
+      .where(eq(players.id, registration.playerId));
+
+    registration.status = "waitlist";
+    state.restrictedPlayerIds.add(registration.playerId);
+
+    const promotion = await promoteWithinLock(tx, state);
+    return { registration, promotion };
+  });
+
+  await dispatchWaitlistPromotionNotifications(
+    tournamentId,
+    outcome.promotion.claimedNotificationRegistrationIds
+  );
+
+  return {
+    registrationId: outcome.registration.id,
+    playerId: outcome.registration.playerId,
+    promoted: outcome.promotion.result,
+  };
+}
+
+export type AdmissionResult = {
+  registrationId: string;
+  playerId: string;
+};
+
+// "Допустить в игру" -- staff confirms a PHYSICALLY PRESENT waitlisted
+// player. Atomically, under the tournament-row lock:
+//   1. tournament not completed;
+//   2. THIS registration is currently `waitlist`;
+//   3. Late Registration still open -- the SAME canonical check the
+//      reconciler uses (no tournament_late_registration snapshot row);
+//   4. a real free seat exists (same computeSeatLoad formula), else
+//      ADMISSION_NO_SEAT_MESSAGE and NOTHING changes;
+//   5. waitlist -> registered, this registration's no_show_at cleared (they
+//      did show up for THIS tournament; no_show_at on other registrations
+//      is never touched), tournament_attendance.arrived = true, and the
+//      player's online_registration_restricted_at cleared.
+//
+// STAFF IN-PERSON OVERRIDE vs FIFO -- intentional, explicit exception:
+// this deliberately does NOT run automatic promotion first. If it did, an
+// unrelated remote waitlisted player with an older created_at could take
+// the free seat a moment before the person standing at the desk is
+// admitted. The SELECTED registration gets the seat even if someone older
+// is waiting. Automatic promotion everywhere else stays strict FIFO among
+// eligible players; max_players is still never exceeded.
+export async function admitWaitlistedRegistrationWithinCapacity(
+  tournamentId: string,
+  registrationId: string
+): Promise<AdmissionResult> {
+  assertPostgresMode();
+
+  const outcome = await db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Executor;
+    const locked = await lockTournamentRow(tx, tournamentId);
+    if (!locked) {
+      throw new TournamentNotFoundError(tournamentId);
+    }
+
+    const tournament = await readTournamentMeta(tx, tournamentId);
+    if (tournament.status === "completed") {
+      throw new TournamentRosterActionError("Турнир уже завершён — изменить состав нельзя");
+    }
+
+    const state = await readCapacityState(tx, tournamentId, locked.maxPlayers);
+    const registration = state.registrations.find((row) => row.id === registrationId);
+    if (!registration) {
+      throw new TournamentRosterActionError("Регистрация не найдена в этом турнире");
+    }
+    if (registration.status !== "waitlist") {
+      throw new TournamentRosterActionError("Игрок не находится в листе ожидания");
+    }
+    if (state.lateRegistrationClosed) {
+      throw new TournamentRosterActionError(
+        "Поздняя регистрация закрыта — допуск из листа ожидания невозможен"
+      );
+    }
+    if (freeSlots(state) === 0) {
+      throw new TournamentRosterActionError(ADMISSION_NO_SEAT_MESSAGE);
+    }
+
+    const now = new Date();
+    await tx
+      .update(registrations)
+      .set({ status: "registered", noShowAt: null })
+      .where(and(eq(registrations.id, registration.id), eq(registrations.status, "waitlist")));
+    registration.status = "registered";
+
+    const claimed = await claimPromotionNotificationsWithinLock(tx, [registration]);
+
+    await tx
+      .insert(tournamentAttendance)
+      .values({
+        tournamentId,
+        playerId: registration.playerId,
+        arrived: true,
+        arrivedAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [tournamentAttendance.tournamentId, tournamentAttendance.playerId],
+        // Same arrived_at preservation rule as upsertAttendance: keep the
+        // first arrival time if one was already recorded.
+        set: {
+          arrived: true,
+          arrivedAt: sql`coalesce(${tournamentAttendance.arrivedAt}, ${now.toISOString()}::timestamptz)`,
+          updatedAt: now,
+        },
+      });
+
+    await tx
+      .update(players)
+      .set({ onlineRegistrationRestrictedAt: null })
+      .where(eq(players.id, registration.playerId));
+
+    return { registration, claimed };
+  });
+
+  await dispatchWaitlistPromotionNotifications(tournamentId, outcome.claimed);
+
+  return { registrationId: outcome.registration.id, playerId: outcome.registration.playerId };
+}
+
+// Confirmed physical attendance clears the online-registration restriction
+// -- called by features/tournaments.ts::setTournamentPlayerAttendance (the
+// ONE canonical attendance setter, shared by the admin UI route AND the
+// Google Sheets live sync / pull-sheet) after it writes arrived=true.
+// Rules:
+//   - only ever CLEARS; arrived=false never reaches this and nothing here
+//     can create/restore a restriction;
+//   - only when THIS tournament's registration holds a seat
+//     (registered/attended) -- a waitlist row's arrival never stands in for
+//     admission ("Допустить в игру" is the only way in from the waitlist);
+//   - never touches registrations.no_show_at (no-show history on other
+//     tournaments stays intact).
+// Under the tournament-row lock, so it serializes against a concurrent
+// "Не пришёл" on the same tournament. A cheap lock-free pre-check skips
+// the lock entirely in the common case (player not restricted). No-op
+// outside DATABASE_PROVIDER=postgres (a restriction can only exist there).
+export async function clearOnlineRegistrationRestrictionOnArrival(
+  tournamentId: string,
+  playerId: string
+): Promise<boolean> {
+  if (process.env.DATABASE_PROVIDER !== "postgres") {
+    return false;
+  }
+
+  const preCheck = await readRestrictedPlayerIds(db, [playerId]);
+  if (!preCheck.has(playerId)) {
+    return false;
+  }
+
+  return db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Executor;
+    const locked = await lockTournamentRow(tx, tournamentId);
+    if (!locked) {
+      return false;
+    }
+
+    const regRows = await tx
+      .select({ playerId: registrations.playerId, status: registrations.status })
+      .from(registrations)
+      .where(and(eq(registrations.tournamentId, tournamentId), eq(registrations.playerId, playerId)));
+    const holdsSeat = regRows.some(
+      (row) => row.playerId === playerId && (SEAT_CONSUMING_STATUSES as string[]).includes(row.status)
+    );
+    if (!holdsSeat) {
+      return false;
+    }
+    if (!(await isPlayerArrived(tx, tournamentId, playerId))) {
+      return false;
+    }
+
+    await tx
+      .update(players)
+      .set({ onlineRegistrationRestrictedAt: null })
+      .where(eq(players.id, playerId));
+    return true;
+  });
 }

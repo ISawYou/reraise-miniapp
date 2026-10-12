@@ -66,6 +66,19 @@ export const players = pgTable("players", {
   mergedIntoPlayerId: uuid("merged_into_player_id").references((): AnyPgColumn => players.id, { onDelete: "set null" }),
   mergedAt: timestamp("merged_at", { withTimezone: true }),
 
+  // No-show waitlist policy (see features/tournament-no-show.ts): non-NULL
+  // means "online self-registration can only put this player into the
+  // WAITLIST" -- NOT a ban (club/app/Academy/viewing/cancelling all stay
+  // available). Set by the explicit admin "Не пришёл" action; cleared only
+  // by confirmed physical attendance (setTournamentPlayerAttendance
+  // arrived=true on a seat-holding registration, from the admin UI or the
+  // Google Sheets sync) or by staff "Допустить в игру". arrived=false never
+  // sets it. Unlike the long-dropped no_show_count/last_no_show_at columns
+  // mentioned above, the no-show COUNT is derived from
+  // registrations.no_show_at -- this column is only the current
+  // restriction state.
+  onlineRegistrationRestrictedAt: timestamp("online_registration_restricted_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   // 'operator' added for the on-site tournament-admin role -- existing
