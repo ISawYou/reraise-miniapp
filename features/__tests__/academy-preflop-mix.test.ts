@@ -4,6 +4,10 @@ import { ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE } from "@/config/academy/pre
 import { buildAcademyPreflopMixSession } from "@/lib/academy/preflop-mix";
 import { buildAcademyPreflopTrainerSession } from "@/lib/academy/preflop-trainer";
 import { ACADEMY_NEUTRAL_FEEDBACK_WORDING, buildSolverAnswerFeedback } from "@/lib/academy/solver-feedback";
+import { primaryStrategyActions } from "@/lib/academy/strategy-answer";
+
+/** Weighted normal practice: the perfect answer is the highest-frequency action (not the randomizer's pick). */
+const primaryOf = (question: { frequencies: Readonly<Record<string, number>> }) => primaryStrategyActions(question.frequencies)[0];
 import type { AcademyProgressRepository } from "@/lib/repositories/academy-progress";
 
 vi.mock("@/lib/repositories", () => ({ academyProgressRepository: {} }));
@@ -56,9 +60,9 @@ describe("Quick Mix progress identity (no new lesson code, no migration)", () =>
       },
     } as unknown as AcademyProgressRepository;
     const result = await submitAcademyTrainingAttempt(PLAYER_ID, {
-      attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: mixAnswers((question) => question.resolvedAction),
+      attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: mixAnswers(primaryOf),
     }, repository);
-    expect(result.result).toMatchObject({ correctAnswers: 10, percentage: 100, passed: true });
+    expect(result.result).toMatchObject({ correctAnswers: 10, scorePoints: 10, percentage: 100, passed: true });
     expect(result.progress.lessonCode).toBe(LESSON);
     expect(recorded).toEqual([{ attemptId: ATTEMPT_ID, playerId: PLAYER_ID, lessonCode: LESSON, scorePercent: 100, passed: true }]);
   });
@@ -77,17 +81,18 @@ describe("Quick Mix serve / reveal / verify", () => {
 
   it("(10) reveal returns the stored frequencies + resolved action; mixed mismatch feedback stays neutral", () => {
     const all = session();
-    const mixedIndex = all.findIndex((question) =>
-      question.bucket === "MIXED" && question.actions.some((action) => action.code !== question.resolvedAction && question.frequencies[action.code] > 0));
+    // A played (> 0%), NON-primary action that also differs from the randomizer's pick.
+    const alternative = (question: (typeof all)[number]) => question.actions.map((action) => action.code)
+      .find((code) => code !== question.resolvedAction && question.frequencies[code] > 0 && !primaryStrategyActions(question.frequencies).includes(code));
+    const mixedIndex = all.findIndex((question) => question.bucket === "MIXED" && alternative(question) !== undefined);
     expect(mixedIndex).toBeGreaterThanOrEqual(0);
     const question = all[mixedIndex];
-    const other = question.actions.map((action) => action.code)
-      .find((code) => code !== question.resolvedAction && question.frequencies[code] > 0)!;
+    const other = alternative(question)!;
     const reveal = revealAcademyPreflopMixAnswer(PLAYER_ID, { attemptId: ATTEMPT_ID, questionIndex: mixedIndex, selectedAction: other });
     expect(reveal.frequencies).toBe(question.frequencies);
     expect(reveal.resolvedAction).toBe(question.resolvedAction);
     expect(reveal.matchesResolvedAction).toBe(false);
-    expect(reveal).toMatchObject({ outcome: "VALID_MIXED", countsAsCorrect: true, randomizerPercent: question.randomizerPercent });
+    expect(reveal).toMatchObject({ outcome: "SUPPORTED_ALTERNATIVE", points: 0.5, countsAsCorrect: true, randomizerPercent: question.randomizerPercent });
     const feedback = buildSolverAnswerFeedback(reveal, ACADEMY_NEUTRAL_FEEDBACK_WORDING);
     expect(feedback.tone).toBe("mixed");
     expect(feedback.detail).toContain(`Рандомайзер ${reveal.randomizerPercent}`);
@@ -97,11 +102,16 @@ describe("Quick Mix serve / reveal / verify", () => {
   it("verifies only selectedAction against the re-derived mix; forged nodes / modes / players are rejected", () => {
     const verify = (questions: unknown[]) =>
       verifyAcademyPreflopTrainerAttempt({ attemptId: ATTEMPT_ID, lessonCode: LESSON, questions }, { playerId: PLAYER_ID });
-    const resolved = mixAnswers((question) => question.resolvedAction);
-    expect(verify(resolved)).toMatchObject({ correctAnswers: 10, passed: true });
+    const resolved = mixAnswers(primaryOf);
+    expect(verify(resolved)).toMatchObject({ correctAnswers: 10, scorePoints: 10, passed: true });
     const folds = mixAnswers((question) => (question.actions.some((a) => a.code === "FOLD") ? "FOLD" : question.actions[0].code));
-    // Normal practice: correct wherever the strategy plays the chosen action at all (frequency > 0).
-    expect(verify(folds).correctAnswers).toBe(session().filter((q, i) => (q.frequencies[folds[i].selectedAction] ?? 0) > 0).length);
+    // Weighted normal practice: highest frequency = 2 units, any other played action = 1, 0% = 0.
+    const units = (q: ReturnType<typeof session>[number], code: string) => {
+      const f = q.frequencies[code] ?? 0;
+      return f === 0 ? 0 : f >= Math.max(...Object.values(q.frequencies)) ? 2 : 1;
+    };
+    expect(verify(folds).scoreUnits).toBe(session().reduce((sum, q, i) => sum + units(q, folds[i].selectedAction), 0));
+    expect(verify(folds).notInStrategyAnswers).toBe(session().filter((q, i) => (q.frequencies[folds[i].selectedAction] ?? 0) === 0).length);
     expect(verifyAcademyAttempt(getAcademyLessonByCode(LESSON)!, { attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: resolved }, { playerId: PLAYER_ID }))
       .toEqual(verify(resolved));
 
@@ -124,7 +134,7 @@ describe("Quick Mix serve / reveal / verify", () => {
       playerId: PLAYER_ID, attemptId: ATTEMPT_ID, datasetId: "external_mtt_preflop_9max_40bb_v1", nodeKey: "FACING_OPEN_BB_VS_BTN",
     });
     const answers = fixed.map((question, questionIndex) => ({
-      questionIndex, selectedAction: question.resolvedAction, datasetId: "external_mtt_preflop_9max_40bb_v1", nodeKey: "FACING_OPEN_BB_VS_BTN",
+      questionIndex, selectedAction: primaryOf(question), datasetId: "external_mtt_preflop_9max_40bb_v1", nodeKey: "FACING_OPEN_BB_VS_BTN",
     }));
     expect(verifyAcademyPreflopTrainerAttempt({ attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: answers }, { playerId: PLAYER_ID }))
       .toMatchObject({ correctAnswers: 10, percentage: 100, passed: true });

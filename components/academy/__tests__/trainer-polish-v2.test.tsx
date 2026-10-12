@@ -296,11 +296,15 @@ describe("(6) action buttons keep their trusted sizes in the session", () => {
 });
 
 describe("(7)(8) compact feedback: CTA reachable with less scrolling; valid mixed never reads as a mistake", () => {
-  it("valid mixed answer: ✓ + 'засчитано' badge, summary and randomizer note in ONE paragraph, slim sticky CTA right after", async () => {
+  it("supported alternative: ✓ + '+0.5' badge, summary and randomizer note in ONE paragraph, slim sticky CTA right after", async () => {
     const all = mixSession();
-    const index = all.findIndex((q) => q.actions.some((a) => a.code !== q.resolvedAction && (q.frequencies[a.code] ?? 0) > 0));
+    // A played (> 0%), non-primary action that also differs from the randomizer's pick.
+    const alternativeOf = (q: Q) => q.actions.map((a) => a.code).find((code) => code !== q.resolvedAction
+      && (q.frequencies[code] ?? 0) > 0 && (q.frequencies[code] ?? 0) < Math.max(...Object.values(q.frequencies)));
+    const index = all.findIndex((q) => alternativeOf(q) !== undefined);
+    expect(index).toBeGreaterThanOrEqual(0);
     const q = all[index];
-    const other = q.actions.map((a) => a.code).find((code) => code !== q.resolvedAction && (q.frequencies[code] ?? 0) > 0)!;
+    const other = alternativeOf(q)!;
     stubMixApi(all.map((question, i) => (i === 0 ? q : question)));
     vi.stubGlobal("scrollTo", vi.fn());
     Element.prototype.scrollIntoView = vi.fn();
@@ -311,9 +315,9 @@ describe("(7)(8) compact feedback: CTA reachable with less scrolling; valid mixe
     expect(panel.getAttribute("data-feedback-tone")).toBe("valid");
     expect(panel.getAttribute("data-feedback-layout")).toBe("compact");
     expect($('[data-testid="feedback-mark"]')!.textContent).toBe("✓");
-    expect($('[data-testid="feedback-counted"]')!.textContent).toBe("засчитано");
+    expect($('[data-testid="feedback-points"]')!.textContent).toBe("+0.5");
     expect(panel.className).not.toMatch(/b95b5f|5b292c/); // never the red "incorrect" look
-    expect($(`button[data-action-code="${other}"]`)!.getAttribute("data-action-selected")).toBe("correct");
+    expect($(`button[data-action-code="${other}"]`)!.getAttribute("data-action-selected")).toBe("alternative");
     // Summary + randomizer note flow in ONE paragraph (one block instead of two).
     const summary = $('[data-testid="feedback-summary"]')!;
     const note = $('[data-testid="feedback-note"]')!;
@@ -338,14 +342,19 @@ describe("(7)(8) compact feedback: CTA reachable with less scrolling; valid mixe
   });
 
   it("only a 0% answer is red; correct / valid tones never show the red classes", () => {
+    const points = { correct: 1, valid: 0.5, incorrect: 0 } as const;
     const html = (tone: "correct" | "valid" | "incorrect") => renderToStaticMarkup(
-      <TrainerFeedbackPanel tone={tone} title="t" summary="s" note={null} detail={null} />,
+      <TrainerFeedbackPanel tone={tone} title="t" summary="s" note={null} detail={null} points={points[tone]} />,
     );
     expect(html("incorrect")).toMatch(/b95b5f/);
     expect(html("correct")).not.toMatch(/b95b5f|5b292c/);
     expect(html("valid")).not.toMatch(/b95b5f|5b292c/);
-    expect(html("valid")).toContain("засчитано");
-    expect(html("incorrect")).not.toContain("засчитано");
+    // The +0.5 state is its own calm colour: not the primary green, and not the hero-seat / CTA gold.
+    expect(html("valid")).not.toMatch(/5f9a77|315f48|d7b55a/);
+    expect(html("valid")).toContain("+0.5");
+    expect(html("correct")).toContain("+1");
+    expect(html("incorrect")).toContain("+0");
+    expect(html("incorrect")).not.toContain("+0.5");
   });
 });
 

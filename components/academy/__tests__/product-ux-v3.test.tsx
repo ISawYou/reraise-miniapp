@@ -8,6 +8,7 @@ import type {
   AcademySolverPublicAction,
   RenderedPlayingCard,
 } from "@/types/academy";
+import { classifyStrategyAnswer, scoreWeightedPracticeSession } from "@/lib/academy/strategy-answer";
 
 vi.mock("next/navigation", () => ({
   notFound: () => {
@@ -423,10 +424,12 @@ async function playSession<Q extends AnyQuestion>({
     else {
       submitted.push(body);
       const answers = body.questions as Array<{ questionIndex: number; selectedAction: string }>;
-      // Mirrors the server's normal-practice rule: any action with frequency > 0 is correct.
-      const correct = answers.filter((answer) => (session[answer.questionIndex].frequencies[answer.selectedAction] ?? 0) > 0).length;
+      // Mirrors the server's weighted normal-practice rule (same shared scorer as the verifier).
+      const result = scoreWeightedPracticeSession(answers.map((answer) => classifyStrategyAnswer({
+        frequencies: session[answer.questionIndex].frequencies, selectedAction: answer.selectedAction,
+      })), 10);
       payload = {
-        result: { correctAnswers: correct, totalQuestions: 10, percentage: correct * 10, passed: correct >= 8, feedback: "Готово" },
+        result,
         progress: { lessonCode: body.lessonCode, attemptsCount: 3 }, isNewAttempt: true, firstPass: false, newBest: false,
       };
     }
@@ -488,22 +491,26 @@ async function expectRestartResets() {
 const WRONG = new Set([1, 4, 7]);
 
 describe("(8) completion screens", () => {
-  it("configurable preflop trainer (fixed node): only 0% actions are reviewed; valid mixed choices are a neutral note", async () => {
+  it("configurable preflop trainer (fixed node): only 0% actions are reviewed; supported alternatives are a separate +0.5 line", async () => {
     const selection = { datasetId: "external_mtt_preflop_9max_40bb_v1", nodeKey: "FACING_3BET_UTG_VS_SB", stackBb: 40 };
     const session = buildAcademyPreflopTrainerSession({ playerId: PLAYER_ID, attemptId: ATTEMPT_ID, datasetId: selection.datasetId, nodeKey: selection.nodeKey });
-    // Mixed hands → pick a DIFFERENT action the strategy also plays (valid mixed);
-    // WRONG indices → pick a 0% action when the hand has one.
-    const zeroAction = (question: (typeof session)[number]) =>
+    // Mixed hands → pick a played but NON-primary action (supported alternative, +0.5);
+    // WRONG indices → pick a 0% action when the hand has one; otherwise the primary action.
+    type SessionQuestion = (typeof session)[number];
+    const max = (question: SessionQuestion) => Math.max(...Object.values(question.frequencies));
+    const zeroAction = (question: SessionQuestion) =>
       question.actions.find((action) => (question.frequencies[action.code] ?? 0) === 0)?.code;
-    const validOther = (question: (typeof session)[number]) =>
-      question.actions.find((action) => action.code !== question.resolvedAction && (question.frequencies[action.code] ?? 0) > 0)?.code;
+    const alternative = (question: SessionQuestion) =>
+      question.actions.find((action) => (question.frequencies[action.code] ?? 0) > 0 && (question.frequencies[action.code] ?? 0) < max(question))?.code;
+    const primary = (question: SessionQuestion) => question.actions.find((action) => (question.frequencies[action.code] ?? 0) === max(question))!.code;
     const choices = session.map((question) =>
-      (WRONG.has(question.questionIndex) ? zeroAction(question) : undefined) ?? validOther(question) ?? question.resolvedAction);
+      (WRONG.has(question.questionIndex) ? zeroAction(question) : undefined) ?? alternative(question) ?? primary(question));
     const expectedWrong = session.filter((question, index) => (question.frequencies[choices[index]] ?? 0) === 0).map((question) => question.questionIndex);
-    const expectedValidMixed = session.filter((question, index) =>
-      choices[index] !== question.resolvedAction && (question.frequencies[choices[index]] ?? 0) > 0).length;
+    const expectedAlternatives = session.filter((question, index) =>
+      (question.frequencies[choices[index]] ?? 0) > 0 && (question.frequencies[choices[index]] ?? 0) < max(question)).length;
     expect(expectedWrong.length).toBeGreaterThan(0);
-    expect(expectedValidMixed).toBeGreaterThan(0);
+    expect(expectedAlternatives).toBeGreaterThan(0);
+    const expectedPoints = (2 * (10 - expectedWrong.length - expectedAlternatives) + expectedAlternatives) / 2;
     const submitted = await playSession({
       element: <PreflopTrainer selection={selection} />,
       session,
@@ -512,11 +519,12 @@ describe("(8) completion screens", () => {
       choose: (question) => choices[question.questionIndex],
     });
     expect(submitted).toHaveLength(1);
-    expect(container.textContent).toContain(`${10 - expectedWrong.length} / 10`);
+    expect($('[data-testid="trainer-score"]')!.textContent).toBe(`${expectedPoints} / 10`);
+    expect(container.textContent).toContain(`${expectedPoints * 10}%`);
     expectCompletionNavigation({ setupHref: "/academy/solver/preflop#setup", extra: "/academy/solver/preflop/40/facing_3bet_utg_vs_sb" });
-    expect($('[data-testid="trainer-valid-mixed-note"]')!.textContent).toContain("отличал");
-    expect($('[data-testid="trainer-valid-mixed-note"]')!.textContent).toContain("входил");
-    expect($('[data-testid="trainer-valid-mixed-note"]')!.textContent).not.toMatch(/ошибк/i);
+    // Alternatives and mistakes are counted apart — an alternative is never framed as a mistake.
+    expect($('[data-testid="trainer-score-breakdown"]')!.textContent)
+      .toBe(`Допустимых альтернатив: ${expectedAlternatives} (по +0.5) · Ошибок: ${expectedWrong.length}`);
     await expectReview(expectedWrong);
     for (const entry of $$("[data-review-question]")) expect(entry.dataset.reviewTone).toBe("incorrect");
     await expectRestartResets();

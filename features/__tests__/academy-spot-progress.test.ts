@@ -31,6 +31,7 @@ import {
 import { ACADEMY_PREFLOP_POSITIONS } from "@/lib/academy/preflop";
 import { buildAcademyPreflopMixSession } from "@/lib/academy/preflop-mix";
 import { buildAcademyPreflopTrainerSession, requireAcademyPreflopTrainerSpotByStack } from "@/lib/academy/preflop-trainer";
+import { primaryStrategyActions } from "@/lib/academy/strategy-answer";
 import { isAcademyPushFoldDatasetScored, requireAcademyPushFoldSpotByStack } from "@/lib/academy/push-fold-trainer";
 import type { AcademyProgressRepository, AcademyProgressRow } from "@/lib/repositories/academy-progress";
 
@@ -244,7 +245,7 @@ describe("(12) submitting practice writes real spot progress (fixed-node only, i
     return session.map((question, questionIndex) => ({
       questionIndex,
       selectedAction: correct
-        ? question.resolvedAction
+        ? primaryStrategyActions(question.frequencies)[0]
         : question.actions.map((action) => action.code).find((code) => (question.frequencies[code] ?? 0) === 0) ?? question.resolvedAction,
       datasetId: spot.datasetId,
       nodeKey: spot.nodeKey,

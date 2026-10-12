@@ -46,7 +46,12 @@ import {
 } from "@/lib/academy/solver";
 import { createDeterministicRandom } from "@/lib/academy/solver-session";
 import { ACADEMY_SOLVER_QUESTION_COUNT, toPublicSolverAction } from "@/lib/academy/solver-training";
-import { classifyStrategyAnswer, strategyAnswerCountsAsCorrect } from "@/lib/academy/strategy-answer";
+import {
+  classifyStrategyAnswer,
+  primaryStrategyActions,
+  strategyAnswerCountsAsCorrect,
+  strategyAnswerPoints,
+} from "@/lib/academy/strategy-answer";
 import { renderStartingHand } from "@/lib/academy/training";
 import type {
   AcademyPreflopTableScene,
@@ -424,13 +429,14 @@ export function toPublicPushFoldQuestion(question: AcademyPushFoldSessionQuestio
 }
 
 /**
- * Post-answer reveal; outcome computed server-side with the same generic
- * three-state rule as the preflop trainer (for pure push/fold data a choice is
- * either the range's action or a 0% action, so it is never VALID_MIXED).
- * `selectedAction` must already be validated against the node's actions.
+ * Post-answer reveal; outcome computed server-side with the same weighted,
+ * frequency-only rule as the preflop trainer (for pure push/fold data a
+ * choice is either the range's 100% action or a 0% action, so it is never
+ * SUPPORTED_ALTERNATIVE). `selectedAction` must already be validated against
+ * the node's actions.
  */
 export function toPushFoldReveal(question: AcademyPushFoldSessionQuestion, selectedAction: AcademySolverAction): AcademyPushFoldReveal {
-  const outcome = classifyStrategyAnswer({ frequencies: question.frequencies, selectedAction, resolvedAction: question.resolvedAction });
+  const outcome = classifyStrategyAnswer({ frequencies: question.frequencies, selectedAction });
   return {
     ...toPublicPushFoldQuestion(question),
     questionIndex: question.questionIndex,
@@ -439,6 +445,8 @@ export function toPushFoldReveal(question: AcademyPushFoldSessionQuestion, selec
     selectedAction,
     matchesResolvedAction: selectedAction === question.resolvedAction,
     outcome,
+    points: strategyAnswerPoints(outcome),
+    primaryActions: primaryStrategyActions(question.frequencies),
     countsAsCorrect: strategyAnswerCountsAsCorrect(outcome),
   };
 }

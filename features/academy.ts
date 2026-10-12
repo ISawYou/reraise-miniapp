@@ -59,7 +59,7 @@ import {
   calculateAcademyModuleProgress,
   calculateAcademyProgressForLessons,
 } from "@/lib/academy/progress";
-import { classifyStrategyAnswer, strategyAnswerCountsAsCorrect } from "@/lib/academy/strategy-answer";
+import { classifyStrategyAnswer, scoreWeightedPracticeSession } from "@/lib/academy/strategy-answer";
 import { scoreTrainingSession } from "@/lib/academy/training";
 import {
   academyProgressRepository,
@@ -82,9 +82,11 @@ import type {
   AcademySolverAction,
   AcademySolverPublicQuestion,
   AcademySolverQuestionReveal,
+  AcademyStrategyAnswerOutcome,
   AcademyStrategyHandFrequencies,
   AcademyTrainerKind,
   AcademyTrainingResult,
+  AcademyWeightedTrainingResult,
   PreflopAction,
 } from "@/types/academy";
 
@@ -571,19 +573,17 @@ export function verifyAcademySolverAttempt(
 
 /**
  * Normal-practice scoring rule shared by the configurable preflop trainer,
- * Quick Mix and Push/Fold: correct iff the selected action has frequency > 0
- * (three-state outcome, see lib/academy/strategy-answer.ts). The 100bb HRC
- * verifier above keeps its exact resolved-action match and does not use this.
+ * Quick Mix and Push/Fold — ONE code path: the weighted, frequency-only
+ * outcome (primary 1 / supported alternative 0.5 / not in strategy 0, see
+ * lib/academy/strategy-answer.ts), summed by `scoreWeightedPracticeSession`.
+ * The randomizer-resolved action is deliberately not an input. The 100bb HRC
+ * verifier and the basic binary trainer above keep `scoreTrainingSession`.
  */
-function countsAsCorrect(
-  question: { readonly frequencies: AcademyStrategyHandFrequencies; readonly resolvedAction: AcademySolverAction },
+function practiceAnswerOutcome(
+  question: { readonly frequencies: AcademyStrategyHandFrequencies },
   selectedAction: AcademySolverAction,
-): boolean {
-  return strategyAnswerCountsAsCorrect(classifyStrategyAnswer({
-    frequencies: question.frequencies,
-    selectedAction,
-    resolvedAction: question.resolvedAction,
-  }));
+): AcademyStrategyAnswerOutcome {
+  return classifyStrategyAnswer({ frequencies: question.frequencies, selectedAction });
 }
 
 export type AcademyPreflopTrainerQuestionInput = {
@@ -653,16 +653,17 @@ export function revealAcademyPreflopTrainerAnswer(
  * scored input. The session is re-derived from (playerId, attemptId,
  * datasetId, nodeKey) + SESSION_SECRET.
  *
- * Scoring (normal practice, NOT the 100bb HRC trainer): an answer is correct
- * iff the strategy plays the selected action (frequency > 0) for that hand —
- * the randomizer-resolved action OR any other action of a mixed strategy
- * (`classifyStrategyAnswer` / `strategyAnswerCountsAsCorrect`). Only a 0%
- * action is wrong. Computed here, server-side; nothing client-sent is trusted.
+ * Scoring (normal practice, NOT the 100bb HRC trainer): weighted by the
+ * hand's frequencies — the highest-frequency action (any of them on a tie)
+ * scores 1, another action the strategy plays (> 0%) 0.5, a 0% action 0
+ * (`classifyStrategyAnswer` / `scoreWeightedPracticeSession`). The randomizer
+ * never affects points. Computed here, server-side; nothing client-sent is
+ * trusted.
  */
 export function verifyAcademyPreflopTrainerAttempt(
   input: SubmitAcademyAttemptInput,
   context: AcademyAttemptVerificationContext = {},
-): AcademyTrainingResult {
+): AcademyWeightedTrainingResult {
   if (input.lessonCode !== ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE) {
     throw new AcademyValidationError("Неизвестный урок тренажёра");
   }
@@ -696,15 +697,14 @@ export function verifyAcademyPreflopTrainerAttempt(
     throw new Error("Preflop trainer session invariant violated: duplicate hands");
   }
   const actionCodes = session[0].actions.map((action) => action.code);
-  let correctAnswers = 0;
-  answers.forEach((answer, index) => {
+  const outcomes = answers.map((answer, index) => {
     if (answer.questionIndex !== undefined && answer.questionIndex !== index) {
       throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
     }
     if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-    if (countsAsCorrect(session[index], answer.selectedAction)) correctAnswers += 1;
+    return practiceAnswerOutcome(session[index], answer.selectedAction);
   });
-  return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
+  return scoreWeightedPracticeSession(outcomes, ACADEMY_SOLVER_QUESTION_COUNT);
 }
 
 // ---------------------------------------------------------------------------
@@ -767,13 +767,12 @@ function verifyAcademyPreflopMixAnswers(
   attemptId: string,
   answers: ReadonlyArray<{ questionIndex?: unknown; selectedAction?: unknown; datasetId?: unknown; nodeKey?: unknown; mode?: unknown }>,
   context: AcademyAttemptVerificationContext,
-): AcademyTrainingResult {
+): AcademyWeightedTrainingResult {
   if (answers.some((answer) => answer.mode !== ACADEMY_PREFLOP_QUICK_MIX_MODE)) {
     throw new AcademyValidationError("Все ответы попытки должны относиться к одному режиму");
   }
   const session = requirePreflopMixSession(context.playerId, attemptId);
-  let correctAnswers = 0;
-  answers.forEach((answer, index) => {
+  const outcomes = answers.map((answer, index) => {
     const question = session[index];
     if (answer.questionIndex !== undefined && answer.questionIndex !== index) {
       throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
@@ -783,9 +782,9 @@ function verifyAcademyPreflopMixAnswers(
     }
     const actionCodes = question.actions.map((action) => action.code);
     if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-    if (countsAsCorrect(question, answer.selectedAction)) correctAnswers += 1;
+    return practiceAnswerOutcome(question, answer.selectedAction);
   });
-  return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
+  return scoreWeightedPracticeSession(outcomes, ACADEMY_SOLVER_QUESTION_COUNT);
 }
 
 // ---------------------------------------------------------------------------
@@ -899,13 +898,13 @@ export function revealAcademyPushFoldMixAnswer(playerId: string, input: AcademyP
  * Server verifier for the Push/Fold trainer (both modes, one lesson code).
  * Only `selectedAction` is scored; everything else is re-derived from
  * (playerId, attemptId[, datasetId, nodeKey]) + SESSION_SECRET. Same
- * normal-practice rule as the preflop trainer (frequency > 0 is correct).
+ * weighted normal-practice rule as the preflop trainer (`practiceAnswerOutcome`).
  * Fails closed while no dataset is validated for scored training.
  */
 export function verifyAcademyPushFoldAttempt(
   input: SubmitAcademyAttemptInput,
   context: AcademyAttemptVerificationContext = {},
-): AcademyTrainingResult {
+): AcademyWeightedTrainingResult {
   if (input.lessonCode !== ACADEMY_SOLVER_PUSH_FOLD_TRAINER_LESSON_CODE) {
     throw new AcademyValidationError("Неизвестный урок тренажёра");
   }
@@ -938,8 +937,7 @@ export function verifyAcademyPushFoldAttempt(
     session = requirePushFoldSession(context.playerId, datasetId, nodeKey, input.attemptId);
   }
 
-  let correctAnswers = 0;
-  answers.forEach((answer, index) => {
+  const outcomes = answers.map((answer, index) => {
     const question = session[index];
     if (answer.questionIndex !== undefined && answer.questionIndex !== index) {
       throw new AcademyValidationError("Ответы должны идти в порядке вопросов");
@@ -949,9 +947,9 @@ export function verifyAcademyPushFoldAttempt(
     }
     const actionCodes = question.actions.map((action) => action.code);
     if (!isSolverAction(answer.selectedAction, actionCodes)) throw invalidSolverActionError(actionCodes);
-    if (countsAsCorrect(question, answer.selectedAction)) correctAnswers += 1;
+    return practiceAnswerOutcome(question, answer.selectedAction);
   });
-  return scoreTrainingSession(correctAnswers, ACADEMY_SOLVER_QUESTION_COUNT);
+  return scoreWeightedPracticeSession(outcomes, ACADEMY_SOLVER_QUESTION_COUNT);
 }
 
 export type AcademyAttemptVerifier = (

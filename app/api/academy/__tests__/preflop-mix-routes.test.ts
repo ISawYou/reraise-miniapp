@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { primaryStrategyActions } from "@/lib/academy/strategy-answer";
 
 const SECRET = "preflop-mix-route-secret-never-in-output";
 const mockGetPlayerFromSessionServer = vi.fn();
@@ -136,10 +137,12 @@ describe("POST /api/academy/solver/preflop/mix/reveal", () => {
       expect(body.resolvedAction).toBe(expected.resolvedAction);
       expect(body.selectedAction).toBe(selectedAction);
       expect(body.matchesResolvedAction).toBe(selectedAction === expected.resolvedAction);
-      // Server-computed three-state outcome (normal practice scoring).
-      const played = (expected.frequencies[selectedAction] ?? 0) > 0;
-      expect(body.outcome).toBe(selectedAction === expected.resolvedAction ? "RESOLVED_MATCH" : played ? "VALID_MIXED" : "NOT_IN_STRATEGY");
-      expect(body.countsAsCorrect).toBe(selectedAction === expected.resolvedAction || played);
+      // Server-computed weighted outcome (normal practice): frequencies only, never the randomizer.
+      const frequency = expected.frequencies[selectedAction] ?? 0;
+      const primary = frequency > 0 && frequency >= Math.max(...Object.values(expected.frequencies));
+      expect(body.outcome).toBe(primary ? "PRIMARY" : frequency > 0 ? "SUPPORTED_ALTERNATIVE" : "NOT_IN_STRATEGY");
+      expect(body.points).toBe(primary ? 1 : frequency > 0 ? 0.5 : 0);
+      expect(body.countsAsCorrect).toBe(frequency > 0);
     }
   });
 
@@ -160,10 +163,12 @@ describe("POST /api/academy/attempts for Quick Mix", () => {
   it("scores the cookie player's server-derived mix and records under the ONE existing lesson code", async () => {
     const response = await attemptsPost(post("/api/academy/attempts", {
       playerId: ATTACKER_ID, percentage: 0, attemptId: ATTEMPT_ID, lessonCode: "solver_preflop_trainer",
-      questions: answersFor(mine(), (question) => question.resolvedAction),
+      questions: answersFor(mine(), (question) => primaryStrategyActions(question.frequencies)[0]),
     }));
     expect(response.status).toBe(200);
-    expect((await response.json() as { result: { correctAnswers: number } }).result.correctAnswers).toBe(10);
+    const result = (await response.json() as { result: { correctAnswers: number; scorePoints: number } }).result;
+    expect(result.correctAnswers).toBe(10);
+    expect(result.scorePoints).toBe(10);
     expect(memory.recorded).toEqual([{
       attemptId: ATTEMPT_ID, playerId: PLAYER_ID, lessonCode: "solver_preflop_trainer", scorePercent: 100, passed: true,
     }]);

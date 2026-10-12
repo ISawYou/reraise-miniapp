@@ -111,6 +111,26 @@ export type AcademyTrainingResult = {
   readonly feedback: "Отлично" | "Пройдено" | "Стоит повторить диапазон";
 };
 
+/**
+ * Result of a NORMAL-practice session scored with the weighted half-point
+ * model (`scoreWeightedPracticeSession`, lib/academy/strategy-answer.ts):
+ * primary action = 2 units (1 point), other supported action = 1 unit (0.5),
+ * action outside the strategy = 0. `percentage` = round(units / maxUnits *
+ * 100) — always a whole number (a multiple of 5 for a 10-question session),
+ * so the existing integer `score_percent` column stores it unchanged.
+ * `correctAnswers` counts PRIMARY answers; the session score is `scorePoints`.
+ */
+export type AcademyWeightedTrainingResult = AcademyTrainingResult & {
+  readonly scoring: "WEIGHTED_HALF_POINTS";
+  readonly scoreUnits: number;
+  readonly maxScoreUnits: number;
+  /** `scoreUnits / 2`, e.g. 8.5. */
+  readonly scorePoints: number;
+  readonly primaryAnswers: number;
+  readonly supportedAlternativeAnswers: number;
+  readonly notInStrategyAnswers: number;
+};
+
 export type AcademyLessonProgress = {
   readonly lessonCode: AcademyLessonCode;
   readonly attemptsCount: number;
@@ -582,14 +602,20 @@ export type AcademyPreflopTrainerPublicSpot = AcademyPreflopTrainerSpot & Academ
 
 /**
  * Server-computed three-state outcome of one answer in the NORMAL practice
- * trainers (configurable preflop trainer, Quick Mix, Push/Fold):
- * - `RESOLVED_MATCH`: the choice equals the randomizer-resolved action;
- * - `VALID_MIXED`: a different action the strategy also plays (> 0%) — counts
- *   as correct, never a mistake;
- * - `NOT_IN_STRATEGY`: the strategy never plays the chosen action (0%).
+ * trainers (configurable preflop trainer, Quick Mix, Push/Fold), derived from
+ * the hand's strategy frequencies ONLY (the randomizer never scores):
+ * - `PRIMARY`: the chosen action has the highest frequency (every action tied
+ *   for the highest is primary) — 1 point;
+ * - `SUPPORTED_ALTERNATIVE`: the strategy also plays it (> 0%) but it is not
+ *   a highest-frequency action — 0.5 point, never a mistake;
+ * - `NOT_IN_STRATEGY`: the strategy never plays the chosen action (0%,
+ *   missing or non-finite frequency) — 0 points.
  * Not used by the 100bb HRC Solver Lab trainer (exact-randomizer scoring).
  */
-export type AcademyStrategyAnswerOutcome = "RESOLVED_MATCH" | "VALID_MIXED" | "NOT_IN_STRATEGY";
+export type AcademyStrategyAnswerOutcome = "PRIMARY" | "SUPPORTED_ALTERNATIVE" | "NOT_IN_STRATEGY";
+
+/** Points of one normal-practice answer (`outcome` → 1 / 0.5 / 0). */
+export type AcademyStrategyAnswerPoints = 1 | 0.5 | 0;
 
 /**
  * Public question of the configurable trainer: hand, cards, actions and spot.
@@ -612,7 +638,11 @@ export type AcademyPreflopTrainerReveal = AcademyPreflopTrainerPublicQuestion & 
   readonly matchesResolvedAction: boolean;
   /** Server-computed; see `AcademyStrategyAnswerOutcome`. */
   readonly outcome: AcademyStrategyAnswerOutcome;
-  /** Server-computed: true iff the verifier counts this answer as correct. */
+  /** Server-computed points of this answer (1 / 0.5 / 0) — the verifier's own rule. */
+  readonly points: AcademyStrategyAnswerPoints;
+  /** Highest-frequency action(s) of the hand (several on an exact tie). */
+  readonly primaryActions: readonly AcademySolverAction[];
+  /** Server-computed: true iff the answer earns points (PRIMARY or SUPPORTED_ALTERNATIVE). */
   readonly countsAsCorrect: boolean;
 };
 
@@ -699,7 +729,11 @@ export type AcademyPushFoldReveal = AcademyPushFoldPublicQuestion & {
   readonly matchesResolvedAction: boolean;
   /** Server-computed; see `AcademyStrategyAnswerOutcome`. */
   readonly outcome: AcademyStrategyAnswerOutcome;
-  /** Server-computed: true iff the verifier counts this answer as correct. */
+  /** Server-computed points of this answer (1 / 0.5 / 0) — the verifier's own rule. */
+  readonly points: AcademyStrategyAnswerPoints;
+  /** Highest-frequency action(s) of the hand (several on an exact tie). */
+  readonly primaryActions: readonly AcademySolverAction[];
+  /** Server-computed: true iff the answer earns points (PRIMARY or SUPPORTED_ALTERNATIVE). */
   readonly countsAsCorrect: boolean;
 };
 

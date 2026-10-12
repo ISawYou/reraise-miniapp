@@ -10,11 +10,14 @@ import type {
   AcademyPreflopTableScene,
   AcademySolverAction,
   AcademySolverPublicAction,
+  AcademyStrategyAnswerOutcome,
+  AcademyStrategyAnswerPoints,
   AcademyStrategyHandFrequencies,
   AcademyTrainingResult,
   RenderedPlayingCard,
 } from "@/types/academy";
 import { formatSolverFrequencyPercent, solverActionButtonLabel } from "@/lib/academy/solver-feedback";
+import { isWeightedTrainingResult } from "@/lib/academy/strategy-answer";
 
 /**
  * Presentation shared by the configurable preflop trainer (fixed node + Quick
@@ -30,9 +33,10 @@ export const TRAINER_SECONDARY_LINK_CLASS =
   "mt-3 flex min-h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035] px-5 py-4 text-base font-medium text-white/75 active:bg-white/[0.07]";
 
 /**
- * `valid` = a mixed-strategy action other than the randomizer's pick: counted
- * as correct and styled like "correct" (never red). `mixed` is kept for the
- * legacy gold look.
+ * `correct` = primary action (+1, green). `valid` = a supported alternative
+ * (+0.5): a calm steel-blue state — never red, and deliberately not gold,
+ * which already marks the hero's seat ("Ты") and the primary CTA. `mixed` is
+ * kept for the legacy gold look.
  */
 export type TrainerFeedbackTone = "correct" | "valid" | "incorrect" | "mixed";
 
@@ -156,16 +160,34 @@ export function TrainerDecisionHeader({ hand, children }: { hand: string; childr
 export type TrainerActionReveal = {
   readonly selectedAction: AcademySolverAction;
   readonly frequencies: AcademyStrategyHandFrequencies;
-  /** Server-computed: the verifier counts the selected action as correct. */
+  /** Server-computed: the selected action earns points (> 0%). */
   readonly countsAsCorrect: boolean;
+  /** Server-computed weighted outcome (normal practice); absent → binary look. */
+  readonly outcome?: AcademyStrategyAnswerOutcome;
+  /** Server-computed highest-frequency action(s); labelled "основное" on mixed hands. */
+  readonly primaryActions?: readonly AcademySolverAction[];
+};
+
+/** `data-action-selected` / colour of the chosen button. */
+function selectedActionState(reveal: TrainerActionReveal): "correct" | "alternative" | "incorrect" {
+  if (!reveal.countsAsCorrect) return "incorrect";
+  return reveal.outcome === "SUPPORTED_ALTERNATIVE" ? "alternative" : "correct";
+}
+
+const SELECTED_ACTION_CLASS: Record<ReturnType<typeof selectedActionState>, string> = {
+  correct: "border-[#72b28e] bg-[#315f48] text-white",
+  alternative: "border-[#7ea3c4] bg-[#2c4358] text-white",
+  incorrect: "border-[#b95b5f] bg-[#5b292c] text-white",
 };
 
 /**
  * Decision buttons. After the answer every button shows its strategy
  * frequency (the primary feedback); actions the strategy plays get a green
- * outline, the chosen one is filled — green when it counts as correct, red
- * only when the strategy never plays it (0%). The randomizer's pick is not
- * highlighted here: it is secondary information in the feedback text.
+ * outline, and on a mixed hand the highest-frequency action(s) are labelled
+ * "основное". The chosen one is filled — green for the primary action,
+ * steel-blue for a supported alternative (+0.5), red only when the strategy
+ * never plays it (0%). The randomizer's pick is not highlighted here: it is
+ * secondary information in the feedback text.
  * `presentation="ADVANCED"` shows the trusted size ("3-бет до 9.2 BB",
  * "Колл 18 BB") where the action carries one; BASIC (default) and any action
  * without trusted sizing keep the generic label.
@@ -205,21 +227,22 @@ export function TrainerActionButtons({
         const isSelected = reveal?.selectedAction === action.code;
         const frequency = reveal ? reveal.frequencies[action.code] ?? 0 : 0;
         const inStrategy = frequency > 0;
+        const mixedHand = reveal ? actions.filter((candidate) => (reveal.frequencies[candidate.code] ?? 0) > 0).length > 1 : false;
+        const isPrimary = mixedHand && Boolean(reveal?.primaryActions?.includes(action.code));
         return (
           <button
             key={action.code}
             type="button"
             data-action-code={action.code}
             data-action-frequency={reveal ? frequency : undefined}
-            data-action-selected={reveal && isSelected ? (reveal.countsAsCorrect ? "correct" : "incorrect") : undefined}
+            data-action-selected={reveal && isSelected ? selectedActionState(reveal) : undefined}
+            data-action-primary={isPrimary ? "true" : undefined}
             disabled={Boolean(reveal) || disabled}
             onClick={() => onAnswer(action.code)}
             className={`flex min-h-16 min-w-0 flex-col items-center justify-center break-words rounded-2xl border px-3 py-3 text-base font-semibold transition-colors disabled:cursor-default ${
               reveal
                 ? isSelected
-                  ? reveal.countsAsCorrect
-                    ? "border-[#72b28e] bg-[#315f48] text-white"
-                    : "border-[#b95b5f] bg-[#5b292c] text-white"
+                  ? SELECTED_ACTION_CLASS[selectedActionState(reveal)]
                   : inStrategy
                     ? "border-[#72b28e]/45 bg-white/[0.045] text-white/80"
                     : "border-white/10 bg-white/[0.03] text-white/40"
@@ -230,6 +253,7 @@ export function TrainerActionButtons({
             {reveal ? (
               <span className="mt-0.5 text-xs font-semibold tabular-nums opacity-80" data-testid="action-frequency">
                 {formatSolverFrequencyPercent(frequency)}
+                {isPrimary ? <span className="font-medium" data-testid="action-primary"> · основное</span> : null}
               </span>
             ) : null}
           </button>
@@ -241,13 +265,13 @@ export function TrainerActionButtons({
 
 const TONE_BOX: Record<TrainerFeedbackTone, string> = {
   correct: "border-[#5f9a77]/35 bg-[#315f48]/20",
-  valid: "border-[#5f9a77]/35 bg-[#315f48]/20",
+  valid: "border-[#7ea3c4]/35 bg-[#2c4358]/25",
   mixed: "border-[#d7b55a]/30 bg-[#d7b55a]/10",
   incorrect: "border-[#b95b5f]/30 bg-[#5b292c]/20",
 };
 const TONE_TITLE: Record<TrainerFeedbackTone, string> = {
   correct: "text-[#9dd2b3]",
-  valid: "text-[#9dd2b3]",
+  valid: "text-[#b3cde4]",
   mixed: "text-[#e4c97a]",
   incorrect: "text-[#e0a4a6]",
 };
@@ -258,14 +282,26 @@ export const TRAINER_NEXT_BUTTON_CLASS =
 
 const TONE_MARK: Record<TrainerFeedbackTone, string | null> = { correct: "✓", valid: "✓", mixed: null, incorrect: null };
 
+const POINTS_BADGE: Record<TrainerFeedbackTone, string> = {
+  correct: "bg-[#315f48]/70 text-[#cdebd9]",
+  valid: "bg-[#2c4358]/80 text-[#d3e3f1]",
+  mixed: "bg-[#d7b55a]/15 text-[#e4c97a]",
+  incorrect: "bg-white/[0.07] text-white/60",
+};
+
+/** "+1" / "+0.5" / "+0". */
+export function formatAnswerPoints(points: AcademyStrategyAnswerPoints): string {
+  return `+${points}`;
+}
+
 /**
- * Compact post-answer feedback (v2): one title row (✓ + verdict, plus a
- * "засчитано" badge for a valid mixed answer, so it never reads like a
- * mistake) and ONE short paragraph — the `summary` with the optional
- * randomizer `note` flowing inline after it. The longer `detail` sits behind
- * "Подробнее" (collapsed by default). Copy comes unchanged from the feedback
- * builders; only the layout is tighter, so the next-step bar is reached with
- * less scrolling.
+ * Compact post-answer feedback (v2): one title row (✓ + verdict, plus the
+ * server-computed points badge "+1" / "+0.5" / "+0" when the trainer scores
+ * with weighted points) and ONE short paragraph — the `summary` with the
+ * optional randomizer `note` flowing inline after it. The longer `detail`
+ * sits behind "Подробнее" (collapsed by default). Copy comes unchanged from
+ * the feedback builders; only the layout is tighter, so the next-step bar is
+ * reached with less scrolling.
  */
 export const TrainerFeedbackPanel = forwardRef<HTMLElement, {
   tone: TrainerFeedbackTone;
@@ -273,7 +309,9 @@ export const TrainerFeedbackPanel = forwardRef<HTMLElement, {
   summary: string;
   note?: string | null;
   detail?: string | null;
-}>(function TrainerFeedbackPanel({ tone, title, summary, note, detail }, ref) {
+  /** Server-computed points of the answer (weighted normal practice). */
+  points?: AcademyStrategyAnswerPoints;
+}>(function TrainerFeedbackPanel({ tone, title, summary, note, detail, points }, ref) {
   const [open, setOpen] = useState(false);
   const detailId = useId();
   const mark = TONE_MARK[tone];
@@ -288,9 +326,12 @@ export const TrainerFeedbackPanel = forwardRef<HTMLElement, {
       <p className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-base font-semibold leading-6 ${TONE_TITLE[tone]}`}>
         {mark ? <span aria-hidden="true" data-testid="feedback-mark">{mark}</span> : null}
         <span data-testid="feedback-title">{title}</span>
-        {tone === "valid" ? (
-          <span className="rounded-full bg-[#315f48]/70 px-2 py-0.5 text-[11px] font-semibold leading-4 text-[#cdebd9]" data-testid="feedback-counted">
-            засчитано
+        {points !== undefined ? (
+          <span
+            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4 tabular-nums ${POINTS_BADGE[tone]}`}
+            data-testid="feedback-points"
+          >
+            {formatAnswerPoints(points)}
           </span>
         ) : null}
       </p>
@@ -387,19 +428,18 @@ function TrainerReviewList({ entries, id }: { entries: readonly TrainerReviewEnt
   );
 }
 
-function decisionsWord(count: number): string {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return "решение";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "решения";
-  return "решений";
+/**
+ * Completion summary of a weighted session: supported alternatives are listed
+ * apart from mistakes and never framed as one.
+ * e.g. "Допустимых альтернатив: 2 (по +0.5) · Ошибок: 1".
+ */
+export function weightedSessionBreakdown(supportedAlternatives: number, mistakes: number): string {
+  return `Допустимых альтернатив: ${supportedAlternatives} (по +0.5) · Ошибок: ${mistakes}`;
 }
 
-/** "2 решения отличались от рандомайзера, но входили в стратегию." */
-export function validMixedNote(count: number): string {
-  return count === 1
-    ? "1 решение отличалось от рандомайзера, но входило в стратегию — оно засчитано."
-    : `${count} ${decisionsWord(count)} отличались от рандомайзера, но входили в стратегию — они засчитаны.`;
+/** "8.5" / "10" — the session score in points. */
+export function formatSessionScore(result: AcademyTrainingResult): string {
+  return String(isWeightedTrainingResult(result) ? result.scorePoints : result.correctAnswers);
 }
 
 export type TrainerCompletionLink = { readonly href: string; readonly label: string; readonly testId: string };
@@ -419,7 +459,6 @@ export function TrainerCompletionScreen({
   trainers,
   links = [],
   review,
-  validMixedCount = 0,
   footer,
 }: {
   result: AcademyTrainingResult;
@@ -430,12 +469,8 @@ export function TrainerCompletionScreen({
   back: { readonly href: string; readonly label: string };
   trainers: TrainerCompletionLink;
   links?: readonly TrainerCompletionLink[];
+  /** Only 0-point answers ("Не входит в стратегию"); never a supported alternative. */
   review: readonly TrainerReviewEntry[];
-  /**
-   * Answers that differed from the randomizer but were part of the strategy
-   * (counted as correct). Shown as a neutral observation — never a mistake.
-   */
-  validMixedCount?: number;
   footer?: ReactNode;
 }) {
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -451,8 +486,8 @@ export function TrainerCompletionScreen({
 
       <div className="mt-6 flex items-center justify-between rounded-[26px] border border-white/10 bg-white/[0.055] px-6 py-5">
         <div>
-          <p className="text-4xl font-bold tracking-tight">
-            {result.correctAnswers} <span className="text-white/25">/</span> {result.totalQuestions}
+          <p className="text-4xl font-bold tracking-tight" data-testid="trainer-score">
+            {formatSessionScore(result)} <span className="text-white/25">/</span> {result.totalQuestions}
           </p>
           {attemptsLabel ? <p className="mt-1 text-xs text-white/40">{attemptsLabel}</p> : null}
         </div>
@@ -479,9 +514,9 @@ export function TrainerCompletionScreen({
         </Link>
       ))}
 
-      {validMixedCount > 0 ? (
-        <p className="mt-5 text-center text-sm leading-5 text-white/55" data-testid="trainer-valid-mixed-note">
-          {validMixedNote(validMixedCount)}
+      {isWeightedTrainingResult(result) && result.supportedAlternativeAnswers > 0 ? (
+        <p className="mt-5 text-center text-sm leading-5 text-white/55" data-testid="trainer-score-breakdown">
+          {weightedSessionBreakdown(result.supportedAlternativeAnswers, result.notInStrategyAnswers)}
         </p>
       ) : null}
 

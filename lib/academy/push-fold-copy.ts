@@ -39,6 +39,15 @@ export const ACADEMY_PUSH_FOLD_TRAINING_PAUSED_NOTE =
   "Мы проверяем данные Push/Fold: для стола 9-max они приблизительные, и оценивать по ним твои решения было бы нечестно. " +
   "Диапазоны можно смотреть в справочнике.";
 
+/**
+ * Bottom "what next" of a reference range page while scored training is
+ * paused. No self-check is offered: the trainer engine is scored-only, and a
+ * second engine or an unscored bypass of the scored gate is not acceptable.
+ */
+export const ACADEMY_PUSH_FOLD_NEXT_STEP_NOTE =
+  "Тренировка Push/Fold с оценкой на паузе: для стола 9-max эти диапазоны приблизительные. " +
+  "Можно посмотреть другой спот или потренировать префлоп с оценкой.";
+
 function seatIndex(seat: string): number {
   return (ACADEMY_PUSH_FOLD_SEAT_ORDER as readonly string[]).indexOf(seat);
 }

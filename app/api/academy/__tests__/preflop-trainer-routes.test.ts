@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { primaryStrategyActions } from "@/lib/academy/strategy-answer";
 
 const SECRET = "preflop-route-secret-never-in-output";
 const mockGetPlayerFromSessionServer = vi.fn();
@@ -135,7 +136,9 @@ describe("POST /api/academy/solver/preflop/reveal", () => {
     // (Part 2A) The randomizer is revealed only now, as secondary information.
     expect(body.randomizerPercent).toBe(expected[2].randomizerPercent);
     const callPlayed = (expected[2].frequencies.CALL ?? 0) > 0;
-    expect(body.countsAsCorrect).toBe(expected[2].resolvedAction === "CALL" || callPlayed);
+    expect(body.countsAsCorrect).toBe(callPlayed);
+    expect(body.primaryActions).toEqual(primaryStrategyActions(expected[2].frequencies));
+    expect(body.points).toBe(!callPlayed ? 0 : primaryStrategyActions(expected[2].frequencies).includes("CALL") ? 1 : 0.5);
   });
 
   it("(13) rejects an action the node does not offer", async () => {
@@ -157,12 +160,13 @@ describe("POST /api/academy/attempts for the configurable trainer", () => {
       attemptId: ATTEMPT_ID,
       lessonCode: "solver_preflop_trainer",
       questions: mine.map((question, questionIndex) => ({
-        questionIndex, selectedAction: question.resolvedAction, datasetId: DATASET, nodeKey: NODE,
+        questionIndex, selectedAction: primaryStrategyActions(question.frequencies)[0], datasetId: DATASET, nodeKey: NODE,
       })),
     }));
     expect(response.status).toBe(200);
-    const body = await response.json() as { result: { correctAnswers: number } };
+    const body = await response.json() as { result: { correctAnswers: number; scorePoints: number } };
     expect(body.result.correctAnswers).toBe(10);
+    expect(body.result.scorePoints).toBe(10);
     expect(memory.recorded).toEqual([{
       attemptId: ATTEMPT_ID, playerId: PLAYER_ID, lessonCode: "solver_preflop_trainer", scorePercent: 100, passed: true,
     }]);

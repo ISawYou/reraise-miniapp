@@ -12,6 +12,7 @@ import mtt40 from "@/data/academy/reference/mtt-preflop/MTT_40_GTO.json";
 import { ACADEMY_SOLVER_PREFLOP_TRAINER_LESSON_CODE } from "@/config/academy/preflop-trainer";
 import { ACADEMY_SOLVER_LESSON_BINDINGS } from "@/config/academy/solver-lessons";
 import { buildAcademyPreflopTrainerSession } from "@/lib/academy/preflop-trainer";
+import { primaryStrategyActions } from "@/lib/academy/strategy-answer";
 import { ACADEMY_NEUTRAL_FEEDBACK_WORDING, buildSolverAnswerFeedback } from "@/lib/academy/solver-feedback";
 import type { AcademyProgressRepository } from "@/lib/repositories/academy-progress";
 
@@ -92,7 +93,8 @@ describe("one lesson code for the whole configurable trainer", () => {
       },
     } as unknown as AcademyProgressRepository;
     for (const [datasetId, nodeKey] of [[DATASET_40, NODE], ["external_mtt_preflop_9max_20bb_v1", "RFI_SB"]] as const) {
-      const perfect = session(datasetId, nodeKey).map((question) => question.resolvedAction);
+      // Weighted normal practice: the perfect answer is the highest-frequency action.
+      const perfect = session(datasetId, nodeKey).map((question) => primaryStrategyActions(question.frequencies)[0]);
       const result = await submitAcademyTrainingAttempt(PLAYER_ID, {
         attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: answers(perfect, datasetId, nodeKey),
       }, repository);
@@ -153,14 +155,18 @@ describe("question / reveal / verify", () => {
     }
   });
 
-  it("normal-practice scoring: any action the strategy plays (> 0%) is correct, a 0% action is not", () => {
-    const resolved = session().map((question) => question.resolvedAction);
+  it("normal-practice scoring: weighted — primary 1, other played action (> 0%) 0.5, a 0% action 0", () => {
+    const resolved = session().map((question) => primaryStrategyActions(question.frequencies)[0]);
     const verify = (selected: readonly string[]) => verifyAcademyPreflopTrainerAttempt(
       { attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: answers(selected) }, { playerId: PLAYER_ID });
     expect(verify(resolved)).toMatchObject({ correctAnswers: 10, percentage: 100, passed: true });
-    // All-fold: correct exactly where the strategy folds with frequency > 0 (not only where the randomizer said fold).
+    // All-fold: points exactly where the strategy folds with frequency > 0 (not only where the randomizer said fold):
+    // 1 where fold is the highest-frequency action, 0.5 where it is a less frequent played action.
+    const foldPrimary = session().filter((question) => primaryStrategyActions(question.frequencies).includes("FOLD")).length;
     const foldPlayed = session().filter((question) => (question.frequencies.FOLD ?? 0) > 0).length;
-    expect(verify(resolved.map(() => "FOLD")).correctAnswers).toBe(foldPlayed);
+    const allFold = verify(resolved.map(() => "FOLD"));
+    expect(allFold.primaryAnswers + allFold.supportedAlternativeAnswers).toBe(foldPlayed);
+    expect(allFold.scoreUnits).toBe(2 * foldPrimary + (foldPlayed - foldPrimary));
     // Dispatch by the catalog lesson's trainer kind uses the same verifier.
     expect(verifyAcademyAttempt(getAcademyLessonByCode(LESSON)!, {
       attemptId: ATTEMPT_ID, lessonCode: LESSON, questions: answers(resolved),

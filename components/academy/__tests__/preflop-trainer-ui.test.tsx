@@ -214,15 +214,20 @@ describe("trainer session UI", () => {
     expect(container.textContent).not.toMatch(FORBIDDEN_SOURCE_COPY);
   });
 
-  it("(15) a valid mixed action (≠ randomizer, > 0%) is shown as correct, never as a mistake; answers carry the node selection", async () => {
+  it("(15) a supported alternative (> 0%, not the primary action) is a calm +0.5, never a mistake; answers carry the node selection", async () => {
     const { session } = load();
-    const index = session.findIndex((entry) => entry.bucket === "MIXED");
+    const isPrimary = (entry: (typeof session)[number], code: string) =>
+      (entry.frequencies[code] ?? 0) >= Math.max(...Object.values(entry.frequencies));
+    const alternativeOf = (entry: (typeof session)[number]) => entry.actions.map((action) => action.code)
+      .find((code) => code !== entry.resolvedAction && entry.frequencies[code] > 0 && !isPrimary(entry, code));
+    const index = session.findIndex((entry) => entry.bucket === "MIXED" && alternativeOf(entry) !== undefined);
+    expect(index).toBeGreaterThanOrEqual(0);
     const question = session[index];
-    const other = question.actions.map((action) => action.code)
-      .find((code) => code !== question.resolvedAction && question.frequencies[code] > 0)!;
+    const other = alternativeOf(question)!;
+    const primary = question.actions.map((action) => action.code).find((code) => isPrimary(question, code))!;
     sessionPayload = toPublicPreflopTrainerQuestion(question);
     revealPayload = toPreflopTrainerReveal(question, other);
-    expect(revealPayload).toMatchObject({ outcome: "VALID_MIXED", countsAsCorrect: true, matchesResolvedAction: false });
+    expect(revealPayload).toMatchObject({ outcome: "SUPPORTED_ALTERNATIVE", points: 0.5, countsAsCorrect: true, matchesResolvedAction: false });
     await render(<PreflopTrainer selection={selection} />);
     await click(container.querySelector(`button[data-action-code="${other}"]`)!);
 
@@ -233,11 +238,19 @@ describe("trainer session UI", () => {
     const feedback = container.querySelector("[data-feedback-tone]")!;
     expect(feedback.getAttribute("data-feedback-tone")).toBe("valid");
     expect(feedback.textContent).toContain("Допустимое решение");
-    expect(feedback.textContent).toContain("входит в стратегию");
+    expect(feedback.textContent).toContain("встречается в стратегии");
+    expect(feedback.textContent).toContain("Основное решение здесь");
+    expect(container.querySelector('[data-testid="feedback-points"]')!.textContent).toBe("+0.5");
     expect(container.querySelector('[data-testid="feedback-note"]')!.textContent).toMatch(/^По рандомайзеру в этой раздаче выпал /);
     expect(feedback.textContent).not.toMatch(/неправильн|неверн|ошибк|wrong|солвер|Не входит/i);
-    // The chosen button is styled as accepted (green), not as an error.
-    expect(container.querySelector(`button[data-action-code="${other}"]`)!.getAttribute("data-action-selected")).toBe("correct");
+    expect(feedback.className).not.toMatch(/b95b5f|5b292c/);
+    // The chosen button is the calm "alternative" state (not red); the primary action is labelled.
+    const chosen = container.querySelector(`button[data-action-code="${other}"]`)!;
+    expect(chosen.getAttribute("data-action-selected")).toBe("alternative");
+    expect(chosen.className).not.toMatch(/b95b5f|5b292c/);
+    const main = container.querySelector(`button[data-action-code="${primary}"]`)!;
+    expect(main.getAttribute("data-action-primary")).toBe("true");
+    expect(main.querySelector('[data-testid="action-primary"]')!.textContent).toContain("основное");
   });
 });
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PokerPositionTable } from "@/components/academy/poker-position-table";
 import { PushFoldAttribution } from "@/components/academy/push-fold-attribution";
-import { PushFoldReferenceNotice } from "@/components/academy/push-fold-reference";
+import { PushFoldReferenceNextStep, PushFoldReferenceNotice } from "@/components/academy/push-fold-reference";
 import { SolverActionMixGrid } from "@/components/academy/SolverActionMixGrid";
 import { BackButton } from "@/components/ui/back-button";
 import { ACADEMY_SOLVER_PUSH_FOLD_ROUTE, pushFoldTrainRoute } from "@/config/academy/push-fold-trainer";
@@ -26,7 +26,8 @@ type PushFoldSpotPageProps = {
  * source's own coverage and the attribution. While the dataset is not
  * validated for scored training (docs/ACADEMY_PUSH_FOLD_AUDIT.md) the page is
  * explicitly labelled as an approximate, non-scored reference and offers no
- * "Начать тренировку".
+ * "Начать тренировку" — only a bottom "Выбрать другой диапазон" / "К
+ * тренажёрам" continuation (links only, nothing is scored or recorded).
  */
 export default async function AcademyPushFoldSpotPage({ params }: PushFoldSpotPageProps) {
   const { stack, node } = await params;
@@ -82,7 +83,9 @@ export default async function AcademyPushFoldSpotPage({ params }: PushFoldSpotPa
           >
             Начать тренировку
           </Link>
-        ) : null}
+        ) : (
+          <PushFoldReferenceNextStep className="mt-6" />
+        )}
 
         <p className="mt-5 text-xs leading-5 text-white/45" data-testid="push-fold-model-note">{ACADEMY_PUSH_FOLD_MODEL_NOTE}</p>
         <PushFoldAttribution className="mt-4" />

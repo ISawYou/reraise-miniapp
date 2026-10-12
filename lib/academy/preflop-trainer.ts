@@ -46,7 +46,12 @@ import {
 } from "@/lib/academy/solver";
 import { createDeterministicRandom, deriveDeterministicUnit } from "@/lib/academy/solver-session";
 import { ACADEMY_SOLVER_QUESTION_COUNT, toPublicSolverAction } from "@/lib/academy/solver-training";
-import { classifyStrategyAnswer, strategyAnswerCountsAsCorrect } from "@/lib/academy/strategy-answer";
+import {
+  classifyStrategyAnswer,
+  primaryStrategyActions,
+  strategyAnswerCountsAsCorrect,
+  strategyAnswerPoints,
+} from "@/lib/academy/strategy-answer";
 import { renderStartingHand } from "@/lib/academy/training";
 import type {
   AcademyPreflopTableMoney,
@@ -386,20 +391,17 @@ export function toPublicPreflopTrainerQuestion(
 }
 
 /**
- * Post-answer reveal of one question (fixed node or Quick Mix). The outcome
- * and `countsAsCorrect` are computed HERE, server-side, with the same
- * `classifyStrategyAnswer` the verifier uses — never by the client.
+ * Post-answer reveal of one question (fixed node or Quick Mix). The outcome,
+ * points and `countsAsCorrect` are computed HERE, server-side, with the same
+ * frequency-only `classifyStrategyAnswer` the verifier uses — never by the
+ * client, and never from the randomizer (which is returned as explanation).
  * `selectedAction` must already be validated against the node's actions.
  */
 export function toPreflopTrainerReveal(
   question: AcademyPreflopTrainerSessionQuestion,
   selectedAction: AcademySolverAction,
 ): AcademyPreflopTrainerReveal {
-  const outcome = classifyStrategyAnswer({
-    frequencies: question.frequencies,
-    selectedAction,
-    resolvedAction: question.resolvedAction,
-  });
+  const outcome = classifyStrategyAnswer({ frequencies: question.frequencies, selectedAction });
   return {
     ...toPublicPreflopTrainerQuestion(question),
     questionIndex: question.questionIndex,
@@ -410,6 +412,8 @@ export function toPreflopTrainerReveal(
     bucket: question.bucket,
     matchesResolvedAction: selectedAction === question.resolvedAction,
     outcome,
+    points: strategyAnswerPoints(outcome),
+    primaryActions: primaryStrategyActions(question.frequencies),
     countsAsCorrect: strategyAnswerCountsAsCorrect(outcome),
   };
 }

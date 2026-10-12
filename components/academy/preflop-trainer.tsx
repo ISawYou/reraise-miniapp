@@ -31,6 +31,7 @@ import {
   formatPracticeFrequencyList,
   solverActionButtonLabel,
 } from "@/lib/academy/solver-feedback";
+import { strategyAnswerIsMistake } from "@/lib/academy/strategy-answer";
 import type {
   AcademyLessonProgress,
   AcademyPreflopTableMoney,
@@ -108,12 +109,13 @@ const TRAINERS_BACK = { href: ACADEMY_TRAINERS_ROUTE, label: "Тренажёры
 
 /**
  * "Разобрать ошибки" entry, built from the reveal the server already returned.
- * Only a genuine mistake — an action the strategy never plays here (server
- * outcome `NOT_IN_STRATEGY`) — is listed. A valid mixed action (frequency > 0,
- * different from the randomizer) counted as correct and is never a mistake.
+ * Only a genuine 0-point mistake — an action the strategy never plays here
+ * (server outcome `NOT_IN_STRATEGY`) — is listed. A supported alternative
+ * (+0.5: the strategy plays it, but it is not the primary action) is never a
+ * mistake and is never listed.
  */
 export function preflopTrainerReviewEntry(reveal: AcademyPreflopTrainerReveal): TrainerReviewEntry | null {
-  if (reveal.outcome !== "NOT_IN_STRATEGY") return null;
+  if (!strategyAnswerIsMistake(reveal.outcome)) return null;
   const feedback = buildPracticeAnswerFeedback(reveal);
   const label = (code: AcademySolverAction) => {
     const action = reveal.actions.find((candidate) => candidate.code === code);
@@ -230,7 +232,6 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
   const [reveal, setReveal] = useState<AcademyPreflopTrainerReveal | null>(null);
   const [answers, setAnswers] = useState<PreflopTrainerAnyAnswer[]>([]);
   const [review, setReview] = useState<TrainerReviewEntry[]>([]);
-  const [validMixedCount, setValidMixedCount] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AcademyTrainingResult | null>(null);
@@ -285,7 +286,6 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
       setAnswers((current) => [...current, source.toAnswer(questionIndex, selectedAction, question)]);
       const entry = preflopTrainerReviewEntry(revealed);
       if (entry) setReview((current) => [...current, entry]);
-      if (revealed.outcome === "VALID_MIXED") setValidMixedCount((count) => count + 1);
     } catch (answerError) {
       setError(answerError instanceof Error ? answerError.message : "Не удалось проверить ответ");
     } finally {
@@ -330,7 +330,6 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
     setReveal(null);
     setAnswers([]);
     setReview([]);
-    setValidMixedCount(0);
     setResult(null);
     setUpdatedProgress(null);
     setNewBest(false);
@@ -359,7 +358,6 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
           trainers={TRAINERS_LINK}
           links={source.resultLinks}
           review={review}
-          validMixedCount={validMixedCount}
         />
       </main>
     );
@@ -415,6 +413,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
             summary={feedback.summary}
             note={feedback.randomizerNote}
             detail={feedback.detail}
+            points={reveal?.points}
           />
         ) : null}
 
