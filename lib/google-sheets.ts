@@ -541,6 +541,62 @@ export async function batchUpdateSpreadsheetValues(
   });
 }
 
+// Deletes whole DATA rows (1-based sheet row numbers) from one tab -- the
+// narrow primitive behind the roster synchronizer's stale-row removal
+// (features/tournament-sheet-sync.ts decides WHICH rows, strictly by exact
+// player_id). Never rebuilds or clears the tab. Rows are deleted in
+// DESCENDING row-number order inside ONE batchUpdate: Sheets applies the
+// requests sequentially, so deleting the bottom-most row first means no
+// deletion ever shifts the index of a row still waiting to be deleted.
+// Duplicate row numbers are collapsed. Row numbers below `minRowNumber`
+// (the header/meta block) are refused outright -- a caller bug must never
+// be able to delete the header.
+export async function deleteSpreadsheetTabRows(
+  tabName: string,
+  rowNumbers: number[],
+  minRowNumber: number
+): Promise<number[]> {
+  const unique = Array.from(new Set(rowNumbers));
+  if (unique.length === 0) {
+    return [];
+  }
+  for (const rowNumber of unique) {
+    if (!Number.isInteger(rowNumber) || rowNumber < minRowNumber) {
+      throw new Error(`Refusing to delete protected sheet row ${rowNumber} in "${tabName}"`);
+    }
+  }
+  const descending = unique.sort((a, b) => b - a);
+
+  const sheets = getGoogleSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetId = spreadsheet.data.sheets?.find(
+    (sheet) => sheet.properties?.title === tabName
+  )?.properties?.sheetId;
+
+  if (sheetId == null) {
+    throw new Error(`Spreadsheet tab "${tabName}" not found`);
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: descending.map((rowNumber) => ({
+        deleteDimension: {
+          range: {
+            sheetId,
+            dimension: "ROWS",
+            startIndex: rowNumber - 1,
+            endIndex: rowNumber,
+          },
+        },
+      })),
+    },
+  });
+
+  return descending;
+}
+
 // Narrow formatting/data-validation for exactly the newly appended roster
 // row(s) -- deliberately NOT a call into applyTournamentSheetFormatting
 // above, which also re-applies frozen-row/hidden-row/header/conditional

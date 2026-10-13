@@ -5,6 +5,7 @@ import {
   getTournamentById,
   getTournamentEliminations,
   getTournamentRebuyState,
+  getTournamentResultsDraft,
   saveTournamentResults,
 } from "@/features/tournaments";
 import { calculateRatingPointsForTournament } from "@/features/rating-v2";
@@ -20,6 +21,7 @@ import type { NormalizedFreeSheetRow } from "@/lib/tournament-sheet-parsing";
 import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
 import { TournamentAlreadyCompletedError } from "@/lib/tournament-errors";
 import { finishPokerClockTournament } from "@/lib/poker-clock-client";
+import { reconcileCompletionRosterRows } from "@/lib/tournament-completion-roster";
 
 // ReRaise is the authoritative tournament/results system -- everything
 // through the GS sync below is completion as it already worked before
@@ -65,7 +67,6 @@ export async function POST(
       bountyPrice?: number;
     };
 
-    const rawRows = body.rows ?? [];
     const tournament = await getTournamentById(id);
 
     // Re-completion guard, fail fast BEFORE any Sheets read or live-state
@@ -75,6 +76,25 @@ export async function POST(
     if (tournament.status === "completed") {
       throw new TournamentAlreadyCompletedError();
     }
+
+    // ROSTER AUTHORITY: the submitted rows (the admin page's freeRows, or a
+    // stale Google Sheet behind them) are never trusted as the roster. The
+    // canonical participants are derived here, server-side, from Postgres:
+    // registered/attended registrations only. Submitted rows of anyone else
+    // -- ordinary waitlist, quarantined no-show, cancelled/removed -- are
+    // ignored entirely (no place required, no result, no rating input, no
+    // field-size contribution). A canonical participant missing from the
+    // submitted rows fails CLOSED: never silently omitted, no place
+    // invented. See lib/tournament-completion-roster.ts.
+    const canonicalRoster = await getTournamentResultsDraft(id);
+    const rosterReconciliation = reconcileCompletionRosterRows(
+      body.rows ?? [],
+      canonicalRoster.map((row) => row.player_id)
+    );
+    if (!rosterReconciliation.ok) {
+      return NextResponse.json({ error: rosterReconciliation.message }, { status: 409 });
+    }
+    const rawRows = rosterReconciliation.rows;
 
     // For a GS-linked free tournament, completion must guarantee freshness
     // itself -- the admin must never need to remember "Обновить из GS,

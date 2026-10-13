@@ -2,7 +2,7 @@
 
 import { BackButton } from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   addAdminTournamentParticipant,
@@ -74,6 +74,14 @@ function ParticipantPolicyBadges({ participant }: { participant: AdminTournament
   );
 }
 
+// A waitlist registration carrying THIS tournament's "Не пришёл" mark is a
+// quarantined no-show -- shown in its own "Не пришли" section, never in (or
+// counted toward) the normal waitlist. Auto-promotion skips it server-side
+// (features/tournament-waitlist-capacity.ts, NO-SHOW QUARANTINE).
+function isQuarantinedNoShow(participant: AdminTournamentParticipant): boolean {
+  return participant.status === "waitlist" && participant.no_show_at != null;
+}
+
 function ParticipantIdentity({ participant }: { participant: AdminTournamentParticipant }) {
   const avatarUrl = getPlayerAvatarUrl({
     display_name: participant.admin_nick,
@@ -83,7 +91,7 @@ function ParticipantIdentity({ participant }: { participant: AdminTournamentPart
   const avatarFallback = getPlayerAvatarFallback({ display_name: participant.admin_nick });
 
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div data-testid="participant-identity" className="flex min-w-0 flex-1 items-center gap-3">
       {avatarUrl ? (
         <img
           src={avatarUrl}
@@ -95,13 +103,52 @@ function ParticipantIdentity({ participant }: { participant: AdminTournamentPart
           {avatarFallback}
         </div>
       )}
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-white">{participant.admin_nick}</p>
+      {/* Full nickname, never truncated: wraps, and breaks inside a
+          genuinely long unbroken nick instead of overflowing. */}
+      <div className="min-w-0 flex-1">
+        <p
+          data-testid="participant-nick"
+          className="whitespace-normal break-words text-sm font-medium leading-snug text-white [overflow-wrap:anywhere]"
+        >
+          {participant.admin_nick}
+        </p>
         <ParticipantPolicyBadges participant={participant} />
       </div>
     </div>
   );
 }
+
+// Two-level participant card: identity (avatar + full nickname + badges)
+// on top, actions on their own row below -- so on a narrow phone the
+// buttons never squeeze the nickname. From `sm` up it collapses back into
+// one compact row.
+function ParticipantCard({
+  participant,
+  testId,
+  children,
+}: {
+  participant: AdminTournamentParticipant;
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-testid={testId}
+      className="flex flex-col gap-2.5 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+    >
+      <ParticipantIdentity participant={participant} />
+      <div
+        data-testid="participant-actions"
+        className="flex w-full items-center gap-2 sm:w-auto sm:flex-shrink-0"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const PARTICIPANT_ACTION_BUTTON_BASE =
+  "min-h-10 flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed sm:min-h-0 sm:flex-none sm:py-1.5 sm:text-xs";
 
 function toDateTimeLocalValue(value: string): string {
   const date = new Date(value);
@@ -404,8 +451,11 @@ export default function AdminTournamentEditPage() {
       setMessage(
         result.promotedCount > 0
           ? `${candidate.admin_nick} отмечен(а) как «Не пришёл». Освободившееся место занято из листа ожидания.`
-          : `${candidate.admin_nick} отмечен(а) как «Не пришёл» и перенесён(а) в лист ожидания.`
+          : `${candidate.admin_nick} отмечен(а) как «Не пришёл» и перенесён(а) в «Не пришли».`
       );
+      if (result.warning) {
+        setError(result.warning);
+      }
     } catch (err) {
       setNoShowCandidate(null);
       setError(err instanceof Error ? err.message : "Не удалось отметить «Не пришёл»");
@@ -444,13 +494,54 @@ export default function AdminTournamentEditPage() {
     }
   }
 
+  function renderDeleteButton(participant: AdminTournamentParticipant) {
+    return (
+      <button
+        type="button"
+        onClick={() => handleDeleteParticipant(participant.registration_id)}
+        disabled={deletingRegistrationId === participant.registration_id}
+        className={`${PARTICIPANT_ACTION_BUTTON_BASE} border border-red-500/30 bg-red-500/10 text-red-300 hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-200 active:bg-red-500/30 focus-visible:ring-red-500/50`}
+      >
+        {deletingRegistrationId === participant.registration_id ? "Удаляем..." : "Удалить"}
+      </button>
+    );
+  }
+
+  // "Допустить в игру" -- same staff admission for a normal waitlist row and
+  // a quarantined no-show alike (the server clears THIS registration's
+  // no-show mark and the restriction; capacity / Late Registration checks
+  // stay authoritative). Hidden once the tournament is completed.
+  function renderAdmitButton(participant: AdminTournamentParticipant) {
+    if (isCompleted) {
+      return null;
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => handleAdmitFromWaitlist(participant)}
+        disabled={rosterActionRegistrationId === participant.registration_id}
+        className={`${PARTICIPANT_ACTION_BUTTON_BASE} bg-emerald-500 text-black hover:bg-emerald-400 active:bg-emerald-600 focus-visible:ring-emerald-400/60`}
+      >
+        {rosterActionRegistrationId === participant.registration_id
+          ? "Допускаем..."
+          : "Допустить в игру"}
+      </button>
+    );
+  }
+
   const registeredParticipants = useMemo(
     () => participants.filter((p) => p.status === "registered" || p.status === "attended"),
     [participants]
   );
 
+  // Normal waitlist = waitlist WITHOUT this tournament's no-show mark.
   const waitlistParticipants = useMemo(
-    () => participants.filter((p) => p.status === "waitlist"),
+    () => participants.filter((p) => p.status === "waitlist" && !isQuarantinedNoShow(p)),
+    [participants]
+  );
+
+  const noShowParticipants = useMemo(
+    () => participants.filter(isQuarantinedNoShow),
     [participants]
   );
 
@@ -466,10 +557,8 @@ export default function AdminTournamentEditPage() {
     [participants]
   );
 
-  const waitlistCount = useMemo(
-    () => participants.filter((p) => p.status === "waitlist").length,
-    [participants]
-  );
+  const waitlistCount = waitlistParticipants.length;
+  const noShowCount = noShowParticipants.length;
   const expectedPrizePlaces = useMemo(
     () => getExpectedPrizePlaces(participants.length),
     [participants.length]
@@ -897,39 +986,26 @@ export default function AdminTournamentEditPage() {
                 <div className="px-3 py-4 text-sm text-white/60">Участников пока нет</div>
               ) : (
                 registeredParticipants.map((participant) => (
-                  <div
+                  <ParticipantCard
                     key={participant.registration_id}
-                    data-testid={`registered-row-${participant.registration_id}`}
-                    className="flex items-center justify-between gap-3 px-3 py-3"
+                    participant={participant}
+                    testId={`registered-row-${participant.registration_id}`}
                   >
-                    <ParticipantIdentity participant={participant} />
-
-                    <div className="flex flex-shrink-0 items-center gap-2">
-                      {/* "Не пришёл" is a behavioral action, unavailable for
-                          an invite-only Final Month (v1) and for a completed
-                          tournament; the server re-checks every rule. */}
-                      {participant.status === "registered" && !savedIsFinal && !isCompleted ? (
-                        <button
-                          type="button"
-                          onClick={() => setNoShowCandidate(participant)}
-                          disabled={rosterActionRegistrationId === participant.registration_id}
-                          className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 transition-colors hover:bg-amber-500/20 active:bg-amber-500/30 focus-visible:ring-2 focus-visible:ring-amber-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Не пришёл
-                        </button>
-                      ) : null}
+                    {/* "Не пришёл" is a behavioral action, unavailable for
+                        an invite-only Final Month (v1) and for a completed
+                        tournament; the server re-checks every rule. */}
+                    {participant.status === "registered" && !savedIsFinal && !isCompleted ? (
                       <button
                         type="button"
-                        onClick={() => handleDeleteParticipant(participant.registration_id)}
-                        disabled={deletingRegistrationId === participant.registration_id}
-                        className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 transition-colors hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-200 active:bg-red-500/30 focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => setNoShowCandidate(participant)}
+                        disabled={rosterActionRegistrationId === participant.registration_id}
+                        className={`${PARTICIPANT_ACTION_BUTTON_BASE} border border-amber-400/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 active:bg-amber-500/30 focus-visible:ring-amber-400/50`}
                       >
-                        {deletingRegistrationId === participant.registration_id
-                          ? "Удаляем..."
-                          : "Удалить"}
+                        Не пришёл
                       </button>
-                    </div>
-                  </div>
+                    ) : null}
+                    {renderDeleteButton(participant)}
+                  </ParticipantCard>
                 ))
               )}
             </div>
@@ -950,38 +1026,48 @@ export default function AdminTournamentEditPage() {
                 <div className="px-3 py-4 text-sm text-white/60">Лист ожидания пуст</div>
               ) : (
                 waitlistParticipants.map((participant) => (
-                  <div
+                  <ParticipantCard
                     key={participant.registration_id}
-                    data-testid={`waitlist-row-${participant.registration_id}`}
-                    className="flex items-center justify-between gap-3 px-3 py-3"
+                    participant={participant}
+                    testId={`waitlist-row-${participant.registration_id}`}
                   >
-                    <ParticipantIdentity participant={participant} />
+                    {renderAdmitButton(participant)}
+                    {renderDeleteButton(participant)}
+                  </ParticipantCard>
+                ))
+              )}
+            </div>
+          </section>
 
-                    <div className="flex flex-shrink-0 items-center gap-2">
-                      {!isCompleted ? (
-                        <button
-                          type="button"
-                          onClick={() => handleAdmitFromWaitlist(participant)}
-                          disabled={rosterActionRegistrationId === participant.registration_id}
-                          className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-emerald-400 active:bg-emerald-600 focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {rosterActionRegistrationId === participant.registration_id
-                            ? "Допускаем..."
-                            : "Допустить в игру"}
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteParticipant(participant.registration_id)}
-                        disabled={deletingRegistrationId === participant.registration_id}
-                        className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 transition-colors hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-200 active:bg-red-500/30 focus-visible:ring-2 focus-visible:ring-red-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {deletingRegistrationId === participant.registration_id
-                          ? "Удаляем..."
-                          : "Удалить"}
-                      </button>
-                    </div>
-                  </div>
+          {/* Quarantined no-shows: waitlist rows carrying THIS tournament's
+              "Не пришёл" mark. Not a normal waitlist -- never auto-promoted,
+              not in the operational Google Sheet, not on the public roster.
+              Only "Допустить в игру" (player physically here) brings one
+              back; "Удалить" stays a penalty-free correction that keeps the
+              no-show history. */}
+          <section className="mt-5" aria-label="Не пришли">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-white/60">
+              Не пришли{" "}
+              <span data-testid="no-show-count" className="text-white">
+                {noShowCount}
+              </span>
+            </h3>
+            <div
+              data-testid="no-show-section"
+              className="mt-2 divide-y divide-white/10 rounded-lg border border-white/10 bg-black/20"
+            >
+              {noShowParticipants.length === 0 ? (
+                <div className="px-3 py-4 text-sm text-white/60">Неявок нет</div>
+              ) : (
+                noShowParticipants.map((participant) => (
+                  <ParticipantCard
+                    key={participant.registration_id}
+                    participant={participant}
+                    testId={`no-show-row-${participant.registration_id}`}
+                  >
+                    {renderAdmitButton(participant)}
+                    {renderDeleteButton(participant)}
+                  </ParticipantCard>
                 ))
               )}
             </div>
@@ -1004,8 +1090,9 @@ export default function AdminTournamentEditPage() {
               Отметить {noShowCandidate.admin_nick} как «Не пришёл»?
             </h2>
             <p className="mt-3 text-sm text-white/70">
-              Игрок будет перенесён в лист ожидания, а самостоятельная запись на следующие
-              турниры будет доступна только через лист ожидания до личного визита.
+              Игрок будет перенесён в раздел «Не пришли» и не займёт место автоматически, а
+              самостоятельная запись на следующие турниры будет доступна только через лист
+              ожидания до личного визита.
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button

@@ -37,6 +37,13 @@ describe("Admin landing navigation -- operator sections", () => {
     expect(hrefs).toContain("/admin/achievements");
   });
 
+  it("exposes 'Неявки игроков' (/admin/no-shows) to operator -- and to Super Admin via the PLAYERS section", async () => {
+    const hrefs = OPERATOR_SECTIONS.flatMap((section) => section.items.map((item) => item.href));
+    expect(hrefs).toContain("/admin/no-shows");
+    const item = OPERATOR_SECTIONS.flatMap((section) => section.items).find((i) => i.href === "/admin/no-shows");
+    expect(item?.title).toBe("Неявки игроков");
+  });
+
   it("does not expose Super-Admin-only staff/system items (dealer stats, roles, settings, admin-shift management)", () => {
     const hrefs = OPERATOR_SECTIONS.flatMap((section) => section.items.map((item) => item.href));
     expect(hrefs).not.toContain("/admin/dealers/stats");

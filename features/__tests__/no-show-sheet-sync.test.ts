@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   readSpreadsheetTabValues: vi.fn(),
   batchUpdateSpreadsheetValues: vi.fn(),
   applyNewRosterRowsFormatting: vi.fn(),
+  deleteSpreadsheetTabRows: vi.fn(),
   reconcileTournamentWaitlistCapacity: vi.fn(),
   assertTournamentSeatAvailableForReturn: vi.fn(),
 }));
@@ -54,6 +55,7 @@ vi.mock("@/lib/google-sheets", () => ({
   readSpreadsheetTabValues: mocks.readSpreadsheetTabValues,
   batchUpdateSpreadsheetValues: mocks.batchUpdateSpreadsheetValues,
   applyNewRosterRowsFormatting: mocks.applyNewRosterRowsFormatting,
+  deleteSpreadsheetTabRows: mocks.deleteSpreadsheetTabRows,
 }));
 
 const { reconcileTournamentFromSheet, syncAdmittedPlayerToSheet } = await import(
@@ -138,11 +140,12 @@ describe("registration status stays ReRaise-owned (one-directional)", () => {
     mocks.getTournamentResultsDraft.mockResolvedValue([
       { player_id: "p1", display_name: "P1", username: "p1", status: "registered" },
     ]);
+    // The operational export roster is admitted players only -- w1 is not
+    // in it (waitlist is managed in ReRaise, not in the sheet).
     mocks.getTournamentSheetExportData.mockResolvedValue({
       tournament: tournament(),
       rows: [
         { player_id: "p1", username: "p1", display_name: "P1", registration_status: "registered", rating_points: null },
-        { player_id: "w1", username: "w1", display_name: "W1", registration_status: "waitlist", rating_points: null },
       ],
     });
     mocks.readSpreadsheetTabValues.mockResolvedValue(
@@ -153,22 +156,21 @@ describe("registration status stays ReRaise-owned (one-directional)", () => {
 
     expect(mocks.setTournamentPlayerAttendance).not.toHaveBeenCalledWith("t1", "w1", expect.anything());
     expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalledWith("t1", "w1", expect.anything());
-    // ReRaise overwrites the status cell with its own value instead of
-    // reading the sheet's edit back.
-    expect(allWrites()).toContainEqual({ range: "Sheet1!B9:E9", values: [["w1", "W1", "@w1", "waitlist"]] });
+    // The sheet's status edit is never read back: ReRaise removes the
+    // non-operational w1 row (exact player_id) instead.
+    expect(mocks.deleteSpreadsheetTabRows).toHaveBeenCalledWith("Sheet1", [9], 8);
   });
 
-  it("after a no-show, the next roster sync rewrites Статус регистрации to waitlist (identity/status cells only)", async () => {
+  it("after a no-show, the next roster sync REMOVES that player's row (no-show players are not operational)", async () => {
     mocks.getTournamentResultsDraft.mockResolvedValue([]);
-    mocks.getTournamentSheetExportData.mockResolvedValue({
-      tournament: tournament(),
-      rows: [{ player_id: "p1", username: "p1", display_name: "P1", registration_status: "waitlist", rating_points: null }],
-    });
+    mocks.getTournamentSheetExportData.mockResolvedValue({ tournament: tournament(), rows: [] });
     mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([row("p1", "registered", "false")]));
 
     await reconcileTournamentFromSheet("t1");
 
-    expect(allWrites()).toEqual([{ range: "Sheet1!B8:E8", values: [["p1", "P1", "@p1", "waitlist"]] }]);
+    expect(mocks.deleteSpreadsheetTabRows).toHaveBeenCalledWith("Sheet1", [8], 8);
+    // No identity/status rewrite of a row that is being removed.
+    expect(allWrites()).toEqual([]);
   });
 });
 

@@ -27,6 +27,7 @@ import {
 } from "@/lib/tournament-helpers";
 import { calculateRatingPointsV2, type RatingPointsV2Meta } from "@/features/rating-v2";
 import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
+import { reconcileCompletionRosterRows } from "@/lib/tournament-completion-roster";
 import { formatTournamentResultsForCopy } from "@/lib/tournament-results-copy";
 import { isStaff, isSuperAdmin } from "@/lib/roles";
 import { useBodyScrollLock } from "@/lib/hooks/use-body-scroll-lock";
@@ -1551,7 +1552,31 @@ export default function AdminTournamentResultsPage() {
     setMessage(null);
     setError(null);
 
-    const playersWithoutPlace = freeRows.filter((row) => !row.place.trim());
+    // The roster to complete is the CANONICAL one (registered/attended in
+    // Postgres), never whatever rows this page happens to hold: a player
+    // marked "Не пришёл", cancelled or removed after this page loaded is
+    // dropped here (no place required), and a participant this page doesn't
+    // know about yet fails closed with a refresh message. The server
+    // re-derives and enforces the same rule (complete-free/route.ts) --
+    // this is only the early, identical client-side check.
+    let completionRows: FreeFormRow[];
+    try {
+      const canonicalRoster = await getTournamentResultsDraft(tournamentId);
+      const reconciliation = reconcileCompletionRosterRows(
+        freeRows,
+        canonicalRoster.map((row) => row.player_id)
+      );
+      if (!reconciliation.ok) {
+        setError(reconciliation.message);
+        return;
+      }
+      completionRows = reconciliation.rows;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось проверить состав участников");
+      return;
+    }
+
+    const playersWithoutPlace = completionRows.filter((row) => !row.place.trim());
 
     if (playersWithoutPlace.length > 0) {
       setError(
@@ -1563,7 +1588,7 @@ export default function AdminTournamentResultsPage() {
     }
 
     const placeIssue = describeResultPlaceIssues(
-      freeRows.map((row) => ({
+      completionRows.map((row) => ({
         player_id: row.player_id,
         place: Number(row.place),
         display_name: row.display_name,
@@ -1575,15 +1600,22 @@ export default function AdminTournamentResultsPage() {
       return;
     }
 
+    const completionMysteryAwarded = completionRows.reduce(
+      (sum, row) => sum + (Number(row.mystery_bounty_points) || 0),
+      0
+    );
+
     if (
       isMysteryBountyTournament &&
       mysteryBountySnapshot &&
-      mysteryBountyAwarded !== mysteryBountySnapshot.mystery_pool
+      completionMysteryAwarded !== mysteryBountySnapshot.mystery_pool
     ) {
       setError(
-        mysteryBountyAwarded > mysteryBountySnapshot.mystery_pool
-          ? `Mystery Bounty: выдано больше очков (${mysteryBountyAwarded}), чем в пуле (${mysteryBountySnapshot.mystery_pool})`
-          : `Mystery Bounty: распределите оставшиеся ${mysteryBountyRemaining} очков перед завершением турнира`
+        completionMysteryAwarded > mysteryBountySnapshot.mystery_pool
+          ? `Mystery Bounty: выдано больше очков (${completionMysteryAwarded}), чем в пуле (${mysteryBountySnapshot.mystery_pool})`
+          : `Mystery Bounty: распределите оставшиеся ${
+              mysteryBountySnapshot.mystery_pool - completionMysteryAwarded
+            } очков перед завершением турнира`
       );
       return;
     }
@@ -1605,7 +1637,7 @@ export default function AdminTournamentResultsPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          rows: freeRows.map((row) => ({
+          rows: completionRows.map((row) => ({
             player_id: row.player_id,
             display_name: row.display_name,
             arrived: row.arrived,

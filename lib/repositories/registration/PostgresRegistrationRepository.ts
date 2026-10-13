@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { players, registrations, tournaments } from "@/lib/db/schema";
 import type { Registration, RegistrationStatus } from "@/types/domain";
@@ -264,6 +264,13 @@ export class PostgresRegistrationRepository implements RegistrationRepository {
     })) as RegistrationWithTournamentRow[];
   }
 
+  // The OPERATIONAL Google Sheet roster: only registrations currently
+  // admitted to play (registered/attended). Ordinary waitlist rows and
+  // quarantined no-show rows (status waitlist + no_show_at) are never
+  // exported -- the waitlist is managed in ReRaise, and the sheet is for
+  // admitted players only (see lib/tournament-sheet-readme.ts and
+  // features/tournament-sheet-sync.ts, which also REMOVES rows that drop
+  // out of this set).
   async findExportParticipants(tournamentId: string): Promise<ExportParticipantRow[]> {
     const rows = await db
       .select({
@@ -283,7 +290,7 @@ export class PostgresRegistrationRepository implements RegistrationRepository {
       .where(
         and(
           eq(registrations.tournamentId, tournamentId),
-          inArray(registrations.status, ["registered", "waitlist", "attended"])
+          inArray(registrations.status, ["registered", "attended"])
         )
       )
       .orderBy(asc(registrations.createdAt));
@@ -291,6 +298,11 @@ export class PostgresRegistrationRepository implements RegistrationRepository {
     return rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() }));
   }
 
+  // Public/player-facing roster. A quarantined no-show registration
+  // (status waitlist AND this tournament's no_show_at IS NOT NULL) is NOT
+  // shown as if it were normally waiting for a seat -- the row and its
+  // history stay in the table, they're just not part of the public roster.
+  // Ordinary waitlist rows (no_show_at NULL) are listed exactly as before.
   async findParticipantsWithRating(tournamentId: string): Promise<ParticipantWithRatingRow[]> {
     const rows = await db
       .select({
@@ -312,7 +324,8 @@ export class PostgresRegistrationRepository implements RegistrationRepository {
       .where(
         and(
           eq(registrations.tournamentId, tournamentId),
-          inArray(registrations.status, ["registered", "attended", "waitlist"])
+          inArray(registrations.status, ["registered", "attended", "waitlist"]),
+          or(ne(registrations.status, "waitlist"), isNull(registrations.noShowAt))
         )
       )
       .orderBy(asc(registrations.createdAt));

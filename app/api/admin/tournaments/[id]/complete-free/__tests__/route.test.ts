@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getTournamentById: vi.fn(),
   getTournamentEliminations: vi.fn(),
   getTournamentRebuyState: vi.fn(),
+  getTournamentResultsDraft: vi.fn(),
   saveTournamentResults: vi.fn(),
   getMysteryBountySnapshot: vi.fn(),
   getTournamentLateRegistrationSnapshot: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/features/tournaments", () => ({
   getTournamentById: mocks.getTournamentById,
   getTournamentEliminations: mocks.getTournamentEliminations,
   getTournamentRebuyState: mocks.getTournamentRebuyState,
+  getTournamentResultsDraft: mocks.getTournamentResultsDraft,
   saveTournamentResults: mocks.saveTournamentResults,
 }));
 
@@ -51,7 +53,14 @@ function context(id = "t1") {
   return { params: Promise.resolve({ id }) };
 }
 
+// The canonical (registered/attended) roster the route derives server-side.
+// Unless a test sets it explicitly, it defaults to exactly the submitted
+// players -- so every pre-existing test keeps its original meaning.
+let submittedPlayerIds: string[] = [];
+
 function request(body: unknown) {
+  const rows = (body as { rows?: { player_id: string }[] } | null)?.rows ?? [];
+  submittedPlayerIds = rows.map((row) => row.player_id);
   return new Request("http://localhost/api/admin/tournaments/t1/complete-free", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -81,6 +90,16 @@ function row(overrides: Partial<{
 
 beforeEach(() => {
   vi.clearAllMocks();
+  submittedPlayerIds = [];
+  mocks.getTournamentResultsDraft.mockImplementation(async () =>
+    Array.from(new Set(submittedPlayerIds)).map((player_id) => ({
+      registration_id: `reg-${player_id}`,
+      player_id,
+      username: null,
+      display_name: player_id,
+      status: "registered",
+    }))
+  );
   mocks.getTournamentById.mockResolvedValue({
     id: "t1",
     tournament_type: "classic",
@@ -783,5 +802,157 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- re-completion guard"
     expect(mocks.saveTournamentResults).toHaveBeenCalledTimes(1);
     expect(mocks.syncTournamentSheet).toHaveBeenCalledTimes(1);
     expect(mocks.finishPokerClockTournament).toHaveBeenCalledWith("t1");
+  });
+});
+
+describe("POST /api/admin/tournaments/[id]/complete-free -- canonical roster authority (no-show / waitlist / cancelled)", () => {
+  function canonical(...ids: string[]) {
+    mocks.getTournamentResultsDraft.mockResolvedValue(
+      ids.map((player_id) => ({
+        registration_id: `reg-${player_id}`,
+        player_id,
+        username: null,
+        display_name: player_id,
+        status: "registered",
+      }))
+    );
+  }
+
+  it("stale waitlist / no-show rows with NO place are ignored: completion succeeds with only the canonical participants", async () => {
+    canonical("p1", "p2");
+
+    const response = await POST(
+      request({
+        rows: [
+          row({ player_id: "p1", place: 1 }),
+          row({ player_id: "noshow", place: 0 }),
+          row({ player_id: "p2", place: 2 }),
+          row({ player_id: "waitlist", place: Number.NaN }),
+        ],
+      }),
+      context()
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, completedCount: 2 });
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(results.map((r: { player_id: string }) => r.player_id)).toEqual(["p1", "p2"]);
+    // Neither the live reconciliation nor the post-completion sheet sync
+    // ever sees a stale row.
+    expect(mocks.syncTournamentSheet.mock.calls[0][1].map((r: { player_id: string }) => r.player_id)).toEqual([
+      "p1",
+      "p2",
+    ]);
+  });
+
+  it("stale rows never affect rating: identical rating_points with or without them", async () => {
+    canonical("p1", "p2");
+    await POST(request({ rows: [row({ player_id: "p1", place: 1, knockouts: 2 }), row({ player_id: "p2", place: 2 })] }), context());
+    const clean = mocks.saveTournamentResults.mock.calls[0][1];
+
+    mocks.saveTournamentResults.mockClear();
+    canonical("p1", "p2");
+    await POST(
+      request({
+        rows: [
+          row({ player_id: "p1", place: 1, knockouts: 2 }),
+          row({ player_id: "p2", place: 2 }),
+          row({ player_id: "noshow", place: 3, knockouts: 9, rebuys: 5 }),
+          row({ player_id: "waitlist", place: 4, rebuys: 5 }),
+        ],
+      }),
+      context()
+    );
+    const withStale = mocks.saveTournamentResults.mock.calls[0][1];
+
+    expect(withStale).toEqual(clean);
+  });
+
+  it("a GS-linked tournament only reconciles live fields for the canonical players, even if the fresh sheet still has stale rows", async () => {
+    canonical("p1");
+    mocks.getTournamentById.mockResolvedValue({
+      id: "t1",
+      tournament_type: "classic",
+      rating_formula_version: "v2",
+      rating_guarantee: null,
+      is_final: false,
+      google_sheet_tab_name: "Sheet1",
+    });
+    mocks.readAndParseFreeTournamentSheet.mockResolvedValue({
+      ok: true,
+      rows: new Map([
+        ["p1", { player_id: "p1", place: 1, knockouts: 1 }],
+        ["noshow", { player_id: "noshow", place: null, knockouts: 0 }],
+      ]),
+      dataRowCount: 2,
+      rowNumbersByPlayerId: new Map(),
+    });
+
+    const response = await POST(
+      request({ rows: [row({ player_id: "p1", place: 1 }), row({ player_id: "noshow", place: 0 })] }),
+      context()
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.applyLiveFieldsFromSheetSnapshot.mock.calls[0][2]).toEqual(new Set(["p1"]));
+    expect(mocks.saveTournamentResults.mock.calls[0][1]).toHaveLength(1);
+  });
+
+  it("a canonical participant MISSING from the submitted data fails closed (409) BEFORE any sheet read or write -- no results, no invented place", async () => {
+    canonical("p1", "p2");
+    mocks.getTournamentById.mockResolvedValue({
+      id: "t1",
+      tournament_type: "classic",
+      rating_formula_version: "v2",
+      rating_guarantee: null,
+      is_final: false,
+      google_sheet_tab_name: "Sheet1",
+    });
+
+    const response = await POST(request({ rows: [row({ player_id: "p1", place: 1 })] }), context());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Данные участников изменились. Обновите таблицу и повторите завершение.",
+    });
+    expect(mocks.readAndParseFreeTournamentSheet).not.toHaveBeenCalled();
+    expect(mocks.applyLiveFieldsFromSheetSnapshot).not.toHaveBeenCalled();
+    expect(mocks.saveTournamentResults).not.toHaveBeenCalled();
+    expect(mocks.syncTournamentSheet).not.toHaveBeenCalled();
+    expect(mocks.finishPokerClockTournament).not.toHaveBeenCalled();
+  });
+
+  it("Final Month behavior unchanged: stale rows are ignored and every canonical result is still rating 0", async () => {
+    canonical("p1", "p2");
+    mocks.getTournamentById.mockResolvedValue({
+      id: "t1",
+      tournament_type: "classic",
+      rating_formula_version: "v2",
+      rating_guarantee: null,
+      is_final: true,
+    });
+
+    await POST(
+      request({
+        rows: [row({ player_id: "p1", place: 1, knockouts: 3 }), row({ player_id: "p2", place: 2 }), row({ player_id: "noshow", place: 0 })],
+      }),
+      context()
+    );
+
+    const [, results] = mocks.saveTournamentResults.mock.calls[0];
+    expect(results.map((r: { player_id: string; rating_points: number }) => [r.player_id, r.rating_points])).toEqual([
+      ["p1", 0],
+      ["p2", 0],
+    ]);
+  });
+
+  it("completed tournament immutability unchanged: rejected with 409 before the roster is even read", async () => {
+    mocks.getTournamentById.mockResolvedValue({ id: "t1", status: "completed", tournament_type: "classic" });
+
+    const response = await POST(request({ rows: [row()] }), context());
+
+    expect(response.status).toBe(409);
+    expect(mocks.getTournamentResultsDraft).not.toHaveBeenCalled();
+    expect(mocks.saveTournamentResults).not.toHaveBeenCalled();
   });
 });

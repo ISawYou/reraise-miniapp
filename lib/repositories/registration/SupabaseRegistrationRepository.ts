@@ -315,7 +315,9 @@ export class SupabaseRegistrationRepository implements RegistrationRepository {
       `
       )
       .eq("tournament_id", tournamentId)
-      .in("status", ["registered", "waitlist", "attended"])
+      // Operational sheet roster = admitted players only (same contract as
+      // PostgresRegistrationRepository.findExportParticipants).
+      .in("status", ["registered", "attended"])
       .order("created_at", { ascending: true });
 
     if (error) {

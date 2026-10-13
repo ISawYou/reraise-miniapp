@@ -17,7 +17,10 @@ import {
   markRegistrationNoShowWithinCapacity,
   TournamentRosterActionError,
 } from "@/features/tournament-waitlist-capacity";
-import { syncAdmittedPlayerToSheet } from "@/features/tournament-sheet-sync";
+import {
+  syncAdmittedPlayerToSheet,
+  syncOperationalRosterToSheet,
+} from "@/features/tournament-sheet-sync";
 
 export type RosterActionResult =
   | { ok: true; promotedCount: number; warning?: string }
@@ -30,21 +33,43 @@ function toRejection(error: unknown): { ok: false; error: string } {
   throw error;
 }
 
+const NO_SHOW_SHEET_WARNING =
+  "Игрок отмечен как «Не пришёл», но Google Таблицу обновить не удалось — строка будет удалена при следующей синхронизации";
+
 // "Не пришёл" -- see markRegistrationNoShowWithinCapacity for the exact
 // atomic semantics. Distinct from removeAdminTournamentParticipant
 // ("Удалить"), which stays a penalty-free technical correction.
+//
+// Postgres is authoritative and commits FIRST. Only then, best-effort, the
+// operational roster is pushed to the linked Google Sheet so the no-show
+// row disappears promptly (and a just-promoted player's row appears). A
+// Sheets failure never rolls back the no-show; it is returned as a warning,
+// and the periodic sheet reconciler removes the row on its next pass.
 export async function markTournamentPlayerNoShow(
   tournamentId: string,
   registrationId: string
 ): Promise<RosterActionResult> {
   await assertServerActorRole(["admin", "operator"]);
 
+  let promotedCount: number;
   try {
     const result = await markRegistrationNoShowWithinCapacity(tournamentId, registrationId);
-    return { ok: true, promotedCount: result.promoted.promotedPlayerIds.length };
+    promotedCount = result.promoted.promotedPlayerIds.length;
   } catch (error) {
     return toRejection(error);
   }
+
+  try {
+    await syncOperationalRosterToSheet(tournamentId);
+  } catch (error) {
+    console.error(
+      "[markTournamentPlayerNoShow] Google Sheet cleanup failed (no-show kept):",
+      error instanceof Error ? error.name : "unknown error"
+    );
+    return { ok: true, promotedCount, warning: NO_SHOW_SHEET_WARNING };
+  }
+
+  return { ok: true, promotedCount };
 }
 
 // "Допустить в игру" -- see admitWaitlistedRegistrationWithinCapacity

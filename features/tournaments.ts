@@ -37,6 +37,7 @@ import {
   unEliminateTournamentPlayerWithinCapacity,
 } from "@/features/tournament-waitlist-capacity";
 import {
+  findRegistrationNoShowAt,
   getAdminNoShowPolicyState,
   isPlayerOnlineRegistrationRestricted,
 } from "@/features/tournament-no-show";
@@ -762,12 +763,24 @@ export async function addExistingPlayerToTournament(
 // Same bypass-of-middleware reasoning as updateTournament above. Staff --
 // "manage tournament registrations/participants/waitlist" is explicitly
 // allowed for operator.
+//
+// "Удалить" is a penalty-free TECHNICAL correction -- it never adds a
+// no-show and never rewrites no-show history. A registration that carries
+// a "Не пришёл" mark (registrations.no_show_at, the canonical no-show
+// history) is therefore CANCELLED instead of hard-deleted: it leaves the
+// roster (and, via the sheet reconciler, the operational Google Sheet)
+// exactly like a deletion, but its no_show_at history row survives.
+// Registrations without a no-show mark are deleted exactly as before.
 export async function removeAdminTournamentParticipant(registrationId: string) {
   await assertServerActorRole(["admin", "operator"]);
 
   const regData = await registrationRepository.findStatusAndTournamentById(registrationId);
 
-  await registrationRepository.delete(registrationId);
+  if ((await findRegistrationNoShowAt(registrationId)) != null) {
+    await registrationRepository.updateStatusSilent(registrationId, "cancelled");
+  } else {
+    await registrationRepository.delete(registrationId);
+  }
 
   if (regData.status === "registered" || regData.status === "attended") {
     await reconcileTournamentWaitlistCapacity(regData.tournament_id);

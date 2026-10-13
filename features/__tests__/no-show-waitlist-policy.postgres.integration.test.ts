@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(async () => true),
   readSpreadsheetTabValues: vi.fn(),
   batchUpdateSpreadsheetValues: vi.fn(async () => undefined),
+  deleteSpreadsheetTabRows: vi.fn(async (_tab: string, rows: number[]) => rows),
   assertServerActorRole: vi.fn(async () => ({ id: "admin", role: "admin" })),
 }));
 
@@ -38,6 +39,7 @@ vi.mock("@/lib/telegram-bot-notify", () => ({
 vi.mock("@/lib/google-sheets", () => ({
   readSpreadsheetTabValues: mocks.readSpreadsheetTabValues,
   batchUpdateSpreadsheetValues: mocks.batchUpdateSpreadsheetValues,
+  deleteSpreadsheetTabRows: mocks.deleteSpreadsheetTabRows,
   applyNewRosterRowsFormatting: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/admin-auth", () => ({
@@ -150,6 +152,7 @@ describePostgres("No-show waitlist policy (PostgreSQL, real locks)", () => {
     mocks.send.mockResolvedValue(true);
     mocks.readSpreadsheetTabValues.mockReset();
     mocks.batchUpdateSpreadsheetValues.mockClear();
+    mocks.deleteSpreadsheetTabRows.mockClear();
   });
 
   afterEach(async () => {
@@ -395,11 +398,9 @@ describePostgres("No-show waitlist policy (PostgreSQL, real locks)", () => {
     expect((await statusOf(T1, 2))?.status).toBe("waitlist");
     expect(await arrived(T1, 2)).toBeNull();
     expect(await restricted(2)).toBe(true);
-    // ...and ReRaise rewrites the status cell back to its own value.
-    const statusWrites = mocks.batchUpdateSpreadsheetValues.mock.calls
-      .flatMap((call) => (call as unknown as [Array<{ range: string; values: unknown[][] }>])[0])
-      .filter((update) => update.range.includes("!B") && update.values[0][3] === "waitlist");
-    expect(statusWrites).toHaveLength(1);
+    // ...and ReRaise removes the non-operational waitlist row (exact
+    // player_id, sheet row 9) instead of ever reading its status back.
+    expect(mocks.deleteSpreadsheetTabRows).toHaveBeenCalledWith("IT tab", [9], 8);
 
     // An unrestricted waitlisted player with Пришел=TRUE and NO free seat
     // is not admitted either.
@@ -417,7 +418,7 @@ describePostgres("No-show waitlist policy (PostgreSQL, real locks)", () => {
     expect(await arrived(T1, 3)).toBeNull();
   });
 
-  it("after 'Не пришёл' the next roster sync writes Статус регистрации = waitlist; after admission the sheet gets registered + Пришел TRUE", async () => {
+  it("after 'Не пришёл' the next roster sync REMOVES the no-show row; after admission the row is appended as registered + Пришел TRUE", async () => {
     await createTournament(T1, { tab: "IT tab", maxPlayers: 2 });
     await createPlayer(1);
     await createPlayer(2);
@@ -432,24 +433,30 @@ describePostgres("No-show waitlist policy (PostgreSQL, real locks)", () => {
       ])
     );
     await sheetSync.reconcileTournamentFromSheet(T1);
+    expect(mocks.deleteSpreadsheetTabRows).toHaveBeenCalledWith("IT tab", [8], 8);
     const firstWrites = mocks.batchUpdateSpreadsheetValues.mock.calls
       .flatMap((call) => (call as unknown as [Array<{ range: string; values: unknown[][] }>])[0]);
-    expect(firstWrites).toContainEqual({ range: "IT tab!B8:E8", values: [["", "Player 1", "", "waitlist"]] });
+    expect(firstWrites.some((update) => update.range.startsWith("IT tab!B8"))).toBe(false);
 
     mocks.batchUpdateSpreadsheetValues.mockClear();
     await capacity.admitWaitlistedRegistrationWithinCapacity(T1, reg);
-    mocks.readSpreadsheetTabValues.mockResolvedValue(
-      sheetValues([
-        { n: 1, status: "waitlist", arrived: false },
-        { n: 2, status: "registered", arrived: true },
-      ])
-    );
+    // The no-show row is gone; the admitted player is appended (row 9),
+    // then Пришел is set on that appended row from a fresh read.
+    mocks.readSpreadsheetTabValues
+      .mockResolvedValueOnce(sheetValues([{ n: 2, status: "registered", arrived: true }]))
+      .mockResolvedValue(
+        sheetValues([
+          { n: 2, status: "registered", arrived: true },
+          { n: 1, status: "registered", arrived: false },
+        ])
+      );
     const sync = await sheetSync.syncAdmittedPlayerToSheet(T1, pid(1));
 
     expect(sync.arrivedWritten).toBe(true);
     const admissionWrites = mocks.batchUpdateSpreadsheetValues.mock.calls
       .flatMap((call) => (call as unknown as [Array<{ range: string; values: unknown[][] }>])[0]);
-    expect(admissionWrites).toContainEqual({ range: "IT tab!B8:E8", values: [["", "Player 1", "", "registered"]] });
-    expect(admissionWrites).toContainEqual({ range: "IT tab!F8", values: [[true]] });
+    const appended = admissionWrites.find((update) => update.range.startsWith("IT tab!A9:"));
+    expect(appended?.values[0].slice(0, 5)).toEqual([pid(1), "", "Player 1", "", "registered"]);
+    expect(admissionWrites).toContainEqual({ range: "IT tab!F9", values: [[true]] });
   });
 });

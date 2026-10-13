@@ -123,8 +123,21 @@ export type NormalizedFreeSheetRow = {
   eliminated: boolean;
 };
 
+// First data row (1-based sheet row number): rows 1-6 are the meta block,
+// row 7 the header. Anything above this is never a player row.
+export const FREE_SHEET_FIRST_DATA_ROW_NUMBER = 8;
+
 export type ParseFreeSheetResult =
-  | { ok: true; rows: Map<string, NormalizedFreeSheetRow>; dataRowCount: number }
+  | {
+      ok: true;
+      rows: Map<string, NormalizedFreeSheetRow>;
+      dataRowCount: number;
+      // EVERY data row number per exact (trimmed) player_id, ascending --
+      // unlike `rows`, duplicates are not collapsed. Used only by the
+      // roster synchronizer's stale-row removal, so a duplicate row of a
+      // player who left the operational roster is removed too.
+      rowNumbersByPlayerId: Map<string, number[]>;
+    }
   | { ok: false; reason: string };
 
 // Header row lives at values[6] (rows 0-5 are the meta block, see
@@ -152,10 +165,18 @@ export function parseFreeSheetValues(
 
   const dataRows = values.slice(7);
   const rows = new Map<string, NormalizedFreeSheetRow>();
+  const rowNumbersByPlayerId = new Map<string, number[]>();
 
   dataRows.forEach((row, index) => {
     const playerId = (row[0] ?? "").toString().trim();
     if (!playerId) return;
+
+    const rowNumbers = rowNumbersByPlayerId.get(playerId);
+    if (rowNumbers) {
+      rowNumbers.push(index + FREE_SHEET_FIRST_DATA_ROW_NUMBER);
+    } else {
+      rowNumbersByPlayerId.set(playerId, [index + FREE_SHEET_FIRST_DATA_ROW_NUMBER]);
+    }
 
     // Duplicate player_id rows: last one wins (Map overwrite), same
     // precedent as pull-sheet's original sheetRowsMap.
@@ -186,5 +207,5 @@ export function parseFreeSheetValues(
     });
   });
 
-  return { ok: true, rows, dataRowCount: dataRows.length };
+  return { ok: true, rows, dataRowCount: dataRows.length, rowNumbersByPlayerId };
 }

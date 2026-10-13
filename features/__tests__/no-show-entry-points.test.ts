@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   assertServerActorRole: vi.fn(),
   resolveCurrentServerActor: vi.fn(),
   syncAdmittedPlayerToSheet: vi.fn(),
+  syncOperationalRosterToSheet: vi.fn(),
   tournament: { id: "t1", max_players: 40, is_final: false, status: "open", kind: "free" },
 }));
 
@@ -41,6 +42,7 @@ vi.mock("@/lib/telegram-bot-notify", () => ({
 }));
 vi.mock("@/features/tournament-sheet-sync", () => ({
   syncAdmittedPlayerToSheet: mocks.syncAdmittedPlayerToSheet,
+  syncOperationalRosterToSheet: mocks.syncOperationalRosterToSheet,
 }));
 
 function toRow(row: { id: string; playerId: string; tournamentId: string; status: string; createdAt: Date }) {
@@ -140,6 +142,14 @@ beforeEach(() => {
   mocks.resolveCurrentServerActor.mockReset();
   mocks.syncAdmittedPlayerToSheet.mockReset();
   mocks.syncAdmittedPlayerToSheet.mockResolvedValue({ arrivedWritten: true });
+  mocks.syncOperationalRosterToSheet.mockReset();
+  mocks.syncOperationalRosterToSheet.mockResolvedValue({
+    synced: true,
+    appended: 0,
+    identityUpdated: 0,
+    removed: 1,
+    staleRowsPending: 0,
+  });
 });
 
 afterEach(() => {

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   readSpreadsheetTabValues: vi.fn(),
   batchUpdateSpreadsheetValues: vi.fn(),
   applyNewRosterRowsFormatting: vi.fn(),
+  deleteSpreadsheetTabRows: vi.fn(),
   reconcileTournamentWaitlistCapacity: vi.fn(),
   assertTournamentSeatAvailableForReturn: vi.fn(),
 }));
@@ -53,6 +54,7 @@ vi.mock("@/lib/google-sheets", () => ({
   readSpreadsheetTabValues: mocks.readSpreadsheetTabValues,
   batchUpdateSpreadsheetValues: mocks.batchUpdateSpreadsheetValues,
   applyNewRosterRowsFormatting: mocks.applyNewRosterRowsFormatting,
+  deleteSpreadsheetTabRows: mocks.deleteSpreadsheetTabRows,
 }));
 
 const {
@@ -831,7 +833,11 @@ describe("reconcileTournamentFromSheet -- waitlist capacity", () => {
     mocks.readSpreadsheetTabValues.mockResolvedValue(
       sheetValues([p1Row(), playerRow("w1", "wendy", "waitlist", { 5: "true" })])
     );
-    // Before promotion only p1 is eligible; after it, p1 + w1.
+    // Before promotion only p1 is eligible; after it, p1 + w1 -- and the
+    // operational export roster (read after reconciliation) includes w1.
+    mocks.getTournamentSheetExportData.mockResolvedValue(
+      exportRoster([{ player_id: "p1" }, { player_id: "w1", username: "wendy", display_name: "wendy" }])
+    );
     mocks.getTournamentResultsDraft
       .mockResolvedValueOnce([{ player_id: "p1", display_name: "Alice", username: "alice", status: "registered" }])
       .mockResolvedValueOnce([

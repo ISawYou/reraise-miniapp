@@ -75,6 +75,18 @@ const PLAYERS_SECTION = {
       ),
     },
     {
+      href: "/admin/no-shows",
+      title: "Неявки игроков",
+      icon: (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="9" cy="7" r="4" />
+          <path d="M3 21v-2a4 4 0 0 1 4-4h4" />
+          <line x1="16" y1="15" x2="22" y2="21" />
+          <line x1="22" y1="15" x2="16" y2="21" />
+        </svg>
+      ),
+    },
+    {
       href: "/admin/rating-eligibility",
       title: "Зачёт рейтинга",
       icon: (
@@ -241,6 +253,9 @@ const PLAYERS_SECTION_OPERATOR = {
   items: [
     PLAYERS_SECTION.items.find((item) => item.href === "/admin/moderation")!,
     PLAYERS_SECTION.items.find((item) => item.href === "/admin/referral")!,
+    // "Неявки игроков" -- staff (admin|operator) manage the no-show
+    // restriction; the page's Server Actions enforce the same role guard.
+    PLAYERS_SECTION.items.find((item) => item.href === "/admin/no-shows")!,
   ],
 };
 

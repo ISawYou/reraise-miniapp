@@ -735,3 +735,139 @@ describe("capacity invariant -- never above max_players", () => {
     expect(seatedCount()).toBe(40);
   });
 });
+
+// ---------------------------------------------------------------------------
+// No-show QUARANTINE -- THIS registration's no_show_at, independent of the
+// player's global restriction (real-Postgres counterpart:
+// no-show-quarantine.postgres.integration.test.ts)
+// ---------------------------------------------------------------------------
+
+describe("no-show quarantine (registration.no_show_at) -- never auto-promoted", () => {
+  function quarantine(playerId: string) {
+    registrationOf(playerId)!.noShowAt = new Date("2026-01-01T19:00:00Z");
+  }
+
+  it("1. an ordinary waitlist row (no_show_at NULL) auto-promotes", async () => {
+    seedRegistrations("p", 40, "registered");
+    addRegistration("W", "waitlist");
+    eliminate("p1");
+
+    expect((await reconcileTournamentWaitlistCapacity("t1")).promotedPlayerIds).toEqual(["W"]);
+  });
+
+  it("2+3. a no-show row never auto-promotes -- also when the player is NOT (or no longer) restricted", async () => {
+    seedRegistrations("p", 40, "registered");
+    addRegistration("N", "waitlist");
+    quarantine("N");
+    expect(isRestricted("N")).toBe(false);
+    eliminate("p1");
+    eliminate("p2");
+
+    const result = await reconcileTournamentWaitlistCapacity("t1");
+
+    expect(result.promotedPlayerIds).toEqual([]);
+    expect(statusOf("N")).toBe("waitlist");
+    expect(seatedCount()).toBe(38);
+  });
+
+  it("3. 'Не пришёл' then lifting the global restriction: the row stays quarantined on every later reconcile", async () => {
+    resetFakeCapacityDb({ maxPlayers: 3 });
+    fake.state.startAt = STARTED;
+    seedRegistrations("p", 3, "registered");
+    await markRegistrationNoShowWithinCapacity("t1", "reg-p1");
+    setPlayer("p1", { restrictedAt: null });
+
+    eliminate("p2");
+    const result = await reconcileTournamentWaitlistCapacity("t1");
+
+    expect(result.promotedPlayerIds).toEqual([]);
+    expect(statusOf("p1")).toBe("waitlist");
+    expect(registrationOf("p1")!.noShowAt).toBeInstanceOf(Date);
+  });
+
+  it("4. an eligible player BEHIND a no-show row still promotes (FIFO among eligible; the no-show keeps its place)", async () => {
+    seedRegistrations("p", 40, "registered");
+    addRegistration("N", "waitlist");
+    addRegistration("B", "waitlist");
+    addRegistration("C", "waitlist");
+    quarantine("N");
+    const nCreatedAt = registrationOf("N")!.createdAt.getTime();
+    eliminate("p1");
+
+    expect((await reconcileTournamentWaitlistCapacity("t1")).promotedPlayerIds).toEqual(["B"]);
+    expect(statusOf("C")).toBe("waitlist");
+    expect(registrationOf("N")!.createdAt.getTime()).toBe(nCreatedAt);
+  });
+
+  it("a newcomer is not queued behind a no-show row (it is not an eligible waiter)", async () => {
+    resetFakeCapacityDb({ maxPlayers: 2 });
+    addRegistration("p1", "registered");
+    addRegistration("N", "waitlist");
+    quarantine("N");
+
+    expect((await admitPlayerToTournament("t1", "new")).status).toBe("registered");
+  });
+
+  it("5+6. 'Допустить в игру' admits a quarantined no-show when a seat is free: registered, THIS no_show_at cleared, arrived, restriction cleared", async () => {
+    resetFakeCapacityDb({ maxPlayers: 3 });
+    fake.state.startAt = STARTED;
+    seedRegistrations("p", 3, "registered");
+    await markRegistrationNoShowWithinCapacity("t1", "reg-p3");
+    expect(isRestricted("p3")).toBe(true);
+
+    await admitWaitlistedRegistrationWithinCapacity("t1", "reg-p3");
+
+    expect(statusOf("p3")).toBe("registered");
+    expect(registrationOf("p3")!.noShowAt).toBeNull();
+    expect(fake.state.attendance.get("p3")?.arrived).toBe(true);
+    expect(isRestricted("p3")).toBe(false);
+    expect(seatedCount()).toBe(3);
+  });
+
+  it("5. admission of a no-show still respects capacity and Late Registration", async () => {
+    resetFakeCapacityDb({ maxPlayers: 2 });
+    fake.state.startAt = STARTED;
+    seedRegistrations("p", 2, "registered");
+    addRegistration("N", "waitlist");
+    quarantine("N");
+
+    await expect(admitWaitlistedRegistrationWithinCapacity("t1", "reg-N")).rejects.toThrow(ADMISSION_NO_SEAT_MESSAGE);
+    expect(registrationOf("N")!.noShowAt).toBeInstanceOf(Date);
+
+    eliminate("p1");
+    fake.state.lateRegistrationClosed = true;
+    await expect(admitWaitlistedRegistrationWithinCapacity("t1", "reg-N")).rejects.toThrow(TournamentRosterActionError);
+    expect(statusOf("N")).toBe("waitlist");
+  });
+
+  it("a cancelled no-show row is reactivated back INTO quarantine (cancel + re-register is no bypass)", async () => {
+    seedRegistrations("p", 5, "registered");
+    addRegistration("N", "cancelled");
+    quarantine("N");
+
+    const again = await admitPlayerToTournament("t1", "N");
+
+    expect(again.status).toBe("waitlist");
+    expect(registrationOf("N")!.noShowAt).toBeInstanceOf(Date);
+    expect((await reconcileTournamentWaitlistCapacity("t1")).promotedPlayerIds).toEqual([]);
+  });
+
+  it("7. capacity never exceeds max_players with a mix of no-show rows and eligible waiters", async () => {
+    resetFakeCapacityDb({ maxPlayers: 5 });
+    fake.state.startAt = STARTED;
+    seedRegistrations("p", 5, "registered");
+    for (const id of ["N1", "W1", "N2", "W2", "W3"]) addRegistration(id, "waitlist");
+    quarantine("N1");
+    quarantine("N2");
+    eliminate("p1");
+    eliminate("p2");
+    eliminate("p3");
+
+    const result = await reconcileTournamentWaitlistCapacity("t1");
+
+    expect(result.promotedPlayerIds).toEqual(["W1", "W2", "W3"]);
+    expect(seatedCount()).toBe(5);
+    expect(statusOf("N1")).toBe("waitlist");
+    expect(statusOf("N2")).toBe("waitlist");
+  });
+});

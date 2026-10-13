@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getFreeSheetColumnLayout, parseFreeSheetValues } from "@/lib/tournament-sheet-parsing";
+import {
+  FREE_SHEET_FIRST_DATA_ROW_NUMBER,
+  getFreeSheetColumnLayout,
+  parseFreeSheetValues,
+} from "@/lib/tournament-sheet-parsing";
 
 function metaRows(): string[][] {
   return [
@@ -126,6 +130,25 @@ describe("parseFreeSheetValues", () => {
 
     expect(result.rows.get("p1")).toMatchObject({ arrived: true, rebuys: 5, eliminated: true });
     expect(result.rows.size).toBe(1);
+  });
+
+  it("rowNumbersByPlayerId keeps EVERY data row number per exact player_id (duplicates not collapsed, empty ids skipped)", () => {
+    const layout = getFreeSheetColumnLayout("classic");
+    const blank = layout.headers.map(() => "");
+    const withId = (id: string) => [id, ...blank.slice(1)];
+    const result = parseFreeSheetValues(
+      [[], [], [], [], [], [], layout.headers, withId("a"), withId("b"), withId(""), withId("a"), withId(" b ")],
+      "classic"
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.rowNumbersByPlayerId).toEqual(
+      new Map([
+        ["a", [8, 11]],
+        ["b", [9, 12]],
+      ])
+    );
+    expect(FREE_SHEET_FIRST_DATA_ROW_NUMBER).toBe(8);
   });
 
   it("skips rows with an empty player_id", () => {

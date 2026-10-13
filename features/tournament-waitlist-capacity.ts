@@ -80,6 +80,22 @@ import type { Registration, RegistrationStatus } from "@/types/domain";
 // a deliberate, documented exception to FIFO for a physically present
 // player. No automatic no-show inference exists anywhere.
 //
+// NO-SHOW QUARANTINE (per registration): a waitlist row whose OWN
+// registrations.no_show_at IS NOT NULL is a quarantined "Не пришли" row and
+// is NEVER automatically promoted -- independently of the player's global
+// restriction. Staff may later lift the global restriction ("Разрешить
+// обычную запись", future-registration policy only), and that must not make
+// this tournament's old no-show row suddenly auto-promote. Canonical
+// automatic eligibility is therefore:
+//
+//   status = 'waitlist' AND no_show_at IS NULL AND player not restricted
+//
+// The seat formula (computeSeatLoad) is untouched -- a quarantined row was
+// never seat-consuming. It is skipped exactly like a restricted row (FIFO
+// among eligible candidates, never blocks anyone behind it) and only ever
+// leaves quarantine through staff "Допустить в игру", which clears THIS
+// registration's no_show_at.
+//
 // PROMOTION NOTIFICATION
 // ----------------------
 // Every real waitlist -> registered transition made here (auto-promotion
@@ -135,6 +151,9 @@ type TournamentRegistrationState = {
   // NULL/undefined until the first waitlist -> registered transition of
   // this registration claims its one promotion notification.
   waitlistPromotionNotificationClaimedAt?: Date | null;
+  // THIS registration's "Не пришёл" mark. Non-null on a waitlist row =
+  // quarantined: never auto-promoted (see NO-SHOW QUARANTINE above).
+  noShowAt?: Date | null;
 };
 
 type CapacityState = {
@@ -168,11 +187,18 @@ function oldestWaitlisted(state: CapacityState): TournamentRegistrationState[] {
 }
 
 // The FIFO queue automatic promotion actually draws from: every waitlisted
-// row in created_at order, MINUS restricted players. Skipping (not
-// removing) a restricted row is what lets eligible players behind it
-// promote around it while its own position stays untouched.
+// row in created_at order, MINUS quarantined no-show rows (this
+// registration's no_show_at IS NOT NULL) and MINUS restricted players.
+// Skipping (not removing) such a row is what lets eligible players behind
+// it promote around it while its own position stays untouched. The
+// no_show_at check is deliberately independent of the restriction: lifting
+// a player's global restriction never re-enables an old no-show row.
+function isAutoPromotionEligible(state: CapacityState, row: TournamentRegistrationState): boolean {
+  return row.noShowAt == null && !state.restrictedPlayerIds.has(row.playerId);
+}
+
 function eligibleWaitlisted(state: CapacityState): TournamentRegistrationState[] {
-  return oldestWaitlisted(state).filter((row) => !state.restrictedPlayerIds.has(row.playerId));
+  return oldestWaitlisted(state).filter((row) => isAutoPromotionEligible(state, row));
 }
 
 // Restriction state for a set of players, read inside the caller's
@@ -213,6 +239,7 @@ async function readCapacityState(
       status: registrations.status,
       createdAt: registrations.createdAt,
       waitlistPromotionNotificationClaimedAt: registrations.waitlistPromotionNotificationClaimedAt,
+      noShowAt: registrations.noShowAt,
     })
     .from(registrations)
     .where(eq(registrations.tournamentId, tournamentId));
@@ -449,8 +476,19 @@ export async function admitPlayerToTournament(
       return { registration: withPolicy(toRegistration(tournamentId, existing)), claimed };
     }
 
+    // A cancelled row that still carries THIS tournament's no_show_at (the
+    // player cancelled -- or staff "Удалить"-ed -- their quarantined
+    // no-show row) is reactivated back INTO quarantine: always `waitlist`,
+    // no_show_at kept (it is history), never auto-promoted. Cancelling and
+    // re-registering must not be a way around the no-show quarantine, even
+    // after the global restriction was lifted. Staff "Допустить в игру"
+    // remains the only way in for this tournament.
+    const reactivatingNoShow = existing != null && existing.noShowAt != null;
     const nextStatus: RegistrationStatus =
-      !entrantRestricted && freeSlots(state) > 0 && eligibleWaitlisted(state).length === 0
+      !entrantRestricted &&
+      !reactivatingNoShow &&
+      freeSlots(state) > 0 &&
+      eligibleWaitlisted(state).length === 0
         ? "registered"
         : "waitlist";
 
@@ -642,7 +680,9 @@ export type NoShowResult = {
 //   4. players.online_registration_restricted_at = now;
 //   5. the canonical promotion runs on the post-no-show state -- the freed
 //      seat can go to the next ELIGIBLE waitlisted player; the no-show
-//      player is restricted, so they can never auto-promote straight back.
+//      row is quarantined by its own no_show_at, so it can never
+//      auto-promote straight back -- not even if the player's global
+//      restriction is lifted later.
 export async function markRegistrationNoShowWithinCapacity(
   tournamentId: string,
   registrationId: string
@@ -694,6 +734,7 @@ export async function markRegistrationNoShowWithinCapacity(
       .where(eq(players.id, registration.playerId));
 
     registration.status = "waitlist";
+    registration.noShowAt = now;
     state.restrictedPlayerIds.add(registration.playerId);
 
     const promotion = await promoteWithinLock(tx, state);
@@ -778,6 +819,7 @@ export async function admitWaitlistedRegistrationWithinCapacity(
       .set({ status: "registered", noShowAt: null })
       .where(and(eq(registrations.id, registration.id), eq(registrations.status, "waitlist")));
     registration.status = "registered";
+    registration.noShowAt = null;
 
     const claimed = await claimPromotionNotificationsWithinLock(tx, [registration]);
 
