@@ -384,44 +384,50 @@ describe("plain-Russian weighted practice feedback", () => {
     });
   };
 
-  it("95/5, pick the 5% action: 'Допустимое решение', the primary 95% named, randomizer only as a note (spec example)", () => {
+  it("95/5, pick the 5% action: 'Допустимое решение', the primary 95% named; randomizer only as a secondary note", () => {
     const feedback = fb({ FOLD: 0.95, CALL: 0.05, RAISE: 0 }, "CALL", "CALL");
     expect(feedback).toMatchObject({
       tone: "valid",
       title: "Допустимое решение",
-      summary: "Колл встречается в стратегии в 5% случаев. Основное решение здесь — фолд (95%).",
-      randomizerNote: "По рандомайзеру в этой раздаче выпал колл.",
+      hand: "AJs",
+      frequencyLine: "Фолд — 95% · Колл — 5%",
+      summary: "Основное решение — фолд. Колл здесь тоже входит в стратегию.",
+      mixed: true,
+      randomizerNote: "Рандомайзер 85 — в этой раздаче выпал колл.",
     });
     expect(`${feedback.title} ${feedback.summary} ${feedback.randomizerNote}`).not.toMatch(forbidden);
-    expect(feedback.detail).toContain("85");
-    expect(feedback.detail).toContain("на очки не влияет");
+    // No long generic paragraph anymore: the copy is a compact verdict.
+    expect(feedback).not.toHaveProperty("detail");
+    expect(feedback.summary).not.toMatch(/рандомайзер|смешанн/i);
   });
 
   it("95/5, pick the 95% action: 'Верно' even when the randomizer rolled the 5% action", () => {
     expect(fb({ FOLD: 0.95, CALL: 0.05, RAISE: 0 }, "FOLD", "CALL")).toMatchObject({
       tone: "correct",
       title: "Верно",
-      summary: "Фолд — основное решение здесь: 95%.",
-      randomizerNote: "По рандомайзеру в этой раздаче выпал колл.",
+      summary: "Основное решение — фолд.",
+      randomizerNote: "Рандомайзер 85 — в этой раздаче выпал колл.",
     });
   });
 
-  it("ties: 'одно из основных решений'; an alternative names all tied primaries", () => {
-    expect(fb({ RAISE: 0.5, CALL: 0.5, FOLD: 0 }, "CALL").summary).toBe("Колл — одно из основных решений здесь: 50%.");
+  it("ties: all tied primaries are named", () => {
+    expect(fb({ RAISE: 0.5, CALL: 0.5, FOLD: 0 }, "CALL").summary).toBe("Основные решения — 3-бет и колл.");
     expect(fb({ RAISE: 0.4, CALL: 0.4, FOLD: 0.2 }, "FOLD").summary)
-      .toBe("Фолд встречается в стратегии в 20% случаев. Основные решения здесь — 3-бет и колл (по 40%).");
+      .toBe("Основные решения — 3-бет и колл. Фолд здесь тоже входит в стратегию.");
   });
 
-  it("0% choice: 'Не входит в стратегию', no randomizer note", () => {
+  it("0% choice: 'Не входит в стратегию', the action is plainly outside the strategy", () => {
     const wrong = fb({ RAISE: 0.77, CALL: 0.23, FOLD: 0 }, "FOLD", "RAISE");
-    expect(wrong).toMatchObject({ tone: "incorrect", title: "Не входит в стратегию", randomizerNote: null });
-    expect(wrong.summary).toBe("3-бет — 77%, колл — 23%. Фолд с этой рукой здесь не играют.");
+    expect(wrong).toMatchObject({ tone: "incorrect", title: "Не входит в стратегию", frequencyLine: "3-бет — 77% · Колл — 23%" });
+    expect(wrong.summary).toBe("Основное решение — 3-бет. Выбранное действие здесь не используется.");
     expect(formatPracticeFrequencyList({ RAISE: 0.004, CALL: 0.996, FOLD: 0 }, actions)).toBe("Колл — >99%, 3-бет — <1%");
   });
 
-  it("pure hands: one short line, no randomizer", () => {
-    expect(fb({ RAISE: 1, CALL: 0, FOLD: 0 }, "RAISE")).toMatchObject({
-      tone: "correct", title: "Верно", summary: "С AJs здесь всегда делаем 3-бет.", randomizerNote: null,
+  it("pure hands: one short line, no randomizer / mixed-strategy framing", () => {
+    const pure = fb({ RAISE: 1, CALL: 0, FOLD: 0 }, "RAISE");
+    expect(pure).toMatchObject({
+      tone: "correct", title: "Верно", frequencyLine: "3-бет — 100%", summary: "Основное решение — 3-бет.", mixed: false, randomizerNote: null,
     });
+    expect(JSON.stringify(pure)).not.toMatch(/рандомайзер|смешанн/i);
   });
 });

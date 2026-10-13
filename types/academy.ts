@@ -644,6 +644,14 @@ export type AcademyPreflopTrainerReveal = AcademyPreflopTrainerPublicQuestion & 
   readonly primaryActions: readonly AcademySolverAction[];
   /** Server-computed: true iff the answer earns points (PRIMARY or SUPPORTED_ALTERNATIVE). */
   readonly countsAsCorrect: boolean;
+  /**
+   * The exact 169-hand strategy of the ONE server-resolved node this question
+   * was scored against (the very `node.hands` object — never recomputed), so
+   * the trainer can show the whole range after the answer. Reveal-only: the
+   * public question NEVER carries it (answer-leak rule), and it is always the
+   * node the server derived, never one a client named for Quick Mix.
+   */
+  readonly rangeHands: AcademyStrategyNodeHands;
 };
 
 /**

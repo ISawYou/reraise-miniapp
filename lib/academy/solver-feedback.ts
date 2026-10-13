@@ -172,16 +172,28 @@ export function buildSolverAnswerFeedback({
  */
 export type AcademyPracticeFeedbackTone = "correct" | "valid" | "incorrect";
 
+/**
+ * Compact verdict about THE HAND (not about the trainer's internals). The
+ * whole-range grid shown under it is the main explanation; nothing here is a
+ * long paragraph.
+ */
 export type AcademyPracticeFeedback = {
   readonly tone: AcademyPracticeFeedbackTone;
   /** "Верно" / "Допустимое решение" / "Не входит в стратегию". */
   readonly title: string;
-  /** PRIMARY feedback, at most ~2 short lines: frequencies + one plain verdict sentence. */
+  readonly hand: StartingHandClass;
+  /** "Фолд — 83% · Рейз — 17%": actions the strategy plays, most frequent first. */
+  readonly frequencyLine: string;
+  /** One or two short sentences, e.g. "Основное решение — фолд. Рейз здесь тоже входит в стратегию." */
   readonly summary: string;
-  /** SECONDARY, mixed hands only: what the randomizer picked in this deal, in plain Russian. */
+  /** True when the strategy plays this hand with more than one action. */
+  readonly mixed: boolean;
+  /**
+   * SECONDARY, mixed hands only (null for a pure hand): what the randomizer
+   * picked in this deal. Rendered only inside the collapsed "Как считается
+   * оценка?" disclosure — it never affects points.
+   */
   readonly randomizerNote: string | null;
-  /** Longer explanation, rendered behind "Подробнее" (collapsed by default). */
-  readonly detail: string;
 };
 
 export type AcademyPracticeFeedbackInput = {
@@ -214,6 +226,26 @@ export function formatPracticeFrequencyList(
     .join(", "));
 }
 
+/**
+ * One hand's played actions as a compact line, each label capitalized and
+ * zero-frequency actions omitted: "Рейз — 17% · Фолд — 83%".
+ * `order: "strategy"` keeps the node's own action order (range inspector);
+ * `"frequency"` lists the most frequent first (answer verdict).
+ */
+export function formatStrategyHandFrequencyLine(
+  frequencies: AcademyStrategyHandFrequencies,
+  actions: readonly AcademySolverActionCopySource[],
+  order: "strategy" | "frequency" = "strategy",
+): string {
+  const entries = actions
+    .map((action, index) => ({ action, index, frequency: frequencies[action.code] ?? 0 }))
+    .filter((entry) => entry.frequency > 0);
+  if (order === "frequency") entries.sort((a, b) => b.frequency - a.frequency || a.index - b.index);
+  return entries
+    .map((entry) => `${capitalize(solverActionShortLabel(entry.action))} — ${formatSolverFrequencyPercent(entry.frequency)}`)
+    .join(" · ");
+}
+
 /** "фолд", "3-бет и колл" — a short Russian list of action names. */
 function joinActionNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
@@ -221,14 +253,30 @@ function joinActionNames(names: readonly string[]): string {
 }
 
 /**
- * Plain-Russian, three-state weighted feedback for normal practice.
- * Frequencies are the primary information; the randomizer is a secondary note
- * explaining what this particular deal "rolled" — it never affects points.
- * A supported alternative is never called a mistake. Examples (фолд 95% /
- * колл 5%):
- *   pick фолд → "Верно"              "Фолд — основное решение здесь: 95%."
- *   pick колл → "Допустимое решение" "Колл встречается в стратегии в 5% случаев.
- *                                     Основное решение здесь — фолд (95%)."
+ * Scoring rules of normal practice, shown only inside the collapsed "Как
+ * считается оценка?" disclosure (never inline after every answer). Mirrors
+ * `classifyStrategyAnswer` / `strategyAnswerPoints` — copy only.
+ */
+export const ACADEMY_PRACTICE_SCORING_HELP: readonly string[] = Object.freeze([
+  "Основное действие: +1",
+  "Другое действие с частотой больше 0%: +0.5",
+  "Действие с частотой 0%: 0",
+]);
+
+/** Added to the scoring help for mixed hands only. */
+export const ACADEMY_PRACTICE_RANDOMIZER_HELP =
+  "Рандомайзер показывает один вариант смешанной стратегии и на очки не влияет.";
+
+/**
+ * Compact three-state weighted verdict for normal practice (configurable
+ * trainer + Quick Mix). Every action name comes from the node's own action
+ * definitions — nothing is hard-coded to raise / fold. Examples (55: фолд 83%
+ * / рейз 17%):
+ *   pick фолд → "Верно"              "Основное решение — фолд."
+ *   pick рейз → "Допустимое решение" "Основное решение — фолд. Рейз здесь тоже входит в стратегию."
+ * A pure hand ("AA: Рейз — 100%") gets only "Основное решение — рейз." and no
+ * mixed-strategy / randomizer framing at all. The randomizer is a secondary
+ * note for mixed hands and never affects points.
  */
 export function buildPracticeAnswerFeedback({
   hand,
@@ -240,67 +288,34 @@ export function buildPracticeAnswerFeedback({
   primaryActions,
   actions,
 }: AcademyPracticeFeedbackInput): AcademyPracticeFeedback {
-  const selected = findAction(actions, selectedAction);
-  const resolved = findAction(actions, resolvedAction);
-  const pureAction = actions.find((action) => (frequencies[action.code] ?? 0) >= 1);
-  const selectedShort = solverActionShortLabel(selected);
-
-  if (pureAction) {
-    const always = pureAction.ru?.always ?? `всегда играем: ${solverActionInlineLabel(pureAction)}`;
-    const line = `С ${hand} здесь ${always}.`;
-    const detail = "Эта рука не смешанная: стратегия всегда выбирает одно действие, рандомайзер на неё не влияет.";
-    return outcome === "NOT_IN_STRATEGY"
-      ? {
-        tone: "incorrect",
-        title: "Не входит в стратегию",
-        summary: `${line} ${capitalize(selectedShort)} здесь не играют.`,
-        randomizerNote: null,
-        detail,
-      }
-      : { tone: "correct", title: "Верно", summary: line, randomizerNote: null, detail };
-  }
-
-  const percentOf = (code: AcademySolverAction) => formatSolverFrequencyPercent(frequencies[code] ?? 0);
-  const mixedDetail =
-    `Стратегия: ${formatPracticeFrequencyList(frequencies, actions).replace(/^./, (c) => c.toLocaleLowerCase("ru"))}. ` +
-    "Это смешанная рука: стратегия играет её разными действиями с разной частотой. " +
-    "Основное (самое частое) действие даёт 1 очко, другое действие из стратегии — 0.5 очка, действие с частотой 0% — 0. " +
-    `Рандомайзер — число от 0 до 99 (здесь ${randomizerPercent}) — лишь показывает, какое из действий ` +
-    "выпало бы в этой конкретной раздаче, и на очки не влияет.";
-  const randomizerNote = `По рандомайзеру в этой раздаче выпал ${solverActionShortLabel(resolved)}.`;
+  const selectedShort = solverActionShortLabel(findAction(actions, selectedAction));
+  const played = actions.filter((action) => (frequencies[action.code] ?? 0) > 0);
+  const mixed = played.length > 1;
+  const primaryNames = primaryActions.map((code) => solverActionShortLabel(findAction(actions, code)));
+  const main = primaryNames.length > 1
+    ? `Основные решения — ${joinActionNames(primaryNames)}.`
+    : `Основное решение — ${primaryNames[0] ?? ""}.`;
+  const frequencyLine = formatStrategyHandFrequencyLine(frequencies, actions, "frequency");
+  const randomizerNote = mixed
+    ? `Рандомайзер ${randomizerPercent} — в этой раздаче выпал ${solverActionShortLabel(findAction(actions, resolvedAction))}.`
+    : null;
+  const base = { hand, frequencyLine, mixed, randomizerNote } as const;
 
   if (outcome === "NOT_IN_STRATEGY") {
     return {
+      ...base,
       tone: "incorrect",
       title: "Не входит в стратегию",
-      summary: `${formatPracticeFrequencyList(frequencies, actions)}. ${capitalize(selectedShort)} с этой рукой здесь не играют.`,
-      randomizerNote: null,
-      detail: `${mixedDetail} Действие с частотой 0% стратегия здесь не выбирает никогда — поэтому оно не засчитано.`,
+      summary: `${main} Выбранное действие здесь не используется.`,
     };
   }
   if (outcome === "SUPPORTED_ALTERNATIVE") {
-    const primaries = primaryActions.map((code) => findAction(actions, code));
-    const primaryNames = joinActionNames(primaries.map(solverActionShortLabel));
-    const primaryPercent = percentOf(primaryActions[0] ?? selectedAction);
-    const main = primaries.length > 1
-      ? `Основные решения здесь — ${primaryNames} (по ${primaryPercent}).`
-      : `Основное решение здесь — ${primaryNames} (${primaryPercent}).`;
     return {
+      ...base,
       tone: "valid",
       title: "Допустимое решение",
-      summary: `${capitalize(selectedShort)} встречается в стратегии в ${percentOf(selectedAction)} случаев. ${main}`,
-      randomizerNote,
-      detail: `${mixedDetail} Твой выбор входит в стратегию, но не основной — поэтому +0.5.`,
+      summary: `${main} ${capitalize(selectedShort)} здесь тоже входит в стратегию.`,
     };
   }
-  const tied = primaryActions.length > 1;
-  return {
-    tone: "correct",
-    title: "Верно",
-    summary: tied
-      ? `${capitalize(selectedShort)} — одно из основных решений здесь: ${percentOf(selectedAction)}.`
-      : `${capitalize(selectedShort)} — основное решение здесь: ${percentOf(selectedAction)}.`,
-    randomizerNote,
-    detail: mixedDetail,
-  };
+  return { ...base, tone: "correct", title: "Верно", summary: main };
 }

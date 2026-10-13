@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   CANONICAL_STARTING_HANDS,
   calculateWeightedRangePercentage,
@@ -90,43 +91,104 @@ type SolverActionMixGridProps = {
   label: string;
   /** The node's actions, in resolver order. */
   actions: readonly MixAction[];
+  /**
+   * The hand actually dealt (post-answer trainer view): marked with the
+   * Academy gold inset ring ON TOP of its unchanged action-mix fill.
+   */
+  dealtHand?: StartingHandClass;
+  /** The hand whose frequencies an inspector currently shows (neutral dashed ring when ≠ dealt). */
+  inspectedHand?: StartingHandClass;
+  /**
+   * Makes every cell a real `<button>` (tap / keyboard) that reports its hand.
+   * Without it the grid is the static read-only `role="grid"` view.
+   */
+  onInspect?: (hand: StartingHandClass) => void;
+  /** Rendered between the cells and the action legend (e.g. the trainer's hand inspector). */
+  belowGrid?: ReactNode;
 };
+
+/** Gold inset ring of the dealt hand (+ a thin dark inner line so it reads on any fill). No layout shift. */
+export const SOLVER_GRID_DEALT_RING_CLASS =
+  "shadow-[inset_0_0_0_2px_#e4c97a,inset_0_0_0_3.5px_rgba(0,0,0,0.6)]";
+/** Neutral marker of an inspected hand that is not the dealt one: dashed white, so it never reads as gold. */
+export const SOLVER_GRID_INSPECTED_RING_CLASS =
+  "outline-2 outline-dashed outline-white/90 -outline-offset-[3px]";
+
+const CELL_CLASS =
+  "relative flex aspect-square min-w-0 items-center justify-center overflow-hidden font-semibold leading-none tracking-[-0.04em] text-[#f7fbf8]";
 
 /**
  * 13x13 range grid for nodes with any number of actions. Each cell is split
  * left → right into the node's actions proportionally to their real
  * frequencies. Frequencies only — there is no EV in these datasets.
+ * Optional trainer extras (`dealtHand` / `inspectedHand` / `onInspect`) only
+ * add rings and interactivity; cell fills, colours, order and legend are the
+ * same single model everywhere.
  */
-export function SolverActionMixGrid({ hands, label, actions }: SolverActionMixGridProps) {
+export function SolverActionMixGrid({ hands, label, actions, dealtHand, inspectedHand, onInspect, belowGrid }: SolverActionMixGridProps) {
   const shares = solverActionRangeShares(hands, actions);
+  const interactive = typeof onInspect === "function";
   return (
     <div>
       <div
-        role="grid"
+        role={interactive ? "group" : "grid"}
         aria-label={label}
         className="grid w-full grid-cols-[repeat(13,minmax(0,1fr))] gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10"
       >
         {CANONICAL_STARTING_HANDS.map((hand) => {
           const frequencies = hands[hand] ?? {};
           const { segments, dominant, ariaLabel } = describeSolverActionMixCell(hand, frequencies, actions);
+          const isDealt = dealtHand === hand;
+          const isInspected = inspectedHand === hand;
+          const rings = [
+            isDealt ? SOLVER_GRID_DEALT_RING_CLASS : "",
+            isInspected && !isDealt ? SOLVER_GRID_INSPECTED_RING_CLASS : "",
+          ].filter(Boolean).join(" ");
+          const shared = {
+            "data-hand": hand,
+            "data-dominant-action": dominant,
+            "data-mix": segments.map((segment) => `${segment.code}:${segment.frequency}`).join(","),
+            ...(isDealt ? { "data-dealt": "true" } : {}),
+            ...(isInspected ? { "data-inspected": "true" } : {}),
+          };
+          const style = { backgroundImage: solverActionMixGradient(segments) };
+          const text = (
+            <span aria-hidden="true" className="relative text-[clamp(7px,2.45vw,11px)] drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]">
+              {hand}
+            </span>
+          );
+          if (!interactive) {
+            return (
+              <div
+                key={hand}
+                role="gridcell"
+                aria-label={ariaLabel}
+                {...shared}
+                className={rings ? `${CELL_CLASS} ${rings}` : CELL_CLASS}
+                style={style}
+              >
+                {text}
+              </div>
+            );
+          }
           return (
-            <div
+            <button
               key={hand}
-              role="gridcell"
-              aria-label={ariaLabel}
-              data-hand={hand}
-              data-dominant-action={dominant}
-              data-mix={segments.map((segment) => `${segment.code}:${segment.frequency}`).join(",")}
-              className="relative flex aspect-square min-w-0 items-center justify-center overflow-hidden font-semibold leading-none tracking-[-0.04em] text-[#f7fbf8]"
-              style={{ backgroundImage: solverActionMixGradient(segments) }}
+              type="button"
+              aria-label={isDealt ? `${ariaLabel} — твоя рука` : ariaLabel}
+              aria-pressed={isInspected}
+              onClick={() => onInspect(hand)}
+              {...shared}
+              className={`${CELL_CLASS} cursor-pointer p-0 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-[#7ea3c4] ${rings}`}
+              style={style}
             >
-              <span aria-hidden="true" className="relative text-[clamp(7px,2.45vw,11px)] drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]">
-                {hand}
-              </span>
-            </div>
+              {text}
+            </button>
           );
         })}
       </div>
+
+      {belowGrid}
 
       <ul className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-white/60" aria-label="Легенда">
         {actions.map((action) => {

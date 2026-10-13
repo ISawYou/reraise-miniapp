@@ -8,9 +8,9 @@ import {
   TrainerCompletionScreen,
   type TrainerCompletionLink,
   TrainerDecisionHeader,
-  TrainerFeedbackPanel,
   TrainerHandScene,
   TrainerNextBar,
+  TrainerPracticeVerdict,
   type TrainerReviewEntry,
   TrainerSessionTopBar,
   TrainerSpotContext,
@@ -25,6 +25,7 @@ import {
   preflopTrainerSpotRoute,
 } from "@/config/academy/preflop-trainer";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
+import { StrategyRangeReveal } from "@/components/academy/strategy-range-reveal";
 import { withHeroAllIn } from "@/lib/academy/preflop-sizing";
 import {
   buildPracticeAnswerFeedback,
@@ -264,12 +265,15 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
     if (hydrated && typeof window.scrollTo === "function") window.scrollTo({ top: 0 });
   }, [hydrated, attemptId, questionIndex]);
 
-  // After answering, bring the compact feedback into view above the sticky
-  // next-step bar (only scrolls when it is not visible already).
+  // After answering, bring the verdict to the upper part of the screen (the
+  // bottom of the action buttons stays visible above it via its scroll
+  // margin) so the player lands on "verdict + start of the range". It never
+  // scrolls on to the end of the (tall) range — inspecting further is the
+  // player's own choice.
   useEffect(() => {
     const panel = feedbackRef.current;
     if (reveal && panel && typeof panel.scrollIntoView === "function") {
-      panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      panel.scrollIntoView({ block: "start", behavior: "smooth" });
     }
   }, [reveal]);
 
@@ -404,17 +408,29 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
           <p className="mt-10 text-center text-sm text-white/50">{error ? "" : "Готовим раздачу..."}</p>
         )}
 
-        {feedback ? (
-          <TrainerFeedbackPanel
-            key={questionIndex}
-            ref={feedbackRef}
-            tone={feedback.tone}
-            title={feedback.title}
-            summary={feedback.summary}
-            note={feedback.randomizerNote}
-            detail={feedback.detail}
-            points={reveal?.points}
-          />
+        {feedback && reveal ? (
+          <>
+            <TrainerPracticeVerdict
+              key={`verdict-${questionIndex}`}
+              ref={feedbackRef}
+              tone={feedback.tone}
+              title={feedback.title}
+              hand={feedback.hand}
+              frequencyLine={feedback.frequencyLine}
+              summary={feedback.summary}
+              points={reveal.points}
+              randomizerNote={feedback.randomizerNote}
+            />
+            {/* The range always comes from the reveal (the node the server scored), never from the question. */}
+            <StrategyRangeReveal
+              key={`range-${attemptId}-${questionIndex}`}
+              hands={reveal.rangeHands}
+              actions={reveal.actions}
+              dealtHand={reveal.hand}
+              spotTitle={reveal.spot.title}
+              stackBb={reveal.spot.stackBb}
+            />
+          </>
         ) : null}
 
         {error ? (

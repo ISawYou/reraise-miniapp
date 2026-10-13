@@ -16,7 +16,12 @@ import type {
   AcademyTrainingResult,
   RenderedPlayingCard,
 } from "@/types/academy";
-import { formatSolverFrequencyPercent, solverActionButtonLabel } from "@/lib/academy/solver-feedback";
+import {
+  ACADEMY_PRACTICE_RANDOMIZER_HELP,
+  ACADEMY_PRACTICE_SCORING_HELP,
+  formatSolverFrequencyPercent,
+  solverActionButtonLabel,
+} from "@/lib/academy/solver-feedback";
 import { isWeightedTrainingResult } from "@/lib/academy/strategy-answer";
 
 /**
@@ -356,6 +361,87 @@ export const TrainerFeedbackPanel = forwardRef<HTMLElement, {
       </p>
       {detail && open ? (
         <p id={detailId} className="mt-2 text-[13px] leading-5 text-white/55" data-testid="feedback-detail">{detail}</p>
+      ) : null}
+    </section>
+  );
+});
+
+/**
+ * Space kept above the verdict when it is scrolled to after answering: the
+ * verdict (which repeats the hand's frequencies) sits near the top so the
+ * range — and on a typical phone its inspector — fit above the sticky
+ * next-step bar. Never a jump to the end of the page.
+ */
+export const TRAINER_VERDICT_SCROLL_MARGIN_TOP = "12px";
+
+/** Bottom scroll margin that keeps an element clear of the sticky next-step bar (+ bottom nav). */
+export const TRAINER_NEXT_BAR_SCROLL_MARGIN_BOTTOM = `calc(${TRAINER_BOTTOM_NAV_CLEARANCE} + 76px)`;
+
+/**
+ * Normal-practice verdict (configurable preflop trainer + Quick Mix): title +
+ * server points, the hand with its frequencies, one short sentence about the
+ * hand. The scoring rules (and, for a mixed hand only, what the randomizer
+ * picked) live in ONE collapsed "Как считается оценка?" disclosure — never
+ * inline after every answer. The range grid below is the main explanation.
+ */
+export const TrainerPracticeVerdict = forwardRef<HTMLElement, {
+  tone: Exclude<TrainerFeedbackTone, "mixed">;
+  title: string;
+  hand: string;
+  frequencyLine: string;
+  summary: string;
+  /** Server-computed points of the answer. */
+  points: AcademyStrategyAnswerPoints;
+  /** Mixed hands only; null for a pure hand (no randomizer mention at all). */
+  randomizerNote: string | null;
+}>(function TrainerPracticeVerdict({ tone, title, hand, frequencyLine, summary, points, randomizerNote }, ref) {
+  const [open, setOpen] = useState(false);
+  const helpId = useId();
+  const mark = TONE_MARK[tone];
+  return (
+    <section
+      ref={ref}
+      className={`mt-3 rounded-[18px] border px-3.5 py-3 ${TONE_BOX[tone]}`}
+      data-feedback-tone={tone}
+      data-feedback-layout="verdict"
+      style={{ scrollMarginTop: TRAINER_VERDICT_SCROLL_MARGIN_TOP }}
+    >
+      <p className={`flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-base font-semibold leading-6 ${TONE_TITLE[tone]}`}>
+        {mark ? <span aria-hidden="true" data-testid="feedback-mark">{mark}</span> : null}
+        <span data-testid="feedback-title">{title}</span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4 tabular-nums ${POINTS_BADGE[tone]}`}
+          data-testid="feedback-points"
+        >
+          {formatAnswerPoints(points)}
+        </span>
+      </p>
+      <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[13px] leading-5">
+        <span className="text-[15px] font-semibold text-white" data-testid="feedback-hand">{hand}</span>
+        <span className="font-medium tabular-nums text-white/85" data-testid="feedback-frequencies">{frequencyLine}</span>
+      </p>
+      <p className="mt-0.5 text-[13px] leading-[18px] text-white/75" data-testid="feedback-summary">{summary}</p>
+      <button
+        type="button"
+        data-testid="scoring-help-toggle"
+        aria-expanded={open}
+        aria-controls={helpId}
+        onClick={() => setOpen((value) => !value)}
+        className="mt-1.5 inline-flex min-h-7 items-center gap-1 text-xs font-medium text-white/50 underline decoration-white/20 underline-offset-2"
+      >
+        Как считается оценка?
+      </button>
+      {open ? (
+        <div id={helpId} className="mt-1 text-xs leading-[18px] text-white/55" data-testid="scoring-help">
+          <ul>
+            {ACADEMY_PRACTICE_SCORING_HELP.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+          {randomizerNote ? (
+            <p className="mt-1" data-testid="scoring-help-randomizer">
+              {ACADEMY_PRACTICE_RANDOMIZER_HELP} {randomizerNote}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

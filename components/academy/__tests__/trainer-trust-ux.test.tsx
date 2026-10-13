@@ -119,7 +119,7 @@ describe("(7) 'Разобрать ошибки' holds only genuine mistakes", ()
 });
 
 describe("(11)(12) compact feedback + always-reachable next step", () => {
-  it("after answering, the CTA is rendered, enabled and sticky above the bottom nav; the long explanation sits behind 'Подробнее'", async () => {
+  it("after answering, the CTA is rendered, enabled and sticky above the bottom nav; the scoring rules sit behind 'Как считается оценка?'", async () => {
     const all = session();
     stubMixApi(all);
     const scrollTo = vi.fn();
@@ -148,18 +148,18 @@ describe("(11)(12) compact feedback + always-reachable next step", () => {
     expect(feedback.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(scrollIntoView).toHaveBeenCalled();
 
-    // Compact primary block: short summary; the long detail is collapsed.
+    // Compact verdict: short summary; the scoring rules sit behind ONE collapsed disclosure.
     expect($('[data-testid="feedback-summary"]')!.textContent!.length).toBeLessThan(140);
-    const more = $('[data-testid="feedback-more"]')!;
-    expect(more.textContent).toBe("Подробнее");
+    const more = $('[data-testid="scoring-help-toggle"]')!;
+    expect(more.textContent).toBe("Как считается оценка?");
     expect(more.getAttribute("aria-expanded")).toBe("false");
-    expect($('[data-testid="feedback-detail"]')).toBeNull();
+    expect($('[data-testid="scoring-help"]')).toBeNull();
     await click(more);
     expect(more.getAttribute("aria-expanded")).toBe("true");
-    const detail = $('[data-testid="feedback-detail"]')!;
-    expect(detail.id).toBe(more.getAttribute("aria-controls"));
-    expect(detail.textContent!.length).toBeGreaterThan(60);
-    // Expanding the detail never removes the CTA.
+    const help = $('[data-testid="scoring-help"]')!;
+    expect(help.id).toBe(more.getAttribute("aria-controls"));
+    expect(help.textContent).toContain("+0.5");
+    // Expanding the help never removes the CTA.
     expect($('[data-testid="trainer-next"]')).not.toBeNull();
 
     // Frequencies are the primary feedback: every button shows its share after the answer.

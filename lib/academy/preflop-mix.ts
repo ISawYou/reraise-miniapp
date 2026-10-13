@@ -330,6 +330,9 @@ export function buildAcademyPreflopMixSession(
       resolvedAction: resolveAcademyStrategyNodeAction(resolved.node, hand, randomizerPercent),
       actions: getPreflopTrainerPublicActions(resolved),
       spot: toPublicPreflopTrainerSpot(resolved.spot),
+      // The server-derived node of this question — the range shown after the
+      // answer can never be chosen by the client.
+      rangeHands: resolved.node.hands,
     });
   }));
 }

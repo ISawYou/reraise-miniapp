@@ -238,10 +238,11 @@ describe("trainer session UI", () => {
     const feedback = container.querySelector("[data-feedback-tone]")!;
     expect(feedback.getAttribute("data-feedback-tone")).toBe("valid");
     expect(feedback.textContent).toContain("Допустимое решение");
-    expect(feedback.textContent).toContain("встречается в стратегии");
-    expect(feedback.textContent).toContain("Основное решение здесь");
+    expect(feedback.textContent).toContain("тоже входит в стратегию");
+    expect(feedback.textContent).toContain("Основное решение — ");
     expect(container.querySelector('[data-testid="feedback-points"]')!.textContent).toBe("+0.5");
-    expect(container.querySelector('[data-testid="feedback-note"]')!.textContent).toMatch(/^По рандомайзеру в этой раздаче выпал /);
+    // The randomizer is no longer part of the visible verdict (secondary, inside the collapsed scoring help).
+    expect(feedback.textContent).not.toMatch(/рандомайзер/i);
     expect(feedback.textContent).not.toMatch(/неправильн|неверн|ошибк|wrong|солвер|Не входит/i);
     expect(feedback.className).not.toMatch(/b95b5f|5b292c/);
     // The chosen button is the calm "alternative" state (not red); the primary action is labelled.

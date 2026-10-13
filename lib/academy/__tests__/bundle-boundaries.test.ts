@@ -142,6 +142,26 @@ describe("Academy bundle boundaries (static import graph)", () => {
     }
   });
 
+  it("post-answer range UI is client-safe: it reaches no dataset / engine, and gets its range only from the reveal", () => {
+    const entries = [
+      "components/academy/strategy-range-reveal.tsx",
+      "components/academy/SolverActionMixGrid.tsx",
+      "components/academy/preflop-trainer.tsx",
+      "components/academy/trainer-session-ui.tsx",
+    ];
+    const graph = [...reachable(entries)];
+    expect(graph.filter(RAW_STRATEGY_DATA).map(rel)).toEqual([]);
+    expect(graph.filter(isHeavy).map(rel)).toEqual([]);
+    expect(graph.map(rel)).not.toContain("lib/academy/solver.ts");
+    expect(readFileSync(path.join(ROOT, "components/academy/strategy-range-reveal.tsx"), "utf8")).toMatch(/^"use client";/);
+    // The trainer session never fetches a range on its own: the only range it
+    // renders is `reveal.rangeHands` (the server's post-answer response).
+    const trainer = readFileSync(path.join(ROOT, "components/academy/preflop-trainer.tsx"), "utf8");
+    expect(trainer.match(/rangeHands/g)).toEqual(["rangeHands"]);
+    expect(trainer).toContain("hands={reveal.rangeHands}");
+    expect(trainer).not.toMatch(/\/api\/academy\/[^"]*range/);
+  });
+
   it("raw vendored JSON is imported only by the two dataset registries", () => {
     const importers = walkFiles(ROOT).filter((file) =>
       valueImports(file).some((specifier) => specifier.includes("data/academy/reference/")));

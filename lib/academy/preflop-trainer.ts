@@ -67,6 +67,7 @@ import type {
   AcademyStrategyHandBucket,
   AcademyStrategyHandFrequencies,
   AcademyStrategyNode,
+  AcademyStrategyNodeHands,
   RenderedPlayingCard,
   StartingHandClass,
 } from "@/types/academy";
@@ -312,6 +313,13 @@ export type AcademyPreflopTrainerSessionQuestion = {
   readonly resolvedAction: AcademySolverAction;
   readonly actions: readonly AcademySolverPublicAction[];
   readonly spot: AcademyPreflopTrainerPublicSpot;
+  /**
+   * SERVER-ONLY until answered: the resolved node's own `hands` (the same
+   * object `frequencies` is read from). Exposed only by
+   * `toPreflopTrainerReveal`; `toPublicPreflopTrainerQuestion` whitelists
+   * fields and never copies it.
+   */
+  readonly rangeHands: AcademyStrategyNodeHands;
 };
 
 function derivationParts(key: AcademyPreflopTrainerSessionKey): string[] {
@@ -370,6 +378,7 @@ export function buildAcademyPreflopTrainerSession(
       resolvedAction: resolveAcademyStrategyNodeAction(node, hand, randomizerPercent),
       actions,
       spot,
+      rangeHands: node.hands,
     });
   }));
 }
@@ -391,7 +400,9 @@ export function toPublicPreflopTrainerQuestion(
 }
 
 /**
- * Post-answer reveal of one question (fixed node or Quick Mix). The outcome,
+ * Post-answer reveal of one question (fixed node or Quick Mix). Adds the
+ * hand's frequencies AND the node's full 169-hand range (`rangeHands`, only
+ * the one node — no dataset, provenance or other node). The outcome,
  * points and `countsAsCorrect` are computed HERE, server-side, with the same
  * frequency-only `classifyStrategyAnswer` the verifier uses — never by the
  * client, and never from the randomizer (which is returned as explanation).
@@ -415,5 +426,7 @@ export function toPreflopTrainerReveal(
     points: strategyAnswerPoints(outcome),
     primaryActions: primaryStrategyActions(question.frequencies),
     countsAsCorrect: strategyAnswerCountsAsCorrect(outcome),
+    // Post-answer only: the whole range of the SAME node the hand was scored on.
+    rangeHands: question.rangeHands,
   };
 }

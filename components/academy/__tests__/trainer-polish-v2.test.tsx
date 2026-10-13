@@ -301,7 +301,7 @@ describe("(6) action buttons keep their trusted sizes in the session", () => {
 });
 
 describe("(7)(8) compact feedback: CTA reachable with less scrolling; valid mixed never reads as a mistake", () => {
-  it("supported alternative: ✓ + '+0.5' badge, summary and randomizer note in ONE paragraph, slim sticky CTA right after", async () => {
+  it("supported alternative: ✓ + '+0.5' badge, compact verdict, the range, then the slim sticky CTA", async () => {
     const all = mixSession();
     // A played (> 0%), non-primary action that also differs from the randomizer's pick.
     const alternativeOf = (q: Q) => q.actions.map((a) => a.code).find((code) => code !== q.resolvedAction
@@ -318,27 +318,26 @@ describe("(7)(8) compact feedback: CTA reachable with less scrolling; valid mixe
 
     const panel = $("[data-feedback-tone]")!;
     expect(panel.getAttribute("data-feedback-tone")).toBe("valid");
-    expect(panel.getAttribute("data-feedback-layout")).toBe("compact");
+    expect(panel.getAttribute("data-feedback-layout")).toBe("verdict");
     expect($('[data-testid="feedback-mark"]')!.textContent).toBe("✓");
     expect($('[data-testid="feedback-points"]')!.textContent).toBe("+0.5");
     expect(panel.className).not.toMatch(/b95b5f|5b292c/); // never the red "incorrect" look
     expect($(`button[data-action-code="${other}"]`)!.getAttribute("data-action-selected")).toBe("alternative");
-    // Summary + randomizer note flow in ONE paragraph (one block instead of two).
-    const summary = $('[data-testid="feedback-summary"]')!;
-    const note = $('[data-testid="feedback-note"]')!;
-    expect(summary.parentElement).toBe(note.parentElement);
-    expect(summary.parentElement!.tagName).toBe("P");
-    // Two short blocks only: the title row and ONE text paragraph, which also holds "Подробнее"
-    // (so the title never wraps next to it).
-    expect(panel.querySelectorAll(":scope > p")).toHaveLength(2);
-    expect($('[data-testid="feedback-more"]')!.parentElement).toBe(summary.parentElement);
-    // Tighter box than v1 (mt-4 / p-4 / text-lg title).
+    // Compact verdict: title row, hand + frequencies, one short sentence, one collapsed disclosure.
+    expect($('[data-testid="feedback-hand"]')!.textContent).toBe(q.hand);
+    expect($('[data-testid="feedback-summary"]')!.textContent).toMatch(/^Основн(ое|ые) решени(е|я) — .+ тоже входит в стратегию\.$/);
+    expect(panel.querySelectorAll(":scope > p")).toHaveLength(3);
+    expect($('[data-testid="scoring-help-toggle"]')!.getAttribute("aria-expanded")).toBe("false");
+    expect($('[data-testid="scoring-help"]')).toBeNull();
+    // Tight box (mt-3 / py-3).
     expect(panel.className).toContain("py-3");
     expect(panel.className).not.toMatch(/\bp-4\b|\bmt-4\b/);
-    // The CTA: sticky, right after the feedback, a slimmer 48px button.
+    // Verdict → range → sticky CTA (a slimmer 48px button) right after.
+    const range = $('[data-testid="answer-range"]')!;
     const bar = $('[data-testid="trainer-next-bar"]')!;
     const next = $('[data-testid="trainer-next"]')!;
-    expect(panel.nextElementSibling).toBe(bar);
+    expect(panel.nextElementSibling).toBe(range);
+    expect(range.nextElementSibling).toBe(bar);
     expect(bar.className).toContain("sticky");
     expect(bar.className).not.toContain("pt-4");
     expect(next.className).toContain("min-h-12");
