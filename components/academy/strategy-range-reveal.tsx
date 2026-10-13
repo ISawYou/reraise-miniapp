@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ComponentProps } from "react";
 import { SolverActionMixGrid } from "@/components/academy/SolverActionMixGrid";
 import { TRAINER_NEXT_BAR_SCROLL_MARGIN_BOTTOM } from "@/components/academy/trainer-session-ui";
 import { formatStrategyHandFrequencyLine, type AcademySolverActionCopySource } from "@/lib/academy/solver-feedback";
@@ -101,5 +101,51 @@ export function StrategyRangeReveal({
         Золотая рамка — твоя рука
       </p>
     </section>
+  );
+}
+
+/**
+ * Compact "Подробнее" / "Скрыть подробности" disclosure around the post-answer
+ * range. Presentation only: the parent owns `open` (closed after every answer
+ * and reset on "Следующая рука"), and the 169-cell `StrategyRangeReveal` is
+ * not mounted at all while closed, so the normal flow stays fast.
+ */
+export function StrategyRangeDetails({
+  open,
+  onToggle,
+  ...range
+}: { open: boolean; onToggle: () => void } & ComponentProps<typeof StrategyRangeReveal>) {
+  const detailsId = useId();
+  return (
+    <div data-testid="answer-range-details" data-open={open ? "true" : "false"}>
+      <button
+        type="button"
+        data-testid="answer-range-toggle"
+        aria-expanded={open}
+        aria-controls={detailsId}
+        onClick={onToggle}
+        className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-[13px] font-semibold text-white/75 active:bg-white/[0.08]"
+      >
+        {open ? "Скрыть подробности" : "Подробнее"}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 16 16"
+          className={`h-3.5 w-3.5 ${open ? "rotate-180" : ""}`}
+          data-testid="answer-range-chevron"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+      {open ? (
+        <div id={detailsId}>
+          <StrategyRangeReveal {...range} />
+        </div>
+      ) : null}
+    </div>
   );
 }

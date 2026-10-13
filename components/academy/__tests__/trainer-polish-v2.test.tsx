@@ -338,12 +338,16 @@ describe("(7)(8) compact feedback: CTA reachable with less scrolling; valid mixe
     // Tight box (mt-3 / py-3).
     expect(panel.className).toContain("py-3");
     expect(panel.className).not.toMatch(/\bp-4\b|\bmt-4\b/);
-    // Verdict → range → sticky CTA (a slimmer 48px button) right after.
-    const range = $('[data-testid="answer-range"]')!;
+    // Verdict → «Подробнее» (range collapsed) → sticky CTA (a slimmer 48px button) right after.
+    const details = $('[data-testid="answer-range-details"]')!;
     const bar = $('[data-testid="trainer-next-bar"]')!;
     const next = $('[data-testid="trainer-next"]')!;
-    expect(panel.nextElementSibling).toBe(range);
-    expect(range.nextElementSibling).toBe(bar);
+    expect($('[data-testid="answer-range"]')).toBeNull();
+    expect(panel.nextElementSibling).toBe(details);
+    expect(details.nextElementSibling).toBe(bar);
+    await click($('[data-testid="answer-range-toggle"]'));
+    expect(details.contains($('[data-testid="answer-range"]'))).toBe(true);
+    expect(details.nextElementSibling).toBe(bar);
     expect(bar.className).toContain("sticky");
     expect(bar.className).not.toContain("pt-4");
     expect(next.className).toContain("min-h-12");

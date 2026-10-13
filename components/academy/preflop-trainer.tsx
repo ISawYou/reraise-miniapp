@@ -28,7 +28,7 @@ import {
   preflopTrainerSpotRoute,
 } from "@/config/academy/preflop-trainer";
 import { ACADEMY_TRAINING_QUESTION_COUNT } from "@/config/academy/training";
-import { StrategyRangeReveal } from "@/components/academy/strategy-range-reveal";
+import { StrategyRangeDetails } from "@/components/academy/strategy-range-reveal";
 import { withHeroAllIn } from "@/lib/academy/preflop-sizing";
 import {
   buildPracticeAnswerFeedback,
@@ -255,6 +255,9 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
   const [updatedProgress, setUpdatedProgress] = useState<AcademyLessonProgress | null>(null);
   const [newBest, setNewBest] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
+  // Post-answer range details ("Подробнее"): closed after every answer, reset
+  // together with the rest of the per-hand state on "Следующая рука".
+  const [rangeOpen, setRangeOpen] = useState(false);
   const feedbackRef = useRef<HTMLElement>(null);
   const loadQuestion = useCallback(async (currentAttemptId: string, index: number) => {
     setPending(true);
@@ -283,9 +286,8 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
 
   // After answering, bring the verdict to the upper part of the screen (the
   // bottom of the action buttons stays visible above it via its scroll
-  // margin) so the player lands on "verdict + start of the range". It never
-  // scrolls on to the end of the (tall) range — inspecting further is the
-  // player's own choice.
+  // margin) so the player lands on the compact verdict. The range itself is
+  // collapsed behind "Подробнее" — opening it is the player's own choice.
   useEffect(() => {
     const panel = feedbackRef.current;
     if (reveal && panel && typeof panel.scrollIntoView === "function") {
@@ -302,6 +304,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
         source.revealUrl,
         source.revealBody(attemptId, questionIndex, selectedAction),
       );
+      setRangeOpen(false);
       setReveal(revealed);
       setAnswers((current) => [...current, source.toAnswer(questionIndex, selectedAction, question)]);
       const entry = preflopTrainerReviewEntry(revealed);
@@ -339,6 +342,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
       return;
     }
     setReveal(null);
+    setRangeOpen(false);
     setQuestion(null);
     setQuestionIndex((index) => index + 1);
   }
@@ -348,6 +352,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
     setQuestionIndex(0);
     setQuestion(null);
     setReveal(null);
+    setRangeOpen(false);
     setAnswers([]);
     setReview([]);
     setResult(null);
@@ -437,9 +442,12 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
               points={reveal.points}
               randomizerNote={feedback.randomizerNote}
             />
-            {/* The range always comes from the reveal (the node the server scored), never from the question. */}
-            <StrategyRangeReveal
+            {/* The range always comes from the reveal (the node the server scored), never from the question.
+                Collapsed by default: the 169-cell grid mounts only after "Подробнее". */}
+            <StrategyRangeDetails
               key={`range-${attemptId}-${questionIndex}`}
+              open={rangeOpen}
+              onToggle={() => setRangeOpen((value) => !value)}
               hands={reveal.rangeHands}
               actions={reveal.actions}
               dealtHand={reveal.hand}

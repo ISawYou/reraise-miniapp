@@ -1,7 +1,8 @@
 /**
  * Post-answer strategy range in the normal preflop trainer (fixed node +
  * Quick Mix): compact verdict, the REAL 13x13 range of the answered node with
- * the dealt hand gold-ringed, tap-to-inspect, collapsed scoring help.
+ * the dealt hand gold-ringed, tap-to-inspect, collapsed scoring help. The
+ * range sits behind a "Подробнее" disclosure, closed after every answer.
  * Payloads go through a JSON round-trip, like the real network.
  */
 import { act, type ReactElement } from "react";
@@ -108,6 +109,14 @@ function stubApi(questions: readonly SessionQuestion[]) {
   }));
 }
 
+/** Opens the collapsed post-answer range ("Подробнее"). */
+async function openDetails() {
+  const toggle = $('[data-testid="answer-range-toggle"]')!;
+  expect(toggle.textContent).toBe("Подробнее");
+  await click(toggle);
+  expect($('[data-testid="answer-range-toggle"]')!.textContent).toBe("Скрыть подробности");
+}
+
 function cell(hand: string) {
   return $(`[data-testid="answer-range"] [data-hand="${hand}"]`)!;
 }
@@ -147,6 +156,7 @@ describe("QA1 screenshot case: UTG 20 BB, 55 = фолд 83% / рейз 17%, play
     expect(container.textContent).not.toMatch(/рандомайзер|Это смешанная рука|0\.5 очка/i);
     expect($('[data-testid="scoring-help"]')).toBeNull();
 
+    await openDetails();
     // Range header from the existing spot copy — no technical ids.
     const range = $('[data-testid="answer-range"]')!;
     expect(range.querySelector("h2")!.textContent).toBe("Диапазон этого спота");
@@ -202,21 +212,34 @@ describe("QA1 screenshot case: UTG 20 BB, 55 = фолд 83% / рейз 17%, play
     expect($('[data-testid="feedback-title"]')!.textContent).toBe("Верно");
     expect($('[data-testid="feedback-points"]')!.textContent).toBe("+1");
     expect($('[data-testid="feedback-summary"]')!.textContent).toBe("Основное решение — фолд.");
+    await openDetails();
     expect(cell("55").dataset.mix).toBe("RAISE:0.17,FOLD:0.83");
     expect($$('[data-testid="answer-range"] [data-hand]')).toHaveLength(169);
   });
 
-  it("layout order: action buttons → verdict → range (inspector inside) → sticky next; scroll lands on the verdict, not the range end", async () => {
+  it("layout order: action buttons → verdict → «Подробнее» → (range, inspector inside) → sticky next; scroll lands on the verdict", async () => {
     stubApi([questionFor(UTG_20, "55")]);
     await render(<PreflopTrainer selection={UTG_20} />);
     await click($('button[data-action-code="RAISE"]')!);
     const buttons = $("[data-action-count]")!;
     const verdict = $("[data-feedback-tone]")!;
-    const range = $('[data-testid="answer-range"]')!;
+    const details = $('[data-testid="answer-range-details"]')!;
+    const toggle = $('[data-testid="answer-range-toggle"]')!;
     const bar = $('[data-testid="trainer-next-bar"]')!;
     expect(buttons.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(verdict.nextElementSibling).toBe(range);
-    expect(range.nextElementSibling).toBe(bar);
+    // Closed: verdict → «Подробнее» → next bar.
+    expect(verdict.nextElementSibling).toBe(details);
+    expect(details.firstElementChild).toBe(toggle);
+    expect(details.nextElementSibling).toBe(bar);
+    // Opening never scrolls the page.
+    await openDetails();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    // Open: verdict → «Скрыть подробности» → range (inspector inside) → next bar.
+    const range = $('[data-testid="answer-range"]')!;
+    expect(verdict.nextElementSibling).toBe(details);
+    expect(toggle.compareDocumentPosition(range) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(details.contains(range)).toBe(true);
+    expect(details.nextElementSibling).toBe(bar);
     expect(range.contains($('[data-testid="range-inspector"]'))).toBe(true);
     expect(bar.className).toContain("sticky");
     expect(bar.style.bottom).toContain("safe-area-inset-bottom");
@@ -297,6 +320,7 @@ describe("QA4 three-action node (BB vs BTN 20 BB: олл-ин / колл / фо�
     stubApi([questionFor(BB_VS_BTN_20, threeWay)]);
     await render(<PreflopTrainer selection={BB_VS_BTN_20} />);
     await click($('button[data-action-code="FOLD"]')!);
+    await openDetails();
     expect($('[data-testid="answer-range-spot"]')!.textContent).toBe("BB против BTN · 20 BB");
     const dealt = cell(threeWay);
     expect(dealt.dataset.mix).toBe(mixOf(resolved.node.hands, resolved.node.actionCodes, threeWay));
@@ -327,6 +351,9 @@ describe("QA5 Quick Mix: the range always belongs to the question just answered"
     for (const index of [0, 1]) {
       const question = all[index];
       await click($(`button[data-action-code="${question.actions[0].code}"]`)!);
+      // Closed after every answer, including the second hand.
+      expect($('[data-testid="answer-range"]')).toBeNull();
+      await openDetails();
       const codes = question.actions.map((action) => action.code);
       for (const element of $$('[data-testid="answer-range"] [data-hand]')) {
         expect(element.dataset.mix).toBe(mixOf(question.rangeHands, codes, element.dataset.hand as StartingHandClass));
@@ -336,7 +363,95 @@ describe("QA5 Quick Mix: the range always belongs to the question just answered"
       if (index === 0) await click($('[data-testid="trainer-next"]')!);
       // The next question shows no range until it is answered.
       if (index === 0) expect($('[data-testid="answer-range"]')).toBeNull();
+      if (index === 0) expect($('[data-testid="answer-range-toggle"]')).toBeNull();
     }
+  });
+});
+
+describe("«Подробнее» disclosure: the range is collapsed after every answer", () => {
+  it("closed by default: no grid / inspector / legend mounted, only «Подробнее» with a chevron", async () => {
+    stubApi([questionFor(UTG_20, "55")]);
+    await render(<PreflopTrainer selection={UTG_20} />);
+    await click($('button[data-action-code="RAISE"]')!);
+    // Compact verdict + scoring help + next are still there immediately.
+    expect($('[data-testid="feedback-title"]')!.textContent).toBe("Допустимое решение");
+    expect($('[data-testid="feedback-frequencies"]')!.textContent).toBe("Фолд — 83% · Рейз — 17%");
+    expect($('[data-testid="scoring-help-toggle"]')).not.toBeNull();
+    expect($('[data-testid="trainer-next"]')!.textContent).toBe("Следующая рука");
+    // The range is not rendered at all.
+    expect($('[data-testid="answer-range"]')).toBeNull();
+    expect($("[data-hand]")).toBeNull();
+    expect($('[data-testid="range-inspector"]')).toBeNull();
+    expect($('[data-testid="answer-range-dealt-legend"]')).toBeNull();
+    expect(container.textContent).not.toContain("Диапазон этого спота");
+    // «Подробнее» is visible, collapsed, with a chevron; no technical wording.
+    const toggle = $('[data-testid="answer-range-toggle"]')!;
+    expect(toggle.tagName).toBe("BUTTON");
+    expect(toggle.textContent).toBe("Подробнее");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.querySelector('[data-testid="answer-range-chevron"]')).not.toBeNull();
+    expect(container.textContent).not.toMatch(/солвер|solver/i);
+  });
+
+  it("«Подробнее» shows the exact 169-cell range, gold dealt hand and a working inspector; «Скрыть подробности» hides it again", async () => {
+    stubApi([questionFor(UTG_20, "55")]);
+    await render(<PreflopTrainer selection={UTG_20} />);
+    await click($('button[data-action-code="RAISE"]')!);
+    await openDetails();
+    const toggle = $('[data-testid="answer-range-toggle"]')!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-controls")).toBe($('[data-testid="answer-range"]')!.parentElement!.id);
+    expect($('[data-testid="answer-range"] h2')!.textContent).toBe("Диапазон этого спота");
+    const node = requireAcademyPreflopTrainerSpot(UTG_20.datasetId, UTG_20.nodeKey).node;
+    const cells = $$('[data-testid="answer-range"] [data-hand]');
+    expect(cells).toHaveLength(169);
+    expect(cells.map((element) => element.dataset.hand)).toEqual([...CANONICAL_STARTING_HANDS]);
+    for (const element of cells) {
+      expect(element.dataset.mix).toBe(mixOf(node.hands, node.actionCodes, element.dataset.hand as StartingHandClass));
+    }
+    // Dealt hand gold-ringed.
+    expect(cell("55").dataset.dealt).toBe("true");
+    expect(cell("55").className).toContain(SOLVER_GRID_DEALT_RING_CLASS);
+    expect($$("[data-dealt]")).toHaveLength(1);
+    expect($('[data-testid="answer-range-dealt-legend"]')).not.toBeNull();
+    // Inspector works.
+    expect($('[data-testid="range-inspector-hand"]')!.textContent).toBe("55");
+    await click(cell("66"));
+    expect($('[data-testid="range-inspector-hand"]')!.textContent).toBe("66");
+    expect($('[data-testid="range-inspector-frequencies"]')!.textContent).toBe("Рейз — 100%");
+    expect(cell("55").className).toContain(SOLVER_GRID_DEALT_RING_CLASS);
+    // Stays open while inspecting this answer.
+    expect($('[data-testid="answer-range-toggle"]')!.textContent).toBe("Скрыть подробности");
+    // Hide again.
+    await click($('[data-testid="answer-range-toggle"]')!);
+    expect($('[data-testid="answer-range"]')).toBeNull();
+    expect($("[data-hand]")).toBeNull();
+    expect($('[data-testid="answer-range-toggle"]')!.textContent).toBe("Подробнее");
+    expect($('[data-testid="answer-range-toggle"]')!.getAttribute("aria-expanded")).toBe("false");
+    // Verdict untouched by toggling.
+    expect($('[data-testid="feedback-points"]')!.textContent).toBe("+0.5");
+  });
+
+  it("«Следующая рука» resets the disclosure: a range left open never carries into the next hand", async () => {
+    stubApi([questionFor(UTG_20, "55"), questionFor(UTG_20, "AA")]);
+    await render(<PreflopTrainer selection={UTG_20} />);
+    await click($('button[data-action-code="RAISE"]')!);
+    await openDetails();
+    expect($$('[data-testid="answer-range"] [data-hand]')).toHaveLength(169);
+    await click($('[data-testid="trainer-next"]')!);
+    // New hand, before answering: nothing range-related.
+    expect($('[data-testid="answer-range-details"]')).toBeNull();
+    expect($("[data-hand]")).toBeNull();
+    await click($('button[data-action-code="RAISE"]')!);
+    expect($('[data-testid="feedback-hand"]')!.textContent).toBe("AA");
+    // Closed again for the new answer.
+    expect($('[data-testid="answer-range"]')).toBeNull();
+    expect($('[data-testid="answer-range-toggle"]')!.textContent).toBe("Подробнее");
+    expect($('[data-testid="answer-range-toggle"]')!.getAttribute("aria-expanded")).toBe("false");
+    // Re-opening shows the NEW hand as the dealt/inspected one.
+    await openDetails();
+    expect(cell("AA").dataset.dealt).toBe("true");
+    expect($('[data-testid="range-inspector-hand"]')!.textContent).toBe("AA");
   });
 });
 

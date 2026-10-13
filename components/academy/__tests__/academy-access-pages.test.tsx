@@ -299,6 +299,9 @@ describe("range-after-answer (4d8db4d) works for BEGINNER_ONLY on an allowed Ш�
 
     await act(async () => $("button[data-action-code]")!.click());
     await act(async () => { await Promise.resolve(); });
+    // Collapsed behind "Подробнее" until the player opens it.
+    expect($('[data-testid="answer-range"]')).toBeNull();
+    await act(async () => $('[data-testid="answer-range-toggle"]')!.click());
     expect($$('[data-testid="answer-range"] [data-hand]')).toHaveLength(169);
   });
 });
