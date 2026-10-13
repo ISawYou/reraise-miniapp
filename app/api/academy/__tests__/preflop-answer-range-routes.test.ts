@@ -17,6 +17,15 @@ import { CANONICAL_STARTING_HANDS } from "@/lib/academy/preflop";
 const SECRET = "answer-range-route-secret-never-in-output";
 const mockGetPlayerFromSessionServer = vi.fn();
 
+// Academy access (features/academy-access.ts): this suite models a player who
+// already took part in a game of the current season → FULL access.
+vi.mock("@/lib/repositories/season", () => ({
+  seasonRepository: { findActive: async () => ({ id: "season-current", title: "Текущий сезон", is_active: true }) },
+}));
+vi.mock("@/lib/repositories/academy-access", () => ({
+  academyAccessRepository: { hasPlayerParticipatedInSeason: async () => true },
+}));
+
 vi.mock("@/features/auth-server", () => ({
   getPlayerFromSessionServer: mockGetPlayerFromSessionServer,
 }));

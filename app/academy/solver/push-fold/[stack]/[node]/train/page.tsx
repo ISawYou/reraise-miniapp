@@ -1,3 +1,5 @@
+import { AcademyPageAccessGate } from "@/components/academy/academy-page-access-gate";
+import { academyPushFoldTarget } from "@/lib/academy/access-targets";
 import { notFound } from "next/navigation";
 import { PushFoldTrainingPaused } from "@/components/academy/push-fold-reference";
 import { PushFoldTrainer } from "@/components/academy/push-fold-trainer";
@@ -21,7 +23,15 @@ export default async function AcademyPushFoldTrainPage({ params }: PushFoldTrain
 
   const { datasetId, nodeKey, stackBb } = resolved.spot;
   if (!isAcademyPushFoldDatasetScored(datasetId)) {
-    return <PushFoldTrainingPaused rangeHref={pushFoldSpotRoute(stackBb, nodeKey)} />;
+    return (
+      <AcademyPageAccessGate target={academyPushFoldTarget()}>
+        <PushFoldTrainingPaused rangeHref={pushFoldSpotRoute(stackBb, nodeKey)} />
+      </AcademyPageAccessGate>
+    );
   }
-  return <PushFoldTrainer key={`${datasetId}:${nodeKey}`} selection={{ datasetId, nodeKey, stackBb }} />;
+  return (
+    <AcademyPageAccessGate target={academyPushFoldTarget()}>
+      <PushFoldTrainer key={`${datasetId}:${nodeKey}`} selection={{ datasetId, nodeKey, stackBb }} />
+    </AcademyPageAccessGate>
+  );
 }

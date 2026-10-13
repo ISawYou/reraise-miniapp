@@ -14,6 +14,12 @@ const mocks = vi.hoisted(() => ({
   progress: { data: null as AcademyProgressResponse | null, error: null as string | null, retry: () => {} },
 }));
 
+// Server page access gate: this suite renders the pages as a FULL-access player
+// (the gate itself is covered by components/academy/__tests__/academy-access-pages.test.tsx).
+vi.mock("@/components/academy/academy-page-access-gate", () => ({
+  AcademyPageAccessGate: ({ children }: { children: unknown }) => children,
+}));
+
 vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");

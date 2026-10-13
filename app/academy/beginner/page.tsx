@@ -1,17 +1,13 @@
+import { AcademyBeginnerNextSteps } from "@/components/academy/academy-beginner-next-steps";
 import { AcademyModuleLessons } from "@/components/academy/academy-module-lessons";
-import { AcademyNextStepLink, AcademyPageHeader } from "@/components/academy/academy-page-header";
+import { AcademyPageHeader } from "@/components/academy/academy-page-header";
 import { AcademyStepLessonList } from "@/components/academy/academy-spot-progress";
 import {
   ACADEMY_BEGINNER_AFTER_OPEN_LESSONS,
   beginnerAfterOpenLessonRoute,
 } from "@/config/academy/beginner-after-open";
 import { getAcademyCourse, getAcademyModule } from "@/config/academy/catalog";
-import {
-  ACADEMY_HOME_ROUTE,
-  ACADEMY_INTERMEDIATE_ROUTE,
-  ACADEMY_TRAINERS_ROUTE,
-  requireAcademyDestination,
-} from "@/config/academy/navigation";
+import { ACADEMY_HOME_ROUTE, requireAcademyDestination } from "@/config/academy/navigation";
 import { academySpotProgressCode } from "@/config/academy/spot-progress";
 
 const destination = requireAcademyDestination("beginner");
@@ -103,11 +99,7 @@ export default function AcademyBeginnerPage() {
           />
         </section>
 
-        <section className="mt-8" aria-label="Что дальше">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/40">Что дальше</p>
-          <AcademyNextStepLink href={ACADEMY_TRAINERS_ROUTE} eyebrow="Практика" title="Проверь себя в тренажёрах" testId="trainers" />
-          <AcademyNextStepLink href={ACADEMY_INTERMEDIATE_ROUTE} eyebrow="Следующий уровень" title="Продолжающим: диапазоны по позициям" testId="intermediate" />
-        </section>
+        <AcademyBeginnerNextSteps />
       </div>
     </main>
   );

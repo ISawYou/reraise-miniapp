@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { AcademyTrainerUnavailableError, AcademyValidationError, getAcademyPushFoldQuestion } from "@/features/academy";
+import { assertAcademyAccess, academyPushFoldTarget } from "@/features/academy-access";
 import { getPlayerFromSessionServer } from "@/features/auth-server";
+import { academyAccessErrorResponse } from "@/lib/academy/access-http";
 import { COOKIE_NAME } from "@/lib/telegram-web-session";
 
 type PushFoldSessionRequestBody = {
@@ -22,6 +24,8 @@ export async function POST(request: NextRequest) {
   if (!player) return NextResponse.json({ error: "Необходимо войти в систему" }, { status: 401 });
 
   try {
+    // Access first: a locked request is refused BEFORE any question / range / reveal payload is built.
+    await assertAcademyAccess(player, academyPushFoldTarget());
     const body = await request.json() as PushFoldSessionRequestBody;
     const question = getAcademyPushFoldQuestion(player.id, {
       datasetId: body.datasetId,
@@ -36,6 +40,8 @@ export async function POST(request: NextRequest) {
       spot: question.spot,
     });
   } catch (error) {
+    const denied = academyAccessErrorResponse(error);
+    if (denied) return denied;
     // Scored Push/Fold is paused (unvalidated multiway data): 409, never a fallback dataset.
     if (error instanceof AcademyTrainerUnavailableError) {
       return NextResponse.json({ error: error.message }, { status: 409 });

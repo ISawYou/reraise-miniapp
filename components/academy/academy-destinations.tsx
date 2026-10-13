@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useAcademyBeginnerOnly } from "@/components/academy/academy-access-context";
+import { AcademyLockIcon, AcademyMembershipPanel } from "@/components/academy/academy-membership-panel";
 import { useAcademyProgress } from "@/components/academy/use-academy-progress";
+import { ACADEMY_ACCESS_COPY } from "@/config/academy/access-copy";
 import { getAcademyCourse, listAcademyCourseLessonCodes } from "@/config/academy/catalog";
 import {
   ACADEMY_DESTINATIONS,
@@ -38,6 +41,35 @@ function lessonProgressText(destination: AcademyDestination, data: AcademyProgre
   return `${payload?.course.passedLessons ?? 0} из ${total} уроков`;
 }
 
+/**
+ * A destination a BEGINNER_ONLY player cannot open yet: still visible (never
+ * hidden), visibly locked, with the reason, no progress promise, and a tap
+ * target that only scrolls to the membership panel.
+ */
+function LockedCard({ destination, practice = false }: { destination: AcademyDestination; practice?: boolean }) {
+  return (
+    <a
+      href="#academy-membership"
+      data-destination={destination.code}
+      data-destination-locked
+      aria-label={`${destination.title} — ${ACADEMY_ACCESS_COPY.lockedCardReason}`}
+      className={`${practice ? "mt-2.5 rounded-[24px] py-4" : "rounded-[22px] py-3.5"} flex items-center gap-3.5 border border-white/[0.07] bg-white/[0.025] px-4 transition-opacity active:opacity-80`}
+    >
+      <span className={`${practice ? "h-12 w-12" : "h-11 w-11"} flex shrink-0 items-center justify-center rounded-2xl bg-white/[0.06] text-white/40`}>
+        {ICONS[destination.code]}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={`block ${practice ? "text-xl font-bold" : "text-lg font-semibold"} leading-6 text-white/55`}>{destination.title}</span>
+        <span className="mt-0.5 block text-[13px] leading-5 text-white/35">{destination.description}</span>
+        <span className="mt-1 flex items-center gap-1.5 text-xs font-medium text-[#d7b55a]/80" data-destination-lock-reason>
+          <AcademyLockIcon className="h-3.5 w-3.5" />
+          {ACADEMY_ACCESS_COPY.lockedCardReason}
+        </span>
+      </span>
+    </a>
+  );
+}
+
 function LearnCard({ destination, step, progress }: { destination: AcademyDestination; step: number; progress: string | null }) {
   return (
     <Link
@@ -70,6 +102,9 @@ function LearnCard({ destination, step, progress }: { destination: AcademyDestin
  */
 export function AcademyDestinations() {
   const { data, error, retry } = useAcademyProgress();
+  // Presentation only (server-resolved tier from AcademyAuthGate); pages and APIs enforce on the server.
+  const beginnerOnly = useAcademyBeginnerOnly();
+  const locked = (destination: AcademyDestination) => beginnerOnly && destination.code !== "beginner";
   const learn = ACADEMY_DESTINATIONS.filter((entry) => entry.kind === "learn");
   const practice = ACADEMY_DESTINATIONS.filter((entry) => entry.kind === "practice");
 
@@ -80,8 +115,9 @@ export function AcademyDestinations() {
           Учиться
         </h2>
         <div className="mt-2.5 space-y-2">
-          {learn.map((destination, index) => (
-            <LearnCard key={destination.code} destination={destination} step={index + 1} progress={lessonProgressText(destination, data)} />
+          {learn.map((destination, index) => (locked(destination)
+            ? <LockedCard key={destination.code} destination={destination} />
+            : <LearnCard key={destination.code} destination={destination} step={index + 1} progress={lessonProgressText(destination, data)} />
           ))}
         </div>
         {error ? (
@@ -95,7 +131,9 @@ export function AcademyDestinations() {
         <h2 id="academy-practice-heading" className="text-xs font-semibold uppercase tracking-[0.16em] text-white/40">
           Практиковаться
         </h2>
-        {practice.map((destination) => (
+        {practice.map((destination) => locked(destination) ? (
+          <LockedCard key={destination.code} destination={destination} practice />
+        ) : (
           <Link
             key={destination.code}
             href={destination.route}
@@ -113,6 +151,8 @@ export function AcademyDestinations() {
           </Link>
         ))}
       </section>
+
+      {beginnerOnly ? <AcademyMembershipPanel className="mt-5" /> : null}
     </>
   );
 }

@@ -3,6 +3,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AcademyPreflopTrainerPublicQuestion, AcademyPreflopTrainerReveal } from "@/types/academy";
 
+// Server page access gate: this suite renders the pages as a FULL-access player
+// (the gate itself is covered by components/academy/__tests__/academy-access-pages.test.tsx).
+vi.mock("@/components/academy/academy-page-access-gate", () => ({
+  AcademyPageAccessGate: ({ children }: { children: unknown }) => children,
+}));
+
 vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
@@ -308,7 +314,10 @@ describe("pages", () => {
   });
 
   it("train page passes only the validated selection", async () => {
-    const element = await TrainPage({ params: Promise.resolve({ stack: "100", node: "facing_5bet_sb_vs_bb" }) });
+    const gate = await TrainPage({ params: Promise.resolve({ stack: "100", node: "facing_5bet_sb_vs_bb" }) });
+    // Wrapped in the server access gate, keyed by the SAME resolved node.
+    expect(gate.props.target).toEqual({ kind: "PREFLOP_SPOT", stackBb: 100, nodeKey: "FACING_5BET_SB_VS_BB" });
+    const element = gate.props.children;
     expect(element.props).toEqual({
       selection: { datasetId: "external_mtt_preflop_9max_100bb_v1", nodeKey: "FACING_5BET_SB_VS_BB", stackBb: 100 },
     });

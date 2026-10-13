@@ -1,3 +1,5 @@
+import { AcademyPageAccessGate } from "@/components/academy/academy-page-access-gate";
+import { academyAreaTarget } from "@/config/academy/access-policy";
 import Link from "next/link";
 import { AcademyPageHeader } from "@/components/academy/academy-page-header";
 import { PushFoldAttribution } from "@/components/academy/push-fold-attribution";
@@ -68,27 +70,29 @@ function SectionTitle({ title, hint }: { title: string; hint: string }) {
 export default function AcademyTrainersPage() {
   const presets = listTrainingPresetCards();
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#09100d_0%,#080a09_45%,#070707_100%)] px-4 py-6 pb-40 text-white">
-      <div className="mx-auto max-w-md">
-        <AcademyPageHeader backHref={ACADEMY_HOME_ROUTE} backLabel="Академия" eyebrow={destination.title} title="Практика за столом" />
+    <AcademyPageAccessGate target={academyAreaTarget("trainers")}>
+      <main className="min-h-screen bg-[linear-gradient(180deg,#09100d_0%,#080a09_45%,#070707_100%)] px-4 py-6 pb-40 text-white">
+        <div className="mx-auto max-w-md">
+          <AcademyPageHeader backHref={ACADEMY_HOME_ROUTE} backLabel="Академия" eyebrow={destination.title} title="Практика за столом" />
 
-        <section className="mt-6" aria-label="Быстрая тренировка" data-trainers-tier="quick">
-          <TrainerCard entry={requireAcademyTrainerEntry("quick-mix")} primary />
-        </section>
+          <section className="mt-6" aria-label="Быстрая тренировка" data-trainers-tier="quick">
+            <TrainerCard entry={requireAcademyTrainerEntry("quick-mix")} primary />
+          </section>
 
-        <section className="mt-8" aria-label="Готовые тренировки" data-trainers-tier="presets">
-          <SectionTitle title="Готовые тренировки" hint="одна ситуация · 10 раздач" />
-          <TrainingPresetList presets={presets} />
-        </section>
+          <section className="mt-8" aria-label="Готовые тренировки" data-trainers-tier="presets">
+            <SectionTitle title="Готовые тренировки" hint="одна ситуация · 10 раздач" />
+            <TrainingPresetList presets={presets} />
+          </section>
 
-        <section className="mt-8" aria-label="Настроить самому" data-trainers-tier="manual">
-          <SectionTitle title="Настроить самому" hint="любой стек и позиции" />
-          <TrainerCard entry={requireAcademyTrainerEntry("setup")} />
-          <TrainerCard entry={requireAcademyTrainerEntry("push-fold-reference")} />
-        </section>
+          <section className="mt-8" aria-label="Настроить самому" data-trainers-tier="manual">
+            <SectionTitle title="Настроить самому" hint="любой стек и позиции" />
+            <TrainerCard entry={requireAcademyTrainerEntry("setup")} />
+            <TrainerCard entry={requireAcademyTrainerEntry("push-fold-reference")} />
+          </section>
 
-        <PushFoldAttribution className="mt-8" />
-      </div>
-    </main>
+          <PushFoldAttribution className="mt-8" />
+        </div>
+      </main>
+    </AcademyPageAccessGate>
   );
 }

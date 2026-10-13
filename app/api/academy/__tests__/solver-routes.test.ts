@@ -5,6 +5,15 @@ const SECRET = "route-test-secret-Q7-never-in-output";
 const mockGetPlayerFromSessionServer = vi.fn();
 const memory = vi.hoisted(() => ({ rows: [] as Array<Record<string, unknown>> }));
 
+// Academy access (features/academy-access.ts): this suite models a player who
+// already took part in a game of the current season → FULL access.
+vi.mock("@/lib/repositories/season", () => ({
+  seasonRepository: { findActive: async () => ({ id: "season-current", title: "Текущий сезон", is_active: true }) },
+}));
+vi.mock("@/lib/repositories/academy-access", () => ({
+  academyAccessRepository: { hasPlayerParticipatedInSeason: async () => true },
+}));
+
 vi.mock("@/features/auth-server", () => ({
   getPlayerFromSessionServer: mockGetPlayerFromSessionServer,
 }));

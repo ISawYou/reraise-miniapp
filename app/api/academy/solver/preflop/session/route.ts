@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { AcademyValidationError, getAcademyPreflopTrainerQuestion } from "@/features/academy";
+import { assertAcademyAccess, academyPreflopSpotTarget } from "@/features/academy-access";
 import { getPlayerFromSessionServer } from "@/features/auth-server";
+import { academyAccessErrorResponse } from "@/lib/academy/access-http";
 import { COOKIE_NAME } from "@/lib/telegram-web-session";
 
 type PreflopTrainerSessionRequestBody = {
@@ -23,6 +25,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json() as PreflopTrainerSessionRequestBody;
+    // Access first: a locked request is refused BEFORE any question / range / reveal payload is built.
+    await assertAcademyAccess(player, academyPreflopSpotTarget(body.datasetId, body.nodeKey));
     const question = getAcademyPreflopTrainerQuestion(player.id, {
       datasetId: body.datasetId,
       nodeKey: body.nodeKey,
@@ -36,6 +40,8 @@ export async function POST(request: NextRequest) {
       spot: question.spot,
     });
   } catch (error) {
+    const denied = academyAccessErrorResponse(error);
+    if (denied) return denied;
     if (error instanceof AcademyValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

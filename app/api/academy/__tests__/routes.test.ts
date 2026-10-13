@@ -7,6 +7,15 @@ const mockGetAllAcademyCoursesProgress = vi.fn();
 const mockGetAcademySpotProgress = vi.fn();
 const mockSubmitAcademyTrainingAttempt = vi.fn();
 
+// Academy access (features/academy-access.ts): this suite models a player who
+// already took part in a game of the current season → FULL access.
+vi.mock("@/lib/repositories/season", () => ({
+  seasonRepository: { findActive: async () => ({ id: "season-current", title: "Текущий сезон", is_active: true }) },
+}));
+vi.mock("@/lib/repositories/academy-access", () => ({
+  academyAccessRepository: { hasPlayerParticipatedInSeason: async () => true },
+}));
+
 vi.mock("@/features/auth-server", () => ({
   getPlayerFromSessionServer: mockGetPlayerFromSessionServer,
 }));

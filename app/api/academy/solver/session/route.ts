@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { AcademyValidationError, getAcademySolverQuestion } from "@/features/academy";
+import { assertAcademyAccess, academyCatalogLessonTarget } from "@/features/academy-access";
 import { getPlayerFromSessionServer } from "@/features/auth-server";
+import { academyAccessErrorResponse } from "@/lib/academy/access-http";
 import { COOKIE_NAME } from "@/lib/telegram-web-session";
 
 type SolverSessionRequestBody = {
@@ -23,6 +25,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json() as SolverSessionRequestBody;
+    // Access first: a locked request is refused BEFORE any question / range / reveal payload is built.
+    await assertAcademyAccess(player, academyCatalogLessonTarget(body.lessonCode));
     const question = getAcademySolverQuestion(player.id, {
       lessonCode: typeof body.lessonCode === "string" ? body.lessonCode : "",
       attemptId: typeof body.attemptId === "string" ? body.attemptId : "",
@@ -35,6 +39,8 @@ export async function POST(request: NextRequest) {
       actions: question.actions,
     });
   } catch (error) {
+    const denied = academyAccessErrorResponse(error);
+    if (denied) return denied;
     if (error instanceof AcademyValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

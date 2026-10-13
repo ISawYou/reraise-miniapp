@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useAcademyBeginnerOnly } from "@/components/academy/academy-access-context";
 import { solverActionGridColumnsClass } from "@/components/academy/solver-training";
 import {
   TRAINER_NEXT_BUTTON_CLASS,
@@ -16,6 +17,8 @@ import {
   TrainerSpotContext,
 } from "@/components/academy/trainer-session-ui";
 import {
+  ACADEMY_BEGINNER_ROUTE,
+  ACADEMY_BEGINNER_STEP2_ROUTE,
   ACADEMY_PREFLOP_SETUP_ROUTE,
   ACADEMY_TRAINERS_ROUTE,
 } from "@/config/academy/navigation-routes";
@@ -102,11 +105,15 @@ type PreflopTrainerSessionSource = {
   readonly passedLabel: string;
   /** Optional completion links after "Пройти ещё раз" / "К тренажёрам". */
   readonly resultLinks: readonly TrainerCompletionLink[];
+  /** The completion screen's secondary link; defaults to "К тренажёрам". */
+  readonly trainers?: TrainerCompletionLink;
 };
 
 const TRAINERS_LINK: TrainerCompletionLink = { href: ACADEMY_TRAINERS_ROUTE, label: "К тренажёрам", testId: "trainers" };
 const SETUP_BACK = { href: ACADEMY_PREFLOP_SETUP_ROUTE, label: "К выбору ситуации" } as const;
 const TRAINERS_BACK = { href: ACADEMY_TRAINERS_ROUTE, label: "Тренажёры" } as const;
+const BEGINNER_BACK = { href: ACADEMY_BEGINNER_STEP2_ROUTE, label: "Новичкам" } as const;
+const BEGINNER_LINK: TrainerCompletionLink = { href: ACADEMY_BEGINNER_STEP2_ROUTE, label: "К урокам для новичков", testId: "beginner" };
 
 /**
  * "Разобрать ошибки" entry, built from the reveal the server already returned.
@@ -177,8 +184,14 @@ export type PreflopTrainerContext = {
 
 export function PreflopTrainer({ selection, context }: { selection: PreflopTrainerSelection; context?: PreflopTrainerContext }) {
   const { datasetId, nodeKey, stackBb } = selection;
-  const backHref = context?.back?.href;
-  const backLabel = context?.back?.label;
+  // BEGINNER_ONLY (server-resolved tier; presentation only): a beginner-curriculum
+  // spot leads back to its lesson or to "Новичкам", never into locked hubs.
+  const beginnerOnly = useAcademyBeginnerOnly();
+  const contextBack = context?.back && (!beginnerOnly || context.back.href.startsWith(ACADEMY_BEGINNER_ROUTE))
+    ? context.back
+    : beginnerOnly ? BEGINNER_BACK : undefined;
+  const backHref = contextBack?.href;
+  const backLabel = contextBack?.label;
   const eyebrow = context?.eyebrow;
   const source = useMemo<PreflopTrainerSessionSource>(() => ({
     sessionUrl: "/api/academy/solver/preflop/session",
@@ -189,11 +202,14 @@ export function PreflopTrainer({ selection, context }: { selection: PreflopTrain
     back: backHref && backLabel ? { href: backHref, label: backLabel } : SETUP_BACK,
     ...(eyebrow ? { eyebrow } : {}),
     passedLabel: "Спот пройден",
-    resultLinks: [
-      { href: ACADEMY_PREFLOP_SETUP_ROUTE, label: "Настроить другую ситуацию", testId: "setup" },
-      { href: preflopTrainerSpotRoute(stackBb, nodeKey), label: "Посмотреть диапазон", testId: "range" },
-    ],
-  }), [datasetId, nodeKey, stackBb, backHref, backLabel, eyebrow]);
+    resultLinks: beginnerOnly
+      ? [{ href: preflopTrainerSpotRoute(stackBb, nodeKey), label: "Посмотреть диапазон", testId: "range" }]
+      : [
+        { href: ACADEMY_PREFLOP_SETUP_ROUTE, label: "Настроить другую ситуацию", testId: "setup" },
+        { href: preflopTrainerSpotRoute(stackBb, nodeKey), label: "Посмотреть диапазон", testId: "range" },
+      ],
+    ...(beginnerOnly ? { trainers: BEGINNER_LINK } : {}),
+  }), [datasetId, nodeKey, stackBb, backHref, backLabel, eyebrow, beginnerOnly]);
   return <PreflopTrainerSession source={source} />;
 }
 
@@ -359,7 +375,7 @@ function PreflopTrainerSession({ source }: { source: PreflopTrainerSessionSource
           newBest={newBest}
           onRestart={restart}
           back={source.back}
-          trainers={TRAINERS_LINK}
+          trainers={source.trainers ?? TRAINERS_LINK}
           links={source.resultLinks}
           review={review}
         />

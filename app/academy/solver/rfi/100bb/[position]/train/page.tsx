@@ -1,3 +1,5 @@
+import { AcademyPageAccessGate } from "@/components/academy/academy-page-access-gate";
+import { academyAreaTarget } from "@/config/academy/access-policy";
 import { notFound } from "next/navigation";
 import { SolverTraining } from "@/components/academy/solver-training";
 import { ACADEMY_PREFLOP_POSITIONS, isPreflopPosition } from "@/lib/academy/preflop";
@@ -15,5 +17,9 @@ export default async function AcademySolverTrainingPage({ params }: SolverTraini
   const canonicalPosition = position.toUpperCase();
   if (!isPreflopPosition(canonicalPosition)) notFound();
 
-  return <SolverTraining key={canonicalPosition} position={canonicalPosition} />;
+  return (
+    <AcademyPageAccessGate target={academyAreaTarget("solver-rfi")}>
+      <SolverTraining key={canonicalPosition} position={canonicalPosition} />
+    </AcademyPageAccessGate>
+  );
 }

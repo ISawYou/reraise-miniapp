@@ -1,3 +1,5 @@
+import { AcademyPageAccessGate } from "@/components/academy/academy-page-access-gate";
+import { academyPreflopQuickMixTarget } from "@/lib/academy/access-targets";
 import { PreflopQuickMix } from "@/components/academy/preflop-trainer";
 
 /**
@@ -6,5 +8,9 @@ import { PreflopQuickMix } from "@/components/academy/preflop-trainer";
  * `ACADEMY_PREFLOP_QUICK_MIX_ROUTE`.
  */
 export default function AcademyPreflopQuickMixPage() {
-  return <PreflopQuickMix />;
+  return (
+    <AcademyPageAccessGate target={academyPreflopQuickMixTarget()}>
+      <PreflopQuickMix />
+    </AcademyPageAccessGate>
+  );
 }

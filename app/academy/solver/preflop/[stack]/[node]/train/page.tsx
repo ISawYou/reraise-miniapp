@@ -1,3 +1,5 @@
+import { AcademyPageAccessGate } from "@/components/academy/academy-page-access-gate";
+import { academyPreflopSpotTarget } from "@/lib/academy/access-targets";
 import { notFound } from "next/navigation";
 import { PreflopTrainer } from "@/components/academy/preflop-trainer";
 import { resolvePreflopTrainerRouteSpot } from "../params";
@@ -15,5 +17,9 @@ export default async function AcademyPreflopTrainerTrainPage({ params, searchPar
 
   const { datasetId, nodeKey, stackBb } = resolved.spot;
   const context = resolvePreflopTrainerContext(resolved.spot, (await searchParams) ?? {});
-  return <PreflopTrainer key={`${datasetId}:${nodeKey}`} selection={{ datasetId, nodeKey, stackBb }} context={context} />;
+  return (
+    <AcademyPageAccessGate target={academyPreflopSpotTarget(datasetId, nodeKey)}>
+      <PreflopTrainer key={`${datasetId}:${nodeKey}`} selection={{ datasetId, nodeKey, stackBb }} context={context} />
+    </AcademyPageAccessGate>
+  );
 }

@@ -1,3 +1,5 @@
+import { AcademyPageAccessGate } from "@/components/academy/academy-page-access-gate";
+import { academyPushFoldTarget } from "@/lib/academy/access-targets";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PokerPositionTable } from "@/components/academy/poker-position-table";
@@ -41,55 +43,57 @@ export default async function AcademyPushFoldSpotPage({ params }: PushFoldSpotPa
   const scored = isAcademyPushFoldDatasetScored(resolved.spot.datasetId);
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#09100d_0%,#080a09_36%,#070707_100%)] px-3 py-6 pb-40 text-white min-[375px]:px-4">
-      <div className="mx-auto max-w-md">
-        <BackButton href={ACADEMY_SOLVER_PUSH_FOLD_ROUTE} />
+    <AcademyPageAccessGate target={academyPushFoldTarget()}>
+      <main className="min-h-screen bg-[linear-gradient(180deg,#09100d_0%,#080a09_36%,#070707_100%)] px-3 py-6 pb-40 text-white min-[375px]:px-4">
+        <div className="mx-auto max-w-md">
+          <BackButton href={ACADEMY_SOLVER_PUSH_FOLD_ROUTE} />
 
-        <header className="mt-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d7b55a]">
-            {scored ? "Push/Fold" : "Справочник Push/Fold"} · {spot.stackBb} BB · {spot.situationLabel}
-          </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">{spot.title}</h1>
-          <p className="mt-2 text-sm text-white/55">{spot.history}</p>
-        </header>
-
-        {scored ? null : <PushFoldReferenceNotice className="mt-4" />}
-
-        <section className="mt-5">
-          <PokerPositionTable mode="TRAINING_SCENE" scene={spot.scene} stackBb={spot.stackBb} />
-        </section>
-
-        <section className="mt-6" data-testid="range-view">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-lg font-semibold">Диапазон</h2>
-            <p className="text-sm font-semibold text-[#e4c97a]" data-testid="range-coverage">
-              {solverActionButtonLabel(rangeAction)}: {coverage}% рук
+          <header className="mt-7">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#d7b55a]">
+              {scored ? "Push/Fold" : "Справочник Push/Fold"} · {spot.stackBb} BB · {spot.situationLabel}
             </p>
-          </div>
-          <p className="mb-3 mt-1 text-sm text-white/45">
-            {spot.title} · {spot.stackBb} BB · каждая рука либо в диапазоне, либо фолд
-          </p>
-          <SolverActionMixGrid
-            hands={resolved.node.hands}
-            label={`Push/Fold диапазон: ${spot.title}, ${spot.stackBb} BB`}
-            actions={actions}
-          />
-        </section>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">{spot.title}</h1>
+            <p className="mt-2 text-sm text-white/55">{spot.history}</p>
+          </header>
 
-        {scored ? (
-          <Link
-            href={pushFoldTrainRoute(spot.stackBb, spot.nodeKey)}
-            className="mt-6 flex min-h-14 items-center justify-center rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f] active:bg-[#e2c66f]"
-          >
-            Начать тренировку
-          </Link>
-        ) : (
-          <PushFoldReferenceNextStep className="mt-6" />
-        )}
+          {scored ? null : <PushFoldReferenceNotice className="mt-4" />}
 
-        <p className="mt-5 text-xs leading-5 text-white/45" data-testid="push-fold-model-note">{ACADEMY_PUSH_FOLD_MODEL_NOTE}</p>
-        <PushFoldAttribution className="mt-4" />
-      </div>
-    </main>
+          <section className="mt-5">
+            <PokerPositionTable mode="TRAINING_SCENE" scene={spot.scene} stackBb={spot.stackBb} />
+          </section>
+
+          <section className="mt-6" data-testid="range-view">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="text-lg font-semibold">Диапазон</h2>
+              <p className="text-sm font-semibold text-[#e4c97a]" data-testid="range-coverage">
+                {solverActionButtonLabel(rangeAction)}: {coverage}% рук
+              </p>
+            </div>
+            <p className="mb-3 mt-1 text-sm text-white/45">
+              {spot.title} · {spot.stackBb} BB · каждая рука либо в диапазоне, либо фолд
+            </p>
+            <SolverActionMixGrid
+              hands={resolved.node.hands}
+              label={`Push/Fold диапазон: ${spot.title}, ${spot.stackBb} BB`}
+              actions={actions}
+            />
+          </section>
+
+          {scored ? (
+            <Link
+              href={pushFoldTrainRoute(spot.stackBb, spot.nodeKey)}
+              className="mt-6 flex min-h-14 items-center justify-center rounded-2xl bg-[#d7b55a] px-5 py-4 text-base font-semibold text-[#11120f] active:bg-[#e2c66f]"
+            >
+              Начать тренировку
+            </Link>
+          ) : (
+            <PushFoldReferenceNextStep className="mt-6" />
+          )}
+
+          <p className="mt-5 text-xs leading-5 text-white/45" data-testid="push-fold-model-note">{ACADEMY_PUSH_FOLD_MODEL_NOTE}</p>
+          <PushFoldAttribution className="mt-4" />
+        </div>
+      </main>
+    </AcademyPageAccessGate>
   );
 }

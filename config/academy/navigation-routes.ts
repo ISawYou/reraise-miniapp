@@ -9,6 +9,8 @@ import { ACADEMY_SOLVER_PUSH_FOLD_ROUTE } from "@/config/academy/push-fold-train
 
 export const ACADEMY_HOME_ROUTE = "/academy";
 export const ACADEMY_BEGINNER_ROUTE = "/academy/beginner";
+/** "Новичкам · Шаг 2" section — where beginner-curriculum trainers and spot pages lead back to. */
+export const ACADEMY_BEGINNER_STEP2_ROUTE = `${ACADEMY_BEGINNER_ROUTE}#step-2`;
 export const ACADEMY_INTERMEDIATE_ROUTE = "/academy/intermediate";
 export const ACADEMY_ADVANCED_ROUTE = "/academy/advanced";
 export const ACADEMY_TRAINERS_ROUTE = "/academy/trainers";

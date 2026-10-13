@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { AcademyValidationError, revealAcademyPreflopMixAnswer } from "@/features/academy";
+import { assertAcademyAccess, academyPreflopQuickMixTarget } from "@/features/academy-access";
 import { getPlayerFromSessionServer } from "@/features/auth-server";
+import { academyAccessErrorResponse } from "@/lib/academy/access-http";
 import { COOKIE_NAME } from "@/lib/telegram-web-session";
 
 type PreflopMixRevealRequestBody = {
@@ -20,6 +22,8 @@ export async function POST(request: NextRequest) {
   if (!player) return NextResponse.json({ error: "Необходимо войти в систему" }, { status: 401 });
 
   try {
+    // Access first: a locked request is refused BEFORE any question / range / reveal payload is built.
+    await assertAcademyAccess(player, academyPreflopQuickMixTarget());
     const body = await request.json() as PreflopMixRevealRequestBody;
     return NextResponse.json(revealAcademyPreflopMixAnswer(player.id, {
       attemptId: typeof body.attemptId === "string" ? body.attemptId : "",
@@ -27,6 +31,8 @@ export async function POST(request: NextRequest) {
       selectedAction: body.selectedAction,
     }));
   } catch (error) {
+    const denied = academyAccessErrorResponse(error);
+    if (denied) return denied;
     if (error instanceof AcademyValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
