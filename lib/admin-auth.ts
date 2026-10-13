@@ -129,11 +129,12 @@ export async function resolveAuthenticatedCaller(
       return null;
     }
 
-    // telegram_id is never moved off a merged-away row by executeMerge()
-    // (only email is cleared there) -- if the row this telegram_id still
-    // lives on later itself becomes the source of a *different* merge,
-    // this lookup would otherwise keep resolving to a now-non-canonical
-    // player. See lib/canonical-player.ts.
+    // The self-service executeMerge() never moves a telegram_id (only
+    // email); the Super-Admin executeAdminMerge() moves it source -> target
+    // (so this lookup then finds target directly). Canonical resolution
+    // stays regardless -- defense in depth against any row that still
+    // holds a telegram_id while being merged away (legacy data, a future
+    // flow). See lib/canonical-player.ts.
     const player = await playerRepository.findByTelegramId(telegramId);
     return resolveCanonicalPlayer(player);
   }

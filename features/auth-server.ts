@@ -51,15 +51,46 @@ export class PlayerBlockedError extends Error {
   }
 }
 
+// Domain-level invariant: a player already soft-merged into another one
+// (players.merged_into_player_id -- see lib/player-merge.ts's executeMerge())
+// must never act or receive new data as an independent identity again.
+// Thrown by assertPlayerActive() below (every bare-playerId server action)
+// and by linkEmailToPlayerServer(). The latter's one caller
+// (app/api/auth/email/verify-code/route.ts) already derives its playerId
+// from getPlayerFromSessionServer()'s canonical resolution, so it should
+// never actually fire there -- it exists so a future caller that forgets to
+// canonical-resolve identity first fails loudly instead of silently linking
+// an email onto a dead row.
+export class PlayerMergedAwayError extends Error {
+  readonly playerId: string;
+
+  constructor(playerId: string, message = "Этот игрок уже объединён с другим аккаунтом") {
+    super(message);
+    this.name = "PlayerMergedAwayError";
+    this.playerId = playerId;
+  }
+}
+
 // For server actions that only receive a bare playerId (no session cookie
 // in play, e.g. tournament registration) and therefore can't rely on
 // getPlayerFromSessionServer's blanket check above -- re-reads the player
 // fresh from the DB so a blocked player can't act through a direct call
 // even while their existing signed session is still technically valid.
+//
+// A merged-away (non-canonical) id fails closed here rather than being
+// resolved to its merge target: every caller keeps using its ORIGINAL
+// playerId argument for the writes that follow (e.g.
+// registerPlayerForTournament writes registration.player_id = playerId), so
+// silently redirecting here would still let a stale tab create fresh state
+// under the dead source row. Reloading re-bootstraps the session through
+// the canonical-resolving /api/auth/me, which lands the user on the target.
 export async function assertPlayerActive(playerId: string): Promise<Player> {
   const player = await getPlayerByIdServer(playerId);
   if (!player) {
     throw new Error("Игрок не найден");
+  }
+  if (player.merged_into_player_id != null) {
+    throw new PlayerMergedAwayError(playerId, "Аккаунт был объединён. Обновите страницу.");
   }
   if (player.is_blocked) {
     throw new PlayerBlockedError();
@@ -104,24 +135,6 @@ export class EmailAlreadyLinkedToAnotherPlayerError extends Error {
     super(message);
     this.name = "EmailAlreadyLinkedToAnotherPlayerError";
     this.sourcePlayerId = sourcePlayerId;
-  }
-}
-
-// Domain-level invariant: a player already soft-merged into another one
-// (players.merged_into_player_id -- see lib/player-merge.ts's executeMerge())
-// must never receive new self-service data. linkEmailToPlayerServer()'s one
-// caller (app/api/auth/email/verify-code/route.ts) already derives its
-// playerId from getPlayerFromSessionServer()'s canonical resolution, so this
-// should never actually fire in practice -- it exists so a future caller
-// that forgets to canonical-resolve identity first fails loudly instead of
-// silently linking an email onto a dead row.
-export class PlayerMergedAwayError extends Error {
-  readonly playerId: string;
-
-  constructor(playerId: string) {
-    super("Этот игрок уже объединён с другим аккаунтом");
-    this.name = "PlayerMergedAwayError";
-    this.playerId = playerId;
   }
 }
 

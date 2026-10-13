@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
 import { playerMergeIntentRepository, playerRepository } from "@/lib/repositories";
 import { computeTournamentOverlap } from "@/lib/player-merge";
+import { assertServerActorRole, ForbiddenActionError, UnauthorizedActionError } from "@/lib/admin-auth";
 import type { Player } from "@/types/domain";
 
 // Protected by middleware.ts's /api/admin/:path* matcher -- same dual
 // header/cookie auth path as every other admin route, not re-implemented
 // here. Deliberately absent from lib/admin-permissions.ts's operator
 // allowlist -- account merges are Super-Admin-only, same as Sterling's
-// equivalent route.
+// equivalent route. Also re-checked explicitly below (defense in depth, same
+// as the Merge Center's search/preview/execute routes next to this one).
 export async function GET() {
   try {
+    await assertServerActorRole(["admin"]);
+
     const conflicts = await playerMergeIntentRepository.listConflicts();
 
     const details = await Promise.all(
@@ -33,6 +37,12 @@ export async function GET() {
 
     return NextResponse.json({ conflicts: details });
   } catch (error) {
+    if (error instanceof UnauthorizedActionError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenActionError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to list merge conflicts" },
       { status: 500 }

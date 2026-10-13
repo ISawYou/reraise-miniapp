@@ -35,10 +35,11 @@ export const playerMergeIntents = pgTable("player_merge_intents", {
   // conflict: overlapping tournament history (or source has its own
   //           telegram_id) detected -- routed to /admin/account-merges,
   //           never executable via the self-service endpoint.
-  // completed: merge transaction committed.
+  // completed: merge transaction committed (self-service, or a Super-Admin
+  //            merge of the same pair in the same direction).
   // expired: pending intent's expiresAt passed without confirmation.
-  // cancelled: reserved for a future explicit decline action -- no code
-  //            path sets this yet.
+  // cancelled: moot -- a Super-Admin merged the same pair in the OPPOSITE
+  //            direction (lib/player-merge.ts::executeAdminMerge).
   status: text().notNull().default("pending"),
 
   // Populated when status flips to 'conflict' -- shown verbatim to the

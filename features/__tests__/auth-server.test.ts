@@ -28,9 +28,14 @@ vi.mock("@/lib/canonical-player", () => ({
 const {
   linkEmailToPlayerServer,
   getPlayerFromSessionServer,
+  assertPlayerActive,
   EmailAlreadyLinkedToAnotherPlayerError,
+  PlayerBlockedError,
   PlayerMergedAwayError,
 } = await import("@/features/auth-server");
+// Real server action over the same mocked repository -- proves a direct
+// bare-playerId action is actually blocked, not just the helper.
+const { acceptTerms } = await import("@/features/auth");
 
 function makePlayer(overrides: Partial<Player>): Player {
   return {
@@ -122,5 +127,85 @@ describe("getPlayerFromSessionServer", () => {
     mocks.resolveCanonicalPlayer.mockResolvedValue(player);
 
     expect(await getPlayerFromSessionServer("signed-cookie")).toBeNull();
+  });
+});
+
+describe("assertPlayerActive (bare-playerId server-action guard)", () => {
+  it("returns an ordinary active player unchanged (regression)", async () => {
+    const player = makePlayer({ id: "player-1" });
+    mocks.findById.mockResolvedValue(player);
+
+    await expect(assertPlayerActive("player-1")).resolves.toEqual(player);
+    expect(mocks.findById).toHaveBeenCalledWith("player-1");
+    // Raw by-id check only -- never canonical-redirects.
+    expect(mocks.resolveCanonicalPlayer).not.toHaveBeenCalled();
+  });
+
+  it("still rejects a blocked (non-merged) player with the exact same PlayerBlockedError + message (regression)", async () => {
+    mocks.findById.mockResolvedValue(makePlayer({ id: "player-1", is_blocked: true }));
+
+    const err = await assertPlayerActive("player-1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PlayerBlockedError);
+    expect(err).not.toBeInstanceOf(PlayerMergedAwayError);
+    expect((err as Error).message).toBe("Аккаунт заблокирован администратором");
+  });
+
+  it("still rejects a missing player with the same message (regression)", async () => {
+    mocks.findById.mockResolvedValue(null);
+    await expect(assertPlayerActive("missing")).rejects.toThrow("Игрок не найден");
+  });
+
+  it("FAILS CLOSED on a merged-away source id: throws PlayerMergedAwayError, never resolves to the target", async () => {
+    mocks.findById.mockResolvedValue(makePlayer({ id: "source", merged_into_player_id: "target" }));
+
+    const err = await assertPlayerActive("source").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PlayerMergedAwayError);
+    expect((err as InstanceType<typeof PlayerMergedAwayError>).playerId).toBe("source");
+    expect((err as Error).message).toBe("Аккаунт был объединён. Обновите страницу.");
+    expect(mocks.resolveCanonicalPlayer).not.toHaveBeenCalled();
+    expect(mocks.findById).toHaveBeenCalledTimes(1);
+  });
+
+  it("a merged-away source that is ALSO blocked is still rejected (merged-away wins, both fail closed)", async () => {
+    mocks.findById.mockResolvedValue(
+      makePlayer({ id: "source", merged_into_player_id: "target", is_blocked: true })
+    );
+    await expect(assertPlayerActive("source")).rejects.toBeInstanceOf(PlayerMergedAwayError);
+  });
+
+  it("the surviving merge TARGET is an ordinary active player and passes", async () => {
+    // Target rows never carry merged_into_player_id themselves.
+    const target = makePlayer({ id: "target", email: "moved@example.com", merged_into_player_id: null });
+    mocks.findById.mockResolvedValue(target);
+
+    await expect(assertPlayerActive("target")).resolves.toEqual(target);
+  });
+
+  it("an undefined merged_into_player_id (legacy row shape) is treated as not merged", async () => {
+    const legacy = makePlayer({ id: "legacy" });
+    delete (legacy as Partial<Player>).merged_into_player_id;
+    mocks.findById.mockResolvedValue(legacy);
+
+    await expect(assertPlayerActive("legacy")).resolves.toEqual(legacy);
+  });
+});
+
+describe("direct server action through assertPlayerActive: acceptTerms", () => {
+  it("a stale tab's merged-away source id cannot write accepted_terms onto the dead row", async () => {
+    mocks.findById.mockResolvedValue(makePlayer({ id: "source", merged_into_player_id: "target" }));
+
+    await expect(acceptTerms("source")).rejects.toBeInstanceOf(PlayerMergedAwayError);
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("the target (and any ordinary active player) still accepts terms as before", async () => {
+    mocks.findById.mockResolvedValue(makePlayer({ id: "target" }));
+    mocks.update.mockResolvedValue(makePlayer({ id: "target" }));
+
+    await acceptTerms("target");
+    expect(mocks.update).toHaveBeenCalledWith(
+      "target",
+      expect.objectContaining({ accepted_terms_at: expect.any(String) })
+    );
   });
 });
