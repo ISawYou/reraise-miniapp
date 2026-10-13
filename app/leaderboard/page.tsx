@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
 import { RatingIcon } from "@/components/icons/rating-icon";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   getLeaderboardPlaceTone,
   resolvePlayerStanding,
 } from "@/lib/leaderboard-display";
 import { logEvent } from "@/lib/activity-client";
 import { resolveCurrentPlayer } from "@/lib/current-player";
+import { fetchFollowingIds } from "@/lib/follows-client";
+import { filterFollowingStandings } from "@/lib/leaderboard-following";
 import { LeaderboardAvatar, Podium, RankMovementBadge } from "@/components/leaderboard/podium";
 import { ClubStatisticsRankedList, type ClubStatisticTopPlayer } from "@/components/leaderboard/club-statistics-list";
 import { CLUB_STATISTIC_METRIC, type ClubStatisticMetric } from "@/lib/club-statistics-metrics";
@@ -146,6 +148,35 @@ function EmptyState({ title }: { title: string }) {
   );
 }
 
+// "Вне зачёта" block -- shared by the full season view (LeaderboardBody) and
+// the "Подписки" view, so both show out-of-competition players identically:
+// dimmed rows, never a rank number.
+function OutOfCompetitionSection({
+  rows,
+  currentPlayerId,
+}: {
+  rows: LeaderboardRow[];
+  currentPlayerId: string | null;
+}) {
+  if (rows.length === 0) return null;
+
+  const currentPlayerIsOOC = rows.some((row) => row.player_id === currentPlayerId);
+
+  return (
+    <div className="mt-6">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/35">Вне зачёта</p>
+      {currentPlayerIsOOC ? (
+        <p className="mb-2 text-xs text-white/50">Вы участвуете вне зачёта этого сезона</p>
+      ) : null}
+      <div className="overflow-hidden rounded-2xl border border-white/5 bg-white/[0.015]">
+        {rows.map((row) => (
+          <RankRow key={row.player_id} row={row} rank={null} currentPlayerId={currentPlayerId} dimmed />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Shared body -- TOP-3 podium, remaining ranked rows, OOC section, "Вне
 // зачёта"/ТОП-9 meaning preserved -- reused identically by current and
 // all-time modes so the ranking visual system never diverges per mode.
@@ -168,8 +199,6 @@ function LeaderboardBody({
 
   const topThree = rows.slice(0, 3);
   const rest = rows.slice(3);
-  const currentPlayerIsOOC = outOfCompetition.some((row) => row.player_id === currentPlayerId);
-
   return (
     <>
       {topThree.length > 0 ? (
@@ -190,19 +219,104 @@ function LeaderboardBody({
         </div>
       ) : null}
 
-      {outOfCompetition.length > 0 ? (
-        <div className="mt-6">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/35">Вне зачёта</p>
-          {currentPlayerIsOOC ? (
-            <p className="mb-2 text-xs text-white/50">Вы участвуете вне зачёта этого сезона</p>
+      <OutOfCompetitionSection rows={outOfCompetition} currentPlayerId={currentPlayerId} />
+    </>
+  );
+}
+
+// "Подписки" body (current season): the viewer + the players they follow, as
+// a FLAT list. It is deliberately not a mini leaderboard -- no podium, no
+// gold/silver/bronze, no "ТОП-9" chip: every row carries its TRUE official
+// season rank (gaps like #2, #7 are expected), and "Вне зачёта" players stay
+// rank-less. "Ваша позиция" is never recomputed for the subset; it is the
+// normal global card, shown only when the viewer's own row is NOT already in
+// this list (otherwise it would just repeat that row).
+function FollowingView({
+  rows,
+  outOfCompetition,
+  currentPlayerId,
+  playerResolved,
+  followingIds,
+  error,
+  onRetry,
+  standing,
+  rankMovement,
+}: {
+  rows: LeaderboardRow[];
+  outOfCompetition: LeaderboardRow[];
+  currentPlayerId: string | null;
+  // false until resolveCurrentPlayer() has settled -- "not known yet" must
+  // never be mistaken for "anonymous".
+  playerResolved: boolean;
+  followingIds: ReadonlySet<string> | null;
+  error: string | null;
+  onRetry: () => void;
+  standing: { rank: number | null; points: number; isOutOfCompetition: boolean };
+  rankMovement?: RankMovement;
+}) {
+  let body: ReactNode;
+  let showYourPosition = false;
+
+  if (!playerResolved) {
+    body = <p className="text-sm text-white/60">Загружаем...</p>;
+  } else if (!currentPlayerId) {
+    // Signed out: nobody to look up, and nothing to log in for -- just the
+    // empty state, no request was made.
+    body = <EmptyState title="Вы пока ни на кого не подписаны" />;
+  } else if (error) {
+    body = (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+        <p>{error}</p>
+        <button type="button" onClick={onRetry} className="mt-2 text-xs font-medium text-red-100 underline">
+          Повторить
+        </button>
+      </div>
+    );
+  } else if (!followingIds) {
+    body = <p className="text-sm text-white/60">Загружаем...</p>;
+  } else if (followingIds.size === 0) {
+    body = <EmptyState title="Вы пока ни на кого не подписаны" />;
+    showYourPosition = true;
+  } else {
+    const filtered = filterFollowingStandings(rows, outOfCompetition, currentPlayerId, followingIds);
+    if (filtered.ranked.length === 0 && filtered.outOfCompetition.length === 0) {
+      body = <EmptyState title="У ваших подписок пока нет результатов в этом сезоне" />;
+      showYourPosition = true;
+    } else {
+      const viewerListed =
+        filtered.ranked.some(({ row }) => row.player_id === currentPlayerId) ||
+        filtered.outOfCompetition.some((row) => row.player_id === currentPlayerId);
+      showYourPosition = !viewerListed;
+      // The viewer's own row always counts as "listed"; if it is the ONLY one,
+      // none of the followed players has a season result. Keep the row (true
+      // official rank) and say so, instead of leaving a lone row unexplained.
+      const followedWithResults =
+        filtered.ranked.filter(({ row }) => row.player_id !== currentPlayerId).length +
+        filtered.outOfCompetition.filter((row) => row.player_id !== currentPlayerId).length;
+      body = (
+        <>
+          {filtered.ranked.length > 0 ? (
+            <div className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+              {filtered.ranked.map(({ row, rank }) => (
+                <RankRow key={row.player_id} row={row} rank={rank} currentPlayerId={currentPlayerId} />
+              ))}
+            </div>
           ) : null}
-          <div className="overflow-hidden rounded-2xl border border-white/5 bg-white/[0.015]">
-            {outOfCompetition.map((row) => (
-              <RankRow key={row.player_id} row={row} rank={null} currentPlayerId={currentPlayerId} dimmed />
-            ))}
-          </div>
-        </div>
-      ) : null}
+          <OutOfCompetitionSection rows={filtered.outOfCompetition} currentPlayerId={currentPlayerId} />
+          {followedWithResults === 0 ? (
+            <p className="mt-3 text-center text-sm text-white/60" data-testid="following-no-results">
+              У ваших подписок пока нет результатов в этом сезоне
+            </p>
+          ) : null}
+        </>
+      );
+    }
+  }
+
+  return (
+    <>
+      {body}
+      {showYourPosition && currentPlayerId ? <YourPositionCard standing={standing} rankMovement={rankMovement} /> : null}
     </>
   );
 }
@@ -210,6 +324,21 @@ function LeaderboardBody({
 export default function LeaderboardPage() {
   const [mode, setMode] = useState<Mode>("current");
   const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
+  // Becomes true once resolveCurrentPlayer() has settled either way, so the
+  // "Подписки" view can tell "still resolving" from "signed out".
+  const [playerResolved, setPlayerResolved] = useState(false);
+
+  // Secondary selector INSIDE "Текущий сезон" (not a fourth top-level tab).
+  // "Все" is the default and stays so; the choice simply lives in component
+  // state like the statistics metric does (no persistence).
+  const [currentView, setCurrentView] = useState<"all" | "following">("all");
+  // Every id the viewer follows (GET /api/players/:id/following/ids -- the
+  // unbounded endpoint, NOT the paginated list). Fetched the first time
+  // "Подписки" is opened, cached for the life of the page, tagged with the
+  // player it belongs to.
+  const [followingIds, setFollowingIds] = useState<{ playerId: string; ids: Set<string> } | null>(null);
+  const [followingError, setFollowingError] = useState<{ playerId: string; message: string } | null>(null);
+  const followingRequestRef = useRef<string | null>(null);
 
   const [seasonTitle, setSeasonTitle] = useState("");
   const [currentRows, setCurrentRows] = useState<LeaderboardRow[]>([]);
@@ -238,8 +367,38 @@ export default function LeaderboardPage() {
     logEvent("rating_opened");
     resolveCurrentPlayer()
       .then((p) => setCurrentPlayerId(p.id))
-      .catch(() => setCurrentPlayerId(null));
+      .catch(() => setCurrentPlayerId(null))
+      .finally(() => setPlayerResolved(true));
   }, []);
+
+  // Lazy: nothing is requested until "Подписки" is selected, never for a
+  // signed-out viewer, and never twice for the same player. A response that
+  // arrives after the user went back to "Все" (or to another mode) is still
+  // cached -- it only ever feeds the "Подписки" view, so it can't disturb what
+  // is currently shown. A failure stays in followingError (local to the view);
+  // retrying is explicit.
+  useEffect(() => {
+    if (mode !== "current" || currentView !== "following") return;
+    if (!playerResolved || !currentPlayerId) return;
+    if (followingIds?.playerId === currentPlayerId) return;
+    if (followingError?.playerId === currentPlayerId) return;
+    if (followingRequestRef.current === currentPlayerId) return;
+
+    const requestedFor = currentPlayerId;
+    followingRequestRef.current = requestedFor;
+
+    fetchFollowingIds(requestedFor)
+      .then((ids) => setFollowingIds({ playerId: requestedFor, ids: new Set(ids) }))
+      .catch((err: unknown) =>
+        setFollowingError({
+          playerId: requestedFor,
+          message: err instanceof Error && err.message ? err.message : "Не удалось загрузить подписки. Попробуйте ещё раз.",
+        })
+      )
+      .finally(() => {
+        if (followingRequestRef.current === requestedFor) followingRequestRef.current = null;
+      });
+  }, [mode, currentView, playerResolved, currentPlayerId, followingIds, followingError]);
 
   useEffect(() => {
     async function load() {
@@ -359,11 +518,48 @@ export default function LeaderboardPage() {
 
         {mode === "current" ? (
           <>
+            <div className="mb-4 flex gap-2" role="group" aria-label="Фильтр рейтинга сезона">
+              {(
+                [
+                  { view: "all", label: "Все" },
+                  { view: "following", label: "Подписки" },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.view}
+                  type="button"
+                  aria-pressed={currentView === option.view}
+                  onClick={() => setCurrentView(option.view)}
+                  className={`shrink-0 rounded-full border px-3 py-2 text-xs font-medium transition ${
+                    currentView === option.view
+                      ? "border-[#d7b55a] bg-[#d7b55a]/15 text-[#f0d38a]"
+                      : "border-white/10 bg-white/[0.03] text-white/60"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
             <p className="mb-3 text-sm font-medium text-white/70">{currentLoading ? "Загружаем..." : seasonTitle}</p>
+            {currentView === "following" ? (
+              <p className="-mt-1 mb-3 text-xs text-white/50">Игроки, на которых вы подписаны</p>
+            ) : null}
             {currentError ? (
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{currentError}</div>
             ) : currentLoading ? (
               <p className="text-sm text-white/60">Загружаем рейтинг...</p>
+            ) : currentView === "following" ? (
+              <FollowingView
+                rows={currentRows}
+                outOfCompetition={currentOOC}
+                currentPlayerId={currentPlayerId}
+                playerResolved={playerResolved}
+                followingIds={followingIds && followingIds.playerId === currentPlayerId ? followingIds.ids : null}
+                error={followingError && followingError.playerId === currentPlayerId ? followingError.message : null}
+                onRetry={() => setFollowingError(null)}
+                standing={currentStanding}
+                rankMovement={currentPlayerRankMovement}
+              />
             ) : (
               <>
                 <LeaderboardBody

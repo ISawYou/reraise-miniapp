@@ -18,6 +18,13 @@ import type { PlayerRatingSummary } from "@/features/leaderboard";
 
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
+import { FollowListModal } from "@/components/follows/follow-list-modal";
+import {
+  fetchFollowSummary,
+  followPlayerRequest,
+  unfollowPlayerRequest,
+  type FollowSummary,
+} from "@/lib/follows-client";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { getTelegramWebApp } from "@/lib/telegram";
 import { logEvent } from "@/lib/activity-client";
@@ -271,6 +278,19 @@ export default function PlayerProfilePage() {
     Array<{ request_id: string; team_id: string; team_name: string; team_emblem: string }>
   >([]);
   const [teamStatusBusy, setTeamStatusBusy] = useState(false);
+  // Player following -- an auxiliary block that loads and fails on its own
+  // (never part of loadPage's Promise.all). The summary and the error are
+  // tagged with the profile they belong to, so a response that lands after
+  // navigating to another player can never be shown on that player.
+  const [followSummary, setFollowSummary] = useState<{ playerId: string; value: FollowSummary } | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [followError, setFollowError] = useState<{ playerId: string; message: string } | null>(null);
+  // Which follow list (if any) is open, and for which profile -- tagged with
+  // the player so it can never stay open over a different profile. The modal
+  // owns its own data; nothing from it is kept here.
+  const [followList, setFollowList] = useState<{ playerId: string; mode: "followers" | "following" } | null>(null);
+  const followBusyRef = useRef(false);
+  const activePlayerIdRef = useRef<string | undefined>(playerId);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -374,7 +394,78 @@ export default function PlayerProfilePage() {
     loadPage();
   }, [playerId]);
 
+  // Follow summary: independent of loadPage -- a failure here simply leaves
+  // the follow block unrendered, it never reaches the page-level `error`.
+  useEffect(() => {
+    activePlayerIdRef.current = playerId;
+    if (!playerId) return;
+
+    let cancelled = false;
+    fetchFollowSummary(playerId)
+      .then((value) => {
+        if (!cancelled) setFollowSummary({ playerId, value });
+      })
+      .catch(() => {
+        // Intentionally silent: no follow data => no follow controls.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [playerId]);
+
   const isOwnProfile = viewerId === player?.id;
+
+  const follow = followSummary && followSummary.playerId === playerId ? followSummary.value : null;
+  const followErrorMessage = followError && followError.playerId === playerId ? followError.message : null;
+  // viewerId is a UI hint only (hide the button on one's own profile / when
+  // signed out); the POST/DELETE route alone decides who the follower is.
+  const showFollowButton = Boolean(viewerId) && !isOwnProfile && follow !== null && follow.isFollowing !== null;
+
+  async function handleFollowToggle() {
+    if (!playerId || !follow || follow.isFollowing === null || followBusyRef.current) return;
+
+    const targetId = playerId;
+    const wasFollowing = follow.isFollowing;
+
+    followBusyRef.current = true;
+    setFollowBusy(true);
+    setFollowError(null);
+
+    try {
+      // Pessimistic: nothing changes until the server answers, and then the
+      // state is REPLACED by the server's canonical counts (no +1 / -1).
+      const result = wasFollowing
+        ? await unfollowPlayerRequest(targetId)
+        : await followPlayerRequest(targetId);
+
+      if (activePlayerIdRef.current === targetId) {
+        setFollowSummary({
+          playerId: targetId,
+          value: {
+            followers: result.followers,
+            following: result.following_count,
+            isFollowing: result.following,
+          },
+        });
+      }
+    } catch (err) {
+      if (activePlayerIdRef.current === targetId) {
+        setFollowError({
+          playerId: targetId,
+          message:
+            err instanceof Error && err.message
+              ? err.message
+              : wasFollowing
+                ? "Не удалось отписаться. Попробуйте ещё раз."
+                : "Не удалось подписаться. Попробуйте ещё раз.",
+        });
+      }
+    } finally {
+      followBusyRef.current = false;
+      setFollowBusy(false);
+    }
+  }
 
   // Own profile's Teams status block (Part 11) -- pending invitations +
   // outgoing join requests, only ever fetched for the viewer's OWN profile
@@ -662,6 +753,51 @@ export default function PlayerProfilePage() {
                 </div>
               ) : null}
             </div>
+
+            {showFollowButton && follow ? (
+              <button
+                type="button"
+                onClick={() => void handleFollowToggle()}
+                disabled={followBusy}
+                className={`mt-2 rounded-full border px-4 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+                  follow.isFollowing
+                    ? "border-white/15 bg-white/[0.05] text-white/75"
+                    : "border-[#d7b55a] bg-[#d7b55a] text-black"
+                }`}
+              >
+                {followBusy ? "..." : follow.isFollowing ? "Отписаться" : "Подписаться"}
+              </button>
+            ) : null}
+
+            {follow && (follow.followers !== null || follow.following !== null) ? (
+              <div className="mt-2 flex items-baseline gap-4">
+                {follow.followers !== null ? (
+                  <button
+                    type="button"
+                    data-testid="follow-followers"
+                    aria-haspopup="dialog"
+                    onClick={() => playerId && setFollowList({ playerId, mode: "followers" })}
+                    className="flex items-baseline gap-1.5 text-left"
+                  >
+                    <span className="text-base font-bold tabular-nums text-white">{follow.followers}</span>
+                    <span className="text-[11px] text-white/50">Подписчики</span>
+                  </button>
+                ) : null}
+                {follow.following !== null ? (
+                  <button
+                    type="button"
+                    data-testid="follow-following"
+                    aria-haspopup="dialog"
+                    onClick={() => playerId && setFollowList({ playerId, mode: "following" })}
+                    className="flex items-baseline gap-1.5 text-left"
+                  >
+                    <span className="text-base font-bold tabular-nums text-white">{follow.following}</span>
+                    <span className="text-[11px] text-white/50">Подписки</span>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
             {isOwnProfile && player.email ? (
               <p className="mt-1 truncate text-sm text-white/45">{player.email}</p>
             ) : null}
@@ -698,6 +834,10 @@ export default function PlayerProfilePage() {
 
         {avatarError ? (
           <p className="mt-3 text-sm text-red-300">{avatarError}</p>
+        ) : null}
+
+        {followErrorMessage ? (
+          <p className="mt-3 text-sm text-red-300">{followErrorMessage}</p>
         ) : null}
 
         {isOwnProfile && isEditingNickname ? (
@@ -1080,6 +1220,16 @@ export default function PlayerProfilePage() {
             </div>
           </section>
         </div>
+      ) : null}
+
+      {followList && followList.playerId === playerId ? (
+        <FollowListModal
+          key={`${followList.playerId}:${followList.mode}`}
+          playerId={followList.playerId}
+          mode={followList.mode}
+          title={followList.mode === "followers" ? "Подписчики" : "Подписки"}
+          onClose={() => setFollowList(null)}
+        />
       ) : null}
     </main>
   );

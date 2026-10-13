@@ -607,6 +607,128 @@ describePostgres("Super-Admin account merge (PostgreSQL, real locks/indexes)", (
     });
   });
 
+  // Player following (follows table) -- the Super-Admin flow reaches the same
+  // moveFollows() inside the shared moveMergeHistory(). Full collision matrix
+  // lives in player-merge.integration.test.ts (self-service); here each public
+  // entry point is proven to reach it.
+  describe("follows migration (admin merge)", () => {
+    const FA = id(301);
+    const FB = id(302);
+    const LABELS: Record<string, string> = { [TARGET]: "TARGET", [SOURCE]: "SOURCE", [FA]: "A", [FB]: "B" };
+    const label = (playerId: string) => LABELS[playerId] ?? playerId;
+
+    async function edge(follower: string, followed: string, createdAt = "2026-01-01T00:00:00Z") {
+      const [row] = await client`
+        INSERT INTO follows (follower_player_id, followed_player_id, created_at)
+        VALUES (${follower}::uuid, ${followed}::uuid, ${createdAt}::timestamptz)
+        RETURNING id::text AS id
+      `;
+      return row.id as string;
+    }
+
+    async function graph(): Promise<string[]> {
+      const rows = await client`
+        SELECT follower_player_id::text AS f, followed_player_id::text AS t FROM follows
+        WHERE follower_player_id::text LIKE ${PREFIX + "%"} OR followed_player_id::text LIKE ${PREFIX + "%"}
+      `;
+      return rows.map((row) => `${label(row.f as string)}>${label(row.t as string)}`).sort();
+    }
+
+    async function seedPlayers() {
+      await createPlayer(TARGET, { telegramId: TG_TARGET, username: "tg_target" });
+      await createPlayer(SOURCE, { email: "follows.source@merge-center.test" });
+      await createPlayer(FA, { name: "Follow A" });
+      await createPlayer(FB, { name: "Follow B" });
+    }
+
+    async function adminMerge() {
+      return merge.executeAdminMerge({
+        targetPlayerId: TARGET,
+        sourcePlayerId: SOURCE,
+        confirmation: merge.ADMIN_MERGE_CONFIRMATION,
+      });
+    }
+
+    async function assertNoSourceOrSelfOrDuplicateEdges() {
+      const [onSource] = await client`
+        SELECT count(*)::int AS n FROM follows WHERE follower_player_id = ${SOURCE}::uuid OR followed_player_id = ${SOURCE}::uuid`;
+      expect(onSource.n).toBe(0);
+      const [selfRows] = await client`SELECT count(*)::int AS n FROM follows WHERE follower_player_id = followed_player_id`;
+      expect(selfRows.n).toBe(0);
+      const dupes = await client`
+        SELECT 1 FROM follows GROUP BY follower_player_id, followed_player_id HAVING count(*) > 1`;
+      expect(dupes).toHaveLength(0);
+    }
+
+    it("mixed graph: TARGET owns the exact union; collisions keep the existing target row; direct edges are dropped; unrelated edge untouched", async () => {
+      await seedPlayers();
+      const movedOutId = await edge(SOURCE, FA, "2026-01-05T00:00:00Z");
+      await edge(SOURCE, FB, "2026-09-01T00:00:00Z"); // collides with the TARGET > B below
+      const targetBId = await edge(TARGET, FB, "2026-09-10T00:00:00Z");
+      const movedInId = await edge(FB, SOURCE, "2026-01-06T00:00:00Z");
+      await edge(FA, SOURCE, "2026-09-01T00:00:00Z"); // collides with the A > TARGET below
+      const targetAId = await edge(FA, TARGET, "2026-09-10T00:00:00Z");
+      await edge(SOURCE, TARGET);
+      await edge(TARGET, SOURCE);
+      const unrelatedId = await edge(FA, FB, "2026-02-02T00:00:00Z");
+
+      const result = await adminMerge();
+
+      expect(result).toMatchObject({ merged: true, target_player_id: TARGET });
+      expect(await graph()).toEqual(["A>B", "A>TARGET", "B>TARGET", "TARGET>A", "TARGET>B"]);
+
+      const rows = await client`
+        SELECT follower_player_id::text AS f, followed_player_id::text AS t, id::text AS id, created_at FROM follows
+        WHERE follower_player_id::text LIKE ${PREFIX + "%"}
+      `;
+      const byPair = new Map(rows.map((row) => [`${label(row.f as string)}>${label(row.t as string)}`, row]));
+      expect(byPair.get("TARGET>A")?.id).toBe(movedOutId); // reassigned: id + created_at kept
+      expect(new Date(byPair.get("TARGET>A")?.created_at).toISOString()).toBe("2026-01-05T00:00:00.000Z");
+      expect(byPair.get("B>TARGET")?.id).toBe(movedInId);
+      expect(byPair.get("TARGET>B")?.id).toBe(targetBId); // existing target row won
+      expect(new Date(byPair.get("TARGET>B")?.created_at).toISOString()).toBe("2026-09-10T00:00:00.000Z");
+      expect(byPair.get("A>TARGET")?.id).toBe(targetAId);
+      expect(byPair.get("A>B")?.id).toBe(unrelatedId);
+      await assertNoSourceOrSelfOrDuplicateEdges();
+    });
+
+    it("outgoing-only, incoming-only and mutual edges through the admin flow", async () => {
+      await seedPlayers();
+      await edge(SOURCE, FA);
+      await edge(FB, SOURCE);
+      await edge(SOURCE, TARGET);
+      await edge(TARGET, SOURCE);
+
+      expect(await adminMerge()).toMatchObject({ merged: true });
+
+      expect(await graph()).toEqual(["B>TARGET", "TARGET>A"]);
+      await assertNoSourceOrSelfOrDuplicateEdges();
+    });
+
+    it("players with no follow data still merge", async () => {
+      await seedPlayers();
+
+      expect(await adminMerge()).toMatchObject({ merged: true });
+
+      expect(await graph()).toEqual([]);
+      await assertNoSourceOrSelfOrDuplicateEdges();
+    });
+
+    it("a blocked merge (two different Telegram ids) leaves every follow edge exactly as it was", async () => {
+      await createPlayer(TARGET, { telegramId: TG_TARGET, username: "tg_target" });
+      await createPlayer(SOURCE, { telegramId: TG_SOURCE, username: "tg_source" });
+      await createPlayer(FA, { name: "Follow A" });
+      await edge(SOURCE, FA);
+      await edge(FA, SOURCE);
+      await edge(SOURCE, TARGET);
+
+      const result = await adminMerge();
+
+      expect(result.merged).toBe(false);
+      expect(await graph()).toEqual(["A>SOURCE", "SOURCE>A", "SOURCE>TARGET"]);
+    });
+  });
+
   // A tab opened before the merge still holds the SOURCE id and calls the
   // bare-playerId Server Actions directly. assertPlayerActive must fail
   // closed (not canonical-redirect) because each action keeps writing with

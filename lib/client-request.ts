@@ -1,6 +1,24 @@
-import { getTelegramInitData } from "@/lib/telegram";
+import { getTelegramInitData, isTelegramMiniAppContext } from "@/lib/telegram";
 
-async function getAdminHeaders(): Promise<Record<string, string>> {
+// The authenticated-request headers: the Telegram initData proof when there is
+// one, nothing otherwise (the browser still sends the session cookie).
+//
+// Outside a Telegram Mini App (the website, an email/OTP web session) there is
+// no initData and never will be, but getTelegramInitData() does not know that:
+// it polls for ~1.2s before giving up. Awaiting it there delayed EVERY
+// authenticated request by that long for nothing (measured on the profile's
+// follow block, /api/dealer/me, teams...). isTelegramMiniAppContext() is the
+// project's established signal for "are we in a Mini App" (launch params,
+// WebApp initData, or initData cached by an earlier page of this session --
+// it is what the home bootstrap and academy auth already branch on), so we
+// skip the wait only when it says no. Inside Telegram nothing changes: the
+// header is still obtained and sent, and the server still verifies it (HMAC)
+// before falling back to the cookie.
+export async function getAdminHeaders(): Promise<Record<string, string>> {
+  if (!isTelegramMiniAppContext()) {
+    return {};
+  }
+
   const initData = await getTelegramInitData();
 
   return initData ? { "X-Telegram-Init-Data": initData } : {};

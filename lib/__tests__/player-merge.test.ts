@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dealerShifts, dealerProfiles, teams, teamMemberships, teamInvitations, teamJoinRequests } from "@/lib/db/schema";
+import { dealerShifts, dealerProfiles, teams, teamMemberships, teamInvitations, teamJoinRequests, follows } from "@/lib/db/schema";
 
 // Only executeMerge() uses the module-level default `db` (via
 // db.transaction() -- checkMergeEligibility/computeTournamentOverlap always
@@ -512,7 +512,25 @@ describe("executeMerge -- dealer profile & shift merge", () => {
 
     expect(result).toEqual({ merged: true });
     expect(updateCalls.some((c) => c.table === dealerProfiles)).toBe(false);
-    expect(deleteCalls.length).toBe(0);
+    // Only the follows migration (moveFollows) deletes anything here --
+    // never a dealer profile.
+    expect(deleteCalls.some((c) => c.table === dealerProfiles)).toBe(false);
+  });
+
+  it("player following: executeMerge moves follows in the same transaction -- three deliberate deletes first (direct edges, outgoing collisions, incoming collisions), then both reassignments", async () => {
+    const { executor, updateCalls, deleteCalls } = makeFakeExecutor(selectsWithDealerState([], []));
+    mockTxTarget.current = executor;
+
+    const { executeMerge } = await import("@/lib/player-merge");
+    const result = await executeMerge({ intentId: "intent-1", sessionPlayerId: TARGET_ID });
+
+    expect(result).toEqual({ merged: true });
+    expect(deleteCalls.filter((c) => c.table === follows)).toHaveLength(3);
+
+    const followUpdates = updateCalls.filter((c) => c.table === follows);
+    expect(followUpdates.map((c) => Object.keys(c.values))).toEqual([["followerPlayerId"], ["followedPlayerId"]]);
+    expect(followUpdates.every((c) => Object.values(c.values)[0] === TARGET_ID)).toBe(true);
+    // Real collision/self-follow/rollback semantics: player-merge.integration.test.ts.
   });
 
   it("both profiles exist: target's own profile (rate, is_active) wins and is never overwritten; source's profile is deleted after its shifts move", async () => {

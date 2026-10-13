@@ -19,6 +19,7 @@ import {
   teamMemberships,
   teamInvitations,
   teamJoinRequests,
+  follows,
 } from "@/lib/db/schema";
 import { syncPlayerAchievements } from "@/features/achievements";
 import { intervalsOverlap } from "@/lib/team-scoring";
@@ -296,6 +297,69 @@ async function hasTeamMembershipHistoryOverlap(
   );
 }
 
+// Player following (follows table) -- moves every edge attached to source
+// onto target, inside the same merge transaction as the rest of the history
+// (called from moveMergeHistory, so BOTH the self-service executeMerge and the
+// Super-Admin executeAdminMerge get it).
+//
+// follows has two structural constraints a blind `UPDATE ... SET player_id`
+// would trip over, both checked per statement (not deferrable):
+//   - follows_follower_followed_key: one row per directed (follower, followed)
+//     pair. A source edge whose target-equivalent already exists would collide.
+//   - follows_no_self_follow: follower <> followed. A direct source<->target
+//     edge would become target -> target.
+// So collisions are resolved deliberately BEFORE any reassignment, never by
+// catching a violation afterwards. Existing TARGET rows always win a
+// collision: the target's own edge (with its own id/created_at) is kept and
+// the source duplicate is deleted; no timestamps are merged. Rows that are
+// merely reassigned keep their id and created_at untouched.
+//
+// Uses the transaction `tx` and the schema directly (not followRepository,
+// which runs on the global connection and would escape this transaction).
+async function moveFollows(tx: typeof db, targetId: string, sourceId: string): Promise<void> {
+  // 1. Direct source <-> target edges: both directions would become
+  //    target -> target. Dropped (merging two accounts of one person makes
+  //    them following themselves meaningless).
+  await tx
+    .delete(follows)
+    .where(
+      or(
+        and(eq(follows.followerPlayerId, sourceId), eq(follows.followedPlayerId, targetId)),
+        and(eq(follows.followerPlayerId, targetId), eq(follows.followedPlayerId, sourceId))
+      )
+    );
+
+  // 2. Outgoing collisions: source -> X where target -> X already exists.
+  await tx
+    .delete(follows)
+    .where(
+      and(
+        eq(follows.followerPlayerId, sourceId),
+        sql`${follows.followedPlayerId} IN (
+          SELECT existing.followed_player_id FROM follows AS existing
+          WHERE existing.follower_player_id = ${targetId}
+        )`
+      )
+    );
+
+  // 3. Incoming collisions: X -> source where X -> target already exists.
+  await tx
+    .delete(follows)
+    .where(
+      and(
+        eq(follows.followedPlayerId, sourceId),
+        sql`${follows.followerPlayerId} IN (
+          SELECT existing.follower_player_id FROM follows AS existing
+          WHERE existing.followed_player_id = ${targetId}
+        )`
+      )
+    );
+
+  // 4./5. Whatever is left cannot collide or self-reference: reassign.
+  await tx.update(follows).set({ followerPlayerId: targetId }).where(eq(follows.followerPlayerId, sourceId));
+  await tx.update(follows).set({ followedPlayerId: targetId }).where(eq(follows.followedPlayerId, sourceId));
+}
+
 // History: reassign every row from source to target. Safe only after the
 // caller has confirmed zero tournament overlap, no double-open dealer shift
 // and no team-history overlap, so none of these updates can collide with an
@@ -331,6 +395,9 @@ async function moveMergeHistory(
     .set({ playerId: targetId })
     .where(eq(tournamentRebuyState.playerId, sourceId));
   await tx.update(activityEvents).set({ playerId: targetId }).where(eq(activityEvents.playerId, sourceId));
+
+  // Player following: edges in both directions follow the player. See moveFollows.
+  await moveFollows(tx, targetId, sourceId);
 
   // Teams v1 -- move EVERY team_memberships row (active or historical)
   // from source to target, unconditionally. This is required for

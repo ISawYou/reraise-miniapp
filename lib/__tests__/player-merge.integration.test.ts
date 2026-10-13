@@ -39,6 +39,7 @@ describePostgres("Account merge (PostgreSQL, real transaction/lock behavior)", (
   // by design -- never leaks state into the next one.
   async function resetRows() {
     await client`DELETE FROM players WHERE id IN (${TARGET_ID}::uuid, ${SOURCE_ID}::uuid, ${THIRD_PARTY_ID}::uuid)`;
+    await client`DELETE FROM players WHERE id::text LIKE '92100000-0000-4000-8000-%'`;
     await client`DELETE FROM tournaments WHERE id = ${TOURNAMENT_ID}::uuid`;
   }
 
@@ -331,6 +332,269 @@ describePostgres("Account merge (PostgreSQL, real transaction/lock behavior)", (
     expect(profiles).toHaveLength(1);
     expect(profiles[0].player_id).toBe(TARGET_ID);
     expect(profiles[0].hourly_rate_rub).toBe(700);
+  });
+
+  // ---------------------------------------------------------------------
+  // Player following (follows table) -- moveFollows() inside the shared
+  // moveMergeHistory(), exercised through the self-service executeMerge.
+  // The Super-Admin flow is covered in
+  // admin-account-merge.postgres.integration.test.ts.
+  // ---------------------------------------------------------------------
+  describe("follows migration", () => {
+    const FOLLOW_PREFIX = "92100000-0000-4000-8000-";
+    const fid = (n: number) => `${FOLLOW_PREFIX}${String(n).padStart(12, "0")}`;
+    const FA = fid(1);
+    const FB = fid(2);
+    const FC = fid(3);
+
+    const LABELS: Record<string, string> = {
+      [TARGET_ID]: "TARGET",
+      [SOURCE_ID]: "SOURCE",
+      [FA]: "A",
+      [FB]: "B",
+      [FC]: "C",
+    };
+    const label = (playerId: string) => LABELS[playerId] ?? playerId;
+
+    async function insertFollowPlayers(...ids: string[]) {
+      for (const playerId of ids) {
+        await client`INSERT INTO players (id, display_name) VALUES (${playerId}::uuid, ${"Follow " + label(playerId)})`;
+      }
+    }
+
+    async function edge(follower: string, followed: string, createdAt = "2026-01-01T00:00:00Z", edgeId?: string) {
+      const [row] = await client`
+        INSERT INTO follows (id, follower_player_id, followed_player_id, created_at)
+        VALUES (COALESCE(${edgeId ?? null}::uuid, gen_random_uuid()), ${follower}::uuid, ${followed}::uuid, ${createdAt}::timestamptz)
+        RETURNING id
+      `;
+      return row.id as string;
+    }
+
+    // Every edge touching any fixture player, as sorted "FOLLOWER>FOLLOWED".
+    async function graph(): Promise<string[]> {
+      const rows = await client`
+        SELECT follower_player_id::text AS f, followed_player_id::text AS t FROM follows
+        WHERE follower_player_id::text LIKE ${"92%"} OR followed_player_id::text LIKE ${"92%"}
+      `;
+      return rows.map((row) => `${label(row.f as string)}>${label(row.t as string)}`).sort();
+    }
+
+    async function edgeRow(follower: string, followed: string) {
+      return client`
+        SELECT id::text AS id, created_at FROM follows
+        WHERE follower_player_id = ${follower}::uuid AND followed_player_id = ${followed}::uuid
+      `;
+    }
+
+    // I + J: global end-state invariants after every merge.
+    async function assertFollowInvariants() {
+      const [onSource] = await client`
+        SELECT count(*)::int AS n FROM follows
+        WHERE follower_player_id = ${SOURCE_ID}::uuid OR followed_player_id = ${SOURCE_ID}::uuid
+      `;
+      expect(onSource.n).toBe(0);
+
+      const dupes = await client`
+        SELECT follower_player_id, followed_player_id FROM follows
+        GROUP BY follower_player_id, followed_player_id HAVING count(*) > 1
+      `;
+      expect(dupes).toHaveLength(0);
+
+      const [selfRows] = await client`SELECT count(*)::int AS n FROM follows WHERE follower_player_id = followed_player_id`;
+      expect(selfRows.n).toBe(0);
+    }
+
+    async function mergeSourceIntoTarget() {
+      const intentId = await insertPendingIntent();
+      const result = await playerMerge.executeMerge({ intentId, sessionPlayerId: TARGET_ID });
+      expect(result).toEqual({ merged: true });
+    }
+
+    it("A. outgoing only: SOURCE -> A becomes TARGET -> A, keeping the row's id and created_at", async () => {
+      await insertBaseRows();
+      await insertFollowPlayers(FA);
+      const edgeId = await edge(SOURCE_ID, FA, "2026-01-05T10:00:00Z");
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual(["TARGET>A"]);
+      const [moved] = await edgeRow(TARGET_ID, FA);
+      expect(moved.id).toBe(edgeId);
+      expect(new Date(moved.created_at).toISOString()).toBe("2026-01-05T10:00:00.000Z");
+      await assertFollowInvariants();
+    });
+
+    it("B. incoming only: A -> SOURCE becomes A -> TARGET, keeping the row's id and created_at", async () => {
+      await insertBaseRows();
+      await insertFollowPlayers(FA);
+      const edgeId = await edge(FA, SOURCE_ID, "2026-01-06T10:00:00Z");
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual(["A>TARGET"]);
+      const [moved] = await edgeRow(FA, TARGET_ID);
+      expect(moved.id).toBe(edgeId);
+      expect(new Date(moved.created_at).toISOString()).toBe("2026-01-06T10:00:00.000Z");
+      await assertFollowInvariants();
+    });
+
+    it("C. outgoing collision: SOURCE -> A and TARGET -> A leave exactly one TARGET -> A, and the EXISTING target row wins (even though the source row is older)", async () => {
+      await insertBaseRows();
+      await insertFollowPlayers(FA);
+      await edge(SOURCE_ID, FA, "2026-09-01T00:00:00Z");
+      const targetEdgeId = await edge(TARGET_ID, FA, "2026-09-10T00:00:00Z");
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual(["TARGET>A"]);
+      const rows = await edgeRow(TARGET_ID, FA);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(targetEdgeId);
+      expect(new Date(rows[0].created_at).toISOString()).toBe("2026-09-10T00:00:00.000Z");
+      await assertFollowInvariants();
+    });
+
+    it("D. incoming collision: A -> SOURCE and A -> TARGET leave exactly one A -> TARGET, and the EXISTING target row wins", async () => {
+      await insertBaseRows();
+      await insertFollowPlayers(FA);
+      await edge(FA, SOURCE_ID, "2026-09-01T00:00:00Z");
+      const targetEdgeId = await edge(FA, TARGET_ID, "2026-09-10T00:00:00Z");
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual(["A>TARGET"]);
+      const rows = await edgeRow(FA, TARGET_ID);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(targetEdgeId);
+      expect(new Date(rows[0].created_at).toISOString()).toBe("2026-09-10T00:00:00.000Z");
+      await assertFollowInvariants();
+    });
+
+    it("E. mutual SOURCE <-> TARGET: both edges are removed and no TARGET -> TARGET row exists", async () => {
+      await insertBaseRows();
+      await edge(SOURCE_ID, TARGET_ID);
+      await edge(TARGET_ID, SOURCE_ID);
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual([]);
+      const [selfRows] = await client`SELECT count(*)::int AS n FROM follows WHERE follower_player_id = followed_player_id`;
+      expect(selfRows.n).toBe(0);
+      await assertFollowInvariants();
+    });
+
+    it("E2. a single direct edge in either direction is also dropped (it would become a self-follow)", async () => {
+      await insertBaseRows();
+      await edge(SOURCE_ID, TARGET_ID);
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual([]);
+      await assertFollowInvariants();
+    });
+
+    it("F. mixed graph: TARGET ends up with the exact union of both players' edges", async () => {
+      await insertBaseRows();
+      await insertFollowPlayers(FA, FB);
+      await edge(SOURCE_ID, FA); // moves     -> TARGET > A
+      await edge(SOURCE_ID, FB); // collides  -> dropped (TARGET > B exists)
+      await edge(FA, SOURCE_ID); // collides  -> dropped (A > TARGET exists)
+      await edge(FB, SOURCE_ID); // moves     -> B > TARGET
+      await edge(TARGET_ID, FB); // existing, kept
+      await edge(FA, TARGET_ID); // existing, kept
+      await edge(SOURCE_ID, TARGET_ID); // direct, dropped
+      await edge(TARGET_ID, SOURCE_ID); // direct, dropped
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual(["A>TARGET", "B>TARGET", "TARGET>A", "TARGET>B"]);
+      await assertFollowInvariants();
+    });
+
+    it("G. players with no follow data merge exactly as before", async () => {
+      await insertBaseRows();
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual([]);
+      const [source] = await client`SELECT merged_into_player_id FROM players WHERE id = ${SOURCE_ID}::uuid`;
+      expect(source.merged_into_player_id).toBe(TARGET_ID);
+      await assertFollowInvariants();
+    });
+
+    it("H. edges unrelated to SOURCE/TARGET are left completely untouched", async () => {
+      await insertBaseRows();
+      await insertFollowPlayers(FA, FB, FC);
+      const untouchedId = await edge(FA, FB, "2026-02-02T02:02:02Z");
+      await edge(FC, FA);
+      await edge(SOURCE_ID, FC);
+
+      await mergeSourceIntoTarget();
+
+      expect(await graph()).toEqual(["A>B", "C>A", "TARGET>C"]);
+      const [untouched] = await edgeRow(FA, FB);
+      expect(untouched.id).toBe(untouchedId);
+      expect(new Date(untouched.created_at).toISOString()).toBe("2026-02-02T02:02:02.000Z");
+      await assertFollowInvariants();
+    });
+
+    it("moves many edges in one merge, in both directions, without a unique violation", async () => {
+      await insertBaseRows();
+      const others = Array.from({ length: 60 }, (_, i) => fid(100 + i));
+      await insertFollowPlayers(...others);
+      for (const [i, other] of others.entries()) {
+        await edge(SOURCE_ID, other);
+        await edge(other, SOURCE_ID);
+        // Every third player is already connected to TARGET -> collisions.
+        if (i % 3 === 0) {
+          await edge(TARGET_ID, other);
+          await edge(other, TARGET_ID);
+        }
+      }
+
+      await mergeSourceIntoTarget();
+
+      const [{ outgoing }] = await client`
+        SELECT count(*)::int AS outgoing FROM follows WHERE follower_player_id = ${TARGET_ID}::uuid`;
+      const [{ incoming }] = await client`
+        SELECT count(*)::int AS incoming FROM follows WHERE followed_player_id = ${TARGET_ID}::uuid`;
+      expect(outgoing).toBe(60);
+      expect(incoming).toBe(60);
+      await assertFollowInvariants();
+    });
+
+    it("rolls follow changes back together with the rest of the merge when a LATER step of the same transaction fails", async () => {
+      await insertBaseRows();
+      await insertFollowPlayers(FA);
+      const sourceOutId = await edge(SOURCE_ID, FA, "2026-03-01T00:00:00Z");
+      const sourceInId = await edge(FA, SOURCE_ID, "2026-03-02T00:00:00Z");
+      await edge(SOURCE_ID, TARGET_ID); // would be deleted by the merge
+      await client`
+        INSERT INTO registrations (player_id, tournament_id, status)
+        VALUES (${SOURCE_ID}::uuid, ${TOURNAMENT_ID}::uuid, 'registered')
+      `;
+      // Another player already owns the email this intent wants to hand to
+      // TARGET. moveMergeHistory (incl. the follows migration) has already run
+      // by the time writeMergedPlayerRows trips players_email_unique_idx, so
+      // this fails strictly AFTER the follow rows were rewritten.
+      await client`INSERT INTO players (id, display_name, email) VALUES (${THIRD_PARTY_ID}::uuid, 'Third Party', 'taken@example.com')`;
+      const intentId = await insertPendingIntent("taken@example.com");
+
+      await expect(playerMerge.executeMerge({ intentId, sessionPlayerId: TARGET_ID })).rejects.toThrow();
+
+      // Nothing from the aborted merge survived: follow rows are exactly as before.
+      expect(await graph()).toEqual(["A>SOURCE", "SOURCE>A", "SOURCE>TARGET"]);
+      const [out] = await edgeRow(SOURCE_ID, FA);
+      const [inc] = await edgeRow(FA, SOURCE_ID);
+      expect(out.id).toBe(sourceOutId);
+      expect(inc.id).toBe(sourceInId);
+      // ...and so did the registration move and the merged-away marker.
+      const [registration] = await client`SELECT player_id FROM registrations WHERE tournament_id = ${TOURNAMENT_ID}::uuid`;
+      expect(registration.player_id).toBe(SOURCE_ID);
+      const [source] = await client`SELECT merged_into_player_id FROM players WHERE id = ${SOURCE_ID}::uuid`;
+      expect(source.merged_into_player_id).toBeNull();
+    });
   });
 });
 
