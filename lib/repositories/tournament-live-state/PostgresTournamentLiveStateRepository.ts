@@ -19,6 +19,7 @@ import type {
   EliminationUpsert,
   AttendanceStatus,
   AttendanceUpsert,
+  AttendanceWriteExecutor,
   AttendanceWriteResult,
   AttendedPlayerRow,
   RebuyState,
@@ -253,13 +254,16 @@ export class PostgresTournamentLiveStateRepository implements TournamentLiveStat
   // ordering. Same-tab click ordering is guaranteed upstream, entirely
   // client-side, by lib/attendance-write-queue.ts -- this method never
   // sees two competing writes from the same browser tab concurrently.
-  async upsertAttendance(row: AttendanceUpsert): Promise<AttendanceWriteResult> {
+  async upsertAttendance(
+    row: AttendanceUpsert,
+    tx: AttendanceWriteExecutor = db
+  ): Promise<AttendanceWriteResult> {
     type UpsertAttendanceRow = {
       arrived: boolean;
       arrived_at: string | Date | null;
     };
 
-    const rows = await db.execute<UpsertAttendanceRow>(sql`
+    const rows = await tx.execute<UpsertAttendanceRow>(sql`
       insert into "tournament_attendance" ("tournament_id", "player_id", "arrived", "arrived_at", "updated_at")
       values (
         ${row.tournament_id},

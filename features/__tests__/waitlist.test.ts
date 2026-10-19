@@ -195,15 +195,23 @@ describe("cancelPlayerRegistration", () => {
     expect(seatedCount()).toBe(40);
   });
 
-  it("a waitlisted player cancelling promotes nobody (no capacity transaction)", async () => {
+  it("a waitlisted player cancelling promotes nobody (only the locked cancel itself, no reconciler run)", async () => {
     seedRegistrations("p", 40, "registered");
     addRegistration("w1", "waitlist");
     addRegistration("w2", "waitlist");
 
     await cancelPlayerRegistration("w1", "t1");
 
+    expect(statusOf("w1")).toBe("cancelled");
     expect(statusOf("w2")).toBe("waitlist");
-    expect(fake.state.log).toEqual([]);
+    // Exactly one transaction: the arrival-aware cancel, lock first.
+    expect(fake.state.log).toEqual([
+      "tx:begin",
+      "lock:tournaments",
+      "select:tournament_attendance",
+      "select:registrations",
+      "update:registrations",
+    ]);
   });
 
   it("does not promote after Late Registration closed", async () => {

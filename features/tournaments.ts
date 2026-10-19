@@ -6,6 +6,7 @@ import {
   tournamentRepository,
   registrationRepository,
   tournamentLiveStateRepository,
+  tournamentLateRegistrationRepository,
   resultRepository,
 } from "@/lib/repositories";
 import type { LiveEntryPatch } from "@/lib/repositories";
@@ -32,9 +33,12 @@ import {
 } from "@/lib/tournament-final-policy";
 import {
   admitPlayerToTournament,
+  cancelOwnRegistrationWithinLock,
   clearOnlineRegistrationRestrictionOnArrival,
+  createWalkInParticipantWithinLock,
   reconcileTournamentWaitlistCapacity,
   unEliminateTournamentPlayerWithinCapacity,
+  writeAttendanceWithinTournamentLock,
 } from "@/features/tournament-waitlist-capacity";
 import {
   findRegistrationNoShowAt,
@@ -385,19 +389,43 @@ export async function cancelPlayerRegistration(
     throw new Error(FINAL_CANCELLATION_REJECTED_MESSAGE);
   }
 
-  const currentRegistration =
-    await registrationRepository.findActiveOrWaitlistByPlayerAndTournamentOrThrow(
-      playerId,
-      tournamentId
-    );
-
-  await registrationRepository.updateStatusSilent(currentRegistration.id, "cancelled");
+  // Fail closed, server-side, under the tournament-row lock: once this
+  // player's arrival is recorded (tournament_attendance.arrived_at IS NOT
+  // NULL -- even if they have since busted out or `arrived` was toggled
+  // back), self-cancellation is refused with
+  // ARRIVED_CANCELLATION_REJECTED_MESSAGE and nothing changes. The check
+  // and the cancel write are one locked transaction, serialized against
+  // every arrival write (see cancelOwnRegistrationWithinLock).
+  const cancelled = await cancelOwnRegistrationWithinLock(tournamentId, playerId);
 
   // A cancelled seat-holder frees a seat -- fill it via the one canonical
   // reconciler (FIFO, Late-Registration-aware, capacity-locked).
-  if (currentRegistration.status !== "waitlist") {
+  if (cancelled.previousStatus !== "waitlist") {
     await reconcileTournamentWaitlistCapacity(tournamentId);
   }
+}
+
+// Display-only guards for the CURRENT session's own player on a tournament
+// page (never another player's -- resolved from the request's own signed
+// identity, no playerId parameter). Mirrors, never replaces, the
+// server-side invariants enforced in features/tournament-waitlist-capacity.ts:
+//   - lateRegistrationClosed: the tournament_late_registration snapshot
+//     exists -> no new registration/waitlist entry is possible;
+//   - arrived: this player's first-arrival fact (arrived_at IS NOT NULL)
+//     -> self-cancellation is closed.
+export async function getMyTournamentRegistrationGuards(
+  tournamentId: string
+): Promise<{ lateRegistrationClosed: boolean; arrived: boolean }> {
+  const snapshot = await tournamentLateRegistrationRepository.findByTournamentId(tournamentId);
+  const actor = await resolveCurrentServerActor();
+  if (!actor) {
+    return { lateRegistrationClosed: snapshot != null, arrived: false };
+  }
+  const attendance = await tournamentLiveStateRepository.findAttendanceByTournamentId(tournamentId);
+  return {
+    lateRegistrationClosed: snapshot != null,
+    arrived: attendance.get(actor.id)?.arrived_at != null,
+  };
 }
 
 export async function getMyTournaments(playerId: string) {
@@ -710,24 +738,15 @@ export async function addAdminTournamentParticipant(
     throw new Error("Введите ник");
   }
 
-  let player;
+  // Player + registration in ONE transaction under the tournament-row lock,
+  // after the canonical Late Registration check: once Late Registration is
+  // closed (or closes concurrently) this fails closed with
+  // LATE_REGISTRATION_CLOSED_MESSAGE and writes nothing -- no orphan Player.
   try {
-    player = await playerRepository.create({
-      telegram_id: null,
-      username: null,
-      display_name: normalizedNick,
-      admin_display_name: normalizedNick,
-      role: "player",
-    });
+    await createWalkInParticipantWithinLock(tournamentId, normalizedNick);
   } catch (err) {
     throw new Error(err instanceof Error ? err.message : String(err));
   }
-
-  await registrationRepository.createSilent({
-    player_id: player.id,
-    tournament_id: tournamentId,
-    status: "registered",
-  });
 }
 
 // Same bypass-of-middleware reasoning as updateTournament above. Staff --
@@ -1541,11 +1560,16 @@ export async function setTournamentPlayerAttendance(
   playerId: string,
   arrived: boolean
 ): Promise<{ arrived: boolean; arrived_at: string | null }> {
-  const result = await tournamentLiveStateRepository.upsertAttendance({
-    tournament_id: tournamentId,
-    player_id: playerId,
-    arrived,
-  });
+  const row = { tournament_id: tournamentId, player_id: playerId, arrived };
+  // Postgres: the SAME upsert, run under the tournament-row lock so an
+  // arrival can never interleave with a self-cancellation's arrived_at
+  // check (see cancelOwnRegistrationWithinLock). Legacy provider: as before.
+  const result =
+    process.env.DATABASE_PROVIDER === "postgres"
+      ? await writeAttendanceWithinTournamentLock(tournamentId, (tx) =>
+          tournamentLiveStateRepository.upsertAttendance(row, tx)
+        )
+      : await tournamentLiveStateRepository.upsertAttendance(row);
 
   if (result.arrived) {
     try {

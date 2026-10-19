@@ -36,6 +36,7 @@ import {
   type TournamentPreset,
 } from "@/config/tournament-presets";
 import { FINAL_PARTICIPANTS_ADMIN_NOTE } from "@/lib/tournament-final-policy";
+import { LATE_REGISTRATION_CLOSED_MESSAGE } from "@/lib/registration-policy-copy";
 import type { Player } from "@/types/domain";
 
 export const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }> = [
@@ -196,6 +197,10 @@ export default function AdminTournamentEditPage() {
   const [seasonError, setSeasonError] = useState<string | null>(null);
   const [tournamentStatus, setTournamentStatus] = useState<string | null>(null);
   const [participants, setParticipants] = useState<AdminTournamentParticipant[]>([]);
+  // Late Registration closed (tournament_late_registration snapshot exists):
+  // adding NEW participants is closed server-side; hide the controls. The
+  // existing roster stays fully manageable.
+  const [lateRegistrationClosed, setLateRegistrationClosed] = useState(false);
   const [showAddParticipantForm, setShowAddParticipantForm] = useState(false);
   const [newParticipantNick, setNewParticipantNick] = useState("");
   const [participantSaving, setParticipantSaving] = useState(false);
@@ -218,6 +223,24 @@ export default function AdminTournamentEditPage() {
   async function loadParticipants(currentTournamentId: string) {
     const participantsData = await getAdminTournamentParticipants(currentTournamentId);
     setParticipants(participantsData);
+  }
+
+  // Display-only; on any failure the controls stay visible and the server
+  // still rejects (addAdminTournamentParticipant / addExistingPlayerToTournament).
+  async function refreshLateRegistrationClosed(currentTournamentId: string): Promise<boolean> {
+    try {
+      const payload = await fetchAdminJson<{ snapshot: unknown | null }>(
+        `/api/admin/tournaments/${currentTournamentId}/late-registration`
+      );
+      const closed = payload?.snapshot != null;
+      setLateRegistrationClosed(closed);
+      if (closed) {
+        setShowAddParticipantForm(false);
+      }
+      return closed;
+    } catch {
+      return false;
+    }
   }
 
   useEffect(() => {
@@ -259,6 +282,7 @@ export default function AdminTournamentEditPage() {
         setTournamentStatus(tournament.status);
         setSavedIsFinal(tournament.is_final === true);
         setParticipants(participantsData);
+        await refreshLateRegistrationClosed(tournamentId);
       } catch (err) {
         const nextMessage =
           err instanceof Error ? err.message : "Ошибка загрузки турнира";
@@ -401,7 +425,11 @@ export default function AdminTournamentEditPage() {
     } catch (err) {
       const nextMessage =
         err instanceof Error ? err.message : "Ошибка добавления участника";
-      setError(nextMessage);
+      setError(
+        (await refreshLateRegistrationClosed(tournamentId))
+          ? LATE_REGISTRATION_CLOSED_MESSAGE
+          : nextMessage
+      );
     } finally {
       setParticipantSaving(false);
     }
@@ -612,7 +640,12 @@ export default function AdminTournamentEditPage() {
       setMessage("Участник добавлен");
       setPlayerSearch("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка добавления участника");
+      const nextMessage = err instanceof Error ? err.message : "Ошибка добавления участника";
+      setError(
+        (await refreshLateRegistrationClosed(tournamentId))
+          ? LATE_REGISTRATION_CLOSED_MESSAGE
+          : nextMessage
+      );
     } finally {
       setAddingExistingPlayerId(null);
     }
@@ -831,20 +864,29 @@ export default function AdminTournamentEditPage() {
             <h2 className="text-lg font-semibold text-white">
               Участники
             </h2>
-            <button
-              type="button"
-              onClick={() => setShowAddParticipantForm((prev) => !prev)}
-              className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              + Добавить
-            </button>
+            {lateRegistrationClosed ? null : (
+              <button
+                type="button"
+                onClick={() => setShowAddParticipantForm((prev) => !prev)}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                + Добавить
+              </button>
+            )}
           </div>
+
+          {lateRegistrationClosed ? (
+            <p className="mt-3 text-xs text-white/50">
+              {LATE_REGISTRATION_CLOSED_MESSAGE}. Добавление новых участников недоступно —
+              текущий состав можно вести как обычно.
+            </p>
+          ) : null}
 
           {isFinal ? (
             <p className="mt-3 text-xs text-white/50">{FINAL_PARTICIPANTS_ADMIN_NOTE}</p>
           ) : null}
 
-          {showAddParticipantForm ? (
+          {showAddParticipantForm && !lateRegistrationClosed ? (
             <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
               <div className="flex gap-2">
                 <button

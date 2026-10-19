@@ -78,6 +78,11 @@ export type TournamentCardProps = {
   // title/description -- only tournament.is_final.
   onAction?: () => void;
   actionLoading?: boolean;
+  // Set (detail page) when self-service is closed for this player by a
+  // server-side invariant -- e.g. "Вы участвуете в турнире" after arrival,
+  // or "Поздняя регистрация завершена". Renders that label as a
+  // non-interactive informational pill; onAction is never invoked.
+  lockedActionLabel?: string | null;
   className?: string;
   // Passed straight through to TournamentVisual's `loading` attribute.
   // Default "eager" preserves current behavior everywhere -- Detail never
@@ -103,6 +108,7 @@ export function TournamentCard({
   registrationStatus,
   onAction,
   actionLoading = false,
+  lockedActionLabel = null,
   className = "",
   artworkLoading = "eager",
 }: TournamentCardProps) {
@@ -123,17 +129,21 @@ export function TournamentCard({
   // area at all, matching the detail page's prior behavior.
   const showAction = tournament.status !== "completed";
 
+  const lockedLabel = tournament.is_final ? null : lockedActionLabel;
+
   const actionLabel = tournament.is_final
     ? getFinalRegistrationLabel(isPlayerInFinal)
-    : actionLoading
-      ? "Сохраняем..."
-      : registrationStatus === "registered"
-        ? "Вы записаны"
-        : registrationStatus === "waitlist"
-          ? "Вы в листе ожидания"
-          : "Записаться";
+    : lockedLabel
+      ? lockedLabel
+      : actionLoading
+        ? "Сохраняем..."
+        : registrationStatus === "registered"
+          ? "Вы записаны"
+          : registrationStatus === "waitlist"
+            ? "Вы в листе ожидания"
+            : "Записаться";
 
-  const isInteractive = Boolean(onAction) && !tournament.is_final;
+  const isInteractive = Boolean(onAction) && !tournament.is_final && !lockedLabel;
   const boostBadge = getBoostRatingBadge(tournament);
 
   return (
@@ -212,7 +222,9 @@ export function TournamentCard({
                       ? isPlayerInFinal
                         ? "border border-emerald-400/20 bg-emerald-500/14 text-emerald-100"
                         : "border border-white/10 bg-white/[0.06] text-white/65"
-                      : "bg-[#d7b55a] text-black"
+                      : lockedLabel
+                        ? "border border-white/10 bg-white/[0.06] text-white/65"
+                        : "bg-[#d7b55a] text-black"
                   }`}
                 >
                   {actionLabel}

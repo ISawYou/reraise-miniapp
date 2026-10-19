@@ -46,6 +46,8 @@ export type FakeRegistration = {
 export type FakePlayer = {
   restrictedAt: Date | null;
   telegramId: number | null;
+  // Set only for players CREATED through the fake (walk-in insert).
+  displayName?: string;
 };
 
 export type FakeLateRegistrationSnapshot = {
@@ -240,6 +242,7 @@ function selectRows(table: unknown): unknown[] {
     return Array.from(state.attendance.entries()).map(([playerId, row]) => ({
       playerId,
       arrived: row.arrived,
+      arrivedAt: row.arrivedAt,
     }));
   }
   if (table === tournamentLateRegistration) {
@@ -380,6 +383,15 @@ function makeExecutor() {
           }
           fake.state.registrations.push(row);
           return { returning: () => Promise.resolve([{ ...row }]) };
+        }
+        if (table === players) {
+          const id = `player-new-${++seq}`;
+          fake.state.players.set(id, {
+            restrictedAt: null,
+            telegramId: (values.telegramId as number | null) ?? null,
+            displayName: values.displayName as string,
+          });
+          return { returning: () => Promise.resolve([{ id }]) };
         }
         if (table === tournamentAttendance) {
           return {

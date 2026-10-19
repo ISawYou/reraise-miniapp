@@ -13,6 +13,10 @@ import {
 import { lockTournamentRow, type Executor } from "@/features/tournament-row-lock";
 import { dispatchWaitlistPromotionNotifications } from "@/features/tournament-promotion-notification";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
+import {
+  ARRIVED_CANCELLATION_REJECTED_MESSAGE,
+  LATE_REGISTRATION_CLOSED_MESSAGE,
+} from "@/lib/registration-policy-copy";
 import type { Registration, RegistrationStatus } from "@/types/domain";
 
 // Tournament seat capacity + waitlist reconciliation -- the ONE canonical
@@ -444,6 +448,12 @@ function toRegistration(
 // the rule applies, the returned registration carries
 // `online_registration_restricted: true` so the player UI can explain the
 // waitlist outcome (absent otherwise -- unrestricted results are unchanged).
+//
+// LATE REGISTRATION CLOSED: a new or reactivated (cancelled) row is
+// refused outright (TournamentRosterActionError with
+// LATE_REGISTRATION_CLOSED_MESSAGE) -- not even a waitlist row is created
+// (Final Month included: the field is final once the snapshot exists).
+// Existing non-cancelled rows are returned unchanged, exactly as above.
 export type AdmittedRegistration = Registration & { online_registration_restricted?: true };
 
 export async function admitPlayerToTournament(
@@ -474,6 +484,19 @@ export async function admitPlayerToTournament(
 
     if (existing && existing.status !== "cancelled") {
       return { registration: withPolicy(toRegistration(tournamentId, existing)), claimed };
+    }
+
+    // LATE REGISTRATION CLOSED => the field can no longer grow. Past this
+    // point the only outcomes are creating a new row or reactivating a
+    // cancelled one (as `registered` OR `waitlist`) -- both are refused
+    // once the tournament_late_registration snapshot exists. Decided under
+    // the same tournament-row lock that features/late-registration.ts takes
+    // before inserting the snapshot, so a close can't slip in between this
+    // check and the write below. Existing registered/attended/waitlist rows
+    // were already returned untouched above (and an existing waitlist row
+    // still never gets seated: promoteWithinLock refuses after close).
+    if (state.lateRegistrationClosed) {
+      throw new TournamentRosterActionError(LATE_REGISTRATION_CLOSED_MESSAGE);
     }
 
     // A cancelled row that still carries THIS tournament's no_show_at (the
@@ -911,5 +934,169 @@ export async function clearOnlineRegistrationRestrictionOnArrival(
       .set({ onlineRegistrationRestrictedAt: null })
       .where(eq(players.id, playerId));
     return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Registration invariants: "no self-cancel after arrival" and "no new
+// entrant after Late Registration closes". Same tournament-row lock as
+// everything above -- no second lock, no second promotion engine.
+// ---------------------------------------------------------------------------
+
+export type SelfCancellationResult = {
+  registrationId: string;
+  previousStatus: RegistrationStatus;
+};
+
+// A PLAYER's own cancellation (cancelPlayerRegistration). Atomically, under
+// the tournament-row lock:
+//   1. if this player has a recorded arrival for this tournament
+//      (tournament_attendance.arrived_at IS NOT NULL -- the FIRST-arrival
+//      fact, deliberately NOT the current `arrived` flag, which may be
+//      toggled back later and says nothing about a busted-out player), the
+//      cancellation is refused with ARRIVED_CANCELLATION_REJECTED_MESSAGE
+//      and nothing changes;
+//   2. otherwise the player's registered/waitlist row is cancelled (same
+//      row selection as the repository method it replaces: newest
+//      registered-or-waitlist row).
+// Arrival writes take the same lock (writeAttendanceWithinTournamentLock),
+// so an arrival can never commit between the check in (1) and the write in
+// (2). Admin technical corrections (removeAdminTournamentParticipant) are a
+// separate policy and never go through here. The caller runs the canonical
+// reconciler afterwards when a seat was freed, exactly as before.
+export async function cancelOwnRegistrationWithinLock(
+  tournamentId: string,
+  playerId: string
+): Promise<SelfCancellationResult> {
+  assertPostgresMode();
+
+  return db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Executor;
+    const locked = await lockTournamentRow(tx, tournamentId);
+    if (!locked) {
+      throw new TournamentNotFoundError(tournamentId);
+    }
+
+    const attendanceRows = await tx
+      .select({ playerId: tournamentAttendance.playerId, arrivedAt: tournamentAttendance.arrivedAt })
+      .from(tournamentAttendance)
+      .where(
+        and(eq(tournamentAttendance.tournamentId, tournamentId), eq(tournamentAttendance.playerId, playerId))
+      );
+    if (attendanceRows.some((row) => row.playerId === playerId && row.arrivedAt != null)) {
+      throw new TournamentRosterActionError(ARRIVED_CANCELLATION_REJECTED_MESSAGE);
+    }
+
+    const registrationRows = await tx
+      .select({
+        id: registrations.id,
+        playerId: registrations.playerId,
+        status: registrations.status,
+        createdAt: registrations.createdAt,
+      })
+      .from(registrations)
+      .where(
+        and(
+          eq(registrations.tournamentId, tournamentId),
+          eq(registrations.playerId, playerId),
+          inArray(registrations.status, ["registered", "waitlist"])
+        )
+      );
+    const [current] = registrationRows
+      .filter(
+        (row) => row.playerId === playerId && (row.status === "registered" || row.status === "waitlist")
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    if (!current) {
+      throw new Error("Registration not found");
+    }
+
+    await tx
+      .update(registrations)
+      .set({ status: "cancelled" })
+      .where(and(eq(registrations.id, current.id), eq(registrations.status, current.status)));
+
+    return { registrationId: current.id, previousStatus: current.status as RegistrationStatus };
+  });
+}
+
+// The ONE arrival write path's serialization point: runs the caller's
+// attendance upsert (features/tournaments.ts::setTournamentPlayerAttendance
+// -> tournamentLiveStateRepository.upsertAttendance, unchanged SQL and
+// arrived/arrived_at semantics) inside a transaction that first takes the
+// tournament-row lock. This is what makes cancelOwnRegistrationWithinLock's
+// arrived_at check race-free: an arrival and a self-cancellation for the
+// same tournament now run strictly one after the other, so either the
+// arrival commits first (and the cancel is refused) or the cancel commits
+// first (a legitimate pre-arrival cancellation).
+export async function writeAttendanceWithinTournamentLock<T>(
+  tournamentId: string,
+  write: (tx: Executor) => Promise<T>
+): Promise<T> {
+  assertPostgresMode();
+
+  return db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Executor;
+    // A missing tournament is left to the write itself (its FK fails
+    // exactly as it did before this lock existed).
+    await lockTournamentRow(tx, tournamentId);
+    return write(tx);
+  });
+}
+
+export type WalkInParticipantResult = {
+  playerId: string;
+  registrationId: string;
+};
+
+// Admin "add a new player by nickname" (addAdminTournamentParticipant):
+// creates the Player AND their registration in ONE transaction under the
+// tournament-row lock, after the SAME canonical Late Registration check
+// the rest of this module uses (readCapacityState.lateRegistrationClosed).
+// If Late Registration is already closed -- or closes concurrently, since
+// closing takes this same lock -- nothing is written at all: no orphan
+// Player row can be left behind. The registration itself is written
+// exactly as before this change (status `registered`, staff walk-in).
+export async function createWalkInParticipantWithinLock(
+  tournamentId: string,
+  nick: string
+): Promise<WalkInParticipantResult> {
+  assertPostgresMode();
+
+  return db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Executor;
+    const locked = await lockTournamentRow(tx, tournamentId);
+    if (!locked) {
+      throw new TournamentNotFoundError(tournamentId);
+    }
+
+    const state = await readCapacityState(tx, tournamentId, locked.maxPlayers);
+    if (state.lateRegistrationClosed) {
+      throw new TournamentRosterActionError(LATE_REGISTRATION_CLOSED_MESSAGE);
+    }
+
+    const [player] = await tx
+      .insert(players)
+      .values({
+        telegramId: null,
+        username: null,
+        displayName: nick,
+        adminDisplayName: nick,
+        role: "player",
+      })
+      .returning({ id: players.id });
+    if (!player) {
+      throw new Error("Failed to create player: no rows returned");
+    }
+
+    const [registration] = await tx
+      .insert(registrations)
+      .values({ playerId: player.id, tournamentId, status: "registered" })
+      .returning({ id: registrations.id });
+    if (!registration) {
+      throw new Error("Failed to create registration: no rows returned");
+    }
+
+    return { playerId: player.id, registrationId: registration.id };
   });
 }

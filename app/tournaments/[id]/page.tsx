@@ -13,10 +13,15 @@ import {
   registerPlayerForTournament,
   cancelPlayerRegistration,
   getMyOnlineRegistrationRestriction,
+  getMyTournamentRegistrationGuards,
 } from "@/features/tournaments";
 import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
 import { logEvent } from "@/lib/activity-client";
 import {
+  ARRIVED_CANCELLATION_REJECTED_MESSAGE,
+  ARRIVED_PARTICIPATION_STATUS,
+  LATE_REGISTRATION_CLOSED_MESSAGE,
+  LATE_REGISTRATION_CLOSED_STATUS,
   REGISTRATION_RESERVES_SEAT_HINT,
   RESTRICTED_WAITLIST_EXPLANATION,
   RESTRICTED_WAITLIST_JOINED_MESSAGE,
@@ -54,6 +59,25 @@ import type {
 import type { PublicActiveTournamentPlayer } from "@/types/poker-clock-live-state";
 
 type TabKey = "about" | "live" | "registration" | "results";
+
+type RegistrationGuards = { lateRegistrationClosed: boolean; arrived: boolean };
+
+const NO_REGISTRATION_GUARDS: RegistrationGuards = { lateRegistrationClosed: false, arrived: false };
+
+// Display-only mirror of the server-side registration invariants. Never
+// blocks the page: any failure collapses to "no guard" -- the server
+// (registerPlayerForTournament / cancelPlayerRegistration) still enforces.
+async function loadRegistrationGuards(tournamentId: string): Promise<RegistrationGuards> {
+  try {
+    const guards = await getMyTournamentRegistrationGuards(tournamentId);
+    return {
+      lateRegistrationClosed: guards?.lateRegistrationClosed === true,
+      arrived: guards?.arrived === true,
+    };
+  } catch {
+    return NO_REGISTRATION_GUARDS;
+  }
+}
 
 function CalendarIcon() {
   return (
@@ -367,6 +391,18 @@ export default function TournamentDetailsPage() {
   // (self-registration only reaches the waitlist). Display-only -- the
   // server enforces the rule regardless.
   const [registrationRestricted, setRegistrationRestricted] = useState(false);
+  const [registrationGuards, setRegistrationGuards] =
+    useState<RegistrationGuards>(NO_REGISTRATION_GUARDS);
+  // Self-service closed by a server-side invariant (display mirror only):
+  //   - arrived (first-arrival fact) + any registration -> cancel is gone;
+  //   - Late Registration closed + no registration -> no new entry.
+  const cancellationLocked = Boolean(registrationStatus) && registrationGuards.arrived;
+  const registrationLocked = !registrationStatus && registrationGuards.lateRegistrationClosed;
+  const lockedActionLabel = cancellationLocked
+    ? ARRIVED_PARTICIPATION_STATUS
+    : registrationLocked
+      ? LATE_REGISTRATION_CLOSED_STATUS
+      : null;
   const tournamentDateParts = tournament
     ? formatTournamentDateParts(tournament.start_at)
     : null;
@@ -454,16 +490,18 @@ const waitlistParticipants = participants.filter(
   }
 
   async function refreshPageData(currentPlayer: Player, currentTournamentId: string) {
-    const [tournamentData, participantsData, myRegistration, visualsData] = await Promise.all([
+    const [tournamentData, participantsData, myRegistration, visualsData, guards] = await Promise.all([
       getVisibleTournamentByIdForPlayer(currentTournamentId, currentPlayer),
       getTournamentParticipants(currentTournamentId),
       getPlayerRegistrationForTournament(currentPlayer.id, currentTournamentId),
       fetch("/api/tournament-visuals").then((response) =>
         response.ok ? response.json() : { visuals: [] }
       ),
+      loadRegistrationGuards(currentTournamentId),
     ]);
 
     setTournament(tournamentData);
+    setRegistrationGuards(guards);
     setParticipants(participantsData);
     setRegistrationStatus(myRegistration?.status ?? null);
     setRegisteredCount(participantsData.filter((p) => p.status === "registered").length);
@@ -517,7 +555,7 @@ const waitlistParticipants = participants.filter(
   }, [tournamentId]);
 
   async function handleRegister() {
-    if (!player?.id || !tournamentId) return;
+    if (!player?.id || !tournamentId || registrationLocked) return;
 
     try {
       setActionLoading(true);
@@ -545,14 +583,20 @@ const waitlistParticipants = participants.filter(
 
       await refreshPageData(player, tournamentId);
     } catch (err) {
-      setMessage("Ошибка записи");
+      // Production Server Actions don't forward the thrown message -- re-read
+      // the guards so a Late-Registration rejection is explained precisely.
+      const guards = await loadRegistrationGuards(tournamentId);
+      setRegistrationGuards(guards);
+      setMessage(guards.lateRegistrationClosed ? LATE_REGISTRATION_CLOSED_MESSAGE : "Ошибка записи");
     } finally {
       setActionLoading(false);
     }
   }
 
   async function handleCancel() {
-    if (!player?.id || !tournamentId) return;
+    // Never dispatched once the player's arrival is recorded -- the server
+    // refuses it anyway (cancelPlayerRegistration fails closed).
+    if (!player?.id || !tournamentId || cancellationLocked) return;
 
     try {
       setActionLoading(true);
@@ -569,7 +613,9 @@ const waitlistParticipants = participants.filter(
 
       await refreshPageData(player, tournamentId);
     } catch (err) {
-      setMessage("Ошибка отмены записи");
+      const guards = await loadRegistrationGuards(tournamentId);
+      setRegistrationGuards(guards);
+      setMessage(guards.arrived ? ARRIVED_CANCELLATION_REJECTED_MESSAGE : "Ошибка отмены записи");
     } finally {
       setActionLoading(false);
     }
@@ -581,6 +627,7 @@ const waitlistParticipants = participants.filter(
   // this at all for a final tournament, regardless of what's passed here --
   // see TournamentCard's onAction doc comment.
   function handleCardAction() {
+    if (lockedActionLabel) return;
     if (registrationStatus) {
       handleCancel();
     } else {
@@ -612,6 +659,25 @@ const waitlistParticipants = participants.filter(
         >
           {isPlayerInFinal ? <CheckIcon /> : null}
           <span>{getFinalRegistrationLabel(isPlayerInFinal)}</span>
+        </div>
+      );
+    }
+
+    // Informational, never a button: the arrived player can no longer
+    // self-cancel (even after busting out), and after Late Registration a
+    // player without a registration can no longer enter or join the
+    // waitlist. Server-side enforcement is independent of this read-out.
+    if (lockedActionLabel) {
+      return (
+        <div
+          className={`flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-center font-semibold ${
+            cancellationLocked
+              ? "border-emerald-400/20 bg-emerald-500/14 text-emerald-100"
+              : "border-white/10 bg-white/[0.04] text-white/60"
+          }`}
+        >
+          {cancellationLocked ? <CheckIcon /> : null}
+          <span>{lockedActionLabel}</span>
         </div>
       );
     }
@@ -706,6 +772,7 @@ const waitlistParticipants = participants.filter(
           registrationStatus={registrationStatus}
           onAction={handleCardAction}
           actionLoading={actionLoading}
+          lockedActionLabel={lockedActionLabel}
         />
 
         <div className="mt-4 grid grid-cols-3 gap-2">
@@ -957,7 +1024,11 @@ const waitlistParticipants = participants.filter(
               <p className="text-sm text-white/72">
                 {tournament.is_final
                   ? FINAL_REGISTRATION_EXPLANATION
-                  : !registrationStatus
+                  : cancellationLocked
+                    ? ARRIVED_PARTICIPATION_STATUS
+                    : registrationLocked
+                      ? LATE_REGISTRATION_CLOSED_MESSAGE
+                      : !registrationStatus
                     ? registeredCount >= tournament.max_players
                       ? "Свободные места закончились, но можно встать в список ожидания."
                       : "Кнопка регистрации закреплена внизу экрана и всегда доступна."
@@ -1046,7 +1117,9 @@ const waitlistParticipants = participants.filter(
           <div className="mx-auto max-w-md">
             <div className="pointer-events-auto rounded-[22px] border border-white/10 bg-[#0d0f0f]/78 p-3 backdrop-blur-xl">
               {renderActionButton()}
-              {!tournament.is_final && (!registrationStatus || registrationStatus === "registered") ? (
+              {!tournament.is_final &&
+              !lockedActionLabel &&
+              (!registrationStatus || registrationStatus === "registered") ? (
                 <p className="mt-2 text-center text-[11px] leading-snug text-white/45">
                   {REGISTRATION_RESERVES_SEAT_HINT}
                 </p>

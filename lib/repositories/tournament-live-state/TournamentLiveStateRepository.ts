@@ -8,6 +8,11 @@
 // Deciding *whether* live mode applies (`kind === "free"` checks),
 // building the rows to insert, and all Google Sheets sync stay in
 // features/tournaments.ts, exactly as before.
+import type { db } from "@/lib/db/client";
+
+// A Drizzle Postgres executor (the global `db` or an open transaction).
+export type AttendanceWriteExecutor = typeof db;
+
 export type LiveEntryPlayerJoin = {
   username?: string | null;
   display_name?: string;
@@ -177,7 +182,14 @@ export interface TournamentLiveStateRepository {
   // its "first arrival time" semantics stay race-free even under genuinely
   // concurrent cross-tab writes, independent of `arrived`'s own
   // last-write-wins behavior.
-  upsertAttendance(row: AttendanceUpsert): Promise<AttendanceWriteResult>;
+  //
+  // `tx` (Postgres only): run the SAME statement on the caller's open
+  // transaction instead of the global connection -- used by
+  // setTournamentPlayerAttendance to write the arrival under the
+  // tournament-row lock (see features/tournament-waitlist-capacity.ts::
+  // writeAttendanceWithinTournamentLock). Omitted = exactly the old
+  // behavior. The legacy Supabase implementation ignores it.
+  upsertAttendance(row: AttendanceUpsert, tx?: AttendanceWriteExecutor): Promise<AttendanceWriteResult>;
   // arrived = true rows only, joined with player identity -- feeds the
   // integrations/v1 players endpoint directly (features/tournaments.ts
   // still does the rating lookup + nickname/avatar resolution, per

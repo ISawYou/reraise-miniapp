@@ -461,3 +461,34 @@ describe("mobile participant cards (narrow width) -- two levels, nothing truncat
     expect(identity.textContent).toContain("Неявок: 3");
   });
 });
+
+describe("Late Registration closed -- adding NEW participants is hidden, the roster stays manageable", () => {
+  function snapshotResponse(closed: boolean) {
+    mocks.fetchAdminJson.mockImplementation(async (url: string) =>
+      url.endsWith("/late-registration")
+        ? { ok: true, snapshot: closed ? { tournament_id: "t1" } : null }
+        : { season: { title: "Осень" } }
+    );
+  }
+
+  it("closed: no '+ Добавить', an explanation instead; existing roster actions remain", async () => {
+    snapshotResponse(true);
+    await render();
+
+    expect(buttonIn(container, "+ Добавить")).toBeUndefined();
+    expect(container.textContent).toContain("Поздняя регистрация завершена — запись на турнир закрыта");
+    expect(buttonIn(container, "Создать нового")).toBeUndefined();
+    expect(buttonIn(container, "Добавить существующего")).toBeUndefined();
+    // Roster management is untouched.
+    expect(container.textContent).toContain("Alice");
+    expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Удалить")).toBe(true);
+  });
+
+  it("open: '+ Добавить' is offered as before", async () => {
+    snapshotResponse(false);
+    await render();
+
+    expect(buttonIn(container, "+ Добавить")).toBeDefined();
+    expect(container.textContent).not.toContain("Поздняя регистрация завершена");
+  });
+});

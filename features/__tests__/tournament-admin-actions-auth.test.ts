@@ -22,6 +22,14 @@ const mocks = vi.hoisted(() => ({
   registrationFindOldestWaitlisted: vi.fn(),
   admitPlayerToTournament: vi.fn(),
   reconcileTournamentWaitlistCapacity: vi.fn(),
+  cancelOwnRegistrationWithinLock: vi.fn(async () => ({
+    registrationId: "reg-1",
+    previousStatus: "registered",
+  })),
+  createWalkInParticipantWithinLock: vi.fn(async () => ({
+    playerId: "walk-in-1",
+    registrationId: "reg-walk-in-1",
+  })),
 }));
 
 // Wholesale mock -- NOT vi.importActual + spread. assertServerActorRole's
@@ -42,6 +50,8 @@ vi.mock("@/features/tournament-waitlist-capacity", () => ({
   admitPlayerToTournament: mocks.admitPlayerToTournament,
   reconcileTournamentWaitlistCapacity: mocks.reconcileTournamentWaitlistCapacity,
   unEliminateTournamentPlayerWithinCapacity: vi.fn(),
+  cancelOwnRegistrationWithinLock: mocks.cancelOwnRegistrationWithinLock,
+  createWalkInParticipantWithinLock: mocks.createWalkInParticipantWithinLock,
 }));
 
 vi.mock("@/lib/repositories", () => ({
@@ -183,12 +193,13 @@ describe("addAdminTournamentParticipant / addExistingPlayerToTournament / remove
     deny();
     await expect(addAdminTournamentParticipant("t1", "Walk-in")).rejects.toThrow();
     expect(mocks.playerCreate).not.toHaveBeenCalled();
+    expect(mocks.createWalkInParticipantWithinLock).not.toHaveBeenCalled();
   });
 
   it("addAdminTournamentParticipant allows an operator", async () => {
     allow("operator");
     await addAdminTournamentParticipant("t1", "Walk-in");
-    expect(mocks.playerCreate).toHaveBeenCalled();
+    expect(mocks.createWalkInParticipantWithinLock).toHaveBeenCalledWith("t1", "Walk-in");
   });
 
   it("addExistingPlayerToTournament rejects when the guard rejects", async () => {

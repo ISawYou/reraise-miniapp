@@ -22,6 +22,14 @@ const mocks = vi.hoisted(() => ({
   playerCreate: vi.fn(),
   admitPlayerToTournament: vi.fn(),
   reconcileTournamentWaitlistCapacity: vi.fn(),
+  cancelOwnRegistrationWithinLock: vi.fn(async () => ({
+    registrationId: "reg-1",
+    previousStatus: "registered",
+  })),
+  createWalkInParticipantWithinLock: vi.fn(async () => ({
+    playerId: "walk-in-1",
+    registrationId: "reg-walk-in-1",
+  })),
 }));
 
 // Seat decisions live in features/tournament-waitlist-capacity.ts (Postgres
@@ -32,6 +40,8 @@ vi.mock("@/features/tournament-waitlist-capacity", () => ({
   admitPlayerToTournament: mocks.admitPlayerToTournament,
   reconcileTournamentWaitlistCapacity: mocks.reconcileTournamentWaitlistCapacity,
   unEliminateTournamentPlayerWithinCapacity: vi.fn(),
+  cancelOwnRegistrationWithinLock: mocks.cancelOwnRegistrationWithinLock,
+  createWalkInParticipantWithinLock: mocks.createWalkInParticipantWithinLock,
 }));
 
 vi.mock("@/lib/admin-auth", () => ({
@@ -145,6 +155,7 @@ describe("cancelPlayerRegistration -- fail closed on is_final", () => {
       "Состав финального турнира изменяет администратор.",
     );
     expect(mocks.registrationUpdateStatusSilent).not.toHaveBeenCalled();
+    expect(mocks.cancelOwnRegistrationWithinLock).not.toHaveBeenCalled();
   });
 
   it("still allows normal self-cancellation for an is_final=false tournament", async () => {
@@ -152,7 +163,8 @@ describe("cancelPlayerRegistration -- fail closed on is_final", () => {
 
     await cancelPlayerRegistration("player-1", "t1");
 
-    expect(mocks.registrationUpdateStatusSilent).toHaveBeenCalledWith("reg-1", "cancelled");
+    // The cancel write itself is the locked, arrival-aware one.
+    expect(mocks.cancelOwnRegistrationWithinLock).toHaveBeenCalledWith("t1", "player-1");
     expect(mocks.reconcileTournamentWaitlistCapacity).toHaveBeenCalledWith("t1");
   });
 });
@@ -194,7 +206,7 @@ describe("admin manual participant flow -- untouched by the final registration p
   it("addAdminTournamentParticipant succeeds without ever consulting tournamentRepository.findById", async () => {
     await addAdminTournamentParticipant("t1", "Walk-in");
 
-    expect(mocks.playerCreate).toHaveBeenCalled();
+    expect(mocks.createWalkInParticipantWithinLock).toHaveBeenCalledWith("t1", "Walk-in");
     expect(mocks.tournamentFindById).not.toHaveBeenCalled();
   });
 
