@@ -90,6 +90,9 @@ let container: HTMLDivElement;
 let root: Root;
 let previewResponse: ReturnType<typeof preview>;
 let conflictsResponse: unknown[];
+// When set, the preview call awaits this instead of resolving immediately.
+let previewGate: Promise<void> | null;
+let previewFailure: Error | null;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -97,13 +100,19 @@ beforeEach(() => {
   mocks.currentPlayer.current = { id: "admin", role: "admin", display_name: "Admin" } as Player;
   previewResponse = preview();
   conflictsResponse = [conflict];
+  previewGate = null;
+  previewFailure = null;
   mocks.fetchAdminJson.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === "/api/admin/account-merges") return { conflicts: conflictsResponse };
     if (url.startsWith("/api/admin/account-merges/search")) {
       const q = new URL(url, "http://x").searchParams.get("q");
       return { players: q === "tg" ? [candidate(TARGET_ID)] : [candidate(SOURCE_ID), candidate("33333333-3333-4333-8333-333333333333", { merged: true, display_name: "Ghost" })] };
     }
-    if (url === "/api/admin/account-merges/preview") return { preview: previewResponse };
+    if (url === "/api/admin/account-merges/preview") {
+      if (previewGate) await previewGate;
+      if (previewFailure) throw previewFailure;
+      return { preview: previewResponse };
+    }
     if (url === "/api/admin/account-merges/execute") {
       return {
         ok: true,
@@ -166,6 +175,12 @@ async function pick(side: "merge-target" | "merge-source", query: string) {
   await click(container.querySelector(`[data-testid="${side}-result"]:not([disabled])`));
 }
 
+function precedes(a: Element | null, b: Element | null) {
+  expect(a).not.toBeNull();
+  expect(b).not.toBeNull();
+  return Boolean(a!.compareDocumentPosition(b!) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
 function executeCalls() {
   return mocks.fetchAdminJson.mock.calls.filter(([url]) => url === "/api/admin/account-merges/execute");
 }
@@ -221,11 +236,67 @@ describe("Merge Center UI", () => {
     expect(q("merge-counts")?.textContent).toContain("Неявок: 1");
     expect(q("merge-warnings")?.textContent).toContain("Имя профиля останется");
     expect(q<HTMLButtonElement>("merge-open-confirm")?.disabled).toBe(false);
+    expect(q("merge-open-confirm")?.textContent).toBe("Объединить аккаунты");
 
     await click(q("merge-swap"));
     expect(q("merge-target-selected")?.textContent).toContain("Ivan Email");
     expect(q("merge-source-selected")?.textContent).toContain("Ivan TG");
     expect(JSON.parse(previewCalls()[1][1].body)).toEqual({ targetPlayerId: SOURCE_ID, sourcePlayerId: TARGET_ID });
+    expect(q<HTMLButtonElement>("merge-open-confirm")?.disabled).toBe(false);
+    expect(q("merge-open-confirm")?.textContent).toBe("Объединить аккаунты");
+  });
+
+  it("the primary CTA appears right after both accounts are chosen -- under the swap button, BEFORE the long preview", async () => {
+    await render();
+    await pick("merge-target", "tg");
+    expect(q("merge-open-confirm")).toBeNull();
+    await pick("merge-source", "ivan");
+
+    const cta = q("merge-open-confirm");
+    expect(container.querySelectorAll('[data-testid="merge-open-confirm"]')).toHaveLength(1);
+    expect(precedes(q("merge-swap"), cta)).toBe(true);
+    expect(precedes(cta, q("merge-preview"))).toBe(true);
+
+    // The confirmation panel opens directly under the CTA, also above the preview.
+    await click(cta);
+    expect(precedes(cta, q("merge-confirm"))).toBe(true);
+    expect(precedes(q("merge-confirm"), q("merge-preview"))).toBe(true);
+  });
+
+  it("CTA is disabled with a 'checking' label while the preview loads, then enables once an eligible preview arrives", async () => {
+    let release!: () => void;
+    previewGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await render();
+    await pick("merge-target", "tg");
+    await pick("merge-source", "ivan");
+
+    const loadingCta = q<HTMLButtonElement>("merge-open-confirm");
+    expect(loadingCta?.disabled).toBe(true);
+    expect(loadingCta?.textContent).toBe("Проверяем возможность объединения...");
+    expect(q("merge-preview")).toBeNull();
+
+    await act(async () => release());
+    await flush();
+
+    expect(q<HTMLButtonElement>("merge-open-confirm")?.disabled).toBe(false);
+    expect(q("merge-open-confirm")?.textContent).toBe("Объединить аккаунты");
+  });
+
+  it("a failed preview leaves the CTA visible but disabled with an explicit 'could not check' label", async () => {
+    previewFailure = new Error("Сервер недоступен");
+    await render();
+    await pick("merge-target", "tg");
+    await pick("merge-source", "ivan");
+
+    const cta = q<HTMLButtonElement>("merge-open-confirm");
+    expect(cta?.disabled).toBe(true);
+    expect(cta?.textContent).toBe("Не удалось проверить объединение");
+    expect(container.textContent).toContain("Сервер недоступен");
+    await click(cta);
+    expect(q("merge-confirm")).toBeNull();
+    expect(executeCalls()).toHaveLength(0);
   });
 
   it("blockers render and disable the merge button", async () => {
@@ -240,8 +311,14 @@ describe("Merge Center UI", () => {
     await pick("merge-source", "ivan");
 
     expect(q("merge-blockers")?.textContent).toContain("Texas Classic — 12.10.2026");
-    expect(q<HTMLButtonElement>("merge-open-confirm")?.disabled).toBe(true);
+    const cta = q<HTMLButtonElement>("merge-open-confirm");
+    expect(cta).not.toBeNull();
+    expect(cta?.disabled).toBe(true);
+    expect(cta?.textContent).toBe("Объединение невозможно");
+    expect(precedes(cta, q("merge-blockers"))).toBe(true);
+    await click(cta);
     expect(q("merge-confirm")).toBeNull();
+    expect(executeCalls()).toHaveLength(0);
   });
 
   it("requires the exact typed confirmation before the execute call fires; success state renders, form resets, queue reloads", async () => {

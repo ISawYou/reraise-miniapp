@@ -377,6 +377,15 @@ function MergeCenter({
   }
 
   const blocked = !preview || !preview.eligible || previewLoading;
+  // The CTA sits right under the selectors (above the potentially
+  // multi-screen preview), so its label has to carry the preview state.
+  const ctaLabel = previewLoading
+    ? "Проверяем возможность объединения..."
+    : preview
+      ? preview.eligible
+        ? "Объединить аккаунты"
+        : "Объединение невозможно"
+      : "Не удалось проверить объединение";
 
   return (
     <section data-testid="merge-center" className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
@@ -456,7 +465,79 @@ function MergeCenter({
         Поменять местами
       </button>
 
-      {previewLoading ? <p className="mt-4 text-sm text-white/60">Строим предпросмотр...</p> : null}
+      {target && source ? (
+        <button
+          type="button"
+          data-testid="merge-open-confirm"
+          disabled={blocked || confirmOpen}
+          onClick={() => {
+            setConfirmOpen(true);
+            setConfirmText("");
+          }}
+          className="mt-4 w-full rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white disabled:bg-white/10 disabled:text-white/40"
+        >
+          {ctaLabel}
+        </button>
+      ) : null}
+
+      {target && source && preview && !preview.eligible && !previewLoading ? (
+        <p data-testid="merge-cta-blocked-hint" className="mt-2 text-xs text-red-200/80">
+          Причины указаны ниже, в предпросмотре.
+        </p>
+      ) : null}
+
+      {confirmOpen && target && source && preview?.eligible ? (
+        <div data-testid="merge-confirm" className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm">
+          <p className="whitespace-pre-line text-white">
+            {`Основным останется: ${target.display_name}\n\nВ него будет объединён: ${source.display_name}`}
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-white/70">
+            <li>Вся история присоединяемого аккаунта перейдёт в основной.</li>
+            <li>Присоединяемый аккаунт станет объединённым и больше не будет самостоятельным.</li>
+            <li>Вход через перенесённый email/Telegram будет вести в основной аккаунт.</li>
+            <li>Отменить объединение из приложения нельзя.</li>
+          </ul>
+          <label className="mt-3 block text-xs text-white/60">
+            Введите {CONFIRMATION_WORD}, чтобы подтвердить
+            <input
+              data-testid="merge-confirm-input"
+              value={confirmText}
+              onChange={(event) => setConfirmText(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white"
+              autoComplete="off"
+            />
+          </label>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              data-testid="merge-confirm-submit"
+              disabled={confirmText !== CONFIRMATION_WORD || executing}
+              onClick={execute}
+              className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:bg-white/10 disabled:text-white/40"
+            >
+              {executing ? "Объединяем..." : "Подтвердить объединение"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmOpen(false);
+                setConfirmText("");
+              }}
+              className="rounded-lg border border-white/10 px-3 py-2 text-sm text-white/70"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {executeError ? (
+        <p data-testid="merge-execute-error" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-200">
+          {executeError}
+        </p>
+      ) : null}
+
+      {previewLoading ?<p className="mt-4 text-sm text-white/60">Строим предпросмотр...</p> : null}
       {previewError ? (
         <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-200">{previewError}</p>
       ) : null}
@@ -540,72 +621,6 @@ function MergeCenter({
             </div>
           ) : null}
         </div>
-      ) : null}
-
-      {target && source ? (
-        <button
-          type="button"
-          data-testid="merge-open-confirm"
-          disabled={blocked || confirmOpen}
-          onClick={() => {
-            setConfirmOpen(true);
-            setConfirmText("");
-          }}
-          className="mt-4 w-full rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white disabled:bg-white/10 disabled:text-white/40"
-        >
-          Объединить аккаунты
-        </button>
-      ) : null}
-
-      {confirmOpen && target && source && preview?.eligible ? (
-        <div data-testid="merge-confirm" className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm">
-          <p className="whitespace-pre-line text-white">
-            {`Основным останется: ${target.display_name}\n\nВ него будет объединён: ${source.display_name}`}
-          </p>
-          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-white/70">
-            <li>Вся история присоединяемого аккаунта перейдёт в основной.</li>
-            <li>Присоединяемый аккаунт станет объединённым и больше не будет самостоятельным.</li>
-            <li>Вход через перенесённый email/Telegram будет вести в основной аккаунт.</li>
-            <li>Отменить объединение из приложения нельзя.</li>
-          </ul>
-          <label className="mt-3 block text-xs text-white/60">
-            Введите {CONFIRMATION_WORD}, чтобы подтвердить
-            <input
-              data-testid="merge-confirm-input"
-              value={confirmText}
-              onChange={(event) => setConfirmText(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white"
-              autoComplete="off"
-            />
-          </label>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              data-testid="merge-confirm-submit"
-              disabled={confirmText !== CONFIRMATION_WORD || executing}
-              onClick={execute}
-              className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:bg-white/10 disabled:text-white/40"
-            >
-              {executing ? "Объединяем..." : "Подтвердить объединение"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setConfirmOpen(false);
-                setConfirmText("");
-              }}
-              className="rounded-lg border border-white/10 px-3 py-2 text-sm text-white/70"
-            >
-              Отмена
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {executeError ? (
-        <p data-testid="merge-execute-error" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-200">
-          {executeError}
-        </p>
       ) : null}
     </section>
   );
