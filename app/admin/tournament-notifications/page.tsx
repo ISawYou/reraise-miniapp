@@ -34,10 +34,18 @@ type NotificationError = {
   error: string;
 };
 
+function createBroadcastId() {
+  return globalThis.crypto.randomUUID();
+}
+
 type NotificationResult = {
   ok: boolean;
   dryRun?: boolean;
   testMode?: boolean;
+  broadcastId?: string;
+  // Set when the server recognised this broadcastId from an earlier request
+  // and therefore sent nothing this time.
+  duplicate?: "already_processing" | "already_completed";
   tournamentTitle: string;
   audience: NotificationAudience;
   totalRecipients: number;
@@ -111,9 +119,15 @@ export default function AdminTournamentNotificationsPage() {
     setMessageText(buildNotificationTemplate(selectedTournament));
   }, [selectedTournament]);
 
+  // dryRun is read-only and keeps the helper's default retry. A real send
+  // (Test Send or mass send) is a side effect: it carries a broadcastId
+  // generated ONCE per confirmed action by the caller, and is never
+  // auto-retried -- a 504 from nginx does not mean the server stopped
+  // sending (incident 2026-10-21/22: the retry re-sent the whole broadcast).
   async function sendNotifyRequest(params: {
     dryRun?: boolean;
     testMode?: boolean;
+    broadcastId?: string;
   }) {
     if (!selectedTournament) {
       throw new Error("Выберите турнир");
@@ -127,18 +141,29 @@ export default function AdminTournamentNotificationsPage() {
       throw new Error("Укажите testTelegramId");
     }
 
-    return fetchAdminJson<NotificationResult>("/api/admin/tournaments/notify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tournamentId: selectedTournament.id,
-        message: messageText.trim(),
-        audience,
-        dryRun: params.dryRun === true,
-        testMode: params.testMode === true,
-        testTelegramId: params.testMode ? testTelegramId.trim() : undefined,
-      }),
-    });
+    const isRealSend = params.dryRun !== true;
+
+    if (isRealSend && !params.broadcastId) {
+      throw new Error("Не удалось подготовить рассылку");
+    }
+
+    return fetchAdminJson<NotificationResult>(
+      "/api/admin/tournaments/notify",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tournamentId: selectedTournament.id,
+          message: messageText.trim(),
+          audience,
+          dryRun: params.dryRun === true,
+          testMode: params.testMode === true,
+          testTelegramId: params.testMode ? testTelegramId.trim() : undefined,
+          broadcastId: isRealSend ? params.broadcastId : undefined,
+        }),
+      },
+      isRealSend ? { retries: 0 } : undefined
+    );
   }
 
   async function handleDryRun() {
@@ -160,7 +185,10 @@ export default function AdminTournamentNotificationsPage() {
       setSending(true);
       setError(null);
       setResult(null);
-      const payload = await sendNotifyRequest({ testMode: true });
+      const payload = await sendNotifyRequest({
+        testMode: true,
+        broadcastId: createBroadcastId(),
+      });
       setResult(payload);
     } catch (err) {
       setError(
@@ -187,7 +215,11 @@ export default function AdminTournamentNotificationsPage() {
         return;
       }
 
-      const payload = await sendNotifyRequest({});
+      // One id per confirmed mass send -- created here, once, never inside
+      // a retry (the real send is not retried at all).
+      const payload = await sendNotifyRequest({
+        broadcastId: createBroadcastId(),
+      });
       setResult(payload);
     } catch (err) {
       setError(
@@ -241,10 +273,27 @@ export default function AdminTournamentNotificationsPage() {
           </div>
         ) : null}
 
-        {result ? (
+        {result?.duplicate === "already_processing" ? (
+          <div
+            role="status"
+            className="mt-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-100"
+          >
+            <p className="font-semibold">Эта рассылка уже выполняется</p>
+            <p className="mt-2">
+              Повторно ничего не отправлено. Дождитесь завершения исходной
+              отправки — не запускайте её заново.
+            </p>
+            <p className="mt-2">Турнир: {result.tournamentTitle}</p>
+            <p className="mt-1">Получателей: {result.totalRecipients}</p>
+          </div>
+        ) : result ? (
           <div className="mt-4 rounded-xl border border-green-500/30 bg-green-500/10 p-4 text-sm text-green-200">
             <p className="font-semibold">
-              {result.dryRun ? "Dry Run выполнен" : "Операция выполнена"}
+              {result.dryRun
+                ? "Dry Run выполнен"
+                : result.duplicate === "already_completed"
+                  ? "Эта рассылка уже была выполнена ранее — повторно ничего не отправлено"
+                  : "Операция выполнена"}
             </p>
             <p className="mt-2">Турнир: {result.tournamentTitle}</p>
             <p className="mt-1">Аудитория: {result.audience}</p>

@@ -21,3 +21,4 @@ export * from "./seasonRatingExclusions";
 export * from "./playerMergeIntents";
 export * from "./teams";
 export * from "./follows";
+export * from "./tournamentNotificationBroadcasts";

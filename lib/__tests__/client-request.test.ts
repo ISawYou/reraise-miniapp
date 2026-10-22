@@ -136,6 +136,55 @@ describe("fetchAdminJson", () => {
   });
 });
 
+describe("fetchAdminJson { retries: 0 } (side-effecting sends, e.g. Telegram broadcasts)", () => {
+  it("a 504 results in exactly ONE fetch attempt and surfaces the error", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue({ ok: false, status: 504, json: async () => { throw new SyntaxError("html"); } } as unknown as Response);
+
+    const promise = fetchAdminJson("/api/admin/tournaments/notify", { method: "POST", body: "{}" }, { retries: 0 });
+    const assertion = expect(promise).rejects.toThrow("Не удалось выполнить запрос");
+    await vi.advanceTimersByTimeAsync(5000);
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("a network TypeError results in exactly ONE fetch attempt", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const promise = fetchAdminJson("/api/x", { method: "POST" }, { retries: 0 });
+    const assertion = expect(promise).rejects.toThrow("Сеть нестабильна");
+    await vi.advanceTimersByTimeAsync(5000);
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still sends the admin headers and the exact same body", async () => {
+    await fetchAdminJson("/api/x", { method: "POST", body: '{"broadcastId":"b"}' }, { retries: 0 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      body: '{"broadcastId":"b"}',
+      headers: { "X-Telegram-Init-Data": "init-data" },
+    });
+  });
+
+  it("omitting options (or retries) keeps the default single retry for every other caller", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(jsonResponse({ error: "boom" }, false));
+
+    const promise = fetchAdminJson("/api/x", { method: "POST" }, {});
+    const assertion = expect(promise).rejects.toThrow("boom");
+    await vi.advanceTimersByTimeAsync(400);
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("fetchJsonWithRetry", () => {
   it("retries = 0 sends a single request (the follow mutations' path)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ error: "Игрок не найден" }, false));

@@ -38,3 +38,4 @@ export * from "./team-membership";
 export * from "./team-invitation";
 export * from "./team-join-request";
 export * from "./follow";
+export * from "./tournament-notification-broadcast";

@@ -24,19 +24,33 @@ export async function getAdminHeaders(): Promise<Record<string, string>> {
   return initData ? { "X-Telegram-Init-Data": initData } : {};
 }
 
+export type FetchAdminJsonOptions = {
+  // Defaults to fetchJsonWithRetry's own default (one retry). Pass 0 for a
+  // non-idempotent side-effecting request (e.g. a Telegram broadcast send):
+  // a 504 from the proxy does NOT mean the server stopped working on it,
+  // and blindly repeating such a POST re-runs the side effect (incident
+  // 2026-10-21/22: every broadcast delivered twice).
+  retries?: number;
+};
+
 export async function fetchAdminJson<T>(
   input: RequestInfo | URL,
-  init?: RequestInit
+  init?: RequestInit,
+  options?: FetchAdminJsonOptions
 ): Promise<T> {
   const adminHeaders = await getAdminHeaders();
 
-  return fetchJsonWithRetry<T>(input, {
-    ...init,
-    headers: {
-      ...adminHeaders,
-      ...(init?.headers as Record<string, string> | undefined),
+  return fetchJsonWithRetry<T>(
+    input,
+    {
+      ...init,
+      headers: {
+        ...adminHeaders,
+        ...(init?.headers as Record<string, string> | undefined),
+      },
     },
-  });
+    options?.retries
+  );
 }
 
 export async function fetchJsonWithRetry<T>(
