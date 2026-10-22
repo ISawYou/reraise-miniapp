@@ -214,22 +214,67 @@ describe("checkMergeEligibility", () => {
     }
   });
 
-  it("rejects on any tournament overlap and reports which tournaments", async () => {
+  // Merge engine v2: overlap alone no longer blocks. The overlap detector is
+  // followed by six per-table snapshot reads (registrations, results, live
+  // entries, eliminations, attendance, rebuy state) for the shared
+  // tournaments, and only a double result / live place conflict blocks.
+  function regRow(id: string, playerId: string, status: string) {
+    return {
+      id,
+      playerId,
+      tournamentId: "shared-t",
+      status,
+      createdAt: new Date("2026-09-01T00:00:00Z"),
+      noShowAt: null,
+      waitlistPromotionNotificationClaimedAt: null,
+    };
+  }
+
+  function resultRow(id: string, playerId: string, place: number) {
+    return {
+      id,
+      playerId,
+      tournamentId: "shared-t",
+      place,
+      ratingPoints: 10,
+      reentries: 1,
+      addons: 0,
+      knockouts: 0,
+      bossKnockouts: 0,
+      mysteryBountyPoints: 0,
+    };
+  }
+
+  it("same-tournament overlap that is auto-reconcilable (two registrations) is ELIGIBLE -- no longer a blocker", async () => {
     const { executor } = makeFakeExecutor([
       [playerRow({ id: TARGET_ID })],
       [playerRow({ id: SOURCE_ID })],
       [{ tournamentId: "shared-t" }], [], [], [], [], [],
       [{ tournamentId: "shared-t" }], [], [], [], [], [],
+      [regRow("r1", TARGET_ID, "registered"), regRow("r2", SOURCE_ID, "waitlist")], [], [], [], [], [],
     ]);
 
     const { checkMergeEligibility } = await import("@/lib/player-merge");
+    expect(await checkMergeEligibility(TARGET_ID, SOURCE_ID, executor as never)).toEqual({ eligible: true });
+  });
+
+  it("two RESULT rows for one tournament -> ineligible for self-service (admin conflict queue), naming the tournament", async () => {
+    const { executor } = makeFakeExecutor([
+      [playerRow({ id: TARGET_ID })],
+      [playerRow({ id: SOURCE_ID })],
+      [], [{ tournamentId: "shared-t" }], [], [], [], [],
+      [], [{ tournamentId: "shared-t" }], [], [], [], [],
+      [], [resultRow("a", TARGET_ID, 3), resultRow("b", SOURCE_ID, 5)], [], [], [], [],
+    ]);
+
+    const { checkMergeEligibility, RESULT_CONFLICT_SELF_SERVICE_REASON } = await import("@/lib/player-merge");
     const result = await checkMergeEligibility(TARGET_ID, SOURCE_ID, executor as never);
 
-    expect(result.eligible).toBe(false);
-    if (!result.eligible) {
-      expect(result.reason).toContain("пересекающаяся");
-      expect(result.overlappingTournamentIds).toEqual(["shared-t"]);
-    }
+    expect(result).toEqual({
+      eligible: false,
+      reason: RESULT_CONFLICT_SELF_SERVICE_REASON,
+      overlappingTournamentIds: ["shared-t"],
+    });
   });
 
   it("rejects when either player row is missing", async () => {
@@ -387,15 +432,28 @@ describe("executeMerge", () => {
     expect(completedIntent).toBeDefined();
   });
 
-  it("flips the intent to conflict instead of merging when the TOCTOU re-check inside the transaction finds a new overlap", async () => {
+  it("flips the intent to conflict instead of merging when the TOCTOU re-check inside the transaction finds a new double result", async () => {
+    const resultRow = (id: string, playerId: string, place: number) => ({
+      id,
+      playerId,
+      tournamentId: "new-overlap",
+      place,
+      ratingPoints: 5,
+      reentries: 1,
+      addons: 0,
+      knockouts: 0,
+      bossKnockouts: 0,
+      mysteryBountyPoints: 0,
+    });
     const { executor, updateCalls } = makeFakeExecutor([
       [intentRow()],
       [playerRow({ id: TARGET_ID })],
       [playerRow({ id: SOURCE_ID })],
       [playerRow({ id: TARGET_ID })],
       [playerRow({ id: SOURCE_ID })],
-      [{ tournamentId: "new-overlap" }], [], [], [], [], [], // target overlap -- appeared since preview
-      [{ tournamentId: "new-overlap" }], [], [], [], [], [],
+      [], [{ tournamentId: "new-overlap" }], [], [], [], [], // target result -- appeared since preview
+      [], [{ tournamentId: "new-overlap" }], [], [], [], [],
+      [], [resultRow("a", TARGET_ID, 1), resultRow("b", SOURCE_ID, 2)], [], [], [], [],
     ]);
     mockTxTarget.current = executor;
 

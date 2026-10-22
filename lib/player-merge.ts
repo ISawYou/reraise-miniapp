@@ -26,6 +26,17 @@ import { intervalsOverlap } from "@/lib/team-scoring";
 import { ROLE_LABELS, isKnownRole } from "@/lib/roles";
 import { playerMergeIntentRepository } from "@/lib/repositories";
 import type { PlayerMergeIntentRow } from "@/lib/repositories";
+import {
+  checkResultResolutions,
+  planTournamentCollisions,
+  type CollapsibleTable,
+  type CollisionPlan,
+  type MergeSide,
+  type OverlapRows,
+  type ResultConflict,
+  type ResultResolutions,
+  type TournamentCollisionPlan,
+} from "@/lib/player-merge-reconciliation";
 
 // Account merging -- ported from Sterling/spb-poker (commit 770ce78d,
 // feat(account-merge): self-service Telegram<->email account merging, plus
@@ -134,6 +145,340 @@ export async function computeTournamentOverlap(
   );
 
   return { sourceTournamentIds, targetTournamentIds, overlappingTournamentIds };
+}
+
+// ---------------------------------------------------------------------------
+// Merge engine v2: same-tournament overlap is NOT a blocker.
+//
+// Before v2, any tournament id present in both accounts' history
+// (computeTournamentOverlap above) made the pair unmergeable -- even the
+// ordinary duplicate-account case "target registered, source was checked
+// in". v2 keeps computeTournamentOverlap only as the cheap detector of
+// WHICH tournaments need a closer look, then loads both accounts' rows for
+// exactly those tournaments and plans a reconciliation with the pure helpers
+// in lib/player-merge-reconciliation.ts:
+//   - cross-table overlap          -> nothing to do, rows simply move;
+//   - same-table pairs             -> collapsed into one row
+//                                     (applyTournamentCollisionPlan) BEFORE
+//                                     the generic history move;
+//   - two RESULT rows              -> a real conflict that only a Super Admin
+//                                     resolves (resultResolutions), never
+//                                     auto-picked; self-service routes it to
+//                                     the admin conflict queue;
+//   - two different live places    -> a blocker, unless the admin's result
+//                                     choice for that tournament settles it.
+// The no-overlap path issues exactly the same queries as before.
+// ---------------------------------------------------------------------------
+
+const EMPTY_COLLISION_PLAN: CollisionPlan = { tournaments: [], resultConflicts: [], livePlaceConflicts: [] };
+
+// Sequential reads (one transaction = one connection). Every row of BOTH
+// players for exactly the overlapping tournaments -- the full input the
+// pure planner needs.
+async function loadOverlapRows(
+  executor: typeof db,
+  targetId: string,
+  sourceId: string,
+  tournamentIds: string[]
+): Promise<OverlapRows> {
+  const pairIds = [targetId, sourceId];
+
+  const registrationRows = await executor
+    .select({
+      id: registrations.id,
+      playerId: registrations.playerId,
+      tournamentId: registrations.tournamentId,
+      status: registrations.status,
+      createdAt: registrations.createdAt,
+      noShowAt: registrations.noShowAt,
+      waitlistPromotionNotificationClaimedAt: registrations.waitlistPromotionNotificationClaimedAt,
+    })
+    .from(registrations)
+    .where(and(inArray(registrations.playerId, pairIds), inArray(registrations.tournamentId, tournamentIds)));
+
+  const resultRows = await executor
+    .select({
+      id: results.id,
+      playerId: results.playerId,
+      tournamentId: results.tournamentId,
+      place: results.place,
+      ratingPoints: results.ratingPoints,
+      reentries: results.reentries,
+      addons: results.addons,
+      knockouts: results.knockouts,
+      bossKnockouts: results.bossKnockouts,
+      mysteryBountyPoints: results.mysteryBountyPoints,
+    })
+    .from(results)
+    .where(and(inArray(results.playerId, pairIds), inArray(results.tournamentId, tournamentIds)));
+
+  const liveEntryRows = await executor
+    .select({
+      id: tournamentLiveEntries.id,
+      playerId: tournamentLiveEntries.playerId,
+      tournamentId: tournamentLiveEntries.tournamentId,
+      registrationId: tournamentLiveEntries.registrationId,
+      arrived: tournamentLiveEntries.arrived,
+      rebuys: tournamentLiveEntries.rebuys,
+      addons: tournamentLiveEntries.addons,
+      knockouts: tournamentLiveEntries.knockouts,
+      bossKnockouts: tournamentLiveEntries.bossKnockouts,
+      place: tournamentLiveEntries.place,
+      sheetRowNumber: tournamentLiveEntries.sheetRowNumber,
+      createdAt: tournamentLiveEntries.createdAt,
+      updatedAt: tournamentLiveEntries.updatedAt,
+    })
+    .from(tournamentLiveEntries)
+    .where(
+      and(inArray(tournamentLiveEntries.playerId, pairIds), inArray(tournamentLiveEntries.tournamentId, tournamentIds))
+    );
+
+  const eliminationRows = await executor
+    .select({
+      playerId: tournamentPlayerEliminations.playerId,
+      tournamentId: tournamentPlayerEliminations.tournamentId,
+      eliminated: tournamentPlayerEliminations.eliminated,
+      eliminatedAt: tournamentPlayerEliminations.eliminatedAt,
+      updatedAt: tournamentPlayerEliminations.updatedAt,
+    })
+    .from(tournamentPlayerEliminations)
+    .where(
+      and(
+        inArray(tournamentPlayerEliminations.playerId, pairIds),
+        inArray(tournamentPlayerEliminations.tournamentId, tournamentIds)
+      )
+    );
+
+  const attendanceRows = await executor
+    .select({
+      playerId: tournamentAttendance.playerId,
+      tournamentId: tournamentAttendance.tournamentId,
+      arrived: tournamentAttendance.arrived,
+      arrivedAt: tournamentAttendance.arrivedAt,
+      updatedAt: tournamentAttendance.updatedAt,
+    })
+    .from(tournamentAttendance)
+    .where(and(inArray(tournamentAttendance.playerId, pairIds), inArray(tournamentAttendance.tournamentId, tournamentIds)));
+
+  const rebuyStateRows = await executor
+    .select({
+      playerId: tournamentRebuyState.playerId,
+      tournamentId: tournamentRebuyState.tournamentId,
+      rebuys: tournamentRebuyState.rebuys,
+      addons: tournamentRebuyState.addons,
+      updatedAt: tournamentRebuyState.updatedAt,
+    })
+    .from(tournamentRebuyState)
+    .where(and(inArray(tournamentRebuyState.playerId, pairIds), inArray(tournamentRebuyState.tournamentId, tournamentIds)));
+
+  return {
+    registrations: registrationRows,
+    results: resultRows,
+    liveEntries: liveEntryRows,
+    eliminations: eliminationRows,
+    attendance: attendanceRows,
+    rebuyStates: rebuyStateRows,
+  };
+}
+
+async function computeCollisionPlan(
+  executor: typeof db,
+  targetId: string,
+  sourceId: string,
+  overlappingTournamentIds: string[],
+  resultResolutions: ResultResolutions = {}
+): Promise<CollisionPlan> {
+  if (overlappingTournamentIds.length === 0) {
+    return EMPTY_COLLISION_PLAN;
+  }
+  const rows = await loadOverlapRows(executor, targetId, sourceId, overlappingTournamentIds);
+  return planTournamentCollisions({
+    targetId,
+    sourceId,
+    tournamentIds: overlappingTournamentIds,
+    rows,
+    resultResolutions,
+  });
+}
+
+// Thrown when a row the plan was computed from is no longer exactly where
+// the plan expects it (defense in depth -- under SERIALIZABLE + the locked
+// player pair this should be unreachable). Aborts the whole transaction.
+export class MergeCollisionStateChangedError extends Error {
+  constructor() {
+    super("Данные турниров изменились во время объединения. Обновите предпросмотр и попробуйте снова.");
+    this.name = "MergeCollisionStateChangedError";
+  }
+}
+
+function expectOneRow(rows: unknown[]): void {
+  if (rows.length !== 1) {
+    throw new MergeCollisionStateChangedError();
+  }
+}
+
+// Applies a CollisionPlan inside the caller's SERIALIZABLE merge transaction,
+// strictly BEFORE moveMergeHistory. After this, no tournament has a row of
+// the same table for both players any more, so the generic whole-row
+// `UPDATE ... SET player_id = target` cannot collide. Caller guarantees:
+// no live place conflicts, and every result conflict has a validated
+// resolution in `resultResolutions`.
+//
+// Ordering per tournament matters because of FKs/uniques that are checked
+// per statement:
+//   1. results: delete the NOT-chosen duplicate (the chosen row is never
+//      updated here -- if it is source's it moves later, whole-row, with every
+//      frozen column untouched);
+//   2. live entries: drop the duplicate live entry, then point the survivor
+//      (or a single entry that referenced the duplicate registration) at the
+//      canonical registration -- BEFORE that duplicate registration is
+//      deleted, so its ON DELETE CASCADE can never take a live entry along;
+//   3. registrations: delete the duplicate, then write the canonical values;
+//   4. attendance / rebuy state / elimination: target row gets the
+//      reconciled values, source duplicate deleted.
+async function applyTournamentCollisionPlan(
+  tx: typeof db,
+  targetId: string,
+  sourceId: string,
+  plan: CollisionPlan,
+  resultResolutions: ResultResolutions
+): Promise<void> {
+  for (const tournament of plan.tournaments) {
+    await applyOneTournament(tx, targetId, sourceId, tournament, resultResolutions);
+  }
+}
+
+async function applyOneTournament(
+  tx: typeof db,
+  targetId: string,
+  sourceId: string,
+  tournament: TournamentCollisionPlan,
+  resultResolutions: ResultResolutions
+): Promise<void> {
+  const tournamentId = tournament.tournamentId;
+
+  if (tournament.resultConflict) {
+    const keepSide = resultResolutions[tournamentId];
+    if (keepSide !== "target" && keepSide !== "source") {
+      throw new MergeCollisionStateChangedError();
+    }
+    const discard = keepSide === "target" ? tournament.resultConflict.source : tournament.resultConflict.target;
+    expectOneRow(
+      await tx
+        .delete(results)
+        .where(
+          and(
+            eq(results.id, discard.id),
+            eq(results.tournamentId, tournamentId),
+            eq(results.playerId, discard.playerId)
+          )
+        )
+        .returning({ id: results.id })
+    );
+  }
+
+  if (tournament.livePlaceConflict) {
+    throw new MergeCollisionStateChangedError();
+  }
+
+  if (tournament.liveEntry) {
+    const { keepId, deleteId, values } = tournament.liveEntry;
+    expectOneRow(
+      await tx
+        .delete(tournamentLiveEntries)
+        .where(eq(tournamentLiveEntries.id, deleteId))
+        .returning({ id: tournamentLiveEntries.id })
+    );
+    expectOneRow(
+      await tx
+        .update(tournamentLiveEntries)
+        .set({ ...values, playerId: targetId })
+        .where(eq(tournamentLiveEntries.id, keepId))
+        .returning({ id: tournamentLiveEntries.id })
+    );
+  } else if (tournament.liveEntryRewire) {
+    expectOneRow(
+      await tx
+        .update(tournamentLiveEntries)
+        .set({ registrationId: tournament.liveEntryRewire.registrationId })
+        .where(eq(tournamentLiveEntries.id, tournament.liveEntryRewire.liveEntryId))
+        .returning({ id: tournamentLiveEntries.id })
+    );
+  }
+
+  if (tournament.registration) {
+    const { keepId, deleteId, status, createdAt, noShowAt, waitlistPromotionNotificationClaimedAt } =
+      tournament.registration;
+    expectOneRow(
+      await tx.delete(registrations).where(eq(registrations.id, deleteId)).returning({ id: registrations.id })
+    );
+    expectOneRow(
+      await tx
+        .update(registrations)
+        .set({ playerId: targetId, status, createdAt, noShowAt, waitlistPromotionNotificationClaimedAt })
+        .where(eq(registrations.id, keepId))
+        .returning({ id: registrations.id })
+    );
+  }
+
+  if (tournament.attendance) {
+    expectOneRow(
+      await tx
+        .update(tournamentAttendance)
+        .set(tournament.attendance)
+        .where(and(eq(tournamentAttendance.tournamentId, tournamentId), eq(tournamentAttendance.playerId, targetId)))
+        .returning({ playerId: tournamentAttendance.playerId })
+    );
+    expectOneRow(
+      await tx
+        .delete(tournamentAttendance)
+        .where(and(eq(tournamentAttendance.tournamentId, tournamentId), eq(tournamentAttendance.playerId, sourceId)))
+        .returning({ playerId: tournamentAttendance.playerId })
+    );
+  }
+
+  if (tournament.rebuyState) {
+    expectOneRow(
+      await tx
+        .update(tournamentRebuyState)
+        .set(tournament.rebuyState)
+        .where(and(eq(tournamentRebuyState.tournamentId, tournamentId), eq(tournamentRebuyState.playerId, targetId)))
+        .returning({ playerId: tournamentRebuyState.playerId })
+    );
+    expectOneRow(
+      await tx
+        .delete(tournamentRebuyState)
+        .where(and(eq(tournamentRebuyState.tournamentId, tournamentId), eq(tournamentRebuyState.playerId, sourceId)))
+        .returning({ playerId: tournamentRebuyState.playerId })
+    );
+  }
+
+  if (tournament.elimination) {
+    const { eliminated, eliminatedAt, updatedAt } = tournament.elimination;
+    expectOneRow(
+      await tx
+        .update(tournamentPlayerEliminations)
+        .set({ eliminated, eliminatedAt, updatedAt })
+        .where(
+          and(
+            eq(tournamentPlayerEliminations.tournamentId, tournamentId),
+            eq(tournamentPlayerEliminations.playerId, targetId)
+          )
+        )
+        .returning({ playerId: tournamentPlayerEliminations.playerId })
+    );
+    expectOneRow(
+      await tx
+        .delete(tournamentPlayerEliminations)
+        .where(
+          and(
+            eq(tournamentPlayerEliminations.tournamentId, tournamentId),
+            eq(tournamentPlayerEliminations.playerId, sourceId)
+          )
+        )
+        .returning({ playerId: tournamentPlayerEliminations.playerId })
+    );
+  }
 }
 
 type PlayerRow = typeof players.$inferSelect;
@@ -361,10 +706,11 @@ async function moveFollows(tx: typeof db, targetId: string, sourceId: string): P
 }
 
 // History: reassign every row from source to target. Safe only after the
-// caller has confirmed zero tournament overlap, no double-open dealer shift
-// and no team-history overlap, so none of these updates can collide with an
-// existing target row on any (tournament_id, player_id) unique/composite-PK
-// constraint.
+// caller has applied the tournament CollisionPlan (applyTournamentCollisionPlan
+// -- so no tournament has a same-table row for both players any more) and
+// confirmed no double-open dealer shift and no team-history overlap, so none
+// of these updates can collide with an existing target row on any
+// (tournament_id, player_id) unique/composite-PK constraint.
 //
 // Every statement below is a whole-row `UPDATE ... SET player_id = target`:
 // every other column of the moved row (registrations.status, no_show_at,
@@ -580,6 +926,15 @@ export type EligibilityResult =
   | { eligible: true }
   | { eligible: false; reason: string; overlappingTournamentIds?: string[] };
 
+// Self-service never shows a result chooser: two result rows for one
+// tournament need a human decision, so the intent goes to the Super-Admin
+// conflict queue, where the Merge Center resolves it.
+export const RESULT_CONFLICT_SELF_SERVICE_REASON =
+  "result_conflict: в одном турнире у обоих аккаунтов есть результат — правильный результат выберет администратор";
+
+export const LIVE_PLACE_CONFLICT_REASON =
+  "live_entry_place_conflict: в одном турнире у обоих аккаунтов записаны разные места в живой игре — требуется ручное исправление администратором";
+
 // Read-only -- used both to decide the initial intent status at
 // verify-code time and to re-check inside the merge transaction (see
 // executeMerge). The two checks must stay identical; this is the one place
@@ -589,13 +944,30 @@ export async function checkMergeEligibility(
   sourcePlayerId: string,
   executor: typeof db = db
 ): Promise<EligibilityResult> {
+  return (await evaluateSelfServiceMerge(targetPlayerId, sourcePlayerId, executor)).eligibility;
+}
+
+// checkMergeEligibility + the collision plan executeMerge applies when the
+// pair is eligible (same reads, computed once).
+async function evaluateSelfServiceMerge(
+  targetPlayerId: string,
+  sourcePlayerId: string,
+  executor: typeof db
+): Promise<{ eligibility: EligibilityResult; collisionPlan: CollisionPlan }> {
+  const ineligible = (reason: string, overlappingTournamentIds?: string[]) => ({
+    eligibility: (overlappingTournamentIds
+      ? { eligible: false, reason, overlappingTournamentIds }
+      : { eligible: false, reason }) as EligibilityResult,
+    collisionPlan: EMPTY_COLLISION_PLAN,
+  });
+
   const [target, source] = await Promise.all([
     executor.select().from(players).where(eq(players.id, targetPlayerId)).limit(1),
     executor.select().from(players).where(eq(players.id, sourcePlayerId)).limit(1),
   ]);
 
   if (!target[0] || !source[0]) {
-    return { eligible: false, reason: "Игрок не найден" };
+    return ineligible("Игрок не найден");
   }
 
   // Merging INTO an already-merged-away (non-canonical) player would create
@@ -607,14 +979,11 @@ export async function checkMergeEligibility(
   // identity-sensitive operation like this should fail loudly, not guess
   // which player the caller actually meant.
   if (target[0].mergedIntoPlayerId) {
-    return {
-      eligible: false,
-      reason: "Целевой аккаунт уже был объединён с другим и не может быть целью нового объединения",
-    };
+    return ineligible("Целевой аккаунт уже был объединён с другим и не может быть целью нового объединения");
   }
 
   if (source[0].mergedIntoPlayerId) {
-    return { eligible: false, reason: "Этот аккаунт уже был объединён с другим" };
+    return ineligible("Этот аккаунт уже был объединён с другим");
   }
 
   // Moderation-bypass guard, shared with the admin merge (see
@@ -625,7 +994,7 @@ export async function checkMergeEligibility(
   // vanished. Routed to the admin conflict queue instead (an admin can
   // unblock first if the block was a mistake).
   if (sourceBlockedIntoUnblockedTarget(target[0], source[0])) {
-    return { eligible: false, reason: SOURCE_BLOCKED_REASON };
+    return ineligible(SOURCE_BLOCKED_REASON);
   }
 
   // Source having its own Telegram identity means this is not "one person,
@@ -633,22 +1002,36 @@ export async function checkMergeEligibility(
   // Telegram identities belong to the same person. Always routed to admin
   // review, regardless of tournament history.
   if (source[0].telegramId !== null) {
-    return {
-      eligible: false,
-      reason: "У найденного аккаунта есть собственная Telegram-идентификация",
-    };
+    return ineligible("У найденного аккаунта есть собственная Telegram-идентификация");
   }
 
+  // v2: overlapping tournament history is reconciled, not refused. Only a
+  // conflict that needs a human decision routes the intent to the admin
+  // conflict queue: two result rows for one tournament (the Super Admin
+  // picks the real one in the Merge Center) or two different live places
+  // without such a choice.
   const overlap = await computeTournamentOverlap(targetPlayerId, sourcePlayerId, executor);
-  if (overlap.overlappingTournamentIds.length > 0) {
-    return {
-      eligible: false,
-      reason: "Обнаружена пересекающаяся турнирная история",
-      overlappingTournamentIds: overlap.overlappingTournamentIds,
-    };
+  const collisionPlan = await computeCollisionPlan(
+    executor,
+    targetPlayerId,
+    sourcePlayerId,
+    overlap.overlappingTournamentIds
+  );
+
+  if (collisionPlan.resultConflicts.length > 0) {
+    return ineligible(
+      RESULT_CONFLICT_SELF_SERVICE_REASON,
+      collisionPlan.resultConflicts.map((conflict) => conflict.tournamentId)
+    );
+  }
+  if (collisionPlan.livePlaceConflicts.length > 0) {
+    return ineligible(
+      LIVE_PLACE_CONFLICT_REASON,
+      collisionPlan.livePlaceConflicts.map((conflict) => conflict.tournamentId)
+    );
   }
 
-  return { eligible: true };
+  return { eligibility: { eligible: true }, collisionPlan };
 }
 
 export async function createMergeIntent(params: {
@@ -764,7 +1147,11 @@ export async function executeMerge(params: {
       // Re-check everything the preview checked, against the now-locked
       // snapshot -- this is the TOCTOU-safe re-verification, not a repeat
       // of the earlier read for convenience.
-      const eligibility = await checkMergeEligibility(targetId, sourceId, tx as unknown as typeof db);
+      const { eligibility, collisionPlan } = await evaluateSelfServiceMerge(
+        targetId,
+        sourceId,
+        tx as unknown as typeof db
+      );
 
       if (!eligibility.eligible) {
         await tx
@@ -806,6 +1193,10 @@ export async function executeMerge(params: {
         return { merged: false, conflict: true, reason };
       }
 
+      // Same-tournament collisions (auto-resolvable only -- eligibility
+      // already routed result/live-place conflicts to the admin queue) are
+      // collapsed first, then the generic history move runs.
+      await applyTournamentCollisionPlan(tx as unknown as typeof db, targetId, sourceId, collisionPlan, {});
       await moveMergeHistory(tx as unknown as typeof db, targetId, sourceId, dealerState.dealerProfileRows);
 
       // Reconciliation policy. Everything not listed here (role, access
@@ -855,8 +1246,10 @@ export async function executeMerge(params: {
 // the leaderboard both aggregate results.rating_points live at read time --
 // moving the results rows above already IS the entire mechanism, and
 // double-counting is structurally impossible because results carries a
-// UNIQUE(tournament_id, player_id) constraint the eligibility check's
-// zero-overlap requirement guarantees can't collide.
+// UNIQUE(tournament_id, player_id) constraint: a double result for one
+// tournament is never auto-merged -- it needs an explicit Super-Admin choice
+// (resultResolutions), which deletes the other row before the move. Kept
+// rows move whole-row; no frozen column is ever recomputed.
 //
 // player_achievements is the one persisted value that genuinely needs a
 // refresh: it is itself a derived cache (features/achievements.ts's
@@ -894,8 +1287,11 @@ export async function finalizeMergeSideEffects(targetPlayerId: string): Promise<
 // - Additional admin-only blockers: higher role on source.
 //
 // The client only ever supplies (targetPlayerId, sourcePlayerId,
-// confirmation). Everything else -- identity plan, field precedence,
-// blockers -- is recomputed server-side from the locked rows.
+// confirmation) plus, for server-detected double results only, a
+// resultResolutions choice per tournament. Everything else -- identity plan,
+// field precedence, blockers, the tournament collision plan, and which
+// result conflicts exist at all -- is recomputed server-side from the
+// locked rows.
 // ===========================================================================
 
 export const ADMIN_MERGE_CONFIRMATION = "ОБЪЕДИНИТЬ";
@@ -923,9 +1319,14 @@ export type AdminMergeBlockerCode =
   | "email_conflict"
   | "telegram_conflict"
   | "role_higher_on_source"
-  | "tournament_overlap"
+  | "live_entry_place_conflict"
   | "dealer_open_shift_conflict"
-  | "team_history_conflict";
+  | "team_history_conflict"
+  // Execute-only: the client's resultResolutions did not cover every
+  // server-detected double result, or named something that is not (or no
+  // longer) a double result of this pair.
+  | "result_resolution_required"
+  | "result_resolution_stale";
 
 export type AdminMergeTournamentConflict = {
   id: string;
@@ -938,6 +1339,40 @@ export type AdminMergeBlocker = {
   message: string;
   tournaments?: AdminMergeTournamentConflict[];
 };
+
+// v2 informational section: tournaments both accounts have data in, which
+// the merge reconciles into one history (never a blocker by itself).
+export type AdminMergeTournamentReconciliation = {
+  tournament: AdminMergeTournamentConflict;
+  // Human-readable labels of the same-table rows collapsed into one.
+  collapsed: string[];
+  // True when this tournament has two result rows (see result_conflicts).
+  result_conflict: boolean;
+};
+
+// One account's frozen result, shown read-only on a result-choice card.
+export type AdminMergeResultCard = {
+  result_id: string;
+  player_id: string;
+  nickname: string;
+  place: number;
+  rating_points: number;
+  entries: number;
+  addons: number;
+  knockouts: number;
+  boss_knockouts: number;
+  mystery_bounty_points: number;
+};
+
+// Two result rows for one tournament: the Super Admin must pick which one
+// is the person's real result ("target" or "source"). Never auto-picked.
+export type AdminMergeResultConflict = {
+  tournament: AdminMergeTournamentConflict;
+  target: AdminMergeResultCard;
+  source: AdminMergeResultCard;
+};
+
+export type AdminMergeResultResolutions = Record<string, MergeSide>;
 
 export type AdminMergeWarningCode =
   | "display_name_differs"
@@ -996,6 +1431,9 @@ export type AdminMergeHistoryCounts = {
 };
 
 export type AdminMergePreview = {
+  // No ORDINARY blocker. A pair with result_conflicts can still be eligible:
+  // it is mergeable once every conflict has an explicit choice
+  // (requires_result_resolution).
   eligible: boolean;
   target: AdminMergePlayerSummary | null;
   source: AdminMergePlayerSummary | null;
@@ -1003,6 +1441,9 @@ export type AdminMergePreview = {
   blockers: AdminMergeBlocker[];
   warnings: AdminMergeWarning[];
   counts: { target: AdminMergeHistoryCounts; source: AdminMergeHistoryCounts } | null;
+  tournament_reconciliation: AdminMergeTournamentReconciliation[];
+  result_conflicts: AdminMergeResultConflict[];
+  requires_result_resolution: boolean;
 };
 
 export type AdminMergeExecuteResult =
@@ -1012,6 +1453,8 @@ export type AdminMergeExecuteResult =
       source_player_id: string;
       final_identity: AdminMergeFinalIdentity;
       transferred_tournament_count: number;
+      reconciled_tournament_count: number;
+      kept_results: Array<{ tournament_id: string; kept: MergeSide }>;
     }
   | { merged: false; blockers: AdminMergeBlocker[] };
 
@@ -1124,9 +1567,39 @@ async function describeOverlappingTournaments(
     .sort((a, b) => (a.start_at ?? "").localeCompare(b.start_at ?? ""));
 }
 
-function tournamentConflictLine(tournament: AdminMergeTournamentConflict): string {
+function tournamentLabel(tournament: AdminMergeTournamentConflict): string {
   const date = tournament.start_at ? ` — ${MOSCOW_DATE_FORMAT.format(new Date(tournament.start_at))}` : "";
-  return `Оба аккаунта имеют данные турнира ${tournament.title}${date}`;
+  return `${tournament.title}${date}`;
+}
+
+const COLLAPSED_TABLE_LABELS: Record<CollapsibleTable, string> = {
+  registrations: "регистрация",
+  tournament_attendance: "отметка прихода",
+  tournament_rebuy_state: "ребаи/аддоны",
+  tournament_player_eliminations: "вылет",
+  tournament_live_entries: "живая игра",
+};
+
+function resultCard(row: ResultConflict["target"], player: PlayerRow): AdminMergeResultCard {
+  return {
+    result_id: row.id,
+    player_id: row.playerId,
+    nickname: player.adminDisplayName?.trim() || player.displayName,
+    place: row.place,
+    rating_points: row.ratingPoints,
+    entries: row.reentries,
+    addons: row.addons,
+    knockouts: row.knockouts,
+    boss_knockouts: row.bossKnockouts,
+    mystery_bounty_points: row.mysteryBountyPoints,
+  };
+}
+
+function tournamentsById(
+  described: AdminMergeTournamentConflict[]
+): (id: string) => AdminMergeTournamentConflict {
+  const byId = new Map(described.map((tournament) => [tournament.id, tournament]));
+  return (id) => byId.get(id) ?? { id, title: `Турнир ${id}`, start_at: null };
 }
 
 function computeTargetWinsWarnings(
@@ -1228,18 +1701,23 @@ type AdminMergePlanInternals = {
   dealerProfileRows: DealerProfileRow[];
   sourceTournamentCount: number;
   targetTournamentCount: number;
+  collisionPlan: CollisionPlan;
+  tournamentReconciliation: AdminMergeTournamentReconciliation[];
+  resultConflicts: AdminMergeResultConflict[];
 };
 
 // THE admin eligibility computation -- the same function feeds the
 // read-only preview AND runs again inside executeAdminMerge's transaction
 // against the locked rows. Evaluates every blocker (not first-fail) so the
-// preview can show all of them at once.
+// preview can show all of them at once. `resultResolutions` (execute only)
+// lets an admin's result choice also settle that tournament's live place.
 async function computeAdminMergePlan(
   executor: typeof db,
   targetId: string,
   sourceId: string,
   targetRow: PlayerRow | undefined,
-  sourceRow: PlayerRow | undefined
+  sourceRow: PlayerRow | undefined,
+  resultResolutions: ResultResolutions = {}
 ): Promise<AdminMergePlanInternals> {
   const empty = {
     warnings: [],
@@ -1248,6 +1726,9 @@ async function computeAdminMergePlan(
     dealerProfileRows: [],
     sourceTournamentCount: 0,
     targetTournamentCount: 0,
+    collisionPlan: EMPTY_COLLISION_PLAN,
+    tournamentReconciliation: [],
+    resultConflicts: [],
   };
 
   if (targetId === sourceId) {
@@ -1295,15 +1776,52 @@ async function computeAdminMergePlan(
     blockers.push({ code: "role_higher_on_source", message: ROLE_HIGHER_ON_SOURCE_REASON });
   }
 
+  // v2: same-tournament history is reconciliation information, not a
+  // blocker. Only two DIFFERENT live places (without a result choice that
+  // settles them) block; double results become result_conflicts.
   const overlap = await computeTournamentOverlap(targetId, sourceId, executor);
-  if (overlap.overlappingTournamentIds.length > 0) {
-    const conflicts = await describeOverlappingTournaments(executor, overlap.overlappingTournamentIds);
+  const collisionPlan = await computeCollisionPlan(
+    executor,
+    targetId,
+    sourceId,
+    overlap.overlappingTournamentIds,
+    resultResolutions
+  );
+  const describe = tournamentsById(
+    overlap.overlappingTournamentIds.length > 0
+      ? await describeOverlappingTournaments(executor, overlap.overlappingTournamentIds)
+      : []
+  );
+
+  if (collisionPlan.livePlaceConflicts.length > 0) {
+    const conflictTournaments = collisionPlan.livePlaceConflicts.map((conflict) => describe(conflict.tournamentId));
     blockers.push({
-      code: "tournament_overlap",
-      message: conflicts.map(tournamentConflictLine).join("\n"),
-      tournaments: conflicts,
+      code: "live_entry_place_conflict",
+      message: collisionPlan.livePlaceConflicts
+        .map(
+          (conflict) =>
+            `${tournamentLabel(describe(conflict.tournamentId))}: в живой игре у аккаунтов записаны разные места (${conflict.targetPlace} и ${conflict.sourcePlace}) — исправьте место вручную, затем повторите объединение`
+        )
+        .join("\n"),
+      tournaments: conflictTournaments,
     });
   }
+
+  const tournamentReconciliation: AdminMergeTournamentReconciliation[] = collisionPlan.tournaments
+    .map((tournament) => ({
+      tournament: describe(tournament.tournamentId),
+      collapsed: tournament.collapsedTables.map((table) => COLLAPSED_TABLE_LABELS[table]),
+      result_conflict: tournament.resultConflict !== null,
+    }))
+    .sort((a, b) => (a.tournament.start_at ?? "").localeCompare(b.tournament.start_at ?? ""));
+
+  const resultConflicts: AdminMergeResultConflict[] = collisionPlan.resultConflicts
+    .map((conflict) => ({
+      tournament: describe(conflict.tournamentId),
+      target: resultCard(conflict.target, targetRow),
+      source: resultCard(conflict.source, sourceRow),
+    }))
+    .sort((a, b) => (a.tournament.start_at ?? "").localeCompare(b.tournament.start_at ?? ""));
 
   const dealerState = await loadDealerMergeState(executor, targetId, sourceId);
   if (dealerState.bothHaveOpenDealerShift) {
@@ -1336,6 +1854,9 @@ async function computeAdminMergePlan(
     dealerProfileRows: dealerState.dealerProfileRows,
     sourceTournamentCount: overlap.sourceTournamentIds.size,
     targetTournamentCount: overlap.targetTournamentIds.size,
+    collisionPlan,
+    tournamentReconciliation,
+    resultConflicts,
   };
 }
 
@@ -1429,8 +1950,16 @@ export async function previewAdminMerge(params: {
     blockers: plan.blockers,
     warnings,
     counts,
+    tournament_reconciliation: plan.tournamentReconciliation,
+    result_conflicts: plan.resultConflicts,
+    requires_result_resolution: plan.resultConflicts.length > 0,
   };
 }
+
+const RESULT_RESOLUTION_REQUIRED_MESSAGE =
+  "В этих турнирах найдены два результата — выберите, какой результат сохранить";
+const RESULT_RESOLUTION_STALE_MESSAGE =
+  "Выбор результата не соответствует текущим данным аккаунтов. Обновите предпросмотр и выберите результат заново.";
 
 const SERIALIZATION_FAILURE_SQLSTATE = "40001";
 
@@ -1452,7 +1981,11 @@ function isSerializationFailure(err: unknown): boolean {
   return false;
 }
 
-async function runAdminMergeTransaction(targetId: string, sourceId: string): Promise<AdminMergeExecuteResult> {
+async function runAdminMergeTransaction(
+  targetId: string,
+  sourceId: string,
+  resultResolutions: ResultResolutions
+): Promise<AdminMergeExecuteResult> {
   return db.transaction(
     async (tx) => {
       const executor = tx as unknown as typeof db;
@@ -1481,7 +2014,7 @@ async function runAdminMergeTransaction(targetId: string, sourceId: string): Pro
 
       // Every blocker re-evaluated against the locked snapshot -- the
       // preview's answer is never trusted.
-      const plan = await computeAdminMergePlan(executor, targetId, sourceId, targetRow, sourceRow);
+      const plan = await computeAdminMergePlan(executor, targetId, sourceId, targetRow, sourceRow, resultResolutions);
       if (plan.blockers.length > 0 || !targetRow || !sourceRow || !plan.identity || !plan.finalIdentity) {
         return {
           merged: false,
@@ -1490,6 +2023,28 @@ async function runAdminMergeTransaction(targetId: string, sourceId: string): Pro
         };
       }
 
+      // The client's result choices are never trusted as a plan: they are
+      // accepted only if they cover EXACTLY the double results recomputed
+      // right now from the locked snapshot. Anything else -> nothing is
+      // written (a stale preview must be refreshed).
+      const resolutionCheck = checkResultResolutions(plan.collisionPlan.resultConflicts, resultResolutions);
+      if (!resolutionCheck.ok) {
+        const describe = tournamentsById(plan.resultConflicts.map((conflict) => conflict.tournament));
+        return {
+          merged: false,
+          blockers: [
+            resolutionCheck.reason === "missing"
+              ? {
+                  code: "result_resolution_required",
+                  message: RESULT_RESOLUTION_REQUIRED_MESSAGE,
+                  tournaments: resolutionCheck.tournamentIds.map(describe),
+                }
+              : { code: "result_resolution_stale", message: RESULT_RESOLUTION_STALE_MESSAGE },
+          ],
+        };
+      }
+
+      await applyTournamentCollisionPlan(executor, targetId, sourceId, plan.collisionPlan, resultResolutions);
       await moveMergeHistory(executor, targetId, sourceId, plan.dealerProfileRows);
 
       // Identity union. With both conflict blockers clear, every identity
@@ -1548,6 +2103,11 @@ async function runAdminMergeTransaction(targetId: string, sourceId: string): Pro
         source_player_id: sourceId,
         final_identity: plan.finalIdentity,
         transferred_tournament_count: plan.sourceTournamentCount,
+        reconciled_tournament_count: plan.collisionPlan.tournaments.length,
+        kept_results: plan.collisionPlan.resultConflicts.map((conflict) => ({
+          tournament_id: conflict.tournamentId,
+          kept: resultResolutions[conflict.tournamentId],
+        })),
       };
     },
     { isolationLevel: "serializable" }
@@ -1563,6 +2123,9 @@ export async function executeAdminMerge(params: {
   targetPlayerId: string;
   sourcePlayerId: string;
   confirmation: string;
+  // Only for server-detected double results; validated inside the
+  // transaction (checkResultResolutions), never trusted as a plan.
+  resultResolutions?: AdminMergeResultResolutions;
 }): Promise<AdminMergeExecuteResult> {
   assertPostgresMode();
 
@@ -1574,8 +2137,10 @@ export async function executeAdminMerge(params: {
     return { merged: false, blockers: [{ code: "same_account", message: "Нельзя объединить аккаунт сам с собой" }] };
   }
 
+  const resultResolutions: ResultResolutions = { ...(params.resultResolutions ?? {}) };
+
   try {
-    return await runAdminMergeTransaction(params.targetPlayerId, params.sourcePlayerId);
+    return await runAdminMergeTransaction(params.targetPlayerId, params.sourcePlayerId, resultResolutions);
   } catch (err) {
     if (!isSerializationFailure(err)) throw err;
   }
@@ -1584,7 +2149,7 @@ export async function executeAdminMerge(params: {
   // concurrent merge of the same pair, and the retry now sees
   // source_merged and returns it as a blocker instead of merging twice.
   try {
-    return await runAdminMergeTransaction(params.targetPlayerId, params.sourcePlayerId);
+    return await runAdminMergeTransaction(params.targetPlayerId, params.sourcePlayerId, resultResolutions);
   } catch (err) {
     if (isSerializationFailure(err)) throw new AdminMergeConcurrentUpdateError();
     throw err;

@@ -10,11 +10,43 @@ import type {
   AdminMergeExecuteResult,
   AdminMergePlayerSummary,
   AdminMergePreview,
+  AdminMergeResultCard,
+  AdminMergeResultConflict,
+  AdminMergeTournamentConflict,
 } from "@/lib/player-merge";
 
 // Must match lib/player-merge.ts's ADMIN_MERGE_CONFIRMATION -- the server
 // re-verifies it; this copy only gates the button.
 const CONFIRMATION_WORD = "ОБЪЕДИНИТЬ";
+
+type ResultSide = "target" | "source";
+
+const MOSCOW_DATE = new Intl.DateTimeFormat("ru-RU", {
+  timeZone: "Europe/Moscow",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
+function tournamentLabel(tournament: AdminMergeTournamentConflict): string {
+  return tournament.start_at
+    ? `${tournament.title} — ${MOSCOW_DATE.format(new Date(tournament.start_at))}`
+    : tournament.title;
+}
+
+function pluralTournaments(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} турнир`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} турнира`;
+  return `${count} турниров`;
+}
+
+function keptResultLine(conflict: AdminMergeResultConflict, side: ResultSide): string {
+  const kept = side === "target" ? conflict.target : conflict.source;
+  const dropped = side === "target" ? conflict.source : conflict.target;
+  return `${tournamentLabel(conflict.tournament)}: будет сохранён результат ${kept.nickname} (${kept.place} место, ${kept.rating_points} очк.), результат ${dropped.nickname} будет удалён`;
+}
 
 type ConflictPlayerSummary = {
   id: string;
@@ -274,6 +306,62 @@ function PreviewCard({ title, player }: { title: string; player: AdminMergePlaye
   );
 }
 
+function ResultCardView({
+  title,
+  card,
+  side,
+  tournamentId,
+  selected,
+  onSelect,
+}: {
+  title: string;
+  card: AdminMergeResultCard;
+  side: ResultSide;
+  tournamentId: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const rows: Array<[string, string | number]> = [
+    ["Место", card.place],
+    ["Очки рейтинга", card.rating_points],
+    ["Входы", card.entries],
+    ["Аддоны", card.addons],
+  ];
+  if (card.knockouts > 0) rows.push(["KO", card.knockouts]);
+  if (card.boss_knockouts > 0) rows.push(["Boss KO", card.boss_knockouts]);
+  if (card.mystery_bounty_points > 0) rows.push(["Mystery", card.mystery_bounty_points]);
+
+  return (
+    <label
+      data-testid={`merge-result-card-${side}`}
+      className={`block cursor-pointer rounded-xl border p-3 ${
+        selected ? "border-emerald-400/60 bg-emerald-500/10" : "border-white/10 bg-black/30"
+      }`}
+    >
+      <p className="text-xs font-semibold tracking-widest text-white/40">{title}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-white">{card.nickname}</p>
+      <dl className="mt-2 space-y-1 text-xs text-white/70">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-2">
+            <dt className="text-white/40">{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <span className="mt-3 flex items-center gap-2 text-sm text-white">
+        <input
+          type="radio"
+          data-testid={`merge-result-choice-${side}`}
+          name={`result-choice-${tournamentId}`}
+          checked={selected}
+          onChange={onSelect}
+        />
+        Оставить результат {card.nickname}
+      </span>
+    </label>
+  );
+}
+
 function MergeCenter({
   prefill,
   onMerged,
@@ -292,6 +380,10 @@ function MergeCenter({
   const [executeError, setExecuteError] = useState<string | null>(null);
   const [success, setSuccess] = useState<MergeSuccess | null>(null);
   const [refreshWarning, setRefreshWarning] = useState(false);
+  // Super-Admin's explicit choice per double-result tournament. Always reset
+  // when a (new) preview is loaded -- a choice never carries over to a
+  // different pair, direction or data state.
+  const [resultChoices, setResultChoices] = useState<Record<string, ResultSide>>({});
   const previewSeq = useRef(0);
 
   useEffect(() => {
@@ -311,7 +403,10 @@ function MergeCenter({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetPlayerId: targetId, sourcePlayerId: sourceId }),
       });
-      if (seq === previewSeq.current) setPreview(data.preview);
+      if (seq === previewSeq.current) {
+        setPreview(data.preview);
+        setResultChoices({});
+      }
     } catch (err) {
       if (seq === previewSeq.current) {
         setPreview(null);
@@ -326,6 +421,7 @@ function MergeCenter({
     // Any change of either account invalidates the preview and any
     // half-typed confirmation.
     setPreview(null);
+    setResultChoices({});
     setConfirmOpen(false);
     setConfirmText("");
     setExecuteError(null);
@@ -343,8 +439,24 @@ function MergeCenter({
     setSource(target);
   }
 
+  const resultConflicts = preview?.result_conflicts ?? [];
+  const unresolvedConflicts = resultConflicts.filter((conflict) => !resultChoices[conflict.tournament.id]);
+
+  function chooseResult(tournamentId: string, side: ResultSide) {
+    setResultChoices((current) => ({ ...current, [tournamentId]: side }));
+    // A changed choice must be re-confirmed with the updated summary.
+    setConfirmOpen(false);
+    setConfirmText("");
+  }
+
   async function execute() {
-    if (!target || !source || confirmText !== CONFIRMATION_WORD) return;
+    if (!target || !source || confirmText !== CONFIRMATION_WORD || unresolvedConflicts.length > 0) return;
+    // Only choices for the conflicts of THIS preview are sent; the server
+    // re-derives the conflicts and rejects anything else.
+    const resultResolutions: Record<string, ResultSide> = {};
+    for (const conflict of resultConflicts) {
+      resultResolutions[conflict.tournament.id] = resultChoices[conflict.tournament.id];
+    }
     setExecuting(true);
     setExecuteError(null);
     try {
@@ -359,6 +471,7 @@ function MergeCenter({
           targetPlayerId: target.id,
           sourcePlayerId: source.id,
           confirmation: confirmText,
+          resultResolutions,
         }),
       });
       setSuccess(data.result);
@@ -376,15 +489,18 @@ function MergeCenter({
     }
   }
 
-  const blocked = !preview || !preview.eligible || previewLoading;
+  const needsResultChoice = Boolean(preview?.eligible) && unresolvedConflicts.length > 0;
+  const blocked = !preview || !preview.eligible || previewLoading || needsResultChoice;
   // The CTA sits right under the selectors (above the potentially
   // multi-screen preview), so its label has to carry the preview state.
   const ctaLabel = previewLoading
     ? "Проверяем возможность объединения..."
     : preview
-      ? preview.eligible
-        ? "Объединить аккаунты"
-        : "Объединение невозможно"
+      ? !preview.eligible
+        ? "Объединение невозможно"
+        : needsResultChoice
+          ? "Выберите правильный результат турнира"
+          : "Объединить аккаунты"
       : "Не удалось проверить объединение";
 
   return (
@@ -421,6 +537,12 @@ function MergeCenter({
               <dt>Перенесено турниров</dt>
               <dd>{success.transferred_tournament_count}</dd>
             </div>
+            {success.reconciled_tournament_count ? (
+              <div className="flex justify-between gap-2">
+                <dt>Объединено совпадающих турниров</dt>
+                <dd>{success.reconciled_tournament_count}</dd>
+              </div>
+            ) : null}
           </dl>
           {refreshWarning ? (
             <p className="mt-2 text-xs text-yellow-200">
@@ -486,11 +608,28 @@ function MergeCenter({
         </p>
       ) : null}
 
-      {confirmOpen && target && source && preview?.eligible ? (
+      {target && source && needsResultChoice && !previewLoading ? (
+        <p data-testid="merge-cta-result-hint" className="mt-2 text-xs text-amber-200/90">
+          В одном турнире у аккаунтов два результата. Ниже, в разделе «Нужно выбрать правильный
+          результат», отметьте, какой результат сохранить (без выбора:{" "}
+          {pluralTournaments(unresolvedConflicts.length)}).
+        </p>
+      ) : null}
+
+      {confirmOpen && target && source && preview?.eligible && !needsResultChoice ? (
         <div data-testid="merge-confirm" className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm">
           <p className="whitespace-pre-line text-white">
             {`Основным останется: ${target.display_name}\n\nВ него будет объединён: ${source.display_name}`}
           </p>
+          {resultConflicts.length > 0 ? (
+            <ul data-testid="merge-confirm-results" className="mt-2 space-y-1 text-xs text-amber-100">
+              {resultConflicts.map((conflict) => (
+                <li key={conflict.tournament.id}>
+                  {keptResultLine(conflict, resultChoices[conflict.tournament.id])}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-white/70">
             <li>Вся история присоединяемого аккаунта перейдёт в основной.</li>
             <li>Присоединяемый аккаунт станет объединённым и больше не будет самостоятельным.</li>
@@ -549,6 +688,45 @@ function MergeCenter({
             <PreviewCard title="ПРИСОЕДИНЯЕМЫЙ" player={preview.source} />
           </div>
 
+          {resultConflicts.length > 0 ? (
+            <div
+              data-testid="merge-result-conflicts"
+              className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3"
+            >
+              <p className="text-sm font-semibold text-amber-100">Нужно выбрать правильный результат</p>
+              <p className="mt-1 text-xs text-amber-100/70">
+                Один человек не может иметь два результата одного турнира. Выбранный результат
+                сохранится без изменений (место и очки рейтинга не пересчитываются), второй будет удалён.
+              </p>
+              <div className="mt-3 space-y-4">
+                {resultConflicts.map((conflict) => (
+                  <div key={conflict.tournament.id} data-testid="merge-result-conflict">
+                    <p className="text-xs font-semibold text-white">В этом турнире найдены два результата</p>
+                    <p className="text-xs text-white/70">{tournamentLabel(conflict.tournament)}</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <ResultCardView
+                        title="АККАУНТ A · ОСНОВНОЙ"
+                        card={conflict.target}
+                        side="target"
+                        tournamentId={conflict.tournament.id}
+                        selected={resultChoices[conflict.tournament.id] === "target"}
+                        onSelect={() => chooseResult(conflict.tournament.id, "target")}
+                      />
+                      <ResultCardView
+                        title="АККАУНТ B · ПРИСОЕДИНЯЕМЫЙ"
+                        card={conflict.source}
+                        side="source"
+                        tournamentId={conflict.tournament.id}
+                        selected={resultChoices[conflict.tournament.id] === "source"}
+                        onSelect={() => chooseResult(conflict.tournament.id, "source")}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {preview.final_identity ? (
             <div data-testid="merge-final-identity" className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3">
               <p className="text-xs font-semibold tracking-widest text-sky-200/70">ПОСЛЕ ОБЪЕДИНЕНИЯ</p>
@@ -593,6 +771,26 @@ function MergeCenter({
                 <li>Неявок: {preview.counts.source.no_shows}</li>
                 <li>Командная история: {preview.counts.source.team_memberships}</li>
                 <li>Смен дилера: {preview.counts.source.dealer_shifts}</li>
+              </ul>
+            </div>
+          ) : null}
+
+          {(preview.tournament_reconciliation ?? []).length > 0 ? (
+            <div
+              data-testid="merge-tournament-reconciliation"
+              className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-xs text-sky-100/80"
+            >
+              <p className="font-semibold text-sky-100">
+                Совпадающая история турниров будет объединена: {preview.tournament_reconciliation.length}
+              </p>
+              <ul className="mt-2 space-y-1">
+                {preview.tournament_reconciliation.map((item) => (
+                  <li key={item.tournament.id}>
+                    {tournamentLabel(item.tournament)}
+                    {item.collapsed.length > 0 ? ` — объединяется: ${item.collapsed.join(", ")}` : ""}
+                    {item.result_conflict ? " — нужен выбор результата" : ""}
+                  </li>
+                ))}
               </ul>
             </div>
           ) : null}
@@ -749,8 +947,9 @@ export default function AdminAccountMergesPage() {
         <h2 className="mt-8 text-lg font-semibold">Очередь конфликтов</h2>
         <p className="mt-1 text-sm text-white/50">
           Запросы на самостоятельное объединение, которые нельзя провести автоматически
-          (пересекающаяся турнирная история, вторая Telegram-идентификация и т.п.). Откройте пару в
-          объединении — те же проверки покажут, можно ли её объединить.
+          (два результата одного турнира, вторая Telegram-идентификация и т.п.). Откройте пару в
+          объединении — те же проверки покажут, можно ли её объединить, а два результата одного
+          турнира можно разрешить прямо там.
         </p>
 
         {error ? (

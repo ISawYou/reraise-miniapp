@@ -235,7 +235,7 @@ describePostgres("Account merge (PostgreSQL, real transaction/lock behavior)", (
     expect(conflicts.some((c) => c.id === intent.id)).toBe(true);
   });
 
-  it("rejects on real tournament overlap -- both players registered for the same tournament", async () => {
+  it("v2: both players registered for the same tournament is auto-reconciled, not rejected -- exactly one registration remains", async () => {
     await insertBaseRows();
     await client`
       INSERT INTO registrations (player_id, tournament_id, status)
@@ -250,20 +250,40 @@ describePostgres("Account merge (PostgreSQL, real transaction/lock behavior)", (
       email: "source@example.com",
       otpVerificationId: null,
     });
+    expect(intent.status).toBe("pending");
+
+    const result = await playerMerge.executeMerge({ intentId: intent.id, sessionPlayerId: TARGET_ID });
+    expect(result).toEqual({ merged: true });
+
+    const registrationRows = await client`SELECT player_id FROM registrations WHERE tournament_id = ${TOURNAMENT_ID}::uuid`;
+    expect(registrationRows.map((row) => row.player_id)).toEqual([TARGET_ID]);
+  });
+
+  it("v2: a double RESULT for one tournament still routes self-service to the admin conflict queue -- forced confirm merges nothing", async () => {
+    await insertBaseRows();
+    await client`
+      INSERT INTO results (tournament_id, player_id, place, rating_points)
+      VALUES (${TOURNAMENT_ID}::uuid, ${TARGET_ID}::uuid, 1, 10), (${TOURNAMENT_ID}::uuid, ${SOURCE_ID}::uuid, 2, 8)
+    `;
+
+    const intent = await playerMerge.createMergeIntent({
+      targetPlayerId: TARGET_ID,
+      sourcePlayerId: SOURCE_ID,
+      email: "source@example.com",
+      otpVerificationId: null,
+    });
 
     expect(intent.status).toBe("conflict");
-    expect(intent.conflict_reason).toContain("пересекающаяся");
+    expect(intent.conflict_reason).toBe(playerMerge.RESULT_CONFLICT_SELF_SERVICE_REASON);
 
-    // Forcing the intent to 'pending' and confirming it anyway must still
-    // be rejected -- the TOCTOU re-check inside executeMerge itself (not
-    // just createMergeIntent's preview) is what actually protects the data,
-    // against the real overlap this time, not a mocked one.
     await client`UPDATE player_merge_intents SET status = 'pending' WHERE id = ${intent.id}::uuid`;
     const result = await playerMerge.executeMerge({ intentId: intent.id, sessionPlayerId: TARGET_ID });
     expect(result.merged).toBe(false);
 
     const [source] = await client`SELECT merged_into_player_id FROM players WHERE id = ${SOURCE_ID}::uuid`;
     expect(source.merged_into_player_id).toBeNull();
+    const results = await client`SELECT player_id FROM results WHERE tournament_id = ${TOURNAMENT_ID}::uuid ORDER BY place`;
+    expect(results.map((row) => row.player_id)).toEqual([TARGET_ID, SOURCE_ID]);
   });
 
   it("moves Re-Raise-specific tournament_attendance and tournament_rebuy_state rows -- tables Sterling's own schema doesn't have", async () => {

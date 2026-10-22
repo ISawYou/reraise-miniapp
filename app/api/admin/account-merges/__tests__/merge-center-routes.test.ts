@@ -37,12 +37,14 @@ vi.mock("@/lib/repositories", () => ({
 class FakeAccountMergeUnavailableError extends Error {}
 class FakeAdminMergeConfirmationError extends Error {}
 class FakeAdminMergeConcurrentUpdateError extends Error {}
+class FakeMergeCollisionStateChangedError extends Error {}
 
 vi.mock("@/lib/player-merge", () => ({
   ADMIN_MERGE_CONFIRMATION: "ОБЪЕДИНИТЬ",
   AccountMergeUnavailableError: FakeAccountMergeUnavailableError,
   AdminMergeConfirmationError: FakeAdminMergeConfirmationError,
   AdminMergeConcurrentUpdateError: FakeAdminMergeConcurrentUpdateError,
+  MergeCollisionStateChangedError: FakeMergeCollisionStateChangedError,
   previewAdminMerge: mocks.previewAdminMerge,
   executeAdminMerge: mocks.executeAdminMerge,
   searchPlayersForAdminMerge: mocks.searchPlayersForAdminMerge,
@@ -204,7 +206,41 @@ describe("POST /api/admin/account-merges/execute", () => {
       targetPlayerId: TARGET_ID,
       sourcePlayerId: SOURCE_ID,
       confirmation: "ОБЪЕДИНИТЬ",
+      resultResolutions: {},
     });
+  });
+
+  it("forwards a well-formed resultResolutions map (the engine re-validates it against the real conflicts)", async () => {
+    const tournamentId = "18BCEA75-D8FE-4D0D-85F5-67320905CFAB";
+    const response = await executeRoute.POST(
+      post("http://localhost/api/admin/account-merges/execute", {
+        ...validExecuteBody,
+        resultResolutions: { [tournamentId]: "source" },
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.executeAdminMerge).toHaveBeenCalledWith({
+      targetPlayerId: TARGET_ID,
+      sourcePlayerId: SOURCE_ID,
+      confirmation: "ОБЪЕДИНИТЬ",
+      resultResolutions: { [tournamentId.toLowerCase()]: "source" },
+    });
+  });
+
+  it("malformed resultResolutions -> 400 without calling the engine", async () => {
+    for (const resultResolutions of [
+      [],
+      "target",
+      { "not-a-uuid": "target" },
+      { "18bcea75-d8fe-4d0d-85f5-67320905cfab": "both" },
+      { "18bcea75-d8fe-4d0d-85f5-67320905cfab": 1 },
+    ]) {
+      const response = await executeRoute.POST(
+        post("http://localhost/api/admin/account-merges/execute", { ...validExecuteBody, resultResolutions })
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(mocks.executeAdminMerge).not.toHaveBeenCalled();
   });
 
   it("verifies the typed confirmation server-side -- anything but the exact word is rejected without calling the engine", async () => {
@@ -228,13 +264,13 @@ describe("POST /api/admin/account-merges/execute", () => {
   it("blocked merge -> 409 with the server-computed blockers; no side effects run", async () => {
     mocks.executeAdminMerge.mockResolvedValue({
       merged: false,
-      blockers: [{ code: "tournament_overlap", message: "Оба аккаунта имеют данные турнира X — 12.10.2026" }],
+      blockers: [{ code: "result_resolution_required", message: "В этих турнирах найдены два результата" }],
     });
 
     const response = await executeRoute.POST(post("http://localhost/api/admin/account-merges/execute", validExecuteBody));
 
     expect(response.status).toBe(409);
-    expect((await response.json()).blockers[0].code).toBe("tournament_overlap");
+    expect((await response.json()).blockers[0].code).toBe("result_resolution_required");
     expect(mocks.finalizeMergeSideEffects).not.toHaveBeenCalled();
   });
 
@@ -263,6 +299,10 @@ describe("POST /api/admin/account-merges/execute", () => {
     mocks.executeAdminMerge.mockRejectedValue(new FakeAdminMergeConcurrentUpdateError("changed"));
     const response = await executeRoute.POST(post("http://localhost/api/admin/account-merges/execute", validExecuteBody));
     expect(response.status).toBe(409);
+
+    mocks.executeAdminMerge.mockRejectedValue(new FakeMergeCollisionStateChangedError("changed"));
+    const collision = await executeRoute.POST(post("http://localhost/api/admin/account-merges/execute", validExecuteBody));
+    expect(collision.status).toBe(409);
   });
 
   it("logs only UUIDs and the outcome -- never emails or Telegram ids", async () => {

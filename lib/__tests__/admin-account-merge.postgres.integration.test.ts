@@ -241,7 +241,7 @@ describePostgres("Super-Admin account merge (PostgreSQL, real locks/indexes)", (
       expect(preview.blockers.map((b) => b.code)).toEqual(["telegram_conflict"]);
     });
 
-    it("E. same-tournament history on both -> blocker naming the tournament title and date", async () => {
+    it("E. same-tournament history on both (target registration, source attendance) -> NOT a blocker (v2): informational reconciliation entry naming the tournament", async () => {
       await createPlayer(TARGET, { telegramId: TG_TARGET });
       await createPlayer(SOURCE, { email: "e.source@merge-center.test" });
       await createTournament(T_A, "Texas Classic", "2026-10-12T16:00:00Z");
@@ -250,11 +250,15 @@ describePostgres("Super-Admin account merge (PostgreSQL, real locks/indexes)", (
 
       const preview = await merge.previewAdminMerge({ targetPlayerId: TARGET, sourcePlayerId: SOURCE });
 
-      expect(preview.eligible).toBe(false);
-      const overlap = preview.blockers.find((b) => b.code === "tournament_overlap");
-      expect(overlap?.message).toBe("Оба аккаунта имеют данные турнира Texas Classic — 12.10.2026");
-      expect(overlap?.tournaments).toEqual([
-        { id: T_A, title: "Texas Classic", start_at: "2026-10-12T16:00:00.000Z" },
+      expect(preview.eligible).toBe(true);
+      expect(preview.blockers).toEqual([]);
+      expect(preview.result_conflicts).toEqual([]);
+      expect(preview.tournament_reconciliation).toEqual([
+        {
+          tournament: { id: T_A, title: "Texas Classic", start_at: "2026-10-12T16:00:00.000Z" },
+          collapsed: [],
+          result_conflict: false,
+        },
       ]);
     });
 
@@ -547,15 +551,16 @@ describePostgres("Super-Admin account merge (PostgreSQL, real locks/indexes)", (
       expect(caller?.role).toBe("player");
     });
 
-    it("never merges when the TOCTOU re-check finds a blocker that appeared after preview (same-tournament history)", async () => {
+    it("never merges when the TOCTOU re-check finds a double result that appeared after preview (resolution required)", async () => {
       await createTournament(T_A, "Late Overlap", "2026-10-01T16:00:00Z");
       await createPlayer(TARGET, { telegramId: TG_TARGET });
       await createPlayer(SOURCE, { email: "toctou.source@merge-center.test" });
 
       const preview = await merge.previewAdminMerge({ targetPlayerId: TARGET, sourcePlayerId: SOURCE });
       expect(preview.eligible).toBe(true);
+      expect(preview.requires_result_resolution).toBe(false);
 
-      await client`INSERT INTO registrations (player_id, tournament_id, status) VALUES (${TARGET}::uuid, ${T_A}::uuid, 'registered'), (${SOURCE}::uuid, ${T_A}::uuid, 'registered')`;
+      await client`INSERT INTO results (tournament_id, player_id, place, rating_points) VALUES (${T_A}::uuid, ${TARGET}::uuid, 1, 10), (${T_A}::uuid, ${SOURCE}::uuid, 2, 8)`;
 
       const result = await merge.executeAdminMerge({
         targetPlayerId: TARGET,
@@ -563,7 +568,7 @@ describePostgres("Super-Admin account merge (PostgreSQL, real locks/indexes)", (
         confirmation: merge.ADMIN_MERGE_CONFIRMATION,
       });
       expect(result.merged).toBe(false);
-      if (!result.merged) expect(result.blockers.map((b) => b.code)).toEqual(["tournament_overlap"]);
+      if (!result.merged) expect(result.blockers.map((b) => b.code)).toEqual(["result_resolution_required"]);
       expect((await playerRow(SOURCE)).merged_into_player_id).toBeNull();
       expect((await playerRow(SOURCE)).email).toBe("toctou.source@merge-center.test");
     });
