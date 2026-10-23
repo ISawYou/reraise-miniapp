@@ -7,6 +7,7 @@ import {
 } from "@/lib/repositories";
 import type { Player } from "@/types/domain";
 import { syncPlayerAchievements } from "@/features/achievements";
+import { assertNotMergedAwayPlayer } from "@/lib/merged-away-player";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -42,6 +43,7 @@ export async function setPlayerBlocked(
   const player = await playerRepository.findById(playerId);
 
   if (!player) throw new Error("Игрок не найден");
+  assertNotMergedAwayPlayer(player);
 
   // Staff (operator or Super Admin) are never blockable through this
   // action -- demote to 'player' first. Piggybacks on the role model
@@ -75,6 +77,7 @@ export async function setPlayerClubDiscount(
 
   const player = await playerRepository.findById(playerId);
   if (!player) throw new Error("Игрок не найден");
+  assertNotMergedAwayPlayer(player);
 
   try {
     return await playerRepository.update(playerId, { club_discount_percent: discountPercent });
@@ -161,6 +164,16 @@ export async function getPlayersForReferral(): Promise<Player[]> {
   return playerRepository.listOrderedByDisplayName();
 }
 
+// Referral counters on a merged-away (tombstone) row would be silently
+// lost: merge sums them into the canonical account once, at merge time.
+// findReferralFieldsById carries no merge pointer, hence the extra lookup.
+async function assertReferralTargetNotMergedAway(playerId: string): Promise<void> {
+  const player = await playerRepository.findById(playerId);
+  if (player) {
+    assertNotMergedAwayPlayer(player);
+  }
+}
+
 export async function updatePlayerReferralData(
   playerId: string,
   action: ReferralAction,
@@ -171,6 +184,7 @@ export async function updatePlayerReferralData(
   if (!current) {
     throw new Error("Игрок не найден");
   }
+  await assertReferralTargetNotMergedAway(playerId);
 
   let update: Record<string, number | boolean> = {};
 
@@ -255,6 +269,7 @@ export async function setPlayerReferralCount(
   if (!current) {
     throw new Error("Игрок не найден");
   }
+  await assertReferralTargetNotMergedAway(playerId);
 
   let updated: Player;
   try {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { players } from "@/lib/db/schema";
 import type { Player, PlayerRole } from "@/types/domain";
@@ -201,9 +201,14 @@ export class PostgresPlayerRepository implements PlayerRepository {
     }
   }
 
+  // Canonical-only operational directory -- see the interface contract.
   async listOrderedByDisplayName(): Promise<Player[]> {
     try {
-      const rows = await db.select().from(players).orderBy(asc(players.displayName));
+      const rows = await db
+        .select()
+        .from(players)
+        .where(isNull(players.mergedIntoPlayerId))
+        .orderBy(asc(players.displayName));
       return rows.map(mapRowToPlayer);
     } catch (err) {
       throw new Error(`Ошибка загрузки игроков: ${errorMessage(err)}`);

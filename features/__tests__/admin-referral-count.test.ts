@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPlayerRepository = {
   findReferralFieldsById: vi.fn(),
+  // Canonical (never merged) by default -- the merged-away guard's lookup.
+  findById: vi.fn(async (id: string) => ({ id, merged_into_player_id: null })),
   update: vi.fn(),
 };
 

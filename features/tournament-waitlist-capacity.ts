@@ -13,6 +13,7 @@ import {
 import { lockTournamentRow, type Executor } from "@/features/tournament-row-lock";
 import { dispatchWaitlistPromotionNotifications } from "@/features/tournament-promotion-notification";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
+import { MergedAwayPlayerSelectionError } from "@/lib/merged-away-player";
 import {
   ARRIVED_CANCELLATION_REJECTED_MESSAGE,
   LATE_REGISTRATION_CLOSED_MESSAGE,
@@ -456,6 +457,62 @@ function toRegistration(
 // Existing non-cancelled rows are returned unchanged, exactly as above.
 export type AdmittedRegistration = Registration & { online_registration_restricted?: true };
 
+// MERGED-AWAY (TOMBSTONE) ENTRANT GUARD -- race-safe against a concurrent
+// account merge (lib/player-merge.ts executeMerge / executeAdminMerge).
+// Called by admitPlayerToTournament right after lockTournamentRow, before
+// anything else is read or written for the entrant.
+//
+//   1. SELECT ... FROM players WHERE id = $entrant FOR UPDATE
+//      Same row lock the merge engine takes on both players
+//      (lockPlayerPair), so admission and merge of the same player
+//      serialize. Under READ COMMITTED a waiter re-reads the committed row
+//      version after the lock is granted, so if the merge won we see its
+//      merged_into_player_id and reject. Missing row -> reject.
+//   2. merged_into_player_id IS NOT NULL -> MergedAwayPlayerSelectionError
+//      (fail closed; never redirected to the canonical target).
+//   3. A no-op UPDATE of the same row (merged_into_player_id = itself; no
+//      FK/trigger side effect since the value is unchanged). This is what
+//      makes the "admission wins" order safe: the merge transaction is
+//      SERIALIZABLE and takes its snapshot at its FIRST statement (the
+//      intent-row lock), i.e. possibly BEFORE this admission commits. A
+//      lock-only FOR UPDATE would let that merge acquire the row after we
+//      commit and then move only the registrations visible in its stale
+//      snapshot -- leaving our new registration on the tombstone. Because
+//      we created a new row version, the merge's FOR UPDATE instead fails
+//      with 40001 (could not serialize access due to concurrent update);
+//      both merge entry points retry exactly once on 40001, and the retry's
+//      fresh snapshot sees and moves the registration to the target.
+//
+// LOCK ORDER: tournament row -> entrant player row -> registrations rows.
+// The merge engine takes intent rows -> both player rows (id-sorted) ->
+// history rows, and never locks a tournaments row (it only reads
+// tournaments and rewrites player_id on history rows, which takes no lock
+// on tournaments). So while this transaction waits for the player row it
+// holds only the tournament row, which the merge never requests; and the
+// merge never holds a registrations row lock while waiting for a player
+// row. No wait-for cycle between the two is possible. The same
+// tournament -> player order is already used by the no-show restriction
+// writes in this module.
+async function lockOperationalEntrantPlayer(tx: Executor, playerId: string): Promise<void> {
+  const [row] = await tx
+    .select({ id: players.id, mergedIntoPlayerId: players.mergedIntoPlayerId })
+    .from(players)
+    .where(eq(players.id, playerId))
+    .for("update");
+
+  if (!row) {
+    throw new TournamentRosterActionError("Игрок не найден");
+  }
+  if (row.mergedIntoPlayerId != null) {
+    throw new MergedAwayPlayerSelectionError(playerId);
+  }
+
+  await tx
+    .update(players)
+    .set({ mergedIntoPlayerId: sql`${players.mergedIntoPlayerId}` })
+    .where(eq(players.id, playerId));
+}
+
 export async function admitPlayerToTournament(
   tournamentId: string,
   playerId: string
@@ -468,6 +525,11 @@ export async function admitPlayerToTournament(
     if (!tournament) {
       throw new TournamentNotFoundError(tournamentId);
     }
+
+    // MERGED-AWAY GUARD -- before ANY read/write below (including the
+    // waitlist promotion of other players), so a rejection rolls back with
+    // nothing written. See lockOperationalEntrantPlayer.
+    await lockOperationalEntrantPlayer(tx, playerId);
 
     const state = await readCapacityState(tx, tournamentId, tournament.maxPlayers);
     const promotion = await promoteWithinLock(tx, state);

@@ -48,6 +48,11 @@ export type FakePlayer = {
   telegramId: number | null;
   // Set only for players CREATED through the fake (walk-in insert).
   displayName?: string;
+  // players.merged_into_player_id -- non-null = merged-away tombstone.
+  mergedIntoPlayerId?: string | null;
+  // false = the row does not exist (models a deleted/unknown player id for
+  // the entrant player-row lock). Players are otherwise implicitly present.
+  exists?: boolean;
 };
 
 export type FakeLateRegistrationSnapshot = {
@@ -215,6 +220,28 @@ function collectParams(chunk: unknown, out: unknown[] = []): unknown[] {
   return out;
 }
 
+// The entrant player-row lock (`SELECT ... FROM players WHERE id = $1 FOR
+// UPDATE`, see tournament-waitlist-capacity.ts's
+// lockOperationalEntrantPlayer). Filtered by the bound id, like the real
+// WHERE clause; a player absent from the map is an implicitly present,
+// canonical, unrestricted row (same convention as the rest of this fake).
+function lockedPlayerRows(params: unknown[]): unknown[] {
+  return params
+    .filter((value): value is string => typeof value === "string")
+    .flatMap((id) => {
+      const player = fake.state.players.get(id);
+      if (player?.exists === false) return [];
+      return [
+        {
+          id,
+          mergedIntoPlayerId: player?.mergedIntoPlayerId ?? null,
+          restrictedAt: player?.restrictedAt ?? null,
+          telegramId: player?.telegramId ?? null,
+        },
+      ];
+    });
+}
+
 function selectRows(table: unknown): unknown[] {
   const state = fake.state;
   if (table === tournaments) {
@@ -302,10 +329,13 @@ function makeExecutor() {
             );
           },
         }),
-        where: () => {
+        where: (cond: unknown) => {
           let locked = false;
           const run = () => {
             fake.state.log.push(`${locked ? "lock" : "select"}:${tableName(table)}`);
+            if (locked && table === players) {
+              return Promise.resolve(lockedPlayerRows(collectParams(cond)));
+            }
             return Promise.resolve(selectRows(table));
           };
           const thenable = {

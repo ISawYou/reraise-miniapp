@@ -15,6 +15,7 @@ import { computeMaxTournamentStreak } from "@/lib/tournament-streak";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
 import { getAppSetting } from "@/lib/app-settings";
 import { publishLegendaryAchievementEvent } from "@/features/club-activity";
+import { assertNotMergedAwayPlayer } from "@/lib/merged-away-player";
 
 // Same key/value app_settings store and the same "missing/anything-but-true
 // means false" convention already used by show_email_link_prompt /
@@ -424,8 +425,21 @@ export async function getManualAchievementsForPlayer(playerId: string) {
   });
 }
 
+// Manual grant/revoke is staff moderation of a CURRENT player: a merged-away
+// (tombstone) id from a stale picker must not receive a new
+// player_achievements row -- merge never carries this derived cache over,
+// so the grant would be silently lost to the canonical account.
+async function assertManualAchievementTarget(playerId: string) {
+  const player = await playerRepository.findById(playerId);
+  if (!player) {
+    throw new Error("Игрок не найден");
+  }
+  assertNotMergedAwayPlayer(player);
+}
+
 export async function grantManualAchievement(playerId: string, code: string) {
   assertManualAchievement(code);
+  await assertManualAchievementTarget(playerId);
   const firstCompletion = await upsertGrantedAchievement(playerId, code);
   if (firstCompletion) {
     try {
@@ -438,6 +452,7 @@ export async function grantManualAchievement(playerId: string, code: string) {
 
 export async function revokeManualAchievement(playerId: string, code: string) {
   assertManualAchievement(code);
+  await assertManualAchievementTarget(playerId);
 
   const now = new Date().toISOString();
 

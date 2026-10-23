@@ -7,8 +7,13 @@ const mockAchievementRepository = {
   deleteByPlayerId: vi.fn(),
 };
 
+type GuardPlayer = { id: string; merged_into_player_id: string | null };
+const CANONICAL_PLAYER = (id: string): GuardPlayer => ({ id, merged_into_player_id: null });
+
 const mockPlayerRepository = {
   findReferralFieldsById: vi.fn().mockResolvedValue(null),
+  // Manual grant/revoke's merged-away guard lookup; canonical by default.
+  findById: vi.fn(async (id: string): Promise<GuardPlayer | null> => CANONICAL_PLAYER(id)),
 };
 
 const mockResultRepository = {
@@ -84,6 +89,7 @@ beforeEach(() => {
   mockAchievementRepository.findSummariesByPlayerId.mockReset().mockResolvedValue([]);
   mockAchievementRepository.upsertMany.mockClear();
   mockPlayerRepository.findReferralFieldsById.mockReset().mockResolvedValue(null);
+  mockPlayerRepository.findById.mockReset().mockImplementation(async (id: string) => CANONICAL_PLAYER(id));
   mockResultRepository.countByPlayerId.mockReset().mockResolvedValue(0);
   mockResultRepository.findWinIdsByPlayerId.mockReset().mockResolvedValue([]);
   mockResultRepository.findRatingPointsByPlayerId.mockReset().mockResolvedValue([]);
@@ -769,6 +775,24 @@ describe("manual achievement moderation", () => {
 
   it("rejects an unknown achievement code", async () => {
     await expect(grantManualAchievement(PLAYER_ID, "does_not_exist")).rejects.toThrow();
+  });
+
+  it("refuses to grant or revoke on a merged-away (tombstone) player -- nothing written", async () => {
+    mockPlayerRepository.findById.mockResolvedValue({ id: PLAYER_ID, merged_into_player_id: "canonical" });
+
+    await expect(grantManualAchievement(PLAYER_ID, "royal_flush")).rejects.toThrow(
+      "Этот аккаунт уже объединён с другим. Выберите основной аккаунт."
+    );
+    await expect(revokeManualAchievement(PLAYER_ID, "royal_flush")).rejects.toThrow(
+      "Этот аккаунт уже объединён с другим. Выберите основной аккаунт."
+    );
+    expect(mockAchievementRepository.upsertMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses to grant to a nonexistent player id", async () => {
+    mockPlayerRepository.findById.mockResolvedValue(null);
+    await expect(grantManualAchievement(PLAYER_ID, "royal_flush")).rejects.toThrow("Игрок не найден");
+    expect(mockAchievementRepository.upsertMany).not.toHaveBeenCalled();
   });
 
   it("getManualAchievementsForPlayer lists only manual achievements with granted status", async () => {

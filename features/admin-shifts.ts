@@ -18,6 +18,7 @@ import {
 } from "@/lib/repositories";
 import type { AdminShiftRow } from "@/lib/repositories";
 import { isStaff } from "@/lib/roles";
+import { assertNotMergedAwayPlayer } from "@/lib/merged-away-player";
 
 export { AdminShiftAlreadyOnShiftError };
 
@@ -308,6 +309,10 @@ export async function createHistoricalAdminShift(
   if (!player) {
     throw new AdminShiftTargetPlayerNotFoundError(input.adminPlayerId);
   }
+  // A merged-away row keeps its old role, so the staff check alone would
+  // still let a tombstone receive a new shift; its history now lives on
+  // the canonical account.
+  assertNotMergedAwayPlayer(player);
   if (!isStaff(player.role)) {
     throw new InvalidStaffPlayerError(input.adminPlayerId);
   }

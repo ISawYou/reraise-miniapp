@@ -25,7 +25,8 @@ import {
   TournamentAlreadyCompletedError,
   TournamentNotFoundError,
 } from "@/lib/tournament-errors";
-import { assertPlayerActive } from "@/features/auth-server";
+import { assertPlayerActive, PlayerMergedAwayError } from "@/features/auth-server";
+import { MergedAwayPlayerSelectionError } from "@/lib/merged-away-player";
 import { assertServerActorRole, resolveCurrentServerActor } from "@/lib/admin-auth";
 import {
   FINAL_CANCELLATION_REJECTED_MESSAGE,
@@ -356,7 +357,20 @@ export async function registerPlayerForTournament(
   // an error; the result carries online_registration_restricted: true so
   // the UI can explain it. An existing registered seat is never removed
   // (the early return above), and cancellation stays available.
-  return admitPlayerToTournament(tournamentId, playerId);
+  //
+  // assertPlayerActive above is the early, player-facing check; the
+  // authoritative one runs inside admitPlayerToTournament under the
+  // player-row lock (a merge may commit in between). That in-lock
+  // rejection is reported with the same player-facing error/wording as
+  // assertPlayerActive -- the staff wording is for the admin picker only.
+  try {
+    return await admitPlayerToTournament(tournamentId, playerId);
+  } catch (err) {
+    if (err instanceof MergedAwayPlayerSelectionError) {
+      throw new PlayerMergedAwayError(playerId, "Аккаунт был объединён. Обновите страницу.");
+    }
+    throw err;
+  }
 }
 
 // The CURRENT session's own no-show restriction flag (never another
@@ -752,10 +766,20 @@ export async function addAdminTournamentParticipant(
 // Same bypass-of-middleware reasoning as updateTournament above. Staff --
 // "manage tournament registrations/participants/waitlist" is explicitly
 // allowed for operator.
+//
+// MERGED-AWAY GUARD: a tombstone player id (stale picker, direct call) is
+// rejected inside admitPlayerToTournament's transaction under the entrant
+// player-row lock (race-safe against a concurrent account merge) -- never
+// redirected to the canonical target. That one expected rejection is
+// RETURNED as { ok: false, error } (production Server Actions don't forward
+// thrown messages) so the admin sees exactly why and re-selects the
+// canonical account; every other failure still throws, as before.
+export type AddExistingPlayerResult = { ok: true } | { ok: false; error: string };
+
 export async function addExistingPlayerToTournament(
   tournamentId: string,
   playerId: string
-): Promise<void> {
+): Promise<AddExistingPlayerResult> {
   await assertServerActorRole(["admin", "operator"]);
 
   const existing = await registrationRepository.findLatestByPlayerAndTournament(
@@ -776,7 +800,15 @@ export async function addExistingPlayerToTournament(
   // Same locked seat decision as self-registration (registered iff a seat
   // is free and nobody is already waiting ahead, else waitlist). Never
   // checks is_final -- this IS the admin path that curates a final.
-  await admitPlayerToTournament(tournamentId, playerId);
+  try {
+    await admitPlayerToTournament(tournamentId, playerId);
+  } catch (err) {
+    if (err instanceof MergedAwayPlayerSelectionError) {
+      return { ok: false, error: err.message };
+    }
+    throw err;
+  }
+  return { ok: true };
 }
 
 // Same bypass-of-middleware reasoning as updateTournament above. Staff --

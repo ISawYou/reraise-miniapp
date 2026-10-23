@@ -212,6 +212,9 @@ export class SupabasePlayerRepository implements PlayerRepository {
     return (data ?? []).map((row) => mapPlayerRowToDomain(row as PlayerRow));
   }
 
+  // Contract is canonical-only (see PlayerRepository). The legacy Supabase
+  // schema has no merged_into_player_id column and account merge is
+  // Postgres-only, so every row here is already canonical -- no filter.
   async listOrderedByDisplayName(): Promise<Player[]> {
     const supabase = getSupabaseServer();
     const { data, error } = await supabase

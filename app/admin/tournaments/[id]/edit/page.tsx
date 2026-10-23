@@ -635,7 +635,20 @@ export default function AdminTournamentEditPage() {
     setMessage(null);
     setError(null);
     try {
-      await addExistingPlayerToTournament(tournamentId, playerId);
+      const result = await addExistingPlayerToTournament(tournamentId, playerId);
+      if (!result.ok) {
+        // Stale selection (e.g. the account was merged away after the list
+        // loaded) -- show the server's reason and reload the canonical-only
+        // directory so the stale entry disappears. Never auto-redirected.
+        setError(result.error);
+        try {
+          const data = await fetchAdminJson<{ players: Player[] }>("/api/admin/nicknames/players");
+          setAllPlayers(data.players);
+        } catch {
+          // Keep the error above; the list reloads on the next open.
+        }
+        return;
+      }
       await loadParticipants(tournamentId);
       setMessage("Участник добавлен");
       setPlayerSearch("");

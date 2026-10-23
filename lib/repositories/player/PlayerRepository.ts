@@ -85,6 +85,15 @@ export interface PlayerRepository {
   findClubDiscountPercentsByIds(playerIds: string[]): Promise<{ id: string; club_discount_percent: number }[]>;
 
   listOrderedByCreatedAtDesc(): Promise<Player[]>;
+  // OPERATIONAL current-player directory, ordered by display_name ASC.
+  // CANONICAL-ONLY: merged-away rows (players.merged_into_player_id IS NOT
+  // NULL -- tombstones kept for history, see lib/player-merge.ts) are never
+  // returned. Every caller is a live selector where staff/players pick a
+  // CURRENT person to act on (tournament "add existing player" picker,
+  // dealer/admin-shift/moderation/achievement/referral pickers, Teams
+  // invite search) -- a tombstone must never be selectable there. A future
+  // caller that genuinely needs historical identities must get its own
+  // explicitly named all-rows method, not reuse this one.
   listOrderedByDisplayName(): Promise<Player[]>;
   listPendingNicknames(): Promise<Player[]>;
   listDisplayNameCandidates(excludePlayerId: string): Promise<DisplayNameCandidate[]>;

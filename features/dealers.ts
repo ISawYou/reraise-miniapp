@@ -11,6 +11,7 @@ import {
 } from "@/lib/repositories";
 import type { DealerProfileRow, DealerShiftRow } from "@/lib/repositories";
 import type { Player } from "@/types/domain";
+import { assertNotMergedAwayPlayer } from "@/lib/merged-away-player";
 
 export class InvalidTournamentIdError extends Error {
   constructor(tournamentId: string) {
@@ -196,8 +197,14 @@ export async function listActiveDealers(): Promise<DealerStatus[]> {
 // never resets it to the default, so a rate an admin had already set stays
 // intact across deactivate/reactivate cycles. History (past shifts) is
 // untouched either way -- this function never writes to dealer_shifts.
+//
+// A merged-away (tombstone) player is refused: merge moves/drops the
+// source's dealer profile, so this is the only way a tombstone could get
+// one back -- and with it start shifts / be reassigned shifts
+// (startDealerShift and correctDealerShiftDealer both require a profile).
 export async function activateDealer(playerId: string): Promise<DealerProfileRow> {
-  await playerRepository.findByIdOrThrow(playerId);
+  const player = await playerRepository.findByIdOrThrow(playerId);
+  assertNotMergedAwayPlayer(player);
   return dealerRepository.createProfile(playerId, DEFAULT_DEALER_HOURLY_RATE_RUB);
 }
 
