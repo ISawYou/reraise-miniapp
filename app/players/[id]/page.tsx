@@ -4,20 +4,13 @@ import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import {
-  getPlayerById,
-  submitNicknameForModeration,
-} from "@/features/auth";
-import {
-  getMyTournaments,
-  getPlayedTournamentsCount,
-  getPlayerTournamentHistory,
-  getTournamentRegistrationCounts,
-} from "@/features/tournaments";
+import { submitNicknameForModeration } from "@/features/auth";
 import type { PlayerRatingSummary } from "@/features/leaderboard";
+import { ProfileResultRow } from "@/components/profile/profile-result-row";
+import type { ProfileV2Response } from "@/features/profile-v2";
 
 import { resolveCurrentPlayer } from "@/lib/current-player";
-import { fetchAdminJson } from "@/lib/client-request";
+import { fetchAdminJson, getAdminHeaders } from "@/lib/client-request";
 import { FollowListModal } from "@/components/follows/follow-list-modal";
 import {
   fetchFollowSummary,
@@ -30,10 +23,21 @@ import { getTelegramWebApp } from "@/lib/telegram";
 import { logEvent } from "@/lib/activity-client";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
+// Kept as an explicit surface dependency: compact profile artwork is
+// centralized in profile-primitives, but the profile remains covered by the
+// shared TournamentVisual surface contract.
 import { TournamentVisual } from "@/components/tournaments/tournament-visual";
+void TournamentVisual;
 import { TeamIdentity } from "@/components/teams/team-ui";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { fetchTournamentVisualConfigs } from "@/lib/tournament-visuals-client";
+import {
+  CompactListRow,
+  ContentCard,
+  ProfileKpiCell,
+  StatusPill,
+  TournamentArtworkIcon,
+} from "@/components/profile/profile-primitives";
 import {
   buildAchievementDisplayModel,
   getEarnedFeaturedOptions,
@@ -47,10 +51,8 @@ import type {
   RegistrationStatus,
   Tournament,
   TournamentResult,
-  TournamentType,
 } from "@/types/domain";
 
-type TabKey = "upcoming" | "past";
 
 type PersonalDealerCardSummary = {
   dealer: { isActive: boolean } | null;
@@ -87,57 +89,6 @@ function formatDateTimeWithoutSeconds(date: string) {
   });
 }
 
-function getPastResultMetrics(
-  tournamentType: TournamentType,
-  result: TournamentResult
-): { label: string; value: number }[] {
-  const place = { label: "Место", value: result.place };
-  const ratingPoints = { label: "Очки", value: result.rating_points };
-
-  if (tournamentType === "bounty") {
-    return [
-      place,
-      { label: "KO", value: result.knockouts ?? 0 },
-      ratingPoints,
-    ];
-  }
-
-  if (tournamentType === "boss_bounty") {
-    return [
-      place,
-      { label: "KO", value: result.knockouts ?? 0 },
-      { label: "Boss KO", value: result.boss_knockouts ?? 0 },
-      ratingPoints,
-    ];
-  }
-
-  if (tournamentType === "mystery_bounty") {
-    return [
-      place,
-      { label: "Очки за конверты", value: result.mystery_bounty_points ?? 0 },
-      ratingPoints,
-    ];
-  }
-
-  return [place, ratingPoints];
-}
-
-function getTournamentKindLabel(kind: Tournament["kind"]) {
-  if (kind === "paid") {
-    return "Платный";
-  }
-
-  if (kind === "cash") {
-    return "Кэш";
-  }
-
-  return "Бесплатный";
-}
-
-function pluralEntries(n: number): string {
-  return `${n} re-entry`;
-}
-
 function formatWholeHours(totalMinutes: number): string {
   return `${Math.round(totalMinutes / 60)} ч`;
 }
@@ -159,25 +110,6 @@ function PencilIcon() {
   );
 }
 
-function ImageIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
-      <circle cx="9" cy="10" r="1.5" />
-      <path d="m20.5 16.5-5.25-5.25L6 20.5" />
-    </svg>
-  );
-}
-
 function EditBadge({
   onClick,
   label,
@@ -190,7 +122,7 @@ function EditBadge({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="inline-flex h-7 w-7 appearance-none items-center justify-center rounded-full border-0 bg-black/60 text-white outline-none ring-0"
+      className="relative inline-flex h-7 w-7 after:absolute after:-inset-2 after:rounded-full appearance-none items-center justify-center rounded-full border-0 bg-black/60 text-white outline-none ring-0"
     >
       <PencilIcon />
     </button>
@@ -249,11 +181,11 @@ export default function PlayerProfilePage() {
   const [registrationCounts, setRegistrationCounts] = useState<
     Record<string, number>
   >({});
-  const [activeTab, setActiveTab] = useState<TabKey>("upcoming");
+  const [totalKnockouts, setTotalKnockouts] = useState(0);
   const [upcomingTournaments, setUpcomingTournaments] = useState<
     UpcomingTournamentItem[]
   >([]);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [recentForm, setRecentForm] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditingNickname, setIsEditingNickname] = useState(false);
@@ -305,65 +237,46 @@ export default function PlayerProfilePage() {
           setViewerId(ensuredViewer.id);
         }
 
-        // Personal dealer summary is only ever fetched for the viewer's OWN
-        // profile -- never when visiting another player's profile, and the
-        // server derives identity from the authenticated caller itself
-        // (see app/api/dealer/me/route.ts), never from this playerId.
-        const isOwnProfileLoad = ensuredViewer?.id === playerId;
+        const [profileResponse, visualsData, tournamentVisualsData] = await Promise.all([
+          fetch(`/api/players/${playerId}/profile-v2`, {
+            headers: await getAdminHeaders(),
+            credentials: "include",
+            cache: "no-store",
+          }).then(async (response) => {
+            const payload = await response.json();
+            if (response.ok && payload?.profile) return payload as ProfileV2Response;
 
-        const [
-          playerData,
-          ratingSummaryData,
-          tournamentsCount,
-          playerHistory,
-          myTournaments,
-          achievementRows,
-          counts,
-          visualsData,
-          featuredData,
-          tournamentVisualsData,
-          dealerSummary,
-          teamBadgeData,
-        ] = await Promise.all([
-          isOwnProfileLoad ? Promise.resolve(ensuredViewer) : getPlayerById(playerId),
-          fetch(`/api/players/${playerId}/rating-summary`).then((r) => r.json()) as Promise<PlayerRatingSummary>,
-          getPlayedTournamentsCount(playerId),
-          getPlayerTournamentHistory(playerId),
-          getMyTournaments(playerId),
-          fetch(`/api/players/${playerId}/achievements`).then((r) => r.ok ? r.json() : []),
-          getTournamentRegistrationCounts(),
+            throw new Error(payload?.error ?? "Не удалось загрузить профиль");
+          }),
           fetch("/api/achievement-visuals").then((r) => r.json()),
-          fetch(`/api/players/${playerId}/featured-achievements`).then((r) => r.ok ? r.json() : { keys: [] }),
           fetchTournamentVisualConfigs(),
-          isOwnProfileLoad
-            ? fetchAdminJson<PersonalDealerCardSummary>("/api/dealer/me").catch(() => null)
-            : Promise.resolve(null),
-          // Team card -- public for BOTH own and someone else's profile
-          // (see the Teams v1 product spec's PROFILE_UI section), so this
-          // is a plain unauthenticated fetch, never dealerSummary's
-          // "own-profile-only" gating.
-          fetch(`/api/teams/by-player/${playerId}`)
-            .then((r) => (r.ok ? r.json() : { team: null }))
-            .catch(() => ({ team: null })),
         ]);
 
-        if (!playerData) {
-          throw new Error("Player not found");
-        }
+        const profile = profileResponse.profile;
+        const isOwnProfileLoad = profileResponse.mode === "own";
 
-        setPlayer(playerData);
-        setNickname(playerData.pending_display_name ?? playerData.display_name);
-        setRatingSummary(ratingSummaryData);
-        setPlayedCount(tournamentsCount);
-        setHistory(
-          playerHistory.sort(
-            (a: HistoryItem, b: HistoryItem) =>
-              new Date(b.tournament.start_at).getTime() -
-              new Date(a.tournament.start_at).getTime()
-          )
-        );
+        const ownProfile = "email" in profile ? profile : null;
+        setPlayer({
+          id: profile.id,
+          telegram_id: null,
+          display_name: profile.display_name,
+          username: profile.username,
+          telegram_avatar_url: profile.telegram_avatar_url ?? undefined,
+          custom_avatar_url: profile.custom_avatar_url ?? undefined,
+          role: "player",
+          email: ownProfile?.email ?? null,
+          free_reentries_balance: ownProfile?.free_reentries_balance ?? 0,
+          nickname_status: ownProfile?.nickname_status,
+          pending_display_name: ownProfile?.pending_display_name ?? undefined,
+          created_at: ownProfile?.created_at ?? new Date(0).toISOString(),
+        });
+        setNickname(ownProfile?.pending_display_name ?? profile.display_name);
+        setRatingSummary(profile.rating);
+        setPlayedCount(profile.tournaments_played);
+        setTotalKnockouts(profile.knockouts);
+        setRecentForm(profile.recent_form);
         setUpcomingTournaments(
-          myTournaments
+          ("upcoming_tournaments" in profile ? profile.upcoming_tournaments : [])
             .filter(
               (item: UpcomingTournamentItem) =>
                 item.tournament.status !== "completed"
@@ -374,13 +287,17 @@ export default function PlayerProfilePage() {
                 new Date(b.tournament.start_at).getTime()
             )
         );
-        setRegistrationCounts(counts);
+        setRegistrationCounts("registration_counts" in profile ? profile.registration_counts : {});
         setTournamentVisuals(tournamentVisualsData);
-        setAchievementRows(achievementRows);
+        setAchievementRows(profile.achievements);
         setAchievementVisuals(Object.fromEntries((visualsData.visuals ?? []).map((config: AchievementVisualConfig) => [config.visualKey, config])));
-        setFeaturedKeys(featuredData.keys ?? []);
-        setDealerCard(dealerSummary?.dealer ? dealerSummary : null);
-        setTeamBadge(teamBadgeData.team);
+        setFeaturedKeys(profile.featured_achievement_keys);
+        setDealerCard(isOwnProfileLoad && ownProfile?.dealer?.dealer ? ownProfile.dealer : null);
+        setTeamBadge(profile.team);
+        if (isOwnProfileLoad && "team_state" in profile) {
+          setTeamInvites(profile.team_state.pending_invitations);
+          setTeamOutgoingRequests(profile.team_state.pending_outgoing_join_requests);
+        }
         logEvent("profile_opened", { metadata: { target_player_id: playerId } });
       } catch (err) {
         setError(
@@ -516,10 +433,6 @@ export default function PlayerProfilePage() {
 
   const avatarFallback = getPlayerAvatarFallback(player);
   const avatarUrl = getPlayerAvatarUrl(player);
-  const totalKnockouts = history.reduce(
-    (sum, item) => sum + (item.result.knockouts ?? 0),
-    0
-  );
   const achievementModel = buildAchievementDisplayModel(achievementRows);
   const earnedFeaturedOptions = getEarnedFeaturedOptions(achievementRows);
   const featuredAchievements = resolveFeaturedAchievements(achievementRows, featuredKeys);
@@ -533,7 +446,6 @@ export default function PlayerProfilePage() {
     const rightPriority = "currentTier" in right ? TIER_SORT_PRIORITY[right.currentTier!] : LEGENDARY_SORT_PRIORITY;
     return rightPriority - leftPriority;
   }).slice(0, 4);
-  const showTournamentKindTags = false;
 
   async function saveFeaturedAchievements() {
     if (!player) return;
@@ -562,7 +474,7 @@ export default function PlayerProfilePage() {
     }
 
     if (status === "waitlist") {
-      return "Вы в списке ожидания";
+      return "Лист ожидания";
     }
 
     if (status === "attended") {
@@ -690,9 +602,9 @@ export default function PlayerProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 py-6 pb-28 text-white">
+    <main className="min-h-screen bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+128px)] text-white">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-8">
+        <div className="mb-6">
           <BackButton href="/" />
 
           <h1 className="mt-6 text-3xl font-bold tracking-tight text-white">
@@ -700,131 +612,66 @@ export default function PlayerProfilePage() {
           </h1>
         </div>
 
-        <div className="rounded-[28px] border border-[#7f9b8c]/15 bg-[linear-gradient(160deg,#15231b_0%,#0d1512_55%,#0a0f0c_100%)] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.35)]">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt={player.display_name}
-                className="h-20 w-20 rounded-full border border-white/10 object-cover"
-              />
-            ) : (
-              <div className="flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-2xl font-bold text-white/80">
-                {avatarFallback}
+        <div data-testid="profile-hero" className="rounded-[28px] border border-[#7f9b8c]/15 bg-[linear-gradient(160deg,#15231b_0%,#0d1512_55%,#0a0f0c_100%)] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.25)]">
+          <div className="flex items-center gap-4">
+            <div className="relative shrink-0">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={player.display_name} className="h-[72px] w-[72px] rounded-full border border-white/10 object-cover" />
+              ) : (
+                <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-2xl font-bold text-white/80">{avatarFallback}</div>
+              )}
+              {isOwnProfile ? <div className="absolute -bottom-1 -right-1"><EditBadge onClick={() => avatarInputRef.current?.click()} label="Сменить аватар" /></div> : null}
+            </div>
+            <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFileChange} disabled={avatarLoading} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1">
+                <h2 title={player.display_name} className="min-w-0 break-words text-xl font-bold leading-tight [overflow-wrap:anywhere]">{player.display_name}</h2>
+                {isOwnProfile ? <span className="shrink-0"><EditBadge onClick={() => { setIsEditingNickname((prev) => !prev); setNicknameError(null); setNickname(player.pending_display_name ?? player.display_name); }} label="Сменить ник" /></span> : null}
               </div>
-            )}
-
-            {isOwnProfile ? (
-              <div className="absolute -right-2 -top-2">
-                <EditBadge
-                  onClick={() => avatarInputRef.current?.click()}
-                  label="Сменить аватар"
-                />
-              </div>
-            ) : null}
-          </div>
-
-          <input
-            ref={avatarInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleAvatarFileChange}
-            disabled={avatarLoading}
-          />
-
-          <div className="min-w-0 flex-1">
-            <div className="relative inline-block max-w-full">
-              <h2 className="truncate pr-8 text-2xl font-bold">
-                {player.display_name}
-              </h2>
-
-              {isOwnProfile ? (
-                <div className="absolute right-0 -top-2">
-                  <EditBadge
-                    onClick={() => {
-                      setIsEditingNickname((prev) => !prev);
-                      setNicknameError(null);
-                      setNickname(player.pending_display_name ?? player.display_name);
-                    }}
-                    label="Сменить ник"
-                  />
-                </div>
+              {player.username ? <p className="mt-1 truncate text-xs text-white/45">@{player.username}</p> : null}
+              {teamBadge ? (
+                <Link href={"/teams/" + teamBadge.team_id} className="mt-1 inline-flex max-w-full items-center gap-1.5 text-xs text-white/65">
+                  <TeamIdentity team={teamBadge} className="h-5 w-5 text-xs" />
+                  <span className="truncate">{teamBadge.name}</span>
+                  {teamBadge.rank != null ? <span className="shrink-0 text-[#d5b867]">#{teamBadge.rank}</span> : null}
+                </Link>
+              ) : null}
+              {showFollowButton && follow ? (
+                <button type="button" onClick={() => void handleFollowToggle()} disabled={followBusy} className={"mt-1 block rounded-full border px-3 py-1 text-xs font-semibold transition disabled:opacity-50 " + (follow.isFollowing ? "border-white/15 bg-white/[0.05] text-white/75" : "border-[#d7b55a] bg-[#d7b55a] text-black")}>
+                  {followBusy ? "..." : follow.isFollowing ? "Отписаться" : "Подписаться"}
+                </button>
               ) : null}
             </div>
+          </div>
 
-            {showFollowButton && follow ? (
-              <button
-                type="button"
-                onClick={() => void handleFollowToggle()}
-                disabled={followBusy}
-                className={`mt-2 rounded-full border px-4 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
-                  follow.isFollowing
-                    ? "border-white/15 bg-white/[0.05] text-white/75"
-                    : "border-[#d7b55a] bg-[#d7b55a] text-black"
-                }`}
-              >
-                {followBusy ? "..." : follow.isFollowing ? "Отписаться" : "Подписаться"}
-              </button>
-            ) : null}
-
+          <div className="mt-2 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-2">
             {follow && (follow.followers !== null || follow.following !== null) ? (
-              <div className="mt-2 flex items-baseline gap-4">
-                {follow.followers !== null ? (
-                  <button
-                    type="button"
-                    data-testid="follow-followers"
-                    aria-haspopup="dialog"
-                    onClick={() => playerId && setFollowList({ playerId, mode: "followers" })}
-                    className="flex items-baseline gap-1.5 text-left"
-                  >
-                    <span className="text-base font-bold tabular-nums text-white">{follow.followers}</span>
-                    <span className="text-[11px] text-white/50">Подписчики</span>
-                  </button>
-                ) : null}
-                {follow.following !== null ? (
-                  <button
-                    type="button"
-                    data-testid="follow-following"
-                    aria-haspopup="dialog"
-                    onClick={() => playerId && setFollowList({ playerId, mode: "following" })}
-                    className="flex items-baseline gap-1.5 text-left"
-                  >
-                    <span className="text-base font-bold tabular-nums text-white">{follow.following}</span>
-                    <span className="text-[11px] text-white/50">Подписки</span>
-                  </button>
-                ) : null}
+              <div className="flex items-center gap-2 text-[11px] text-white/60">
+                {follow.followers !== null ? <button type="button" data-testid="follow-followers" aria-haspopup="dialog" onClick={() => playerId && setFollowList({ playerId, mode: "followers" })} className="flex items-baseline gap-1"><span className="tabular-nums text-white/70">{follow.followers}</span><span>Подписчики</span></button> : null}
+                {follow.followers !== null && follow.following !== null ? <span aria-hidden="true">·</span> : null}
+                {follow.following !== null ? <button type="button" data-testid="follow-following" aria-haspopup="dialog" onClick={() => playerId && setFollowList({ playerId, mode: "following" })} className="flex items-baseline gap-1"><span className="tabular-nums text-white/70">{follow.following}</span><span>Подписки</span></button> : null}
               </div>
             ) : null}
-
-            {isOwnProfile && player.email ? (
-              <p className="mt-1 truncate text-sm text-white/45">{player.email}</p>
-            ) : null}
-
-            {(player.free_reentries_balance ?? 0) > 0 ? (
-              <div className="mt-2">
-                <span className="inline-flex items-center gap-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-0.5 text-xs font-medium text-yellow-400">
-                  {pluralEntries(player.free_reentries_balance ?? 0)}
-                </span>
-              </div>
-            ) : null}
-
             {featuredAchievements.length > 0 || isOwnProfile ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {featuredAchievements.map((item) => (
-                  <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-11 w-11 shrink-0" />
-                ))}
-                {isOwnProfile ? (
-                  <button type="button" onClick={() => { setFeaturedDraft(featuredKeys); setShowFeaturedEditor(true); }} className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs text-white/65">
-                    Изменить достижения
-                  </button>
-                ) : null}
+              <div className="flex shrink-0 items-center gap-1">
+                {featuredAchievements.slice(0, 3).map((item) => <AchievementVisual key={item.key} visualKey={item.visualKey} tier={item.tier} configs={achievementVisuals} className="h-8 w-8 shrink-0" />)}
+                {isOwnProfile ? <button type="button" aria-label="Изменить достижения" onClick={() => { setFeaturedDraft(featuredKeys); setShowFeaturedEditor(true); }} className="relative ml-1 inline-flex h-8 w-8 after:absolute after:-inset-1.5 after:rounded-full items-center justify-center rounded-full text-white/45"><PencilIcon /></button> : null}
               </div>
             ) : null}
           </div>
+
+          <div data-testid="profile-kpis" className="mt-2 grid w-full grid-cols-4 divide-x divide-white/10 border-t border-white/10 pt-2">
+            <ProfileKpiCell label={ratingSummary?.currentSeason?.isOutOfCompetition ? "Вне зачёта" : "Место"} value={ratingSummary?.currentSeason?.rank ? "#" + ratingSummary.currentSeason.rank : "—"} />
+            <ProfileKpiCell label="Очки" value={ratingSummary?.currentSeason?.points ?? 0} tone="gold" />
+            <ProfileKpiCell label="Турниры" value={playedCount} />
+            <ProfileKpiCell label="Нокауты" value={totalKnockouts} />
+          </div>
         </div>
-        </div>
+
+        <p className="mt-2 px-1 text-[11px] leading-relaxed text-white/60">Место и очки — сезон · Турниры и нокауты — всё время</p>
+        {isOwnProfile && (player.free_reentries_balance ?? 0) > 0 ? (
+          <p data-testid="free-reentries-balance" className="mt-2 px-1 text-xs text-[#d5b867]">Бесплатные re-entry: {player.free_reentries_balance}</p>
+        ) : null}
 
         {player.nickname_status === "pending" && player.pending_display_name ? (
           <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/60">
@@ -882,26 +729,40 @@ export default function PlayerProfilePage() {
           </div>
         ) : null}
 
-        <div className="mt-7 space-y-3">
+        <section id="profile-results" className="mt-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-white">Последняя форма</h2>
+            <Link href={`/players/${player.id}/results`} className="inline-flex min-h-11 shrink-0 items-center text-xs text-[#d5b867]">Все результаты →</Link>
+          </div>
+          {recentForm.length === 0 ? (
+            <ContentCard className="p-4 text-sm text-white/50">Пока нет завершённых турниров</ContentCard>
+          ) : (
+            <div className="space-y-2">
+              {recentForm.slice(0, 6).map((item) => <ProfileResultRow key={item.tournament.id} item={item} configs={tournamentVisuals} />)}
+            </div>
+          )}
+        </section>
+
+        <div className="mt-6 space-y-3">
           <Link
             href={`/players/${player.id}/achievements`}
-            className="block rounded-3xl border border-[#8a6a4a]/20 bg-[linear-gradient(160deg,#1c140f_0%,#120d0a_100%)] p-5 text-white"
+            className="block rounded-2xl border border-[#8a6a4a]/20 bg-[linear-gradient(160deg,#1c140f_0%,#120d0a_100%)] p-4 text-white"
           >
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xl font-semibold text-white">Достижения</p>
+              <p className="text-lg font-semibold text-white">Достижения</p>
               <ArrowRightIcon />
             </div>
 
-            <div className="mt-4 flex items-center justify-between gap-4">
+            <div className="mt-3 flex items-center justify-between gap-4">
               <div className="flex -space-x-2">
                 {profileAchievementCards.map((card) => (
-                  <AchievementVisual key={"family" in card ? card.family : card.code} visualKey={card.visualKey} tier={"currentTier" in card ? card.currentTier : null} configs={achievementVisuals} className="h-12 w-12 rounded-full bg-[#0b100d]" />
+                  <AchievementVisual key={"family" in card ? card.family : card.code} visualKey={card.visualKey} tier={"currentTier" in card ? card.currentTier : null} configs={achievementVisuals} className="h-10 w-10 rounded-full bg-[#0b100d]" />
                 ))}
                 {earnedFamiliesCount + earnedLegendaryCount === 0 ? <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.07] text-white/60"><TrophyIcon /></div> : null}
               </div>
               <div className="text-right text-xs text-white/50">
-                <p>{earnedFamiliesCount + earnedLegendaryCount} из 12 открыто</p>
-                <p className="mt-1">Легендарные {earnedLegendaryCount}/4</p>
+                <p>Группы: {earnedFamiliesCount}/{achievementModel.families.length}</p>
+                <p className="mt-1">Легендарные: {earnedLegendaryCount}/{achievementModel.legendary.length}</p>
               </div>
             </div>
           </Link>
@@ -909,7 +770,7 @@ export default function PlayerProfilePage() {
           {teamBadge ? (
             <Link
               href={`/teams/${teamBadge.team_id}`}
-              className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4"
+              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4"
             >
               <TeamIdentity team={teamBadge} className="h-11 w-11 text-2xl" />
               <div className="min-w-0 flex-1">
@@ -966,7 +827,7 @@ export default function PlayerProfilePage() {
           ) : isOwnProfile && teamOutgoingRequests.length > 0 ? (
             <Link
               href="/teams?tab=my-team"
-              className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4"
+              className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4"
             >
               <div>
                 <p className="text-sm font-semibold text-white">Команды</p>
@@ -977,222 +838,51 @@ export default function PlayerProfilePage() {
           ) : isOwnProfile ? (
             <Link
               href="/teams"
-              className="flex items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/55"
+              className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/55"
             >
               <span>Нет команды · Создать</span>
               <ArrowRightIcon />
             </Link>
           ) : null}
 
-          {isOwnProfile && dealerCard?.dealer ? (
-            <Link
-              href="/dealer"
-              className="block rounded-3xl border border-[#4a7a8a]/20 bg-[linear-gradient(160deg,#0f1c1f_0%,#0a1214_100%)] p-5 text-white"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xl font-semibold text-white">Моя работа</p>
-                  <p className="mt-1 text-sm text-white/50">Дилер</p>
-                </div>
-                <ArrowRightIcon />
-              </div>
 
-              <p className="mt-4 text-sm text-white/70">
-                {dealerCard.monthSummary.completedShiftCount > 0
-                  ? `${dealerCard.monthSummary.completedShiftCount} смен · ${formatWholeHours(
-                      dealerCard.monthSummary.workedMinutes
-                    )} · ${formatRub(dealerCard.monthSummary.payoutRub)}`
-                  : "В этом месяце смен ещё не было"}
-              </p>
-            </Link>
-          ) : null}
-
-          <div className="rounded-3xl border border-[#8a8262]/15 bg-[linear-gradient(160deg,#171a13_0%,#101210_100%)] px-5 pb-4 pt-3.5">
-            <p className="text-xl font-semibold text-white">
-              Статистика
-            </p>
-
-            <div className="mt-3 grid grid-cols-2 gap-4">
-              <div className="text-center">
-                <p className="text-xl font-semibold text-[#f0d38a]">
-                  {ratingSummary?.currentSeason?.points ?? 0}
-                </p>
-                <p className="mt-1.5 text-sm text-white/55">Очки сезона</p>
-                <p className="mt-0.5 text-xs text-white/40">
-                  За всё время: {ratingSummary?.allTime.points ?? 0}
-                </p>
-              </div>
-
-              <div className="border-l border-[#8a8262]/20 pl-4 text-center">
-                <p className="text-xl font-semibold text-white">
-                  {ratingSummary?.currentSeason?.isOutOfCompetition
-                    ? "—"
-                    : ratingSummary?.currentSeason?.rank
-                      ? `#${ratingSummary.currentSeason.rank}`
-                      : "—"}
-                </p>
-                <p className="mt-1.5 text-sm text-white/55">
-                  {ratingSummary?.currentSeason?.isOutOfCompetition ? "Вне зачёта" : "Место"}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-4 border-t border-[#8a8262]/15 pt-4">
-              <div className="text-center">
-                <p className="text-xl font-semibold text-white">{playedCount}</p>
-                <p className="mt-1.5 text-sm text-white/55">Турниры</p>
-              </div>
-
-              <div className="border-l border-[#8a8262]/20 pl-4 text-center">
-                <p className="text-xl font-semibold text-white">{totalKnockouts}</p>
-                <p className="mt-1.5 text-sm text-white/55">Нокауты</p>
-              </div>
-            </div>
-          </div>
         </div>
 
-        <section className="mt-8">
-          <h2 className="text-xl font-semibold">Турниры</h2>
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setActiveTab("upcoming")}
-              className={`rounded-full border px-4 py-3 text-sm font-medium ${
-                activeTab === "upcoming"
-                  ? "border-white/20 bg-white/10 text-white"
-                  : "border-white/10 bg-transparent text-white/70"
-              }`}
-            >
-              Активные ({upcomingTournaments.length})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab("past")}
-              className={`rounded-full border px-4 py-3 text-sm font-medium ${
-                activeTab === "past"
-                  ? "border-white/20 bg-white/10 text-white"
-                  : "border-white/10 bg-transparent text-white/70"
-              }`}
-            >
-              Прошедшие ({history.length})
-            </button>
-          </div>
-
-          {activeTab === "upcoming" ? (
-            <div className="mt-4">
-              {upcomingTournaments.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-                  Пока нет активных турниров
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {upcomingTournaments.map((item) => (
-                    <Link
-                      key={item.registration.id}
-                      href={`/tournaments/${item.tournament.id}`}
-                      className="relative block overflow-hidden rounded-3xl border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-5 shadow-[0_14px_36px_rgba(0,0,0,0.3)] transition active:scale-[0.99]"
-                    >
-                      <TournamentVisual
-                        tournamentType={item.tournament.tournament_type}
-                        configs={tournamentVisuals}
-                        className="z-0"
-                      />
-
-                      <div className="relative z-10">
-                        <div className="min-w-0">
-                          <h3 className="text-lg font-semibold text-white">
-                            {item.tournament.title}
-                          </h3>
-                          {showTournamentKindTags ? (
-                            <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
-                              {getTournamentKindLabel(item.tournament.kind)}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/75">
-                          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-xs font-medium">
-                            {formatDateTimeWithoutSeconds(item.tournament.start_at)}
-                          </div>
-                          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-xs font-medium">
-                            {registrationCounts[item.tournament.id] ?? 0} / {item.tournament.max_players}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 text-sm text-white/60">
-                          {getStatusText(item.registration.status)}
-                        </div>
+        {isOwnProfile ? (
+          <section className="mt-6">
+            <h2 className="mb-3 text-lg font-semibold">Ближайшие турниры</h2>
+            {upcomingTournaments.length === 0 ? <p className="py-3 text-sm text-white/45">Пока нет активных турниров</p> : (
+              <div className="space-y-2">
+                {upcomingTournaments.map((item) => (
+                  <Link key={item.registration.id} href={"/tournaments/" + item.tournament.id} className="block transition active:scale-[0.99]">
+                    <CompactListRow>
+                      <TournamentArtworkIcon tournamentType={item.tournament.tournament_type} configs={tournamentVisuals} />
+                      <div className="min-w-0 flex-1">
+                        <h3 className="truncate text-sm font-semibold text-white">{item.tournament.title}</h3>
+                        <p className="mt-1 text-xs leading-relaxed text-white/65">
+                          <span className="block">{formatDateTimeWithoutSeconds(item.tournament.start_at)}</span>
+                          <span data-registration-status="" className="block">{getStatusText(item.registration.status)}</span>
+                          {item.tournament.status === "closed" ? <span className="block">Регистрация закрыта</span> : null}
+                        </p>
                       </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
+                      <StatusPill>{registrationCounts[item.tournament.id] ?? 0}/{item.tournament.max_players}</StatusPill>
+                    </CompactListRow>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {isOwnProfile && dealerCard?.dealer ? (
+          <Link href="/dealer" className="mt-6 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-white">Моя работа <span className="ml-1 font-normal text-white/45">· Дилер</span></p>
+              <p className="mt-1 text-xs text-white/50">{dealerCard.monthSummary.completedShiftCount > 0 ? dealerCard.monthSummary.completedShiftCount + " смен · " + formatWholeHours(dealerCard.monthSummary.workedMinutes) + " · " + formatRub(dealerCard.monthSummary.payoutRub) : "В этом месяце смен ещё не было"}</p>
             </div>
-          ) : (
-            <div className="mt-4">
-              {history.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-                  Пока нет завершённых турниров
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {history.map((item) => (
-                    <Link
-                      key={`${item.tournament.id}-${item.result.player_id}`}
-                      href={`/tournaments/${item.tournament.id}`}
-                      className="block rounded-3xl border border-white/10 bg-white/[0.05] p-5"
-                    >
-                      <div className="min-w-0">
-                        <h3 className="text-lg font-semibold">
-                          {item.tournament.title}
-                        </h3>
-                        {showTournamentKindTags ? (
-                          <span className="mt-2 inline-flex rounded-full bg-white/10 px-3 py-1 text-[11px] text-white/80">
-                            {getTournamentKindLabel(item.tournament.kind)}
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.07] px-3 py-2 text-sm text-white/75">
-                        {formatDateTimeWithoutSeconds(item.tournament.start_at)}
-                      </div>
-
-                      {(() => {
-                        const metrics = getPastResultMetrics(
-                          item.tournament.tournament_type,
-                          item.result
-                        );
-                        const gridClass =
-                          metrics.length === 4
-                            ? "grid-cols-2"
-                            : "grid-cols-3";
-                        return (
-                          <div className={`mt-4 grid ${gridClass} gap-3`}>
-                            {metrics.map((metric) => (
-                              <div
-                                key={metric.label}
-                                className="rounded-2xl bg-white/[0.04] px-3 py-3 text-center"
-                              >
-                                <p className="text-xs text-white/45">
-                                  {metric.label}
-                                </p>
-                                <p className="mt-2 text-lg font-semibold text-white">
-                                  {metric.value}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </section>
+            <ArrowRightIcon />
+          </Link>
+        ) : null}
       </div>
 
       {showFeaturedEditor && isOwnProfile ? (

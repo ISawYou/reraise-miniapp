@@ -12,6 +12,7 @@ import type {
   ArrivedPlacementRow,
   ResultAttendanceRow,
   ResultHistoryRow,
+  ResultHistoryPage,
   SeasonRecapResultRow,
   TeamScoringResultRow,
   PlayerClubDiscountHistoryRow,
@@ -506,9 +507,24 @@ export class SupabaseResultRepository implements ResultRepository {
     });
   }
 
-  async findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]> {
+  async sumHistoryKnockoutsByPlayerId(playerId: string): Promise<number> {
     const supabase = getSupabaseServer();
-    const { data, error } = await supabase
+    let total = 0;
+    // Legacy provider: avoid the default PostgREST 1000-row cap without
+    // downloading full historical tournament payloads for the KPI.
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase.from("results")
+        .select("knockouts,tournament:tournaments!inner(id)")
+        .eq("player_id", playerId).order("id").range(offset, offset + 999);
+      if (error) throw new Error(error.message);
+      total += (data ?? []).reduce((sum, row) => sum + (row.knockouts ?? 0), 0);
+      if ((data ?? []).length < 1000) return total;
+    }
+  }
+
+  async findHistoryWithTournamentByPlayerId(playerId: string, page?: ResultHistoryPage): Promise<ResultHistoryRow[]> {
+    const supabase = getSupabaseServer();
+    let query = supabase
       .from("results")
       .select(
         `
@@ -517,13 +533,22 @@ export class SupabaseResultRepository implements ResultRepository {
         place,
         knockouts,
         boss_knockouts,
+        mystery_bounty_points,
+        itm_points,
         reentries,
         rating_points,
-        tournament:tournaments (*)
+        tournament:tournaments${page ? "!inner" : ""} (*)
       `
       )
-      .eq("player_id", playerId)
-      .order("created_at", { ascending: false });
+      .eq("player_id", playerId);
+
+    query = page
+      ? query.eq("tournament.status", "completed")
+          .order("tournament(start_at)", { ascending: false })
+          .order("tournament_id", { ascending: false })
+          .range(page.offset, page.offset + page.limit - 1)
+      : query.order("created_at", { ascending: false });
+    const { data, error } = await query;
 
     if (error) {
       throw new Error(error.message);
@@ -535,20 +560,46 @@ export class SupabaseResultRepository implements ResultRepository {
       place: number;
       knockouts: number;
       boss_knockouts: number | null;
+      mystery_bounty_points: number | null;
+      itm_points: number | null;
       reentries: number;
       rating_points: number | null;
       tournament: TournamentRow | TournamentRow[] | null;
     };
 
-    return (data ?? []).map((row: ResultWithTournamentRow) => ({
+    const historyRows = (data ?? []).map((row: ResultWithTournamentRow) => ({
       player_id: row.player_id,
       tournament_id: row.tournament_id,
       place: row.place,
       knockouts: row.knockouts,
       boss_knockouts: row.boss_knockouts ?? 0,
+      mystery_bounty_points: row.mystery_bounty_points ?? 0,
+      itm_points: row.itm_points ?? null,
+      field_size: 0,
       reentries: row.reentries,
       rating_points: row.rating_points ?? 0,
       tournament: flattenEmbedded(row.tournament),
+    }));
+
+    const tournamentIds = Array.from(new Set(historyRows.map((row) => row.tournament_id)));
+    if (tournamentIds.length === 0) return historyRows;
+
+    const fieldSizes = new Map<string, number>();
+    for (let offset = 0; ; offset += 1000) {
+      const { data: arrivedRows, error: arrivedError } = await supabase
+        .from("results").select("tournament_id")
+        .in("tournament_id", tournamentIds).eq("arrived", true)
+        .order("id").range(offset, offset + 999);
+      if (arrivedError) throw new Error(arrivedError.message);
+      for (const row of arrivedRows ?? []) {
+        fieldSizes.set(row.tournament_id, (fieldSizes.get(row.tournament_id) ?? 0) + 1);
+      }
+      if ((arrivedRows ?? []).length < 1000) break;
+    }
+
+    return historyRows.map((row) => ({
+      ...row,
+      field_size: fieldSizes.get(row.tournament_id) ?? 0,
     }));
   }
 

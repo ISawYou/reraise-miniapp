@@ -70,6 +70,7 @@ type TournamentVisualProps = {
   // passes "lazy" (for off-screen slides) -- see TournamentCard's
   // artworkLoading prop. No IntersectionObserver, no next/image.
   loading?: "eager" | "lazy";
+  onLoadStateChange?: (loaded: boolean) => void;
 };
 
 // Decorative artwork layer shared by the Home tournament card and the admin
@@ -82,6 +83,7 @@ export function TournamentVisual({
   artworkSizeClassName = DEFAULT_ARTWORK_SIZE_CLASSNAME,
   variant = "default",
   loading = "eager",
+  onLoadStateChange,
 }: TournamentVisualProps) {
   const config = configs[tournamentType];
 
@@ -166,6 +168,7 @@ export function TournamentVisual({
               assetUrl={config.assetUrl}
               cardAssetUrl={config.cardAssetUrl}
               loading={loading}
+              onLoadStateChange={onLoadStateChange}
             />
           </div>
         </div>
@@ -178,6 +181,7 @@ type TournamentArtworkImageProps = {
   assetUrl: string;
   cardAssetUrl?: string;
   loading: "eager" | "lazy";
+  onLoadStateChange?: (loaded: boolean) => void;
 };
 
 // Prefers the smaller 512px card derivative (same artwork as assetUrl, see
@@ -186,7 +190,7 @@ type TournamentArtworkImageProps = {
 // parent (see below) so a new original/card pair from a fresh upload always
 // starts this retry state clean -- never inherits a stale fallback from a
 // previous config's failed load.
-function TournamentArtworkImage({ assetUrl, cardAssetUrl, loading }: TournamentArtworkImageProps) {
+function TournamentArtworkImage({ assetUrl, cardAssetUrl, loading, onLoadStateChange }: TournamentArtworkImageProps) {
   // Nothing to retry into if there's no distinct derivative -- either it
   // was never generated (old/legacy config) or it happens to equal the
   // original byte-for-byte (pathological but harmless: treat it as "no
@@ -204,6 +208,7 @@ function TournamentArtworkImage({ assetUrl, cardAssetUrl, loading }: TournamentA
       src={src}
       alt=""
       loading={loading}
+      onLoad={() => onLoadStateChange?.(true)}
       className="h-full w-full object-contain object-right"
       onError={(event) => {
         if (hasDistinctCard && !useOriginal) {
@@ -218,6 +223,7 @@ function TournamentArtworkImage({ assetUrl, cardAssetUrl, loading }: TournamentA
         // (original) itself just failed -- plain card, no broken-image
         // glyph, same behavior as before this derivative existed.
         event.currentTarget.style.display = "none";
+        onLoadStateChange?.(false);
       }}
     />
   );

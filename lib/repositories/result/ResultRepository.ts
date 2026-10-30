@@ -100,10 +100,16 @@ export type ResultHistoryRow = {
   place: number;
   knockouts: number;
   boss_knockouts?: number;
+  mystery_bounty_points: number;
+  itm_points: number | null;
+  field_size: number;
   reentries: number;
   rating_points: number;
   tournament: TournamentRow | null;
 };
+
+// A bounded read of completed results, ordered by tournament date + id.
+export type ResultHistoryPage = { limit: number; offset: number };
 
 // RERAISE Finance export (features/finance-export.ts) -- the minimal, raw
 // per-result fields Finance's attendance/reentry/addon aggregation needs
@@ -252,7 +258,8 @@ export interface ResultRepository {
   // rating-breakdown/PII column -- this is exactly the allowed-field set
   // for season records.
   findSeasonRecapRows(seasonId: string): Promise<SeasonRecapResultRow[]>;
-  findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]>;
+  findHistoryWithTournamentByPlayerId(playerId: string, page?: ResultHistoryPage): Promise<ResultHistoryRow[]>;
+  sumHistoryKnockoutsByPlayerId(playerId: string): Promise<number>;
   findAllForTeamScoring(): Promise<TeamScoringResultRow[]>;
 
   // CLUB DISCOUNTS — targeted historical backfill (2026-09-28). Every

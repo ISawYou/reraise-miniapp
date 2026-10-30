@@ -181,6 +181,8 @@ export type TournamentResult = {
   knockouts: number;
   boss_knockouts?: number;
   mystery_bounty_points?: number;
+  itm_points?: number | null;
+  field_size?: number;
   reentries: number;
   addons?: number;
   free_reentries?: number;

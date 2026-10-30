@@ -495,8 +495,8 @@ export async function setTournamentGoogleSheetTabName(
   await tournamentRepository.patch(tournamentId, { google_sheet_tab_name: tabName });
 }
 
-export async function getMyTournamentHistory(playerId: string) {
-  const rows = await resultRepository.findHistoryWithTournamentByPlayerId(playerId);
+export async function getMyTournamentHistory(playerId: string, page?: { limit: number; offset: number }) {
+  const rows = await resultRepository.findHistoryWithTournamentByPlayerId(playerId, page);
 
   return rows
     .map((row) => {
@@ -509,6 +509,9 @@ export async function getMyTournamentHistory(playerId: string) {
           place: row.place,
           knockouts: row.knockouts,
           boss_knockouts: row.boss_knockouts ?? 0,
+          mystery_bounty_points: row.mystery_bounty_points ?? 0,
+          itm_points: row.itm_points ?? null,
+          field_size: row.field_size ?? 0,
           reentries: row.reentries,
           rating_points: row.rating_points,
           username: null,
@@ -522,8 +525,8 @@ export async function getMyTournamentHistory(playerId: string) {
     }>;
 }
 
-export async function getPlayerTournamentHistory(playerId: string) {
-  return getMyTournamentHistory(playerId);
+export async function getPlayerTournamentHistory(playerId: string, page?: { limit: number; offset: number }) {
+  return getMyTournamentHistory(playerId, page);
 }
 
 export async function getPlayerRating(playerId: string): Promise<number> {
@@ -536,6 +539,10 @@ export async function getPlayedTournamentsCount(
   playerId: string
 ): Promise<number> {
   return resultRepository.countByPlayerId(playerId);
+}
+
+export async function getPlayerHistoryKnockouts(playerId: string): Promise<number> {
+  return resultRepository.sumHistoryKnockoutsByPlayerId(playerId);
 }
 
 // Season assignment is date-based, NOT "whichever season happens to be
