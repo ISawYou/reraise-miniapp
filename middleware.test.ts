@@ -312,3 +312,15 @@ describe("admin middleware -- dealer-only user (dealer is NOT an auth role)", ()
     expect(response.status).toBe(401);
   });
 });
+
+
+describe("completed KO correction -- Super Admin only", () => {
+  it.each(["GET", "POST"])("protects %s from unauthenticated, player and operator callers", async method => {
+    for (const role of [null, "player", "operator", "admin"]) {
+      mocks.verifySession.mockReturnValue(role ? "caller" : null);
+      mocks.findById.mockResolvedValue(role ? { id: "caller", role } : null);
+      const response = await middleware(new NextRequest("https://re-raise.ru/api/admin/tournaments/t1/completed-knockout-correction", { method, headers: { cookie: "reraise_session=signed" } }));
+      expect(response.status).toBe(role === "admin" ? 200 : role === null ? 401 : 403);
+    }
+  });
+});
