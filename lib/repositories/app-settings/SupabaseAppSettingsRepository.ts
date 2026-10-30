@@ -2,26 +2,33 @@ import "server-only";
 
 import { getSupabaseServer } from "@/lib/database";
 import type { AppSettingsRepository, AppSettingRow } from "./AppSettingsRepository";
+import { AppSettingsStorageError, AtomicSettingsUnsupportedError, InvalidStoredSettingError } from "@/lib/app-settings-errors";
 
-// Current, active implementation — wraps the exact same Supabase queries
-// lib/app-settings.ts used to call directly. No new behavior: errors are
-// still silently ignored on both read and write, exactly as before.
+// CRUD remains available, with explicit failures. Atomic object mutation is
+// intentionally unavailable: separate PostgREST calls cannot hold a row lock.
 export class SupabaseAppSettingsRepository implements AppSettingsRepository {
   async get(key: string): Promise<unknown> {
     const supabase = getSupabaseServer();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("app_settings")
       .select("value")
       .eq("key", key)
       .maybeSingle();
-    return data?.value ?? null;
+    if (error) throw new AppSettingsStorageError("read", error);
+    if (data && data.value == null) throw new InvalidStoredSettingError();
+    return data ? data.value : null;
   }
 
   async set(key: string, value: unknown): Promise<void> {
     const supabase = getSupabaseServer();
-    await supabase
+    const { data, error } = await supabase
       .from("app_settings")
-      .upsert({ key, value, updated_at: new Date().toISOString() });
+      .upsert({ key, value, updated_at: new Date().toISOString() }).select("key").single();
+    if (error || data?.key !== key) throw new AppSettingsStorageError("write", error);
+  }
+
+  async updateObject(): Promise<Record<string, unknown>> {
+    throw new AtomicSettingsUnsupportedError();
   }
 
   async listAll(): Promise<AppSettingRow[]> {
@@ -29,7 +36,7 @@ export class SupabaseAppSettingsRepository implements AppSettingsRepository {
     const { data, error } = await supabase.from("app_settings").select("key, value");
 
     if (error) {
-      throw new Error(error.message);
+      throw new AppSettingsStorageError("list", error);
     }
 
     return (data ?? []) as AppSettingRow[];

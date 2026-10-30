@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { submitNicknameForModeration } from "@/features/auth";
 import type { PlayerRatingSummary } from "@/features/leaderboard";
+import { ProfileUpcomingRow } from "@/components/profile/profile-upcoming-row";
 import { ProfileResultRow } from "@/components/profile/profile-result-row";
 import type { ProfileV2Response } from "@/features/profile-v2";
 
@@ -23,20 +24,12 @@ import { getTelegramWebApp } from "@/lib/telegram";
 import { logEvent } from "@/lib/activity-client";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
-// Kept as an explicit surface dependency: compact profile artwork is
-// centralized in profile-primitives, but the profile remains covered by the
-// shared TournamentVisual surface contract.
-import { TournamentVisual } from "@/components/tournaments/tournament-visual";
-void TournamentVisual;
 import { TeamIdentity } from "@/components/teams/team-ui";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import { fetchTournamentVisualConfigs } from "@/lib/tournament-visuals-client";
 import {
-  CompactListRow,
   ContentCard,
   ProfileKpiCell,
-  StatusPill,
-  TournamentArtworkIcon,
 } from "@/components/profile/profile-primitives";
 import {
   buildAchievementDisplayModel,
@@ -78,16 +71,6 @@ type UpcomingTournamentItem = {
   };
   tournament: Tournament;
 };
-
-function formatDateTimeWithoutSeconds(date: string) {
-  return new Date(date).toLocaleString("ru-RU", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function formatWholeHours(totalMinutes: number): string {
   return `${Math.round(totalMinutes / 60)} ч`;
@@ -468,22 +451,6 @@ export default function PlayerProfilePage() {
     }
   }
 
-  function getStatusText(status: RegistrationStatus) {
-    if (status === "registered") {
-      return "Вы записаны";
-    }
-
-    if (status === "waitlist") {
-      return "Лист ожидания";
-    }
-
-    if (status === "attended") {
-      return "Вы участвовали";
-    }
-
-    return status;
-  }
-
   async function handleAvatarFileChange(
     event: React.ChangeEvent<HTMLInputElement>
   ) {
@@ -602,12 +569,12 @@ export default function PlayerProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+128px)] text-white">
+    <main className="min-h-screen bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+128px)] text-white">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-6">
+        <div className="mb-4">
           <BackButton href="/" />
 
-          <h1 className="mt-6 text-3xl font-bold tracking-tight text-white">
+          <h1 className="mt-4 text-3xl font-bold tracking-tight text-white">
             Профиль
           </h1>
         </div>
@@ -729,20 +696,6 @@ export default function PlayerProfilePage() {
           </div>
         ) : null}
 
-        <section id="profile-results" className="mt-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-white">Последняя форма</h2>
-            <Link href={`/players/${player.id}/results`} className="inline-flex min-h-11 shrink-0 items-center text-xs text-[#d5b867]">Все результаты →</Link>
-          </div>
-          {recentForm.length === 0 ? (
-            <ContentCard className="p-4 text-sm text-white/50">Пока нет завершённых турниров</ContentCard>
-          ) : (
-            <div className="space-y-2">
-              {recentForm.slice(0, 6).map((item) => <ProfileResultRow key={item.tournament.id} item={item} configs={tournamentVisuals} />)}
-            </div>
-          )}
-        </section>
-
         <div className="mt-6 space-y-3">
           <Link
             href={`/players/${player.id}/achievements`}
@@ -854,20 +807,7 @@ export default function PlayerProfilePage() {
             {upcomingTournaments.length === 0 ? <p className="py-3 text-sm text-white/45">Пока нет активных турниров</p> : (
               <div className="space-y-2">
                 {upcomingTournaments.map((item) => (
-                  <Link key={item.registration.id} href={"/tournaments/" + item.tournament.id} className="block transition active:scale-[0.99]">
-                    <CompactListRow>
-                      <TournamentArtworkIcon tournamentType={item.tournament.tournament_type} configs={tournamentVisuals} />
-                      <div className="min-w-0 flex-1">
-                        <h3 className="truncate text-sm font-semibold text-white">{item.tournament.title}</h3>
-                        <p className="mt-1 text-xs leading-relaxed text-white/65">
-                          <span className="block">{formatDateTimeWithoutSeconds(item.tournament.start_at)}</span>
-                          <span data-registration-status="" className="block">{getStatusText(item.registration.status)}</span>
-                          {item.tournament.status === "closed" ? <span className="block">Регистрация закрыта</span> : null}
-                        </p>
-                      </div>
-                      <StatusPill>{registrationCounts[item.tournament.id] ?? 0}/{item.tournament.max_players}</StatusPill>
-                    </CompactListRow>
-                  </Link>
+                  <ProfileUpcomingRow key={item.registration.id} tournament={item.tournament} status={item.registration.status} count={registrationCounts[item.tournament.id] ?? 0} configs={tournamentVisuals} />
                 ))}
               </div>
             )}
@@ -883,6 +823,20 @@ export default function PlayerProfilePage() {
             <ArrowRightIcon />
           </Link>
         ) : null}
+
+        <section id="profile-results" className="mt-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-white">Последняя форма</h2>
+            <Link href={`/players/${player.id}/results`} className="inline-flex min-h-11 shrink-0 items-center text-xs text-[#d5b867]">Все результаты →</Link>
+          </div>
+          {recentForm.length === 0 ? (
+            <ContentCard className="p-4 text-sm text-white/50">Пока нет завершённых турниров</ContentCard>
+          ) : (
+            <div className="space-y-2">
+              {recentForm.slice(0, 6).map((item) => <ProfileResultRow key={item.tournament.id} item={item} configs={tournamentVisuals} />)}
+            </div>
+          )}
+        </section>
       </div>
 
       {showFeaturedEditor && isOwnProfile ? (

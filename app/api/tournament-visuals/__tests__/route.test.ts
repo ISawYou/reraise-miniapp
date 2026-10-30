@@ -40,6 +40,7 @@ describe("GET /api/tournament-visuals", () => {
     const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data.error).toBe("boom");
+    expect(data.error).toContain("Не удалось");
+    expect(data.error).not.toContain("boom");
   });
 });

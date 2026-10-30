@@ -1,12 +1,15 @@
 import { randomUUID } from "crypto";
 import {
   TOURNAMENT_VISUAL_TYPES,
+  DEFAULT_PROFILE_GEOMETRY,
   getDefaultTournamentVisual,
   isTournamentVisualType,
   type TournamentVisualConfig,
   type TournamentVisualGeometry,
 } from "@/config/tournament-visuals";
-import { getAppSetting, setAppSetting } from "@/lib/app-settings";
+import { getAppSetting, updateAppSettingObject } from "@/lib/app-settings";
+import { InvalidStoredSettingError, storedObject } from "@/lib/app-settings-errors";
+import { TournamentVisualValidationError } from "@/lib/tournament-visual-errors";
 import { tournamentAssetStorageRepository } from "@/lib/repositories";
 import { createTournamentCardDerivative } from "@/lib/tournament-visual-card-derivative";
 import type { TournamentType } from "@/types/domain";
@@ -20,115 +23,113 @@ const APP_SETTINGS_KEY = "tournament_visuals";
 const MAX_PNG_BYTES = 5 * 1024 * 1024;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
-function validateGeometry(geometry: TournamentVisualGeometry, surfaceLabel = ""): void {
+function validateGeometry(input: unknown, surfaceLabel = "", maxScale = 200): TournamentVisualGeometry {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new TournamentVisualValidationError("Некорректная геометрия");
+  const geometry = input as TournamentVisualGeometry;
   const prefix = surfaceLabel ? `${surfaceLabel}: ` : "";
-  if (!Number.isInteger(geometry.scale) || geometry.scale < 50 || geometry.scale > 200) {
-    throw new Error(`${prefix}Scale должен быть целым числом от 50 до 200`);
+  if (!Number.isInteger(geometry.scale) || geometry.scale < 50 || geometry.scale > maxScale) {
+    throw new TournamentVisualValidationError(`${prefix}Масштаб должен быть целым числом от 50 до ${maxScale}`);
   }
-  for (const [label, value] of [["X offset", geometry.offsetX], ["Y offset", geometry.offsetY]] as const) {
+  for (const [label, value] of [["Смещение X", geometry.offsetX], ["Смещение Y", geometry.offsetY]] as const) {
     if (!Number.isInteger(value) || value < -100 || value > 100) {
-      throw new Error(`${prefix}${label} должен быть целым числом от -100 до 100`);
+      throw new TournamentVisualValidationError(`${prefix}${label} должен быть целым числом от -100 до 100`);
     }
   }
   if (!Number.isInteger(geometry.opacity) || geometry.opacity < 0 || geometry.opacity > 100) {
-    throw new Error(`${prefix}Opacity должен быть целым числом от 0 до 100`);
+    throw new TournamentVisualValidationError(`${prefix}Непрозрачность должна быть целым числом от 0 до 100`);
   }
+  return { scale: geometry.scale, offsetX: geometry.offsetX, offsetY: geometry.offsetY, opacity: geometry.opacity };
 }
 
-function isStoredTournamentVisualConfig(value: unknown): value is TournamentVisualConfig {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    typeof (value as TournamentVisualConfig).tournamentType === "string" &&
-    isTournamentVisualType((value as TournamentVisualConfig).tournamentType)
-  );
+function requireType(value: unknown): TournamentType {
+  if (typeof value !== "string" || !isTournamentVisualType(value)) throw new TournamentVisualValidationError("Неизвестный тип турнира");
+  return value;
 }
 
 function isValidPublicAssetUrl(value: string): boolean {
   return !!value && (value.startsWith("/") || /^https:\/\//.test(value));
 }
 
-export async function getTournamentVisualConfigs(): Promise<TournamentVisualConfig[]> {
-  const raw = (await getAppSetting(APP_SETTINGS_KEY)) as
-    | Partial<Record<TournamentType, TournamentVisualConfig>>
-    | null;
-
-  const stored = new Map(
-    Object.values(raw ?? {})
-      .filter(isStoredTournamentVisualConfig)
-      .map((config) => [config.tournamentType, config]),
-  );
-
-  return TOURNAMENT_VISUAL_TYPES.map((tournamentType) => {
-    const defaultConfig = getDefaultTournamentVisual(tournamentType);
-    const storedConfig = stored.get(tournamentType);
-    if (!storedConfig) {
-      return defaultConfig;
-    }
-    // Compatibility inheritance for a config saved before cardAssetUrl
-    // existed (or before this type had a built-in derivative): if it still
-    // points at the exact untouched built-in original, it's safe to
-    // backfill just the derivative URL without touching any admin-tuned
-    // geometry -- the admin never has to click Reset. Never applies once
-    // assetUrl differs (a custom/replacement upload), which must keep
-    // rendering its own original with no derivative until its own upload
-    // produces one -- no false pairing with a derivative it doesn't own.
-    if (
-      storedConfig.cardAssetUrl === undefined &&
-      defaultConfig.cardAssetUrl !== undefined &&
-      storedConfig.assetUrl === defaultConfig.assetUrl
-    ) {
-      return { ...storedConfig, cardAssetUrl: defaultConfig.cardAssetUrl };
-    }
-    return storedConfig;
-  });
+// Resolve defaults only in the read model. Never materialize eleven defaults
+// back into storage when changing one type. Known malformed data fails closed;
+// unknown object fields and future type keys survive all mutations unchanged.
+function resolveVisual(raw: Record<string, unknown>, type: TournamentType): TournamentVisualConfig {
+  const defaults = getDefaultTournamentVisual(type);
+  if (!Object.hasOwn(raw, type)) return defaults;
+  try {
+    const entry = storedObject(raw[type]);
+    if (entry.tournamentType !== undefined && entry.tournamentType !== type) throw new InvalidStoredSettingError();
+    const config = { ...defaults, ...entry, tournamentType: type } as TournamentVisualConfig;
+    if (entry.assetUrl !== undefined && entry.assetUrl !== defaults.assetUrl && entry.cardAssetUrl === undefined) delete config.cardAssetUrl;
+    if (typeof config.assetUrl !== "string" || !isValidPublicAssetUrl(config.assetUrl)) throw new InvalidStoredSettingError();
+    if (config.cardAssetUrl !== undefined && (typeof config.cardAssetUrl !== "string" || !isValidPublicAssetUrl(config.cardAssetUrl))) throw new InvalidStoredSettingError();
+    validateGeometry(config);
+    if (entry.list !== undefined) config.list = { ...storedObject(entry.list), ...validateGeometry({ scale: config.scale, offsetX: config.offsetX, offsetY: config.offsetY, opacity: config.opacity, ...storedObject(entry.list) }) };
+    if (entry.profile !== undefined) config.profile = { ...storedObject(entry.profile), ...validateGeometry({ ...DEFAULT_PROFILE_GEOMETRY, ...storedObject(entry.profile) }, "Профиль", 300) };
+    return config;
+  } catch {
+    throw new InvalidStoredSettingError();
+  }
 }
 
-export async function saveTournamentVisualConfig(
-  input: TournamentVisualConfig,
-): Promise<TournamentVisualConfig> {
-  if (!isTournamentVisualType(input.tournamentType)) {
-    throw new Error("Неизвестный тип турнира");
-  }
-  // A non-string cardAssetUrl (absent, or a malformed `null` from an old/
-  // buggy client) is treated as "not provided" rather than validated --
-  // this field is optional, so its absence is never an error.
-  const cardAssetUrl =
-    typeof input.cardAssetUrl === "string" ? input.cardAssetUrl.trim() : undefined;
-  const config: TournamentVisualConfig = {
-    ...input,
-    assetUrl: input.assetUrl.trim(),
-    ...(cardAssetUrl !== undefined ? { cardAssetUrl } : {}),
-  };
-  if (!isValidPublicAssetUrl(config.assetUrl)) {
-    throw new Error("Некорректный public asset URL");
-  }
-  if (config.cardAssetUrl !== undefined && !isValidPublicAssetUrl(config.cardAssetUrl)) {
-    throw new Error("Некорректный public asset URL для card-превью");
-  }
-  validateGeometry(config);
-  if (config.list) {
-    validateGeometry(config.list, "Список турниров");
-  }
+function visualMap(value: unknown): Record<string, unknown> {
+  const raw = value === null ? {} : storedObject(value);
+  for (const type of TOURNAMENT_VISUAL_TYPES) resolveVisual(raw, type);
+  return raw;
+}
 
-  const all = await getTournamentVisualConfigs();
-  const next = Object.fromEntries(
-    all.map((existing) => [
-      existing.tournamentType,
-      existing.tournamentType === config.tournamentType ? config : existing,
-    ]),
-  );
-  await setAppSetting(APP_SETTINGS_KEY, next);
-  return config;
+export async function getTournamentVisualConfigs(): Promise<TournamentVisualConfig[]> {
+  const raw = visualMap(await getAppSetting(APP_SETTINGS_KEY));
+  return TOURNAMENT_VISUAL_TYPES.map(type => resolveVisual(raw, type));
+}
+
+async function mutateVisual(type: TournamentType, mutate: (latest: Record<string, unknown>) => Record<string, unknown>) {
+  const committed = await updateAppSettingObject(APP_SETTINGS_KEY, (current) => {
+    const raw = visualMap(current);
+    const latest = Object.hasOwn(raw, type) ? storedObject(raw[type]) : { tournamentType: type };
+    const next = { ...raw, [type]: mutate(latest) };
+    visualMap(next);
+    return next;
+  });
+  return resolveVisual(committed, type);
+}
+
+// Explicit surface command: full client snapshots are rejected. Same-surface
+// writes use serialized last-writer-wins; different surfaces/types preserve
+// each other by applying only these four fields to the latest locked row.
+export async function saveTournamentVisualConfig(input: unknown): Promise<TournamentVisualConfig> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new TournamentVisualValidationError("Некорректная команда оформления");
+  const command = input as { tournamentType?: unknown; surface?: unknown; geometry?: unknown };
+  const type = requireType(command.tournamentType);
+  if (command.surface !== "main" && command.surface !== "list") throw new TournamentVisualValidationError("Укажите поверхность main или list");
+  const geometry = validateGeometry(command.geometry);
+  return mutateVisual(type, latest => command.surface === "main" ? { ...latest, ...geometry } : { ...latest, list: { ...(latest.list ? storedObject(latest.list) : {}), ...geometry } });
+}
+
+export async function saveTournamentVisualProfileGeometry(
+  tournamentType: string,
+  input: unknown,
+): Promise<TournamentVisualConfig> {
+  const type = requireType(tournamentType);
+  const profile = validateGeometry(input, "Профиль", 300);
+  return mutateVisual(type, latest => ({ ...latest, profile: { ...(latest.profile ? storedObject(latest.profile) : {}), ...profile } }));
+}
+
+export async function resetTournamentVisualProfileGeometry(tournamentType: string): Promise<TournamentVisualConfig> {
+  return mutateVisual(requireType(tournamentType), latest => { const next = { ...latest }; delete next.profile; return next; });
 }
 
 export async function resetTournamentVisualConfig(
   tournamentType: string,
 ): Promise<TournamentVisualConfig> {
-  if (!isTournamentVisualType(tournamentType)) {
-    throw new Error("Неизвестный тип турнира");
-  }
-  return saveTournamentVisualConfig(getDefaultTournamentVisual(tournamentType));
+  const type = requireType(tournamentType);
+  return mutateVisual(type, latest => {
+    const defaults = getDefaultTournamentVisual(type);
+    const next = { ...latest, ...defaults };
+    delete next.list; // Existing Main reset semantics; Profile stays independent.
+    if (!defaults.cardAssetUrl) delete next.cardAssetUrl;
+    return next;
+  });
 }
 
 // Clears only the /tournaments list override, falling back to the main
@@ -137,42 +138,25 @@ export async function resetTournamentVisualConfig(
 export async function resetTournamentVisualListOverride(
   tournamentType: string,
 ): Promise<TournamentVisualConfig> {
-  if (!isTournamentVisualType(tournamentType)) {
-    throw new Error("Неизвестный тип турнира");
-  }
-  const existing =
-    (await getTournamentVisualConfigs()).find((config) => config.tournamentType === tournamentType) ??
-    getDefaultTournamentVisual(tournamentType);
-  const { tournamentType: type, assetUrl, cardAssetUrl, scale, offsetX, offsetY, opacity } = existing;
-  return saveTournamentVisualConfig({
-    tournamentType: type,
-    assetUrl,
-    ...(cardAssetUrl !== undefined ? { cardAssetUrl } : {}),
-    scale,
-    offsetX,
-    offsetY,
-    opacity,
-  });
+  return mutateVisual(requireType(tournamentType), latest => { const next = { ...latest }; delete next.list; return next; });
 }
 
 export async function uploadTournamentVisualPng(
   tournamentType: string,
   file: File,
 ): Promise<TournamentVisualConfig> {
-  if (!isTournamentVisualType(tournamentType)) {
-    throw new Error("Неизвестный тип турнира");
-  }
+  const type = requireType(tournamentType);
   if (file.type !== "image/png") {
-    throw new Error("Разрешены только PNG-файлы");
+    throw new TournamentVisualValidationError("Разрешены только PNG-файлы");
   }
-  if (file.size <= 0 || file.size > MAX_PNG_BYTES) {
-    throw new Error("Размер PNG должен быть от 1 байта до 5 МБ");
+  if (file.size < PNG_SIGNATURE.length || file.size > MAX_PNG_BYTES) {
+    throw new TournamentVisualValidationError("Размер PNG должен быть от 8 байт до 5 МБ");
   }
 
   const bytes = await file.arrayBuffer();
   const signature = new Uint8Array(bytes, 0, PNG_SIGNATURE.length);
   if (!PNG_SIGNATURE.every((byte, index) => signature[index] === byte)) {
-    throw new Error("Файл не является корректным PNG");
+    throw new TournamentVisualValidationError("Файл не является корректным PNG");
   }
 
   // One shared identity for the original and its card derivative -- both
@@ -193,9 +177,6 @@ export async function uploadTournamentVisualPng(
     cardBytes,
   );
 
-  const existing =
-    (await getTournamentVisualConfigs()).find((config) => config.tournamentType === tournamentType) ??
-    getDefaultTournamentVisual(tournamentType);
-
-  return saveTournamentVisualConfig({ ...existing, assetUrl, cardAssetUrl });
+  if (!isValidPublicAssetUrl(assetUrl) || !isValidPublicAssetUrl(cardAssetUrl)) throw new Error("Asset storage returned an invalid URL");
+  return mutateVisual(type, latest => ({ ...latest, assetUrl, cardAssetUrl }));
 }

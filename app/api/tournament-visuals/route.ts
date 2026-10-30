@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTournamentVisualConfigs } from "@/features/tournament-visuals";
+import { tournamentVisualErrorResponse } from "@/lib/tournament-visual-errors";
 
 // Without this, the route has no request-bound API calls and is eligible
 // for static generation -- `next build` would execute it once and every
@@ -12,9 +13,6 @@ export async function GET() {
   try {
     return NextResponse.json({ visuals: await getTournamentVisualConfigs() });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Не удалось загрузить оформление турниров" },
-      { status: 500 },
-    );
+    return tournamentVisualErrorResponse(error, "public-read");
   }
 }

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAppSetting } from "@/lib/app-settings";
 
+export const dynamic = "force-dynamic";
+
 // Public endpoint — returns client-facing feature flags
 export async function GET() {
   try {
@@ -21,10 +23,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error("[settings] GET error:", error);
-    return NextResponse.json({
-      show_email_link_prompt: false,
-      include_admin_activity: false,
-      automatic_achievements_enabled: false,
-    });
+    return NextResponse.json({ error: "Не удалось загрузить настройки" }, { status: 500 });
   }
 }

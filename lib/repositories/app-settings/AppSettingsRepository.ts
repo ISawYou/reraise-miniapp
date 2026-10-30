@@ -8,8 +8,13 @@ export type AppSettingRow = {
 };
 
 export interface AppSettingsRepository {
+  // Only a genuinely absent row returns null. Storage/authorization errors throw.
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<void>;
+  // Read latest object and apply a synchronous, side-effect-free mutation in
+  // one database transaction. Resolves only after COMMIT; unsupported providers
+  // must reject, never emulate this using independent get/set requests.
+  updateObject(key: string, mutate: (current: Record<string, unknown>) => Record<string, unknown>): Promise<Record<string, unknown>>;
   // Added for the Supabase→PostgreSQL backfill script — get/set both
   // require knowing a key upfront, with no way to enumerate what exists.
   // Not used by any route/feature today.
