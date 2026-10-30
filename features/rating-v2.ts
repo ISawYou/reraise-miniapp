@@ -4,6 +4,8 @@ import {
   getBasePlacePoints,
   getFieldCoefficient,
   PARTICIPATION_POINTS,
+  KNOCKOUT_POINTS,
+  BOSS_KNOCKOUT_POINTS,
   type RatingPointsBreakdown,
 } from "@/features/rating";
 import {
@@ -333,8 +335,8 @@ export function calculateRatingPointsV2(
     }
 
     const placement = placementPointsFor(player.place);
-    const knockoutPoints = hasKnockouts ? player.knockouts * 5 : 0;
-    const bossKnockoutPoints = hasBossKnockouts ? (player.boss_knockouts ?? 0) * 10 : 0;
+    const knockoutPoints = hasKnockouts ? player.knockouts * KNOCKOUT_POINTS : 0;
+    const bossKnockoutPoints = hasBossKnockouts ? (player.boss_knockouts ?? 0) * BOSS_KNOCKOUT_POINTS : 0;
     const mysteryPoints = isMystery ? player.mystery_bounty_points ?? 0 : 0;
     const participationPoints = PARTICIPATION_POINTS;
 

@@ -523,7 +523,8 @@ export async function applyTournamentSheetFormatting(
 // roster rows together, without ever touching operational columns (see
 // features/tournament-sheet-sync.ts).
 export async function batchUpdateSpreadsheetValues(
-  updates: { range: string; values: SheetCellValue[][] }[]
+  updates: { range: string; values: SheetCellValue[][] }[],
+  requestOptions?: { timeout: number; retry: boolean }
 ) {
   if (updates.length === 0) {
     return;
@@ -538,7 +539,7 @@ export async function batchUpdateSpreadsheetValues(
       valueInputOption: "USER_ENTERED",
       data: updates.map((update) => ({ range: update.range, values: update.values })),
     },
-  });
+  }, requestOptions);
 }
 
 // Deletes whole DATA rows (1-based sheet row numbers) from one tab -- the
@@ -716,13 +717,13 @@ export async function applyNewRosterRowsFormatting(
   });
 }
 
-export async function readSpreadsheetTabValues(tabName: string) {
+export async function readSpreadsheetTabValues(tabName: string, requestOptions?: { timeout: number; retry: boolean }) {
   const sheets = getGoogleSheetsClient();
   const spreadsheetId = getSpreadsheetId();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${tabName}!A:Z`,
-  });
+  }, requestOptions);
 
   return response.data.values ?? [];
 }

@@ -71,6 +71,8 @@ export function getBasePlacePoints(place: number): number {
 // features/late-registration.ts::getTournamentStateForIntegration) share
 // one named definition instead of each hardcoding the literal.
 export const PARTICIPATION_POINTS = 2;
+export const KNOCKOUT_POINTS = 5;
+export const BOSS_KNOCKOUT_POINTS = 10;
 
 export function getFieldCoefficient(fieldSize: number): number {
   if (fieldSize <= 7) return 0.7;
@@ -108,9 +110,9 @@ export function calculateRatingPoints(
 
     const basePlacePoints =
       player.place <= ratingZoneSize ? getBasePlacePoints(player.place) : 0;
-    const knockoutPoints = hasKnockouts ? player.knockouts * 5 : 0;
+    const knockoutPoints = hasKnockouts ? player.knockouts * KNOCKOUT_POINTS : 0;
     const bossKnockoutPoints = supportsTournamentBossKnockouts(tournamentType)
-      ? (player.boss_knockouts ?? 0) * 10
+      ? (player.boss_knockouts ?? 0) * BOSS_KNOCKOUT_POINTS
       : 0;
     // Renamed from the original `placePoints` local -- same expression,
     // same value, now returned as the ITM component instead of only being

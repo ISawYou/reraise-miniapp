@@ -30,6 +30,7 @@ import { describeResultPlaceIssues } from "@/lib/tournament-results-validation";
 import { reconcileCompletionRosterRows } from "@/lib/tournament-completion-roster";
 import { formatTournamentResultsForCopy } from "@/lib/tournament-results-copy";
 import { isStaff, isSuperAdmin } from "@/lib/roles";
+import { CompletedKnockoutEditor } from "@/components/tournaments/completed-knockout-editor";
 import { useBodyScrollLock } from "@/lib/hooks/use-body-scroll-lock";
 import type {
   MysteryBountySnapshot,
@@ -2507,6 +2508,12 @@ export default function AdminTournamentResultsPage() {
                     ) : null}
                     {supportsTournamentBossKnockouts(tournament.tournament_type) ? (
                       <span>Boss KO: {result.boss_knockouts ?? 0}</span>
+                    ) : null}
+                    {isSuperAdmin(player?.role) && (tournament.tournament_type === "bounty" || tournament.tournament_type === "boss_bounty") ? (
+                      <CompletedKnockoutEditor tournamentId={tournamentId} playerId={result.player_id} onSaved={payload => {
+                        setTournamentResults(prev => prev.map(row => row.player_id === payload.result.player_id ? { ...row, knockouts: payload.result.knockouts, boss_knockouts: payload.result.boss_knockouts, rating_points: payload.result.rating_points } : row));
+                        setMessage(["KO исправлены", ...payload.warnings].join(". "));
+                      }} />
                     ) : null}
                   </div>
                 </div>
