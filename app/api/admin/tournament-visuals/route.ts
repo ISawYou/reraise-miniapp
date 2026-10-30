@@ -3,20 +3,23 @@ import {
   getTournamentVisualConfigs,
   saveTournamentVisualConfig,
 } from "@/features/tournament-visuals";
-import type { TournamentVisualConfig } from "@/config/tournament-visuals";
+import { tournamentVisualErrorResponse } from "@/lib/tournament-visual-errors";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({ visuals: await getTournamentVisualConfigs() });
+  try {
+    return NextResponse.json({ visuals: await getTournamentVisualConfigs() });
+  } catch (error) {
+    return tournamentVisualErrorResponse(error, "admin-read");
+  }
 }
 
 export async function PUT(request: Request) {
   try {
-    const input = (await request.json()) as TournamentVisualConfig;
+    const input = await request.json();
     return NextResponse.json({ visual: await saveTournamentVisualConfig(input) });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Не удалось сохранить оформление" },
-      { status: 400 },
-    );
+    return tournamentVisualErrorResponse(error, "save-geometry");
   }
 }

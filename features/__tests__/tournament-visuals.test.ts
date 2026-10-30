@@ -1,456 +1,123 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getDefaultTournamentVisual, TOURNAMENT_VISUAL_TYPES } from "@/config/tournament-visuals";
 
-// In-memory fake of the ONE app_settings row this feature reads/writes --
-// mirrors AppSettingsRepository's real get/set contract closely enough for
-// this feature's own logic (parsing/merging/validation) to be exercised
-// genuinely, without touching Postgres/Supabase.
-const mocks = vi.hoisted(() => {
-  let store: Record<string, unknown> | null = null;
-  return {
-    appSettingsGet: vi.fn(async (key: string) => (key === "tournament_visuals" ? store : null)),
-    appSettingsSet: vi.fn(async (key: string, value: unknown) => {
-      if (key === "tournament_visuals") store = value as Record<string, unknown>;
-    }),
-    resetStore: () => {
-      store = null;
-    },
-    uploadOriginal: vi.fn(),
-    uploadCard: vi.fn(),
-    createDerivative: vi.fn(),
-  };
-});
-
+const mocks = vi.hoisted(() => ({
+  store: null as unknown,
+  upload: vi.fn(), derivative: vi.fn(),
+}));
 vi.mock("@/lib/repositories", () => ({
-  appSettingsRepository: { get: mocks.appSettingsGet, set: mocks.appSettingsSet },
-  tournamentAssetStorageRepository: {
-    upload: vi.fn(async (fileName: string, bytes: unknown) =>
-      fileName.endsWith("-card.png") ? mocks.uploadCard(fileName, bytes) : mocks.uploadOriginal(fileName, bytes),
-    ),
+  appSettingsRepository: {
+    get: async () => structuredClone(mocks.store),
+    updateObject: async (_key: string, mutate: (current: Record<string, unknown>) => Record<string, unknown>) => {
+      const next = mutate(structuredClone(mocks.store ?? {}) as Record<string, unknown>);
+      mocks.store = structuredClone(next); return next;
+    },
   },
+  tournamentAssetStorageRepository: { upload: mocks.upload },
 }));
-
-vi.mock("@/lib/tournament-visual-card-derivative", () => ({
-  createTournamentCardDerivative: mocks.createDerivative,
-}));
-
-const {
-  getTournamentVisualConfigs,
-  saveTournamentVisualConfig,
-  resetTournamentVisualConfig,
-  resetTournamentVisualListOverride,
-  uploadTournamentVisualPng,
-} = await import("@/features/tournament-visuals");
-
-const PNG_HEADER = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-
-function fakePngFile(bytes = 100): File {
-  const buf = new Uint8Array(bytes);
-  buf.set(PNG_HEADER);
-  return new File([buf], "upload.png", { type: "image/png" });
-}
-
+vi.mock("@/lib/tournament-visual-card-derivative", () => ({ createTournamentCardDerivative: mocks.derivative }));
+const f = await import("../tournament-visuals");
+const geometry = { scale: 175, offsetX: 4, offsetY: -2, opacity: 90 };
+const base = { ...getDefaultTournamentVisual("bounty"), assetUrl: "/stored.png", cardAssetUrl: "/stored-card.png", list: { scale: 90, offsetX: 1, offsetY: 2, opacity: 80 }, profile: { scale: 140, offsetX: 0, offsetY: 0, opacity: 100 }, future: { keep: true } };
+function file() { return new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "a.png", { type: "image/png" }); }
 beforeEach(() => {
-  mocks.resetStore();
-  mocks.uploadOriginal.mockReset().mockResolvedValue("/storage/tournament-assets/original.png");
-  mocks.uploadCard.mockReset().mockResolvedValue("/storage/tournament-assets/original-card.png");
-  mocks.createDerivative.mockReset().mockResolvedValue(Buffer.from([1, 2, 3]));
+  mocks.store = { bounty: structuredClone(base), metadata: { version: 2 } };
+  mocks.upload.mockReset().mockImplementation(async (name: string) => `/storage/${name}`);
+  mocks.derivative.mockReset().mockResolvedValue(Buffer.from([1, 2, 3]));
 });
 
-describe("getTournamentVisualConfigs", () => {
-  it("returns the built-in default for every type with no stored config", async () => {
-    const configs = await getTournamentVisualConfigs();
-    const classic = configs.find((c) => c.tournamentType === "classic")!;
-    expect(classic.assetUrl).toBe("/tournament-assets/classic.png");
-    expect(classic.cardAssetUrl).toBeUndefined();
+describe("tournament visual read compatibility", () => {
+  it("reads all eleven defaults for a genuinely missing key without persisting them", async () => {
+    mocks.store = null;
+    expect(await f.getTournamentVisualConfigs()).toEqual(TOURNAMENT_VISUAL_TYPES.map(getDefaultTournamentVisual));
+    expect(mocks.store).toBeNull();
   });
-
-  it("crazy_pineapple's built-in default includes both assetUrl and cardAssetUrl", async () => {
-    const configs = await getTournamentVisualConfigs();
-    const pineapple = configs.find((c) => c.tournamentType === "crazy_pineapple")!;
-    expect(pineapple.assetUrl).toBe("/tournament-assets/pineapple.png");
-    expect(pineapple.cardAssetUrl).toBe("/tournament-assets/pineapple-card.png");
+  it("supports partially populated and legacy configs without profile geometry", async () => {
+    mocks.store = { bounty: { assetUrl: "/legacy.png", scale: 125 } };
+    const config = (await f.getTournamentVisualConfigs()).find(c => c.tournamentType === "bounty")!;
+    expect(config).toMatchObject({ assetUrl: "/legacy.png", scale: 125, offsetX: 0 });
+    expect(config.profile).toBeUndefined();
   });
-
-  it("all 11 tournament visual types are present", async () => {
-    const configs = await getTournamentVisualConfigs();
-    expect(configs.map((c) => c.tournamentType).sort()).toEqual(
-      [
-        "classic",
-        "bounty",
-        "boss_bounty",
-        "win_the_button",
-        "deep_stack",
-        "mystery_bounty",
-        "phoenix",
-        "crazy_pineapple",
-        "bomb_pot",
-        "boost_rating",
-        "free_roll",
-      ].sort(),
-    );
+  it("inherits a built-in derivative only for its matching original", async () => {
+    mocks.store = { crazy_pineapple: { assetUrl: "/tournament-assets/pineapple.png", scale: 130 } };
+    expect((await f.getTournamentVisualConfigs()).find(c => c.tournamentType === "crazy_pineapple")?.cardAssetUrl).toBe("/tournament-assets/pineapple-card.png");
+    mocks.store = { crazy_pineapple: { assetUrl: "/custom.png" } };
+    expect((await f.getTournamentVisualConfigs()).find(c => c.tournamentType === "crazy_pineapple")?.cardAssetUrl).toBeUndefined();
   });
-
-  it("a stored config pointing at the exact built-in Pineapple original, saved before cardAssetUrl existed, safely inherits the built-in derivative without touching geometry", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "crazy_pineapple",
-      assetUrl: "/tournament-assets/pineapple.png",
-      scale: 130,
-      offsetX: -20,
-      offsetY: 10,
-      opacity: 90,
-    });
-
-    const configs = await getTournamentVisualConfigs();
-    const pineapple = configs.find((c) => c.tournamentType === "crazy_pineapple")!;
-    expect(pineapple.cardAssetUrl).toBe("/tournament-assets/pineapple-card.png");
-    expect(pineapple.scale).toBe(130);
-    expect(pineapple.offsetX).toBe(-20);
-    expect(pineapple.offsetY).toBe(10);
-    expect(pineapple.opacity).toBe(90);
-  });
-
-  it("a stored config with a CUSTOM Pineapple asset (different assetUrl) does NOT inherit the built-in derivative", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "crazy_pineapple",
-      assetUrl: "/storage/tournament-assets/crazy_pineapple-custom.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-
-    const configs = await getTournamentVisualConfigs();
-    const pineapple = configs.find((c) => c.tournamentType === "crazy_pineapple")!;
-    expect(pineapple.cardAssetUrl).toBeUndefined();
-    expect(pineapple.assetUrl).toBe("/storage/tournament-assets/crazy_pineapple-custom.png");
-  });
-
-  it("a legacy stored config for a type with NO built-in derivative (e.g. classic) is returned unchanged, with no guessed '-card' URL", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/storage/tournament-assets/classic-legacy.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-
-    const configs = await getTournamentVisualConfigs();
-    const classic = configs.find((c) => c.tournamentType === "classic")!;
-    expect(classic.cardAssetUrl).toBeUndefined();
-    expect(classic.assetUrl).toBe("/storage/tournament-assets/classic-legacy.png");
+  it.each(["invalid", [], { bounty: null }, { bounty: { assetUrl: 2 } }, { bounty: { list: null } }, { bounty: { profile: { scale: "bad" } } }])("rejects corrupt stored data without overwriting it: %s", async (raw) => {
+    mocks.store = raw; const before = structuredClone(raw);
+    await expect(f.getTournamentVisualConfigs()).rejects.toThrow("повреждены");
+    await expect(f.saveTournamentVisualProfileGeometry("classic", geometry)).rejects.toThrow("повреждены");
+    expect(mocks.store).toEqual(before);
   });
 });
 
-describe("saveTournamentVisualConfig -- cardAssetUrl validation", () => {
-  it("accepts a config without cardAssetUrl", async () => {
-    const saved = await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-    expect(saved.cardAssetUrl).toBeUndefined();
+describe("narrow surface commands", () => {
+  it("sets only Profile geometry, ignoring client asset and other-surface fields", async () => {
+    await f.saveTournamentVisualProfileGeometry("bounty", { ...geometry, assetUrl: "/bad.png", list: {} });
+    expect(mocks.store).toEqual({ bounty: { ...base, profile: geometry }, metadata: { version: 2 } });
   });
-
-  it("accepts a valid relative cardAssetUrl", async () => {
-    const saved = await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic.png",
-      cardAssetUrl: "/storage/tournament-assets/classic-card.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-    expect(saved.cardAssetUrl).toBe("/storage/tournament-assets/classic-card.png");
+  it.each(["main", "list"])("sets only %s geometry despite stale extra snapshot fields", async (surface) => {
+    await f.saveTournamentVisualConfig({ tournamentType: "bounty", surface, geometry, assetUrl: "/stale.png", profile: { scale: 50 } });
+    expect(mocks.store).toEqual({ bounty: surface === "main" ? { ...base, ...geometry } : { ...base, list: geometry }, metadata: { version: 2 } });
   });
-
-  it("accepts a valid https cardAssetUrl", async () => {
-    const saved = await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic.png",
-      cardAssetUrl: "https://cdn.example.com/classic-card.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-    expect(saved.cardAssetUrl).toBe("https://cdn.example.com/classic-card.png");
+  it("rejects the old ambiguous full-snapshot command", async () => {
+    await expect(f.saveTournamentVisualConfig(base)).rejects.toThrow("поверхность");
+    expect(mocks.store).toEqual({ bounty: base, metadata: { version: 2 } });
   });
-
-  it("rejects a malformed cardAssetUrl", async () => {
-    await expect(
-      saveTournamentVisualConfig({
-        tournamentType: "classic",
-        assetUrl: "/tournament-assets/classic.png",
-        cardAssetUrl: "not-a-url",
-        scale: 100,
-        offsetX: 0,
-        offsetY: 0,
-        opacity: 100,
-      }),
-    ).rejects.toThrow();
+  it("saves one absent type without persisting defaults for other types", async () => {
+    mocks.store = null;
+    await f.saveTournamentVisualProfileGeometry("bounty", geometry);
+    expect(mocks.store).toEqual({ bounty: { tournamentType: "bounty", profile: geometry } });
   });
-
-  it("does not weaken assetUrl's own validation", async () => {
-    await expect(
-      saveTournamentVisualConfig({
-        tournamentType: "classic",
-        assetUrl: "not-a-url",
-        scale: 100,
-        offsetX: 0,
-        offsetY: 0,
-        opacity: 100,
-      }),
-    ).rejects.toThrow();
+  it("Profile and List resets remove only their intended override", async () => {
+    await f.resetTournamentVisualProfileGeometry("bounty");
+    const withoutProfile: Partial<typeof base> = { ...base }; delete withoutProfile.profile;
+    expect(mocks.store).toEqual({ bounty: withoutProfile, metadata: { version: 2 } });
+    mocks.store = { bounty: base };
+    await f.resetTournamentVisualListOverride("bounty");
+    const withoutList: Partial<typeof base> = { ...base }; delete withoutList.list;
+    expect(mocks.store).toEqual({ bounty: withoutList });
   });
-
-  it("trims cardAssetUrl", async () => {
-    const saved = await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic.png",
-      cardAssetUrl: "  /storage/tournament-assets/classic-card.png  ",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-    expect(saved.cardAssetUrl).toBe("/storage/tournament-assets/classic-card.png");
+  it("Main reset preserves Profile and unknown fields, with existing Main/list/asset reset semantics", async () => {
+    await f.resetTournamentVisualConfig("bounty");
+    expect(mocks.store).toEqual({ bounty: { ...getDefaultTournamentVisual("bounty"), profile: base.profile, future: base.future }, metadata: { version: 2 } });
+  });
+  it("preserves unknown geometry extensions when editing a surface", async () => {
+    mocks.store = { bounty: { ...base, profile: { ...base.profile, future: 1 } } };
+    await f.saveTournamentVisualProfileGeometry("bounty", geometry);
+    expect((mocks.store as typeof base & { bounty: { profile: object } }).bounty.profile).toEqual({ future: 1, ...geometry });
+  });
+  it.each([49, 301, 100.5, NaN])("rejects invalid Profile scale %s without persistence", async (scale) => {
+    await expect(f.saveTournamentVisualProfileGeometry("bounty", { ...geometry, scale })).rejects.toThrow();
+    expect(mocks.store).toEqual({ bounty: base, metadata: { version: 2 } });
+  });
+  it("keeps Profile upper bound 300 and main/list upper bound 200", async () => {
+    expect((await f.saveTournamentVisualProfileGeometry("bounty", { ...geometry, scale: 300 })).profile?.scale).toBe(300);
+    await expect(f.saveTournamentVisualConfig({ tournamentType: "bounty", surface: "main", geometry: { ...geometry, scale: 201 } })).rejects.toThrow();
   });
 });
 
-describe("admin save round-trip preserves cardAssetUrl", () => {
-  const base = {
-    tournamentType: "classic" as const,
-    assetUrl: "/storage/tournament-assets/classic-x.png",
-    cardAssetUrl: "/storage/tournament-assets/classic-x-card.png",
-    scale: 100,
-    offsetX: 0,
-    offsetY: 0,
-    opacity: 100,
-  };
-
-  it("scale edit preserves cardAssetUrl", async () => {
-    await saveTournamentVisualConfig(base);
-    const saved = await saveTournamentVisualConfig({ ...base, scale: 140 });
-    expect(saved.cardAssetUrl).toBe(base.cardAssetUrl);
+describe("upload failure and preservation", () => {
+  it("generates a derivative before storage and only replaces artwork URLs", async () => {
+    const result = await f.uploadTournamentVisualPng("bounty", file());
+    expect(result).toMatchObject({ list: base.list, profile: base.profile, future: base.future });
+    expect(mocks.upload).toHaveBeenCalledTimes(2);
+    const original = mocks.upload.mock.calls[0][0] as string;
+    expect(mocks.upload.mock.calls[1][0]).toBe(original.replace(".png", "-card.png"));
+    expect(mocks.derivative.mock.invocationCallOrder[0]).toBeLessThan(mocks.upload.mock.invocationCallOrder[0]);
   });
-
-  it("offset/opacity edits preserve cardAssetUrl", async () => {
-    await saveTournamentVisualConfig(base);
-    const saved = await saveTournamentVisualConfig({ ...base, offsetX: -30, offsetY: 15, opacity: 70 });
-    expect(saved.cardAssetUrl).toBe(base.cardAssetUrl);
+  it.each(["derivative", "original", "card"])("does not change config on %s failure", async (stage) => {
+    const before = structuredClone(mocks.store);
+    if (stage === "derivative") mocks.derivative.mockRejectedValue(new Error("resize failed"));
+    else if (stage === "original") mocks.upload.mockRejectedValueOnce(new Error("upload failed"));
+    else mocks.upload.mockResolvedValueOnce("/stored-original.png").mockRejectedValueOnce(new Error("upload failed"));
+    await expect(f.uploadTournamentVisualPng("bounty", file())).rejects.toThrow();
+    expect(mocks.store).toEqual(before);
   });
-
-  it("list geometry save preserves cardAssetUrl", async () => {
-    await saveTournamentVisualConfig(base);
-    const saved = await saveTournamentVisualConfig({
-      ...base,
-      list: { scale: 90, offsetX: 5, offsetY: -5, opacity: 80 },
-    });
-    expect(saved.cardAssetUrl).toBe(base.cardAssetUrl);
-    expect(saved.list).toEqual({ scale: 90, offsetX: 5, offsetY: -5, opacity: 80 });
-  });
-});
-
-describe("resetTournamentVisualListOverride", () => {
-  it("removes only the list override, preserving assetUrl, cardAssetUrl, and main geometry", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/storage/tournament-assets/classic-x.png",
-      cardAssetUrl: "/storage/tournament-assets/classic-x-card.png",
-      scale: 120,
-      offsetX: -10,
-      offsetY: 5,
-      opacity: 85,
-      list: { scale: 90, offsetX: 5, offsetY: -5, opacity: 80 },
-    });
-
-    const result = await resetTournamentVisualListOverride("classic");
-    expect(result.list).toBeUndefined();
-    expect(result.assetUrl).toBe("/storage/tournament-assets/classic-x.png");
-    expect(result.cardAssetUrl).toBe("/storage/tournament-assets/classic-x-card.png");
-    expect(result.scale).toBe(120);
-    expect(result.offsetX).toBe(-10);
-    expect(result.offsetY).toBe(5);
-    expect(result.opacity).toBe(85);
-  });
-});
-
-describe("resetTournamentVisualConfig (full reset)", () => {
-  it("discards a custom assetUrl and cardAssetUrl, returning the built-in default", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "crazy_pineapple",
-      assetUrl: "/storage/tournament-assets/crazy_pineapple-custom.png",
-      cardAssetUrl: "/storage/tournament-assets/crazy_pineapple-custom-card.png",
-      scale: 150,
-      offsetX: 20,
-      offsetY: -20,
-      opacity: 50,
-    });
-
-    const result = await resetTournamentVisualConfig("crazy_pineapple");
-    expect(result.assetUrl).toBe("/tournament-assets/pineapple.png");
-    expect(result.cardAssetUrl).toBe("/tournament-assets/pineapple-card.png");
-    expect(result.scale).toBe(100);
-    expect(result.offsetX).toBe(0);
-    expect(result.offsetY).toBe(0);
-    expect(result.opacity).toBe(100);
-    expect(result.list).toBeUndefined();
-  });
-
-  it("Final Month / other type behavior is unaffected -- resetting classic never touches crazy_pineapple", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "crazy_pineapple",
-      assetUrl: "/tournament-assets/pineapple.png",
-      scale: 130,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-    await resetTournamentVisualConfig("classic");
-
-    const configs = await getTournamentVisualConfigs();
-    const pineapple = configs.find((c) => c.tournamentType === "crazy_pineapple")!;
-    expect(pineapple.scale).toBe(130);
-  });
-});
-
-describe("uploadTournamentVisualPng", () => {
-  it("saves both assetUrl and cardAssetUrl after a successful upload", async () => {
-    mocks.uploadOriginal.mockResolvedValue("/storage/tournament-assets/classic-1-abc.png");
-    mocks.uploadCard.mockResolvedValue("/storage/tournament-assets/classic-1-abc-card.png");
-
-    const result = await uploadTournamentVisualPng("classic", fakePngFile());
-    expect(result.assetUrl).toBe("/storage/tournament-assets/classic-1-abc.png");
-    expect(result.cardAssetUrl).toBe("/storage/tournament-assets/classic-1-abc-card.png");
-  });
-
-  it("original and derivative filenames share one upload identity (same stem, '-card' suffix on the derivative)", async () => {
-    await uploadTournamentVisualPng("classic", fakePngFile());
-    const originalName = mocks.uploadOriginal.mock.calls[0][0] as string;
-    const cardName = mocks.uploadCard.mock.calls[0][0] as string;
-    const stem = originalName.replace(/\.png$/, "");
-    expect(cardName).toBe(`${stem}-card.png`);
-    expect(originalName).toMatch(/^classic-\d+-[0-9a-f-]+\.png$/);
-  });
-
-  it("preserves existing main geometry when replacing artwork", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic.png",
-      scale: 140,
-      offsetX: -25,
-      offsetY: 12,
-      opacity: 65,
-    });
-
-    const result = await uploadTournamentVisualPng("classic", fakePngFile());
-    expect(result.scale).toBe(140);
-    expect(result.offsetX).toBe(-25);
-    expect(result.offsetY).toBe(12);
-    expect(result.opacity).toBe(65);
-  });
-
-  it("preserves existing list geometry when replacing artwork", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-      list: { scale: 88, offsetX: 3, offsetY: -3, opacity: 77 },
-    });
-
-    const result = await uploadTournamentVisualPng("classic", fakePngFile());
-    expect(result.list).toEqual({ scale: 88, offsetX: 3, offsetY: -3, opacity: 77 });
-  });
-
-  it("resize failure does not replace the current visual config", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic-live.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-    mocks.createDerivative.mockRejectedValue(new Error("resize failed"));
-
-    await expect(uploadTournamentVisualPng("classic", fakePngFile())).rejects.toThrow("resize failed");
-    expect(mocks.uploadOriginal).not.toHaveBeenCalled();
-    expect(mocks.uploadCard).not.toHaveBeenCalled();
-
-    const configs = await getTournamentVisualConfigs();
-    expect(configs.find((c) => c.tournamentType === "classic")!.assetUrl).toBe(
-      "/tournament-assets/classic-live.png",
-    );
-  });
-
-  it("original upload failure does not replace the current visual config", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic-live.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-    mocks.uploadOriginal.mockRejectedValue(new Error("upload failed"));
-
-    await expect(uploadTournamentVisualPng("classic", fakePngFile())).rejects.toThrow("upload failed");
-    expect(mocks.uploadCard).not.toHaveBeenCalled();
-
-    const configs = await getTournamentVisualConfigs();
-    expect(configs.find((c) => c.tournamentType === "classic")!.assetUrl).toBe(
-      "/tournament-assets/classic-live.png",
-    );
-  });
-
-  it("derivative upload failure does not replace the current visual config", async () => {
-    await saveTournamentVisualConfig({
-      tournamentType: "classic",
-      assetUrl: "/tournament-assets/classic-live.png",
-      scale: 100,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 100,
-    });
-    mocks.uploadCard.mockRejectedValue(new Error("card upload failed"));
-
-    await expect(uploadTournamentVisualPng("classic", fakePngFile())).rejects.toThrow("card upload failed");
-
-    const configs = await getTournamentVisualConfigs();
-    expect(configs.find((c) => c.tournamentType === "classic")!.assetUrl).toBe(
-      "/tournament-assets/classic-live.png",
-    );
-  });
-
-  it("config persistence happens only after both uploads succeed -- call order is derivative, original upload, card upload, then save", async () => {
-    const order: string[] = [];
-    mocks.createDerivative.mockImplementation(async () => {
-      order.push("derivative");
-      return Buffer.from([1, 2, 3]);
-    });
-    mocks.uploadOriginal.mockImplementation(async () => {
-      order.push("original-upload");
-      return "/storage/tournament-assets/classic-x.png";
-    });
-    mocks.uploadCard.mockImplementation(async () => {
-      order.push("card-upload");
-      return "/storage/tournament-assets/classic-x-card.png";
-    });
-
-    await uploadTournamentVisualPng("classic", fakePngFile());
-    expect(order).toEqual(["derivative", "original-upload", "card-upload"]);
-
-    const configs = await getTournamentVisualConfigs();
-    expect(configs.find((c) => c.tournamentType === "classic")!.assetUrl).toBe(
-      "/storage/tournament-assets/classic-x.png",
-    );
+  it("validates file type and short PNGs before any upload", async () => {
+    await expect(f.uploadTournamentVisualPng("bounty", new File(["x"], "x.png", { type: "image/png" }))).rejects.toThrow();
+    await expect(f.uploadTournamentVisualPng("bounty", new File(["12345678"], "x.txt", { type: "text/plain" }))).rejects.toThrow();
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
 });

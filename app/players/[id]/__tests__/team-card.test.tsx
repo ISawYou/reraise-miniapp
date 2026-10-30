@@ -187,6 +187,9 @@ describe("Profile V2 composition", () => {
     await render();
     const text = container.textContent!;
     expect(text.indexOf("Ближайшие турниры")).toBeLessThan(text.indexOf("Моя работа"));
+    expect(text.indexOf("Достижения")).toBeLessThan(text.indexOf("Ближайшие турниры"));
+    expect(text.indexOf("Моя работа")).toBeLessThan(text.indexOf("Последняя форма"));
+    expect(container.querySelector('#profile-results')?.nextElementSibling).toBeNull();
     expect(container.querySelector('a[href="/tournaments/upcoming"]')).not.toBeNull();
     expect(text).not.toContain("Задания недели");
     expect(text).not.toContain("Прошедшие (");
@@ -195,6 +198,8 @@ describe("Profile V2 composition", () => {
   it("keeps public profiles free of personal registrations, work and private controls", async () => {
     useReadModel(false);
     await render();
+    expect(container.querySelector('#profile-results')?.nextElementSibling).toBeNull();
+    expect(container.textContent!.indexOf('Достижения')).toBeLessThan(container.textContent!.indexOf('Последняя форма'));
     const text = container.textContent!;
     for (const privateCopy of ["Ближайшие турниры", "Моя работа", "private@example.test", "Задания недели", "Мои заявки", "Приглашение в команду"]) {
       expect(text).not.toContain(privateCopy);

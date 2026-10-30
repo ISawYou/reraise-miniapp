@@ -15,14 +15,17 @@ it("shows a type mark when config is missing", async () => {
   expect(el.textContent).toBe("KO");
 });
 
-it("hides the mark on valid image load while preserving stored geometry", async () => {
-  await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: config }} />));
+it("uses centered Profile geometry independently of Home/list and hides the mark on load", async () => {
+  const profile = { scale: 250, offsetX: 5, offsetY: -3, opacity: 95 };
+  await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: { ...config, profile } }} />));
   const img = el.querySelector("img")!;
   expect(img.getAttribute("src")).toBe("/stored-card.png");
   await act(async () => img.dispatchEvent(new Event("load")));
   expect(el.querySelector("[data-artwork-fallback]")).toBeNull();
-  const box = el.querySelector<HTMLElement>("[data-tournament-visual-box]")!;
-  expect(JSON.parse(box.dataset.config!)).toMatchObject({ scale: 145, offsetX: -8, offsetY: 12, opacity: 80 });
+  expect(img.parentElement!.style.transform).toBe("translate(5%, -3%) scale(2.5)");
+  expect(img.parentElement!.style.opacity).toBe("0.95");
+  expect(el.querySelector('[data-tournament-visual-box]')).toBeNull();
+  expect(img.className).toContain("object-contain");
 });
 
 it("retries the original once, then shows a type mark when both image URLs fail", async () => {
@@ -31,12 +34,38 @@ it("retries the original once, then shows a type mark when both image URLs fail"
   expect(el.querySelector("img")!.getAttribute("src")).toBe("/stored.png");
   await act(async () => el.querySelector("img")!.dispatchEvent(new Event("error")));
   expect(el.querySelector("[data-artwork-fallback]")?.textContent).toBe("KO");
-  expect(el.querySelector("img")!.style.display).toBe("none");
+  expect(el.querySelector("img")).toBeNull();
 });
 
-it("resets fallback when the configured asset changes after a successful load", async () => {
+it("uses a neutral centered baseline for legacy configs, not main geometry", async () => {
+  await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: config }} />));
+  expect(el.querySelector("img")!.parentElement!.style.transform).toBe("translate(0%, 0%) scale(1)");
+});
+
+it("recovers after a failed derivative when the original loads, and live tuning keeps the loaded image", async () => {
+  await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: config }} />));
+  await act(async () => el.querySelector("img")!.dispatchEvent(new Event("error")));
+  await act(async () => el.querySelector("img")!.dispatchEvent(new Event("load")));
+  await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: { ...config, profile: { scale: 180, offsetX: 2, offsetY: 0, opacity: 100 } } }} />));
+  expect(el.querySelector("img")!.getAttribute("src")).toBe("/stored.png");
+  expect(el.querySelector("[data-artwork-fallback]")).toBeNull();
+  expect(el.querySelector("img")!.parentElement!.style.transform).toContain("scale(1.8)");
+});
+
+it("starts loading the replacement source without retaining the old image or flashing a type mark", async () => {
   await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: config }} />));
   await act(async () => el.querySelector("img")!.dispatchEvent(new Event("load")));
   await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: { ...config, assetUrl: "/new.png", cardAssetUrl: undefined } }} />));
-  expect(el.querySelector("[data-artwork-fallback]")).not.toBeNull();
+  expect(el.querySelector("[data-artwork-fallback]")).toBeNull();
+  expect(el.querySelector("img")!.getAttribute("src")).toBe("/new.png");
+});
+
+it("recovers from exhausted image errors when an administrator replaces the source", async () => {
+  await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: config }} />));
+  await act(async () => el.querySelector("img")!.dispatchEvent(new Event("error")));
+  await act(async () => el.querySelector("img")!.dispatchEvent(new Event("error")));
+  await act(async () => root.render(<TournamentArtworkIcon tournamentType="bounty" configs={{ bounty: { ...config, assetUrl: "/replacement.png", cardAssetUrl: undefined } }} />));
+  expect(el.querySelector("img")!.getAttribute("src")).toBe("/replacement.png");
+  await act(async () => el.querySelector("img")!.dispatchEvent(new Event("load")));
+  expect(el.querySelector("[data-artwork-fallback]")).toBeNull();
 });

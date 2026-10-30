@@ -29,6 +29,13 @@ export type TournamentVisualConfig = TournamentVisualGeometry & {
   // unchanged", so existing configs (and any type an admin never touches)
   // keep rendering on /tournaments exactly as they do today.
   list?: TournamentVisualGeometry;
+  // Compact Profile / history tiles use centered artwork, independent of
+  // Home/list geometry. Legacy configs use DEFAULT_PROFILE_GEOMETRY.
+  profile?: TournamentVisualGeometry;
+};
+
+export const DEFAULT_PROFILE_GEOMETRY: TournamentVisualGeometry = {
+  scale: 100, offsetX: 0, offsetY: 0, opacity: 100,
 };
 
 // Explicit product mapping. Filenames are storage details, never business

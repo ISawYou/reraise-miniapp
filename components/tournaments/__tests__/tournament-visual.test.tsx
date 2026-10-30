@@ -266,7 +266,7 @@ describe("TournamentVisual", () => {
     });
   });
 
-  it("is imported by every surface that renders tournament artwork, with no parallel implementation", () => {
+  it("shares the decorative renderer across Home/list and the compact renderer across Profile surfaces", () => {
     // app/page.tsx and app/tournaments/[id]/page.tsx no longer import this
     // directly -- both now render tournament artwork exclusively through
     // the shared components/tournaments/tournament-card.tsx (Home's
@@ -274,7 +274,6 @@ describe("TournamentVisual", () => {
     // which is checked separately below.
     const directConsumers = [
       "app/tournaments/page.tsx",
-      "app/players/[id]/page.tsx",
       "app/admin/tournament-visuals/page.tsx",
       "components/tournaments/tournament-card.tsx",
     ];
@@ -282,6 +281,13 @@ describe("TournamentVisual", () => {
       const source = readFileSync(join(process.cwd(), relativePath), "utf8");
       expect(source).toContain('from "@/components/tournaments/tournament-visual"');
     }
+
+    for (const path of ["components/profile/profile-result-row.tsx", "components/profile/profile-upcoming-row.tsx"]) {
+      expect(readFileSync(join(process.cwd(), path), "utf8")).toContain("TournamentArtworkIcon");
+    }
+    const preview = readFileSync(join(process.cwd(), "components/profile/profile-artwork-preview.tsx"), "utf8");
+    expect(preview).toContain("<ProfileResultRow");
+    expect(preview).toContain("<ProfileUpcomingRow");
 
     // Home and the tournament detail page render artwork transitively
     // through the shared TournamentCard -- confirm they get it from there

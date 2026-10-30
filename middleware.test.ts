@@ -19,6 +19,20 @@ vi.mock("@/lib/telegram-web-session", () => ({
 
 import { config, middleware } from "@/middleware";
 
+describe("Profile artwork settings authorization", () => {
+  it.each([
+    ["GET", ""], ["PUT", ""], ["POST", "/upload"], ["POST", "/reset"],
+    ["POST", "/reset-list"], ["PUT", "/profile"], ["DELETE", "/profile"],
+  ])("protects %s %s with the existing administrator-only gate", async (method, suffix) => {
+    for (const role of [null, "player", "operator", "admin"]) {
+      mocks.verifySession.mockReturnValue(role ? "caller" : null);
+      mocks.findById.mockResolvedValue(role ? { id: "caller", role } : null);
+      const response = await middleware(new NextRequest(`https://re-raise.ru/api/admin/tournament-visuals${suffix}`, { method, headers: { cookie: "reraise_session=signed" } }));
+      expect(response.status).toBe(role === "admin" ? 200 : role === null ? 401 : 403);
+    }
+  });
+});
+
 describe("admin middleware for Club Activity CMS", () => {
   beforeEach(() => {
     vi.clearAllMocks();

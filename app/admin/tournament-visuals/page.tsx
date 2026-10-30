@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BackButton } from "@/components/ui/back-button";
 import { LIST_ARTWORK_SIZE_CLASSNAME, TournamentVisual } from "@/components/tournaments/tournament-visual";
+import { ProfileArtworkPreview } from "@/components/profile/profile-artwork-preview";
 import {
+  DEFAULT_PROFILE_GEOMETRY,
   TOURNAMENT_VISUAL_TYPES,
   getDefaultTournamentVisual,
   type TournamentVisualConfig,
@@ -23,14 +25,14 @@ export default function AdminTournamentVisualsPage() {
   const [draft, setDraft] = useState<TournamentVisualConfig>(
     getDefaultTournamentVisual(TOURNAMENT_VISUAL_TYPES[0]),
   );
-  // Which surface's geometry the sliders below currently edit -- "list" is
-  // the /tournaments card, whose artwork box has a different aspect ratio
-  // than Home's, so the same scale/offset that looks right there can crop
-  // badly here. Both write into the same `draft`, just a different slice
-  // of it (draft.list vs draft itself).
-  const [surface, setSurface] = useState<"main" | "list">("main");
+  const [surface, setSurface] = useState<"main" | "list" | "profile">("main");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [loadingVisuals, setLoadingVisuals] = useState(false);
+  const draftRevision = useRef(0);
+  const readRevision = useRef(0);
+  const busyRef = useRef(false);
 
   // Falls back to the main geometry when a type has no list override yet --
   // mirrors exactly what TournamentVisual itself does at render time, so
@@ -42,15 +44,30 @@ export default function AdminTournamentVisualsPage() {
     offsetY: draft.offsetY,
     opacity: draft.opacity,
   };
-  const geometry = surface === "list" ? listGeometry : draft;
+  const geometry = surface === "profile" ? draft.profile ?? DEFAULT_PROFILE_GEOMETRY : surface === "list" ? listGeometry : draft;
+  const hasUnsavedChanges = JSON.stringify(draft) !== JSON.stringify(configs[selectedType] ?? getDefaultTournamentVisual(selectedType));
+  const statusMessage = message || (hasUnsavedChanges ? "Не сохранено" : "");
 
   async function loadVisuals() {
-    const data = await fetchAdminJson<{ visuals: TournamentVisualConfig[] }>(
-      "/api/admin/tournament-visuals",
-    );
-    const next = Object.fromEntries(data.visuals.map((config) => [config.tournamentType, config]));
-    setConfigs(next);
-    setDraft(next[selectedType] ?? getDefaultTournamentVisual(selectedType));
+    const requestRevision = ++readRevision.current;
+    setLoaded(false);
+    setLoadingVisuals(true);
+    try {
+      const data = await fetchAdminJson<{ visuals: TournamentVisualConfig[] }>(
+        "/api/admin/tournament-visuals", { cache: "no-store" },
+      );
+      if (requestRevision !== readRevision.current) return;
+      const next = Object.fromEntries(data.visuals.map((config) => [config.tournamentType, config]));
+      setConfigs(next);
+      setDraft(next[selectedType] ?? getDefaultTournamentVisual(selectedType));
+      draftRevision.current += 1;
+      setLoaded(true);
+      setMessage("");
+    } catch (error) {
+      if (requestRevision === readRevision.current) setMessage(error instanceof Error ? error.message : "Ошибка загрузки");
+    } finally {
+      if (requestRevision === readRevision.current) setLoadingVisuals(false);
+    }
   }
 
   useEffect(() => {
@@ -74,95 +91,85 @@ export default function AdminTournamentVisualsPage() {
   }, []);
 
   function selectType(tournamentType: TournamentType) {
+    draftRevision.current += 1;
     setSelectedType(tournamentType);
     setDraft(configs[tournamentType] ?? getDefaultTournamentVisual(tournamentType));
     setMessage("");
   }
 
-  async function save() {
+  async function persist(request: () => Promise<{ visual: TournamentVisualConfig }>) {
+    if (busyRef.current || !loaded) return;
+    busyRef.current = true;
+    const version = draftRevision.current;
+    const type = selectedType;
     setBusy(true);
+    setMessage("");
     try {
-      const data = await fetchAdminJson<{ visual: TournamentVisualConfig }>(
-        "/api/admin/tournament-visuals",
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draft),
-        },
-      );
-      setConfigs((current) => ({ ...current, [selectedType]: data.visual }));
-      setDraft(data.visual);
-      setMessage("Сохранено");
+      const data = await request();
+      if (data.visual?.tournamentType !== type) throw new Error("Некорректный ответ сервера");
+      setConfigs((current) => ({ ...current, [type]: data.visual }));
+      if (draftRevision.current === version) {
+        setDraft(data.visual);
+        setMessage("Сохранено");
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Ошибка сохранения");
+      if (draftRevision.current === version) setMessage(error instanceof Error ? error.message : "Ошибка сохранения");
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
+  }
+
+  async function save() {
+    return persist(() => fetchAdminJson<{ visual: TournamentVisualConfig }>(
+      surface === "profile" ? "/api/admin/tournament-visuals/profile" : "/api/admin/tournament-visuals",
+      {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(surface === "profile" ? { tournamentType: selectedType, geometry } : { tournamentType: selectedType, surface, geometry: { scale: geometry.scale, offsetX: geometry.offsetX, offsetY: geometry.offsetY, opacity: geometry.opacity } }),
+      }, { retries: 0 },
+    ));
   }
 
   async function upload(file: File) {
-    setBusy(true);
-    try {
-      const body = new FormData();
-      body.set("tournamentType", selectedType);
-      body.set("file", file);
-      const data = await fetchAdminJson<{ visual: TournamentVisualConfig }>(
+    const body = new FormData();
+    body.set("tournamentType", selectedType);
+    body.set("file", file);
+    return persist(() => fetchAdminJson<{ visual: TournamentVisualConfig }>(
         "/api/admin/tournament-visuals/upload",
-        { method: "POST", body },
-      );
-      setDraft(data.visual);
-      setConfigs((current) => ({ ...current, [selectedType]: data.visual }));
-      setMessage("PNG загружен");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Ошибка загрузки");
-    } finally {
-      setBusy(false);
-    }
+        { method: "POST", body }, { retries: 0 },
+    ));
   }
 
   async function reset() {
-    setBusy(true);
-    try {
-      const data = await fetchAdminJson<{ visual: TournamentVisualConfig }>(
+    return persist(() => fetchAdminJson<{ visual: TournamentVisualConfig }>(
         "/api/admin/tournament-visuals/reset",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ tournamentType: selectedType }),
-        },
-      );
-      setDraft(data.visual);
-      setConfigs((current) => ({ ...current, [selectedType]: data.visual }));
-      setMessage("Сброшено к дефолту");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Ошибка сброса");
-    } finally {
-      setBusy(false);
-    }
+        }, { retries: 0 },
+    ));
   }
 
   // Clears only the list-card override, falling back to the main geometry
   // again -- distinct from reset() above, which also wipes the main
   // geometry and uploaded PNG.
   async function resetList() {
-    setBusy(true);
-    try {
-      const data = await fetchAdminJson<{ visual: TournamentVisualConfig }>(
+    return persist(() => fetchAdminJson<{ visual: TournamentVisualConfig }>(
         "/api/admin/tournament-visuals/reset-list",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ tournamentType: selectedType }),
-        },
-      );
-      setDraft(data.visual);
-      setConfigs((current) => ({ ...current, [selectedType]: data.visual }));
-      setMessage("Список турниров: сброшено к главной");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Ошибка сброса");
-    } finally {
-      setBusy(false);
-    }
+        }, { retries: 0 },
+    ));
+  }
+
+  async function resetProfile() {
+    return persist(() => fetchAdminJson<{ visual: TournamentVisualConfig }>(
+        "/api/admin/tournament-visuals/profile",
+        { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tournamentType: selectedType }) }, { retries: 0 },
+    ));
   }
 
   if (!accessChecked) {
@@ -197,17 +204,21 @@ export default function AdminTournamentVisualsPage() {
     <main className="min-h-screen bg-black px-4 py-6 pb-28 text-white">
       <div className="mx-auto max-w-3xl">
         <Link href="/admin" className="text-sm text-white/55">← Админ-панель</Link>
-        <h1 className="mt-5 text-3xl font-bold">Оформление турниров</h1>
+        <h1 className="mt-5 text-2xl font-bold leading-tight sm:text-3xl">Оформление турниров</h1>
         <p className="mt-1 text-sm text-white/45">
-          Артворк на карточке турнира — отдельно для Главной и для списка «Турниры»
+          Артворк отдельно для Главной, списка турниров и Профиля
         </p>
 
-        <section className="mt-7 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+        {!loaded ? <div className="mt-7 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+          <p role="alert" className="text-sm text-white/70">{message || "Загружаем настройки..."}</p>
+          <button type="button" disabled={loadingVisuals} onClick={() => void loadVisuals()} className="mt-3 min-h-11 rounded-xl border border-white/10 px-4 text-sm disabled:opacity-50">Повторить загрузку</button>
+        </div> : <section className="mt-7 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
           <div className="flex gap-2 overflow-x-auto pb-2">
             {TOURNAMENT_VISUAL_TYPES.map((tournamentType) => (
               <button
                 key={tournamentType}
                 type="button"
+                disabled={busy}
                 onClick={() => selectType(tournamentType)}
                 className={`shrink-0 rounded-full border px-3 py-2 text-xs ${
                   selectedType === tournamentType
@@ -224,14 +235,18 @@ export default function AdminTournamentVisualsPage() {
               its own shorter/narrower artwork box (LIST_ARTWORK_SIZE_CLASSNAME)
               -- a scale/offset tuned for Home's tall box can crop the same PNG
               badly there, hence the separate slider set below. */}
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Поверхность оформления">
             {([
               ["main", "Главная"],
               ["list", "Турниры (список)"],
+              ["profile", "Профиль"],
             ] as const).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
+                role="tab"
+                aria-selected={surface === value}
+                disabled={busy}
                 onClick={() => setSurface(value)}
                 className={`rounded-full border px-3 py-2 text-xs font-medium ${
                   surface === value
@@ -244,8 +259,8 @@ export default function AdminTournamentVisualsPage() {
             ))}
           </div>
 
-          <div className="mt-4 grid gap-5 md:grid-cols-[minmax(0,280px)_1fr]">
-            <div className="relative overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4">
+          <div className={`mt-4 grid gap-5 ${surface === "profile" ? "md:grid-cols-[minmax(0,358px)_1fr]" : "md:grid-cols-[minmax(0,280px)_1fr]"}`}>
+            {surface === "profile" ? <ProfileArtworkPreview config={draft} /> : <div className="relative overflow-hidden rounded-[28px] border border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)] p-4">
               <TournamentVisual
                 tournamentType={selectedType}
                 configs={previewConfigs}
@@ -281,12 +296,12 @@ export default function AdminTournamentVisualsPage() {
                   <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-black/35 ring-1 ring-inset ring-white/10" />
                 ) : null}
               </div>
-            </div>
+            </div>}
 
             <div className="space-y-4">
               {surface === "main" ? (
                 <label className="block text-sm text-white/60">
-                  Replace/Upload PNG
+                  Загрузить или заменить PNG
                   <input
                     className="mt-2 block w-full text-xs"
                     type="file"
@@ -297,15 +312,15 @@ export default function AdminTournamentVisualsPage() {
                 </label>
               ) : (
                 <p className="text-xs text-white/45">
-                  Картинка общая для обеих поверхностей — загружается только на вкладке «Главная».
+                  Картинка общая для всех поверхностей — загружается только на вкладке «Главная».
                 </p>
               )}
 
               {([
-                ["Scale", "scale", 50, 200],
-                ["X offset", "offsetX", -100, 100],
-                ["Y offset", "offsetY", -100, 100],
-                ["Opacity", "opacity", 0, 100],
+                ["Масштаб", "scale", 50, surface === "profile" ? 300 : 200],
+                ["Смещение X", "offsetX", -100, 100],
+                ["Смещение Y", "offsetY", -100, 100],
+                ["Непрозрачность", "opacity", 0, 100],
               ] as const).map(([label, key, min, max]) => (
                 <label key={key} className="block text-sm text-white/60">
                   {label}: {geometry[key]}
@@ -314,11 +329,16 @@ export default function AdminTournamentVisualsPage() {
                     type="range"
                     min={min}
                     max={max}
+                    disabled={busy}
                     value={geometry[key]}
                     onChange={(event) => {
                       const value = Number(event.target.value);
+                      draftRevision.current += 1;
+                      setMessage("");
                       setDraft((current) =>
-                        surface === "list"
+                        surface === "profile"
+                          ? { ...current, profile: { ...(current.profile ?? DEFAULT_PROFILE_GEOMETRY), [key]: value } }
+                          : surface === "list"
                           ? {
                               ...current,
                               list: {
@@ -336,14 +356,15 @@ export default function AdminTournamentVisualsPage() {
                 </label>
               ))}
 
-              <div className="flex gap-2">
+              {surface === "profile" ? <p className="text-xs leading-relaxed text-white/60">Сброс затрагивает только геометрию арта в Профиле. PNG и настройки Главной и списка турниров сохраняются.</p> : null}
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void (surface === "list" ? resetList() : reset())}
+                  onClick={() => void (surface === "profile" ? resetProfile() : surface === "list" ? resetList() : reset())}
                   className="rounded-xl border border-white/10 px-4 py-2 text-sm"
                 >
-                  {surface === "list" ? "Reset (как на Главной)" : "Reset"}
+                  {surface === "profile" ? "Сбросить геометрию арта" : surface === "list" ? "Сбросить настройки списка" : "Сбросить настройки"}
                 </button>
                 <button
                   type="button"
@@ -351,13 +372,13 @@ export default function AdminTournamentVisualsPage() {
                   onClick={() => void save()}
                   className="rounded-xl bg-[#d5b867] px-4 py-2 text-sm font-semibold text-black"
                 >
-                  Save
+                  Сохранить
                 </button>
               </div>
-              {message ? <p className="text-sm text-white/55">{message}</p> : null}
+              {statusMessage ? <p role="status" className="text-sm text-white/65">{statusMessage}</p> : null}
             </div>
           </div>
-        </section>
+        </section>}
       </div>
     </main>
   );

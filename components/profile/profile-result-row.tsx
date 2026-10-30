@@ -10,8 +10,8 @@ export function ProfileResultRow({ item, configs }: { item: ProfileV2HistoryItem
       <CompactListRow>
         <TournamentArtworkIcon tournamentType={tournament.tournament_type} configs={configs} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-white">{tournament.title}</p>
-          <p className="mt-1 text-xs text-white/60">
+          <p className="break-words text-sm font-semibold leading-snug text-white [overflow-wrap:anywhere]">{tournament.title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-white/60">
             {new Date(tournament.start_at).toLocaleString("ru-RU", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })} · {result.field_size ?? 0} игроков
           </p>
         </div>
