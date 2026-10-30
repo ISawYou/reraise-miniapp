@@ -13,6 +13,7 @@ import type {
   ArrivedPlacementRow,
   ResultAttendanceRow,
   ResultHistoryRow,
+  ResultHistoryPage,
   SeasonRecapResultRow,
   TeamScoringResultRow,
   PlayerClubDiscountHistoryRow,
@@ -278,14 +279,31 @@ export class PostgresResultRepository implements ResultRepository {
     }));
   }
 
-  async findHistoryWithTournamentByPlayerId(playerId: string): Promise<ResultHistoryRow[]> {
+  async sumHistoryKnockoutsByPlayerId(playerId: string): Promise<number> {
     const rows = await db
+      .select({ total: sql`coalesce(sum(${results.knockouts}), 0)`.mapWith(Number) })
+      .from(results)
+      .innerJoin(tournaments, eq(results.tournamentId, tournaments.id))
+      .where(eq(results.playerId, playerId));
+    return rows[0]?.total ?? 0;
+  }
+
+  async findHistoryWithTournamentByPlayerId(playerId: string, page?: ResultHistoryPage): Promise<ResultHistoryRow[]> {
+    const query = db
       .select({
         player_id: results.playerId,
         tournament_id: results.tournamentId,
         place: results.place,
         knockouts: results.knockouts,
         boss_knockouts: sql<number>`coalesce(${sql.raw('"results"."boss_knockouts"')}, 0)`,
+        mystery_bounty_points: results.mysteryBountyPoints,
+        itm_points: results.itmPoints,
+        field_size: sql<number>`(
+          select count(*)::int
+          from "results" as arrived_results
+          where arrived_results.tournament_id = "results".tournament_id
+            and arrived_results.arrived = true
+        )`,
         reentries: results.reentries,
         rating_points: results.ratingPoints,
         tournament: {
@@ -307,8 +325,11 @@ export class PostgresResultRepository implements ResultRepository {
       })
       .from(results)
       .leftJoin(tournaments, eq(results.tournamentId, tournaments.id))
-      .where(eq(results.playerId, playerId))
-      .orderBy(desc(results.createdAt));
+      .where(and(eq(results.playerId, playerId), page ? eq(tournaments.status, "completed") : undefined))
+      .orderBy(...(page ? [desc(tournaments.startAt), desc(tournaments.id)] : [desc(results.createdAt)]))
+      .$dynamic();
+
+    const rows = await (page ? query.limit(page.limit).offset(page.offset) : query);
 
     return rows.map((row) => ({
       player_id: row.player_id,
@@ -316,6 +337,9 @@ export class PostgresResultRepository implements ResultRepository {
       place: row.place,
       knockouts: row.knockouts,
       boss_knockouts: row.boss_knockouts ?? 0,
+      mystery_bounty_points: row.mystery_bounty_points ?? 0,
+      itm_points: row.itm_points ?? null,
+      field_size: row.field_size ?? 0,
       reentries: row.reentries,
       rating_points: row.rating_points,
       tournament: row.tournament

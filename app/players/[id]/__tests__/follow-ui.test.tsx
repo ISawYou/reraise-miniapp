@@ -29,6 +29,7 @@ vi.mock("@/features/auth", () => ({
 vi.mock("@/features/tournaments", () => ({
   getMyTournaments: vi.fn().mockResolvedValue([]),
   getPlayedTournamentsCount: vi.fn().mockResolvedValue(0),
+  getPlayerHistoryKnockouts: vi.fn().mockResolvedValue(0),
   getPlayerTournamentHistory: vi.fn().mockResolvedValue([]),
   getTournamentRegistrationCounts: vi.fn().mockResolvedValue({}),
 }));
@@ -116,6 +117,17 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
+      if (url.endsWith("/profile-v2")) {
+        const id = url.split("/")[3];
+        const own = (mocks.viewer as Player | null)?.id === id;
+        return { ok: true, json: async () => ({ mode: own ? "own" : "public", profile: {
+          id, display_name: `Player ${id}`, username: "someone", team: null,
+          featured_achievement_keys: [], achievements: [], rating: { currentSeason: null, allTime: { points: 0, rank: null } },
+          tournaments_played: 0, knockouts: 0, recent_form: [],
+          ...(own ? { email: null, free_reentries_balance: 0, created_at: "2025-01-01", dealer: null,
+            team_state: { pending_invitations: [], pending_outgoing_join_requests: [] }, upcoming_tournaments: [], registration_counts: {} } : {}),
+        } }) } as Response;
+      }
       if (typeof url === "string" && url.includes("/rating-summary")) {
         return { ok: true, json: async () => ({ currentSeason: null, allTime: { points: 0, rank: null } }) } as Response;
       }
