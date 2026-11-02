@@ -19,8 +19,8 @@ import {
   unfollowPlayerRequest,
   type FollowSummary,
 } from "@/lib/follows-client";
-import { getPlayerAvatarFallback, getPlayerAvatarUrl } from "@/lib/player-avatar";
-import { getTelegramWebApp } from "@/lib/telegram";
+import { uploadPlayerAvatar } from "@/lib/player-avatar-client";
+import { PlayerAvatarImage } from "@/components/profile/player-avatar-image";
 import { logEvent } from "@/lib/activity-client";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
 import type { AchievementVisualConfig } from "@/config/achievement-visuals";
@@ -414,8 +414,6 @@ export default function PlayerProfilePage() {
     }
   }
 
-  const avatarFallback = getPlayerAvatarFallback(player);
-  const avatarUrl = getPlayerAvatarUrl(player);
   const achievementModel = buildAchievementDisplayModel(achievementRows);
   const earnedFeaturedOptions = getEarnedFeaturedOptions(achievementRows);
   const featuredAchievements = resolveFeaturedAchievements(achievementRows, featuredKeys);
@@ -459,8 +457,8 @@ export default function PlayerProfilePage() {
 
     if (!file || !player || !isOwnProfile) return;
 
-    if (!file.type.startsWith("image/")) {
-      setAvatarError("Можно загрузить только изображение");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setAvatarError("Поддерживаются только JPEG, PNG и WebP");
       return;
     }
 
@@ -473,32 +471,7 @@ export default function PlayerProfilePage() {
       setAvatarLoading(true);
       setAvatarError(null);
 
-      const telegramInitData = getTelegramWebApp()?.initData;
-
-      if (!telegramInitData) {
-        throw new Error("Не удалось получить данные Telegram");
-      }
-
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("telegramInitData", telegramInitData);
-
-      const response = await fetch(`/api/players/${player.id}/avatar`, {
-        method: "POST",
-        body: formData,
-      });
-
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          response.status >= 500
-            ? "Сервер не настроен для загрузки аватаров"
-            : payload.error ?? "Не удалось загрузить аватар"
-        );
-      }
-
-      setPlayer(payload.player);
+      setPlayer(await uploadPlayerAvatar(player.id, file));
     } catch (err) {
       setAvatarError(
         err instanceof Error ? err.message : "Не удалось загрузить аватар"
@@ -582,14 +555,10 @@ export default function PlayerProfilePage() {
         <div data-testid="profile-hero" className="rounded-[28px] border border-[#7f9b8c]/15 bg-[linear-gradient(160deg,#15231b_0%,#0d1512_55%,#0a0f0c_100%)] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.25)]">
           <div className="flex items-center gap-4">
             <div className="relative shrink-0">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={player.display_name} className="h-[72px] w-[72px] rounded-full border border-white/10 object-cover" />
-              ) : (
-                <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-2xl font-bold text-white/80">{avatarFallback}</div>
-              )}
+              <PlayerAvatarImage player={player} />
               {isOwnProfile ? <div className="absolute -bottom-1 -right-1"><EditBadge onClick={() => avatarInputRef.current?.click()} label="Сменить аватар" /></div> : null}
             </div>
-            <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFileChange} disabled={avatarLoading} />
+            <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleAvatarFileChange} disabled={avatarLoading} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1">
                 <h2 title={player.display_name} className="min-w-0 break-words text-xl font-bold leading-tight [overflow-wrap:anywhere]">{player.display_name}</h2>

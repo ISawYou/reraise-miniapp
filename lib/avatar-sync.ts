@@ -21,10 +21,9 @@ function isTelegramSyncedUrl(url: string | null | undefined): boolean {
   return Boolean(url?.includes(`/${TELEGRAM_SYNC_FILENAME}`));
 }
 
-// URL вида .../avatars/{id}/avatar  (загружен пользователем вручную)
+// Every non-empty custom URL not owned by this synchronizer is manual.
 function isUserUploadedUrl(url: string | null | undefined): boolean {
-  if (!url) return false;
-  return url.includes("/avatar") && !url.includes(`/${TELEGRAM_SYNC_FILENAME}`);
+  return Boolean(url) && !isTelegramSyncedUrl(url);
 }
 
 /**
