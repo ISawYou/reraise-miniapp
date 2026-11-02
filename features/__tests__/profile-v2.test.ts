@@ -51,6 +51,23 @@ describe("Profile V2 read-model privacy and bounds", () => {
     expect(m.teamState).not.toHaveBeenCalled();
   });
 
+  it("returns a persisted replacement avatar on a fresh profile read", async () => {
+    m.findPlayer.mockResolvedValue({
+      id: "owner",
+      display_name: "Player",
+      username: "player",
+      custom_avatar_url: "/storage/avatars/owner/avatar.webp?v=123",
+      telegram_avatar_url: "https://telegram.example/older.jpg",
+      is_blocked: false,
+      created_at: "2025-01-01",
+    });
+
+    const { profile } = await getProfileV2({ targetPlayerId: "owner", viewerId: null });
+
+    expect(profile.custom_avatar_url).toBe("/storage/avatars/owner/avatar.webp?v=123");
+    expect(profile.telegram_avatar_url).toBe("https://telegram.example/older.jpg");
+  });
+
   it("resolves a merged target before authorizing the private balance", async () => {
     m.findPlayer.mockImplementation(async (id: string) => id === "old" ? { id, merged_into_player_id: "canonical", free_reentries_balance: 100 } : { id, display_name: "Canonical", free_reentries_balance: 3 });
     const own = await getProfileV2({ targetPlayerId: "old", viewerId: "canonical" });

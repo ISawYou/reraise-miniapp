@@ -75,20 +75,6 @@ export async function ensurePlayerFromTelegramUser(
   return createPlayerFromTelegramUser(telegramUser);
 }
 
-export async function updatePlayerCustomAvatar(
-  playerId: string,
-  customAvatarUrl: string
-): Promise<Player> {
-  try {
-    return await playerRepository.update(playerId, {
-      custom_avatar_url: customAvatarUrl,
-      avatar_updated_at: new Date().toISOString(),
-    });
-  } catch (err) {
-    throw new Error(`Failed to update custom avatar: ${errorMessage(err)}`);
-  }
-}
-
 export async function acceptTerms(playerId: string): Promise<Player> {
   // Direct server action reachable with only a bare playerId -- re-check
   // block status server-side, same reasoning as tournament registration.
