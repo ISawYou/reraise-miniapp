@@ -10,6 +10,7 @@ import {
 import { TERMS_VERSION } from "@/lib/terms";
 import { getHomeTournamentSnapshot } from "@/features/home";
 import { PromotionToast } from "@/components/promotion-toast";
+import { HomeQualification } from "@/components/qualifications/home-qualification";
 import { ClubActivityCard } from "@/components/club-activity-card";
 import { CLUB_ADDRESS, CLUB_MAP_URL } from "@/config/club";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
@@ -1520,6 +1521,7 @@ export default function HomePage() {
     <main className="relative min-h-screen bg-[#080808] px-4 py-6 pb-28 text-white">
       <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#c9a84c0a,transparent)]" />
       <div className="relative mx-auto max-w-md">
+        <HomeQualification />
         <Link
           href={`/players/${player.id}`}
           className="mb-6 flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/[0.04] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.22)]"

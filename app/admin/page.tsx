@@ -280,6 +280,7 @@ export const OPERATOR_SECTIONS = [
 ];
 
 const SUPER_ADMIN_SECTIONS = [
+  { title: "ОТБОРЫ", items: [{ href: "/admin/qualifications", title: "Квалификации и сборная", icon: <span aria-hidden="true">♠</span> }] },
   TOURNAMENT_SECTION,
   PLAYERS_SECTION,
   STAFF_SECTION_SUPER_ADMIN,
