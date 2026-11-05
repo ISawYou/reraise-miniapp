@@ -324,3 +324,10 @@ describe("completed KO correction -- Super Admin only", () => {
     }
   });
 });
+
+
+describe("Qualification configuration -- Super Admin only",()=>{
+ it.each([["GET","/api/admin/qualifications"],["POST","/api/admin/qualifications"],["GET","/api/admin/qualifications/e1"],["POST","/api/admin/qualifications/e1"]])("protects %s %s",async(method,path)=>{
+  for(const role of [null,"player","operator","admin"]){mocks.verifySession.mockReturnValue(role?"caller":null);mocks.findById.mockResolvedValue(role?{id:"caller",role}:null);const r=await middleware(new NextRequest("https://re-raise.ru"+path,{method,headers:{cookie:"reraise_session=signed"}}));expect(r.status).toBe(role==="admin"?200:role===null?401:403);}
+ });
+});

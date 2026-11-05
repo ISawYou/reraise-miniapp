@@ -1,0 +1,16 @@
+"use client";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect,useState } from "react";
+import { fetchAdminJson } from "@/lib/client-request";
+import { QualificationView } from "@/components/qualifications/qualification-view";
+import type { QualificationPublicModel,OwnQualificationInvitation } from "@/types/qualifications";
+const labels:Record<string,string>={pending:"Ожидает ответа",accepted:"Принято",declined:"Отклонено",cancelled:"Отменено",replaced:"Заменено"};
+export default function QualificationPage(){
+ const {slug}=useParams<{slug:string}>();const [data,setData]=useState<QualificationPublicModel|null>(null),[own,setOwn]=useState<OwnQualificationInvitation|null>(null),[error,setError]=useState<string|null>(null),[busy,setBusy]=useState(false);
+ async function load(){setError(null);const model=await fetchAdminJson<QualificationPublicModel>(`/api/qualifications/${slug}`);setData(model);try{setOwn(await fetchAdminJson<OwnQualificationInvitation>(`/api/qualifications/${slug}/invitation`,undefined,{retries:0}));}catch(e){setOwn(null);if(!(e instanceof Error)||e.message!=="Не авторизовано")throw e;}}
+ useEffect(()=>{void load().catch(e=>setError(e instanceof Error?e.message:"Не удалось загрузить отбор"));/* load is scoped to the route slug */ // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[slug]);
+ async function respond(id:string,accept:boolean){if(!own)return;setBusy(true);setError(null);try{await fetchAdminJson(`/api/qualifications/${slug}/invitation`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({eventId:own.eventId,invitationId:id,version:own.version,accept})},{retries:0});await load();}catch(e){setError(e instanceof Error?e.message:"Не удалось ответить");}finally{setBusy(false);}}
+ return <main className="mx-auto min-h-screen max-w-lg px-4 py-5 pb-32 text-white"><Link className="mb-4 inline-block min-h-10 text-sm text-white/70" href="/">← Главная</Link>{error?<div role="alert" className="mb-4 rounded-xl border border-red-400/30 p-3 text-sm text-red-200">{error}<button className="ml-3 min-h-10 underline" onClick={()=>void load().catch(e=>setError(String(e)))}>Обновить</button></div>:null}{own?.invitations[0]?<section className="mb-5 rounded-xl border border-[#d5b867]/40 p-4"><h2 className="font-semibold">Ваше приглашение в финал</h2><p className="mt-2 text-sm text-white/75">{labels[own.invitations[0].status]}</p>{own.status==="inviting"&&own.invitations[0].status==="pending"?<div className="mt-3 flex flex-wrap gap-3"><button className="min-h-11 rounded-lg border border-[#d5b867]/40 px-4 text-[#f0d38a] disabled:opacity-40" disabled={busy} onClick={()=>void respond(own.invitations[0].id,true)}>Принять</button><button className="min-h-11 rounded-lg border border-white/15 px-4 disabled:opacity-40" disabled={busy} onClick={()=>void respond(own.invitations[0].id,false)}>Отказаться</button></div>:null}</section>:null}{data?<QualificationView model={data}/>:!error?<p className="text-white/60">Загружаем отбор…</p>:null}</main>;
+}

@@ -1,0 +1,196 @@
+import "server-only";
+import { createHash } from "node:crypto";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { players, results, tournaments, registrations, qualificationEvents as events, qualificationSlots as slots, qualificationInvitations as invites, qualificationSquad as squad, qualificationAudit as audit } from "@/lib/db/schema";
+import { QualificationError, validateQualificationConfig, qualificationUuid, type QualificationConfig } from "@/lib/qualification-config";
+import { rankQualification, type QualificationFact } from "@/lib/qualification-ranking";
+import type { QualificationCommand } from "./QualificationRepository";
+
+type Executor=Pick<typeof db,"select"|"insert"|"update"|"delete">;
+type Event=typeof events.$inferSelect;
+function fail(message:string,status=409):never{throw new QualificationError(message,status);}
+const publicPlayer={player_id:players.id,display_name:players.displayName,custom_avatar_url:players.customAvatarUrl,telegram_avatar_url:players.telegramAvatarUrl};
+const active=(status:string)=>status==="pending"||status==="accepted";
+const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
+function dateInZone(value:Date,zone:string){return new Intl.DateTimeFormat("en-CA",{timeZone:zone,year:"numeric",month:"2-digit",day:"2-digit"}).format(value);}
+function configOf(e:Event,dates:string[]):QualificationConfig{return {slug:e.slug,title:e.title,rules:e.rules,timezone:e.timezone,bestResultsCount:e.bestResultsCount,finalDate:e.finalDate,dates};}
+
+async function canonical(tx:Executor,ids:string[]){
+  if(!ids.length||new Set(ids).size!==ids.length||ids.some(id=>!qualificationUuid(id)))fail("Нужны разные действующие игроки",400);
+  const rows=await tx.select({id:players.id,merged:players.mergedIntoPlayerId,blocked:players.isBlocked}).from(players).where(inArray(players.id,ids)).orderBy(asc(players.id)).for("update");
+  if(rows.length!==ids.length||rows.some(p=>p.merged||p.blocked))fail("Игрок недоступен или его аккаунт объединён — выберите действующий профиль");
+}
+async function state(tx:Executor,e:Event){
+  const schedule=await tx.select({id:slots.id,scheduledDate:slots.scheduledDate,tournamentId:slots.tournamentId,displayOrder:slots.displayOrder,tournament:{id:tournaments.id,title:tournaments.title,startAt:tournaments.startAt,status:tournaments.status,kind:tournaments.kind,isFinal:tournaments.isFinal,maxPlayers:tournaments.maxPlayers}}).from(slots).leftJoin(tournaments,eq(slots.tournamentId,tournaments.id)).where(eq(slots.eventId,e.id)).orderBy(asc(slots.displayOrder));
+  validateQualificationConfig(configOf(e,schedule.map(s=>s.scheduledDate)));
+  if(schedule.some((s,i)=>s.displayOrder!==i || (s.tournamentId && (!s.tournament||s.tournamentId===e.finalTournamentId))))fail("Нарушена конфигурация слотов отбора");
+  // The ONLY scoring input: persisted rating_points, completed selected tournaments.
+  const facts:QualificationFact[]=(await tx.select({...publicPlayer,tournament_id:tournaments.id,title:tournaments.title,date:tournaments.startAt,points:results.ratingPoints}).from(slots).innerJoin(tournaments,eq(slots.tournamentId,tournaments.id)).innerJoin(results,eq(results.tournamentId,tournaments.id)).innerJoin(players,eq(players.id,results.playerId)).where(and(eq(slots.eventId,e.id),eq(tournaments.status,"completed"),isNull(players.mergedIntoPlayerId)))).map(r=>({...r,date:r.date.toISOString()}));
+  const factsFingerprint=hash({best:e.bestResultsCount,selected:schedule.map(s=>s.tournamentId),facts:facts.map(f=>[f.player_id,f.tournament_id,f.points]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))});
+  const resolution=e.tieResolution?.fingerprint===factsFingerprint?e.tieResolution.playerOrder:[];
+  const ranking=rankQualification(facts,e.bestResultsCount,resolution);
+  const fingerprint=hash({factsFingerprint,resolution});
+  const invitationRows=await tx.select({id:invites.id,eventId:invites.eventId,playerId:invites.playerId,qualifyingRank:invites.qualifyingRank,seat:invites.seat,status:invites.status,invitedAt:invites.invitedAt,respondedAt:invites.respondedAt,replacesId:invites.replacesId,...publicPlayer}).from(invites).innerJoin(players,eq(invites.playerId,players.id)).where(eq(invites.eventId,e.id)).orderBy(asc(invites.seat),desc(invites.invitedAt),asc(invites.id));
+  const members=await tx.select({source:squad.source,slot:squad.slot,finalPlace:squad.finalPlace,confirmedAt:squad.confirmedAt,...publicPlayer}).from(squad).innerJoin(players,eq(squad.playerId,players.id)).where(eq(squad.eventId,e.id)).orderBy(asc(squad.source),asc(squad.slot));
+  return {event:e,schedule,ranking:{...ranking,fingerprint,factsFingerprint},invitations:invitationRows,members,needsReconciliation:e.rankingFingerprint!==null&&e.rankingFingerprint!==fingerprint};
+}
+
+export class PostgresQualificationRepository {
+  private available(){if(process.env.DATABASE_PROVIDER!=="postgres")fail("Квалификации требуют PostgreSQL и подготовленной миграции",503);}
+  async list(admin=false){this.available();return db.select({id:events.id,slug:events.slug,title:events.title,status:events.status,bestResultsCount:events.bestResultsCount}).from(events).where(admin?undefined:ne(events.status,"draft")).orderBy(desc(events.createdAt));}
+  async create(config:QualificationConfig,actorId:string){
+    this.available();validateQualificationConfig(config);
+    return db.transaction(async tx=>{
+      const [e]=await tx.insert(events).values({slug:config.slug,title:config.title.trim(),rules:config.rules,timezone:config.timezone,finalDate:config.finalDate,bestResultsCount:config.bestResultsCount}).returning();
+      await tx.insert(slots).values([...config.dates].sort().map((scheduledDate,displayOrder)=>({eventId:e.id,scheduledDate,displayOrder})));
+      await tx.insert(audit).values({eventId:e.id,actorId,action:"create",detail:{dates:config.dates}});return e;
+    });
+  }
+  async read(idOrSlug:string,admin=false){
+    this.available();return db.transaction(async tx=>{
+      const [e]=await tx.select().from(events).where(qualificationUuid(idOrSlug)?eq(events.id,idOrSlug):eq(events.slug,idOrSlug));
+      if(!e||(!admin&&e.status==="draft"))fail("Отбор не найден",404);
+      const s=await state(tx,e);
+      if(admin){
+        const choices=await tx.select({id:tournaments.id,title:tournaments.title,startAt:tournaments.startAt,status:tournaments.status,kind:tournaments.kind,maxPlayers:tournaments.maxPlayers,isFinal:tournaments.isFinal}).from(tournaments).where(sql`${tournaments.startAt} >= ${s.schedule[0].scheduledDate}::date - interval '1 day' AND ${tournaments.startAt} < ${e.finalDate}::date + interval '2 days'`).orderBy(asc(tournaments.startAt)).limit(250);
+        const history=await tx.select({action:audit.action,detail:audit.detail,createdAt:audit.createdAt}).from(audit).where(eq(audit.eventId,e.id)).orderBy(desc(audit.createdAt)).limit(30);
+        return {...s,tournamentChoices:choices,audit:history};
+      }
+      return {event:{id:e.id,slug:e.slug,title:e.title,rules:e.rules,timezone:e.timezone,finalDate:e.finalDate,bestResultsCount:e.bestResultsCount,status:e.status,version:e.version,finalTournamentId:e.finalTournamentId,finalRosterLockedAt:e.finalRosterLockedAt},schedule:s.schedule,ranking:{standings:s.ranking.standings,hasUnresolvedTie:s.ranking.hasUnresolvedTie},needsReconciliation:s.needsReconciliation,members:e.squadConfirmedAt?s.members:[]};
+    },{isolationLevel:"repeatable read",accessMode:"read only"});
+  }
+  async ownInvitation(slug:string,playerId:string){
+    this.available();const [e]=await db.select({id:events.id,status:events.status,version:events.version}).from(events).where(eq(events.slug,slug));if(!e||e.status==="draft")fail("Отбор не найден",404);
+    const rows=await db.select({id:invites.id,status:invites.status,qualifyingRank:invites.qualifyingRank,seat:invites.seat,invitedAt:invites.invitedAt}).from(invites).where(and(eq(invites.eventId,e.id),eq(invites.playerId,playerId))).orderBy(desc(invites.invitedAt),desc(invites.id));
+    return {eventId:e.id,version:e.version,status:e.status,invitations:rows};
+  }
+  async searchPlayers(q:string){this.available();if(q.trim().length<2)return [];return db.select(publicPlayer).from(players).where(and(isNull(players.mergedIntoPlayerId),eq(players.isBlocked,false),sql`${players.displayName} ILIKE ${"%"+q.trim().replace(/[\\%_]/g,"\\$&")+"%"}`)).orderBy(asc(players.displayName)).limit(20);}
+  async respond(eventId:string,invitationId:string,playerId:string,version:number,accept:boolean){
+    this.available();return db.transaction(async tx=>{
+      const [e]=await tx.select().from(events).where(eq(events.id,eventId)).for("update");if(!e)fail("Отбор не найден",404);
+      if(e.version!==version)fail("Данные устарели — обновите страницу");if(e.status!=="inviting"||e.finalRosterLockedAt)fail("Приём ответов на приглашения закрыт");
+      await canonical(tx,[playerId]);
+      const [inv]=await tx.select().from(invites).where(and(eq(invites.id,invitationId),eq(invites.eventId,eventId),eq(invites.playerId,playerId)));
+      if(!inv)fail("Приглашение не найдено",404);if(inv.status!=="pending")fail("На приглашение уже получен ответ");
+      await tx.update(invites).set({status:accept?"accepted":"declined",respondedAt:new Date()}).where(eq(invites.id,inv.id));
+      await tx.update(events).set({version:e.version+1,updatedAt:new Date()}).where(eq(events.id,e.id));
+      await tx.insert(audit).values({eventId,actorId:playerId,action:accept?"accept":"decline",detail:{invitationId}});
+      return {ok:true};
+    });
+  }
+  async mutate(eventId:string,command:QualificationCommand,actorId:string){
+    this.available();return db.transaction(async tx=>{
+      const [e]=await tx.select().from(events).where(eq(events.id,eventId)).for("update");if(!e)fail("Отбор не найден",404);
+      if(e.version!==command.version)fail("Данные устарели — обновите страницу");if(e.status==="completed")fail("Сборная уже подтверждена; завершённый отбор неизменяем");
+      if(["close","reconcile","confirm_winner","lock_roster","confirm_squad","select_finalists"].includes(command.action)){
+        const sourceIds=(await tx.select({id:slots.tournamentId}).from(slots).where(eq(slots.eventId,e.id))).map(s=>s.id).filter((id):id is string=>!!id);
+        if(e.finalTournamentId)sourceIds.push(e.finalTournamentId);
+        if(sourceIds.length)await tx.select({id:tournaments.id}).from(tournaments).where(inArray(tournaments.id,sourceIds)).orderBy(asc(tournaments.id)).for("update");
+      }
+      const s=await state(tx,e);const now=new Date();let patch:Partial<typeof events.$inferInsert>={};
+      const expectStage=(...stages:string[])=>{if(!stages.includes(e.status))fail("Это действие недоступно на текущем этапе");};
+      const acknowledged=()=>{if(command.confirmation!==true||command.rankingFingerprint!==s.ranking.fingerprint)fail("Подтвердите актуальные изменения состава и рейтинга");};
+      const ensureRanking=()=>{if(s.ranking.hasUnresolvedTie)fail("Сначала разрешите существенную ничью явным решением администратора");if(s.ranking.standings.length<19)fail("Для приглашения 18 финалистов нужны минимум 19 участников отбора");};
+      const currentRanking=()=>{if(s.needsReconciliation)fail("Рейтинг изменился после приглашений — требуется явная сверка состава");};
+      const initialInvites=async()=>{
+        ensureRanking();await canonical(tx,s.ranking.standings.slice(0,19).map(p=>p.player_id));
+        await tx.insert(invites).values(s.ranking.standings.slice(1,19).map((p,i)=>({eventId:e.id,playerId:p.player_id,qualifyingRank:p.qualification_rank,seat:i+1})));
+        patch={...patch,winnerPlayerId:s.ranking.standings[0].player_id,rankingFingerprint:s.ranking.fingerprint,qualificationClosedAt:now,status:"inviting"};
+      };
+      switch(command.action){
+        case "configure":{
+          expectStage("draft","qualifying","inviting");if(e.finalRosterLockedAt)fail("Состав финала уже зафиксирован");
+          const c=command.config;if(!c)fail("Нужна конфигурация",400);validateQualificationConfig(c);
+          const ids=command.tournamentIds;if(!Array.isArray(ids)||ids.length!==6||ids.some(id=>id!==null&&!qualificationUuid(id))||new Set(ids.filter(Boolean)).size!==ids.filter(Boolean).length)fail("Нужны шесть слотов без повторяющихся турниров",400);
+          const finalId=command.finalTournamentId??null;if(finalId!==null&&!qualificationUuid(finalId))fail("Некорректный финальный турнир",400);if(finalId&&ids.includes(finalId))fail("Финал нельзя включать в источники квалификации");
+          const selected=[...ids.filter((id):id is string=>!!id),...(finalId?[finalId]:[])].sort();
+          const ts=selected.length?await tx.select().from(tournaments).where(inArray(tournaments.id,selected)).orderBy(asc(tournaments.id)).for("update"):[];
+          if(ts.length!==selected.length)fail("Один из турниров не найден");
+          for(let i=0;i<6;i++){const t=ts.find(t=>t.id===ids[i]);if(t&&(dateInZone(t.startAt,c.timezone)!==c.dates[i]||t.isFinal))fail("Дата выбранного турнира должна совпадать со слотом; Финал месяца не подходит");}
+          if(finalId){const t=ts.find(t=>t.id===finalId)!;if(t.kind!=="free"||t.isFinal||t.maxPlayers!==18||t.status==="completed"||dateInZone(t.startAt,c.timezone)!==c.finalDate)fail("Нужен обычный бесплатный турнир на дату финала, ровно 18 мест, без is_final и завершения");
+            const otherSlot=await tx.select({id:slots.id}).from(slots).where(eq(slots.tournamentId,finalId));if(otherSlot.length)fail("Финал уже включён в квалификационные слоты");
+            const existing=await tx.select({id:registrations.id}).from(registrations).where(and(eq(registrations.tournamentId,finalId),ne(registrations.status,"cancelled")));if(existing.length)fail("Перед привязкой финала его обычная регистрация должна быть пустой");}
+          for(const id of ids.filter((id):id is string=>!!id)){const f=await tx.select({id:events.id}).from(events).where(eq(events.finalTournamentId,id));if(f.length)fail("Связанный финал не может быть источником отбора");}
+          await tx.delete(slots).where(eq(slots.eventId,e.id));await tx.insert(slots).values(c.dates.map((scheduledDate,displayOrder)=>({eventId:e.id,scheduledDate,displayOrder,tournamentId:ids[displayOrder]})));
+          patch={title:c.title.trim(),slug:c.slug,rules:c.rules,timezone:c.timezone,bestResultsCount:c.bestResultsCount,finalDate:c.finalDate,finalTournamentId:finalId};
+          break;
+        }
+        case "start":expectStage("draft");patch={status:"qualifying"};break;
+        case "resolve_ties":{
+          expectStage("qualifying","inviting");if(!command.reason?.trim())fail("Укажите основание решения по ничьей",400);
+          acknowledged();const required=s.ranking.tieGroups.flat();const order=command.playerOrder;
+          if(!order||new Set(order).size!==order.length||order.length!==required.length||order.some(id=>!required.includes(id)))fail("Нужно явно упорядочить всех участников существенной ничьей",400);
+          patch={tieResolution:{fingerprint:s.ranking.factsFingerprint,playerOrder:order}};break;
+        }
+        case "close":{
+          expectStage("qualifying");acknowledged();if(s.schedule.some(s=>!s.tournamentId||s.tournament?.status!=="completed"))fail("Сначала назначьте и завершите все шесть квалификаций");
+          if(s.invitations.some(i=>active(i.status)))fail("Приглашения уже выдавались — используйте явное перевыпускание");await initialInvites();break;
+        }
+        case "reconcile":{
+          expectStage("inviting");acknowledged();if(!command.reason?.trim())fail("Укажите причину перевыпуска",400);if(s.schedule.some(s=>!s.tournamentId||s.tournament?.status!=="completed"))fail("Все шесть квалификаций должны быть завершены");
+          await tx.update(invites).set({status:"cancelled",respondedAt:now}).where(and(eq(invites.eventId,e.id),inArray(invites.status,["pending","accepted"])));
+          await tx.delete(squad).where(eq(squad.eventId,e.id));await initialInvites();break;
+        }
+        case "reopen":{
+          expectStage("inviting");acknowledged();if(!command.reason?.trim())fail("Укажите причину возобновления",400);
+          await tx.update(invites).set({status:"cancelled",respondedAt:now}).where(and(eq(invites.eventId,e.id),inArray(invites.status,["pending","accepted"])));
+          await tx.delete(squad).where(eq(squad.eventId,e.id));patch={status:"qualifying",winnerPlayerId:null,rankingFingerprint:null,qualificationClosedAt:null};break;
+        }
+        case "cancel_invitation":{
+          expectStage("inviting");const inv=s.invitations.find(i=>i.id===command.invitationId);if(!inv||!active(inv.status))fail("Приглашение уже не активно");
+          await tx.update(invites).set({status:"cancelled",respondedAt:now}).where(eq(invites.id,inv.id));break;
+        }
+        case "replace_invitation":{
+          expectStage("inviting");currentRanking();const inv=s.invitations.find(i=>i.id===command.invitationId);if(!inv||inv.status==="replaced")fail("Нельзя повторно заменить это приглашение");
+          if(s.invitations.some(i=>i.id!==inv.id&&i.seat===inv.seat&&active(i.status)))fail("Место уже занято другим приглашением");
+          const next=s.ranking.standings.find(p=>p.qualification_rank>=20&&!s.invitations.some(i=>i.playerId===p.player_id));
+          if(!next||next.player_id!==command.playerId||next.unresolved_tie)fail("Замена возможна только следующим ещё не приглашённым игроком рейтинга");const tied=s.ranking.tieGroups.find(group=>group.includes(next.player_id));
+          if(tied&&(!e.tieResolution||e.tieResolution.fingerprint!==s.ranking.factsFingerprint||!tied.every(id=>e.tieResolution!.playerOrder.includes(id))))fail("Сначала разрешите ничью на позиции замены");
+          await canonical(tx,[next.player_id]);
+          await tx.update(invites).set({status:"replaced",respondedAt:now}).where(eq(invites.id,inv.id));await tx.insert(invites).values({eventId:e.id,playerId:next.player_id,qualifyingRank:next.qualification_rank,seat:inv.seat,replacesId:inv.id});break;
+        }
+        case "confirm_winner":{
+          expectStage("inviting");currentRanking();if(!e.winnerPlayerId)fail("Победитель не определён");await canonical(tx,[e.winnerPlayerId]);
+          await tx.insert(squad).values({eventId:e.id,playerId:e.winnerPlayerId,source:"qualification_winner",slot:0}).onConflictDoNothing();break;
+        }
+        case "lock_roster":{
+          expectStage("inviting");currentRanking();acknowledged();if(!e.finalTournamentId)fail("Назначьте финальный турнир");
+          const accepted=s.invitations.filter(i=>i.status==="accepted");if(accepted.length!==18||new Set(accepted.map(i=>i.playerId)).size!==18)fail("Нужны ровно 18 принятых приглашений");
+          if(!s.members.some(m=>m.source==="qualification_winner"&&m.player_id===e.winnerPlayerId))fail("Подтвердите прямого победителя отбора");
+          await tx.select({id:tournaments.id}).from(tournaments).where(eq(tournaments.id,e.finalTournamentId)).for("update");
+          const [final]=await tx.select().from(tournaments).where(eq(tournaments.id,e.finalTournamentId));if(!final||final.kind!=="free"||final.isFinal||final.maxPlayers!==18||final.status==="completed"||dateInZone(final.startAt,e.timezone)!==e.finalDate)fail("Некорректный финальный турнир");
+          await canonical(tx,accepted.map(i=>i.playerId));
+          patch={status:"final",finalRosterLockedAt:now};
+          // Set lock flag in the same transaction before guarded registrations.
+          await tx.update(events).set(patch).where(eq(events.id,e.id));
+          await tx.insert(registrations).values(accepted.map(i=>({playerId:i.playerId,tournamentId:e.finalTournamentId!,status:"registered"}))).onConflictDoUpdate({target:[registrations.playerId,registrations.tournamentId],set:{status:"registered"}});break;
+        }
+        case "select_finalists":{
+          expectStage("final");const top=await this.finalTop(tx,e,s.invitations);await tx.delete(squad).where(and(eq(squad.eventId,e.id),eq(squad.source,"final_top3")));
+          await tx.insert(squad).values(top.map((r,i)=>({eventId:e.id,playerId:r.playerId,source:"final_top3",slot:i+1,finalPlace:r.place})));break;
+        }
+        case "set_captain":{
+          expectStage("final");if(!command.playerId)fail("Выберите капитана",400);await canonical(tx,[command.playerId]);if(s.members.some(m=>m.player_id===command.playerId&&m.source!=="captain"))fail("Капитан должен быть пятым отдельным человеком");
+          await tx.insert(squad).values({eventId:e.id,playerId:command.playerId,source:"captain",slot:0}).onConflictDoUpdate({target:[squad.eventId,squad.source,squad.slot],set:{playerId:command.playerId,confirmedAt:null}});break;
+        }
+        case "confirm_squad":{
+          expectStage("final");currentRanking();acknowledged();const top=await this.finalTop(tx,e,s.invitations);const members=s.members;
+          if(members.length!==5||new Set(members.map(m=>m.player_id)).size!==5||members.filter(m=>m.source==="captain").length!==1||!members.some(m=>m.source==="qualification_winner"&&m.player_id===e.winnerPlayerId)||top.some((r,i)=>!members.some(m=>m.source==="final_top3"&&m.slot===i+1&&m.player_id===r.playerId&&m.finalPlace===r.place)))fail("Нужны победитель отбора, три актуальных призёра финала и отдельный капитан");
+          await canonical(tx,members.map(m=>m.player_id));await tx.update(squad).set({confirmedAt:now}).where(eq(squad.eventId,e.id));patch={status:"completed",squadConfirmedAt:now};break;
+        }
+        default:fail("Неизвестное действие",400);
+      }
+      await tx.update(events).set({...patch,version:e.version+1,updatedAt:now}).where(eq(events.id,e.id));
+      await tx.insert(audit).values({eventId:e.id,actorId,action:command.action,detail:{reason:command.reason??null,invitationId:command.invitationId??null,playerId:command.playerId??null,playerOrder:command.playerOrder??null,previousWinner:e.winnerPlayerId,previousInvitationIds:s.invitations.filter(i=>active(i.status)).map(i=>i.id),selectedTournamentIds:command.tournamentIds??null}});
+      return {ok:true,version:e.version+1};
+    });
+  }
+  private async finalTop(tx:Executor,e:Event,invitations:{playerId:string;status:string}[]){
+    if(!e.finalTournamentId)fail("Финал не назначен");
+    const [t]=await tx.select().from(tournaments).where(eq(tournaments.id,e.finalTournamentId)).for("update");if(!t||t.status!=="completed")fail("Финальный турнир ещё не завершён");
+    const eligible=invitations.filter(i=>i.status==="accepted").map(i=>i.playerId);if(eligible.length!==18)fail("Повреждён зафиксированный состав финала");
+    const rows=await tx.select({playerId:results.playerId,place:results.place}).from(results).innerJoin(players,eq(results.playerId,players.id)).where(and(eq(results.tournamentId,t.id),inArray(results.playerId,eligible),eq(results.arrived,true),isNull(players.mergedIntoPlayerId))).orderBy(asc(results.place)).limit(3);
+    if(rows.length!==3||rows.some(r=>r.playerId===e.winnerPlayerId))fail("Недостаточно подтверждённых результатов допустимых финалистов");await canonical(tx,rows.map(r=>r.playerId));return rows;
+  }
+}
