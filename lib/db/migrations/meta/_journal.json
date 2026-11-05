@@ -232,6 +232,13 @@
       "when": 1792696476895,
       "tag": "0032_violet_spencer_smythe",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793867397143,
+      "tag": "0033_qualification_v1",
+      "breakpoints": true
     }
   ]
 }
