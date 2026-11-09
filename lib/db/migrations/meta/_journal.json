@@ -239,6 +239,13 @@
       "when": 1793867397143,
       "tag": "0033_qualification_v1",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794185672440,
+      "tag": "0034_qualification_final_r2",
+      "breakpoints": true
     }
   ]
 }
