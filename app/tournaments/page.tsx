@@ -323,7 +323,7 @@ export default function TournamentsPage() {
     const registeredCount = registrationCounts[tournament.id] ?? 0;
     const isLoading = actionLoadingId === tournament.id;
 
-    if (tournament.is_final) {
+    if ((tournament.is_final || tournament.tournament_type === "qualification_final")) {
       const isPlayerInFinal = currentStatus === "registered" || currentStatus === "waitlist";
       return (
         <div
@@ -399,7 +399,7 @@ export default function TournamentsPage() {
         key={tournament.id}
         href={`/tournaments/${tournament.id}`}
         className={`relative block overflow-hidden rounded-[28px] border p-4 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition active:scale-[0.99] ${
-          tournament.is_final
+          (tournament.is_final || tournament.tournament_type === "qualification_final")
             ? "border-red-500/25 bg-[radial-gradient(circle_at_top_left,rgba(153,27,27,0.22),transparent_32%),linear-gradient(145deg,#1c0a0c_0%,#0f0708_55%,#050405_100%)]"
             : "border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)]"
         }`}
@@ -416,7 +416,7 @@ export default function TournamentsPage() {
         <div className="relative z-10">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              {tournament.is_final ? (
+              {(tournament.is_final || tournament.tournament_type === "qualification_final") ? (
                 <span className="mb-1.5 inline-flex items-center rounded-full border border-red-500/40 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold tracking-[0.08em] text-red-200">
                   {FINAL_BADGE_LABEL}
                 </span>
@@ -450,7 +450,7 @@ export default function TournamentsPage() {
               </span>
             </div>
 
-            {!tournament.is_final ? (
+            {!(tournament.is_final || tournament.tournament_type === "qualification_final") ? (
               <div className="inline-flex items-center rounded-full border border-[#e1bf6b]/25 bg-[#e1bf6b]/10 px-3 py-1.5 text-sm font-semibold text-[#e1bf6b]">
                 🏆 ТОП-{prizePlaces}
               </div>

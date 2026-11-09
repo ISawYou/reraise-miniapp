@@ -43,6 +43,8 @@ export type TournamentRow = {
   google_sheet_tab_name: string | null;
   start_at: string;
   max_players: number;
+  starting_stack?: number | null;
+  late_registration_ends_at?: string | null;
   kind: "free" | "paid" | "cash";
   tournament_type: TournamentType;
   season_id: string | null;

@@ -471,7 +471,7 @@ export function calculateRatingPointsForTournament(
   options: CalculateRatingPointsV2Options = {},
   ratingEligible = true
 ): { results: RatingPointsV2Result[]; meta: RatingPointsV2Meta | null } {
-  if (!ratingEligible) {
+  if (!ratingEligible || tournamentType === "qualification_final") {
     return {
       results: players.map((player) => ({
         player_id: player.player_id,

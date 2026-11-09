@@ -46,6 +46,8 @@ export async function POST(request: Request) {
       // Phoenix Rating Guarantee (spec §15) -- only meaningful for
       // tournament_type "phoenix", but not rejected for other types (same
       // "not DB-constrained to it" approach as the schema check).
+      starting_stack?: number | null;
+      late_registration_ends_at?: string | null;
       rating_guarantee?: number | null;
       // Boost Rating placement multiplier -- kept only for boost_rating
       // (default 2 when absent), normalized to 1 for every other type.
@@ -70,6 +72,8 @@ export async function POST(request: Request) {
         start_at: body.start_at,
         max_players: body.max_players,
         tournament_type: body.tournament_type ?? "classic",
+        starting_stack: body.starting_stack,
+        late_registration_ends_at: body.late_registration_ends_at,
         rating_guarantee: body.rating_guarantee ?? null,
         placement_points_multiplier: body.placement_points_multiplier ?? null,
         is_final: body.is_final ?? false,

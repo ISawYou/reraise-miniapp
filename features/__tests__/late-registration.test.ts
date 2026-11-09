@@ -534,3 +534,9 @@ describe("Late Registration close shares the tournament-row lock with waitlist c
     expect(fake.state.registrations.find((r) => r.playerId === "w1")?.status).toBe("waitlist");
   });
 });
+
+
+describe("R2 closed qualification final",()=>{
+ it.each([closeTournamentLateRegistration,closeTournamentLateRegistrationOperation])("rejects ordinary late-registration operation without creating a snapshot",async close=>{mocks.findTournament.mockResolvedValue({...tournament,tournament_type:"qualification_final"});await expect(close("t1")).rejects.toThrow("не поддерживает позднюю");expect(insertCount()).toBe(0)});
+ it("Poker Clock sees closed admission and no rating even without a generic snapshot",async()=>{mocks.findTournament.mockResolvedValue({...tournament,tournament_type:"qualification_final"});mocks.findSnapshot.mockResolvedValue(null);expect(await getTournamentStateForIntegration("t1")).toEqual({lateRegistration:{status:"closed",closedAt:null},rating:null})});
+});

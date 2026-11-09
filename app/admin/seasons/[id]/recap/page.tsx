@@ -23,6 +23,7 @@ const TOURNAMENT_TYPE_LABEL: Record<string, string> = {
   boss_bounty: "Boss Bounty",
   win_the_button: "Win The Button",
   mystery_bounty: "Mystery Bounty",
+  qualification_final: "Финал отбора",
   free_roll: "Free-roll",
 };
 

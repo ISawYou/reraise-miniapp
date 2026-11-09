@@ -68,6 +68,7 @@ export async function POST(
     };
 
     const tournament = await getTournamentById(id);
+    if (tournament.tournament_type === "qualification_final") return NextResponse.json({error:"Завершите финал на трёх оставшихся игроках в редакторе отбора"},{status:409});
 
     // Re-completion guard, fail fast BEFORE any Sheets read or live-state
     // write below. The authoritative (locked) check is inside

@@ -10,8 +10,8 @@ import type { TournamentKind, TournamentType, TournamentParticipant } from "@/ty
 // tournament" selection) reads this instead of re-deriving is_final logic
 // locally, so there is exactly one place that decides "does this
 // tournament ever produce/represent rating points".
-export function isRatingEligibleTournament(tournament: { is_final: boolean }): boolean {
-  return !tournament.is_final;
+export function isRatingEligibleTournament(tournament: { is_final: boolean; tournament_type?: TournamentType }): boolean {
+  return !tournament.is_final && tournament.tournament_type !== "qualification_final";
 }
 
 export function getTournamentKindLabel(kind: TournamentKind): string {
@@ -35,6 +35,8 @@ export function getRegistrationStatus(
 
 export function getTournamentTypeLabel(type: TournamentType): string {
   switch (type) {
+    case "qualification_final":
+      return "ФИНАЛ ОТБОРА";
     case "phoenix":
       return "Phoenix";
     case "deep_stack":

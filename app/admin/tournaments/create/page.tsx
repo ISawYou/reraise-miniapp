@@ -18,6 +18,7 @@ import {
 import type { Player } from "@/types/domain";
 
 export const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }> = [
+  { value: "qualification_final", label: "ФИНАЛ ОТБОРА (закрытый, без рейтинга)" },
   { value: "classic", label: "Classic" },
   { value: "phoenix", label: "Phoenix" },
   { value: "deep_stack", label: "Deep Stack" },
@@ -42,6 +43,7 @@ export default function AdminTournamentCreatePage() {
   const [title, setTitle] = useState(DEFAULT_TOURNAMENT_TEMPLATE.title);
   const [description, setDescription] = useState(DEFAULT_TOURNAMENT_TEMPLATE.description);
   const [startAt, setStartAt] = useState("");
+  const [lateRegistrationEndsAt, setLateRegistrationEndsAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
   const [preset, setPreset] = useState<TournamentPreset>(DEFAULT_TOURNAMENT_TYPE);
   const [ratingGuarantee, setRatingGuarantee] = useState("");
@@ -154,6 +156,7 @@ export default function AdminTournamentCreatePage() {
           description: description.trim(),
           location: CLUB_ADDRESS,
           start_at: new Date(startAt).toISOString(),
+          late_registration_ends_at: lateRegistrationEndsAt ? new Date(lateRegistrationEndsAt).toISOString() : null,
           max_players: Number(maxPlayers),
           tournament_type,
           is_final,
@@ -276,6 +279,7 @@ export default function AdminTournamentCreatePage() {
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
           />
 
+          <label className="mb-4 block text-sm text-white/70">Конец поздней регистрации (местное время устройства)<input type="datetime-local" className="mt-2 block w-full rounded-xl border border-white/15 bg-black p-3 text-white" value={lateRegistrationEndsAt} onChange={e=>setLateRegistrationEndsAt(e.target.value)} disabled={preset==="qualification_final"}/></label>
           <label className="mt-4 block text-sm text-white/80">Тип турнира</label>
           <select
             value={preset}
@@ -283,6 +287,7 @@ export default function AdminTournamentCreatePage() {
               const nextPreset = e.target.value as TournamentPreset;
               const template = TOURNAMENT_PRESET_TEMPLATES[nextPreset];
               setPreset(nextPreset);
+              if (nextPreset === "qualification_final") { setMaxPlayers("18"); setLateRegistrationEndsAt(""); }
               setTitle(template.title);
               setDescription(template.description);
               if (nextPreset === "boost_rating") {

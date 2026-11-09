@@ -16,6 +16,7 @@ export type PlayerRole = "player" | "operator" | "admin";
 export type TournamentKind = "free" | "paid" | "cash";
 export type TournamentType =
   | "classic"
+  | "qualification_final"
   | "phoenix"
   | "deep_stack"
   | "bounty"
@@ -91,6 +92,8 @@ export type Tournament = {
   title: string;
   start_at: string;
   max_players: number;
+  starting_stack?: number | null;
+  late_registration_ends_at?: string | null;
   kind: TournamentKind;
   tournament_type: TournamentType;
   season_id: string | null;
@@ -104,7 +107,7 @@ export type Tournament = {
   // tournament that existed before the v2 migration; "v2" for everything
   // created afterwards. See features/rating.ts vs features/rating-v2.ts.
   rating_formula_version: RatingFormulaVersion;
-  // Phoenix Rating Guarantee (spec §15) -- admin-set target TOTAL rating
+  // Phoenix Rating Guarantee (spec §15) -- admin-set minimum floor TOTAL rating
   // pool (participation + placement). null = no guarantee. Only meaningful
   // for tournament_type = "phoenix".
   rating_guarantee: number | null;

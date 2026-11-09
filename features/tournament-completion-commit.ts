@@ -68,13 +68,14 @@ export async function commitTournamentCompletion(input: {
 
     // FIRST statement: lock the tournament row, then decide under the lock.
     const [locked] = await tx
-      .select({ id: tournaments.id, status: tournaments.status })
+      .select({ id: tournaments.id, status: tournaments.status, tournamentType: tournaments.tournamentType })
       .from(tournaments)
       .where(eq(tournaments.id, tournamentId))
       .for("update");
     if (!locked) {
       throw new TournamentNotFoundError(tournamentId);
     }
+    if (locked.tournamentType === "qualification_final") throw new Error("Используйте завершение финала на трёх оставшихся игроках в редакторе отбора");
     if (locked.status === "completed") {
       // Nothing written yet -- the transaction rolls back with zero writes.
       throw new TournamentAlreadyCompletedError();

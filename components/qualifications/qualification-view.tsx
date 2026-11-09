@@ -63,7 +63,7 @@ const TABS = [
   { key: "squad", label: "Сборная", icon: "people" },
 ] as const;
 type Tab = typeof TABS[number]["key"];
-const sourceLabels: Record<string, string> = { qualification_winner: "Победитель отбора", final_top3: "Призёр финала", captain: "Капитан" };
+const sourceLabels: Record<string, string> = { qualification_winner: "Победитель отбора", final_top3: "Остался в финале", captain: "Капитан" };
 const tournamentStatuses: Record<string, string> = { draft: "Турнир готовится", open: "Регистрация открыта", closed: "Регистрация закрыта", completed: "Завершён" };
 
 export function QualificationView({ model }: { model: QualificationPublicModel }) {
@@ -87,7 +87,7 @@ export function QualificationView({ model }: { model: QualificationPublicModel }
       <div className={styles.heroFacts}>
         <span className={styles.pill}><Icon kind="calendar"/>{schedule.length} квалификаций</span>
         <span className={styles.pill}><Icon kind="stack"/>В зачёт: {bestLabel(event.bestResultsCount)}</span>
-        <span className={styles.pill}><Icon kind="cup"/>Финал {qualificationDate(event.finalDate)} · бесплатно</span>
+        <span className={styles.pill}><Icon kind="cup"/>Финал {qualificationDate(event.finalDate)}{event.slug === KALININGRAD_SLUG && event.finalDate === "2026-11-14" ? " · 12:00 МСК" : ""} · бесплатно</span>
         <span className={styles.pill}><Icon kind="people"/>18 приглашённых</span>
       </div>
       {event.finalTournamentId ? <Link className={styles.finalLink} href={`/tournaments/${event.finalTournamentId}`}>Финальный турнир →</Link> : null}
@@ -112,7 +112,7 @@ export function QualificationView({ model }: { model: QualificationPublicModel }
           <div className={styles.stages}>
             <div className={styles.stage}><div className={styles.stageTop}><Icon kind="calendar"/><span className={styles.stepNumber}>ШАГ 01</span></div><h3>{schedule.length} квалификаций</h3><p>{schedule.map(s => qualificationDate(s.scheduledDate)).join(" · ")}. Обычные турниры ReRaise со стандартным начислением рейтинга.</p></div>
             <div className={styles.stage}><div className={styles.stageTop}><Icon kind="stack"/><span className={styles.stepNumber}>ШАГ 02</span></div><h3>{bestLabel(event.bestResultsCount)}</h3><p>В зачёт идут лучшие сохранённые рейтинговые результаты. Если участий меньше {event.bestResultsCount} — учитываются все имеющиеся результаты.</p></div>
-            <div className={styles.stage}><div className={styles.stageTop}><Icon kind="cup"/><span className={styles.stepNumber}>ШАГ 03</span></div><h3>Финал ТОП-18</h3><p>№1 — в сборную напрямую. Места 2–19 получают приглашения в бесплатный финал {qualificationDate(event.finalDate)}. Трое лучших допустимых финалистов и назначенный администратором капитан дополняют сборную.</p></div>
+            <div className={styles.stage}><div className={styles.stageTop}><Icon kind="cup"/><span className={styles.stepNumber}>ШАГ 03</span></div><h3>Финал ТОП-18</h3><p>№1 — в сборную напрямую. Места 2–19 получают приглашения в бесплатный финал {qualificationDate(event.finalDate)}. Трое оставшихся в игре допустимых финалистов и назначенный администратором капитан дополняют сборную.</p></div>
           </div>
           <details className={styles.rules} open={!amber}><summary>Правила этого отбора</summary><p className={styles.copy}>{event.rules}</p></details>
         </section>
@@ -141,8 +141,8 @@ export function QualificationView({ model }: { model: QualificationPublicModel }
         </li>)}</ol>
       </> : null}
       {active === "squad" ? <>
-        <h2 className={styles.sectionTitle}>Сборная ReRaise</h2>
-        {members.length ? <div className={styles.squadGrid}>{members.map(player => <Link className={styles.member} key={player.player_id} href={`/players/${player.player_id}`}><QualificationAvatar player={player}/><div className="min-w-0"><p className={styles.playerName}>{player.display_name}</p><p className={styles.memberRole}>{sourceLabels[player.source] ?? player.source}</p></div></Link>)}</div> : <div className={`${styles.surface} ${styles.empty}`}><div className={styles.emptyIcon}><Icon kind="people"/></div><h3>Состав сборной формируется</h3><p>Пять человек, один клуб. Имена появятся после завершения отбора и подтверждения состава.</p><div className={styles.squadSteps}><div><strong>1</strong><span>Прямой квалифаер</span></div><div><strong>3</strong><span>Призёра финала</span></div><div><strong>1</strong><span>Капитан</span></div></div></div>}
+        <h2 className={styles.sectionTitle}>Сборная ReRaise</h2>{model.finalSurvivors?.length?<div className={styles.surface}><h3>Прошли через закрытый финал</h3><p className={styles.subtle}>Трое оставшихся, без распределения мест 1–3 и без рейтинговых очков.</p>{model.finalSurvivors.map(p=><Link className={styles.member} key={p.player_id} href={`/players/${p.player_id}`}>{p.display_name}</Link>)}</div>:null}
+        {members.length ? <div className={styles.squadGrid}>{members.map(player => <Link className={styles.member} key={player.player_id} href={`/players/${player.player_id}`}><QualificationAvatar player={player}/><div className="min-w-0"><p className={styles.playerName}>{player.display_name}</p><p className={styles.memberRole}>{sourceLabels[player.source] ?? player.source}</p></div></Link>)}</div> : <div className={`${styles.surface} ${styles.empty}`}><div className={styles.emptyIcon}><Icon kind="people"/></div><h3>Состав сборной формируется</h3><p>Пять человек, один клуб. Имена появятся после завершения отбора и подтверждения состава.</p><div className={styles.squadSteps}><div><strong>1</strong><span>Прямой квалифаер</span></div><div><strong>3</strong><span>Оставшихся в финале</span></div><div><strong>1</strong><span>Капитан</span></div></div></div>}
       </> : null}
     </section>
   </div>;

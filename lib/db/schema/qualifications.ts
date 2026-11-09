@@ -14,6 +14,7 @@ export const qualificationEvents = pgTable("qualification_events", {
   finalTournamentId: uuid("final_tournament_id").references(() => tournaments.id),
   winnerPlayerId: uuid("winner_player_id").references(() => players.id),
   rankingFingerprint: text("ranking_fingerprint"),
+  finalOutcome: jsonb("final_outcome").$type<{ survivorIds: string[]; arrivedIds: string[]; eliminations: { playerId: string; place: number }[]; completedAt: string }>(),
   tieResolution: jsonb("tie_resolution").$type<{ fingerprint: string; playerOrder: string[] }>(),
   qualificationClosedAt: timestamp("qualification_closed_at", { withTimezone: true }),
   finalRosterLockedAt: timestamp("final_roster_locked_at", { withTimezone: true }),

@@ -1,3 +1,4 @@
+import { QualificationTournamentNote } from "@/components/qualifications/tournament-note";
 import type { Tournament, RegistrationStatus } from "@/types/domain";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import type { TournamentLiveSummary } from "@/types/poker-clock-live-state";
@@ -75,7 +76,7 @@ export type TournamentCardProps = {
   // enforcement in registerPlayerForTournament/cancelPlayerRegistration
   // (features/tournaments.ts) rejects self-service either way, so the UI
   // must not pretend an action exists. Never infers is_final from
-  // title/description -- only tournament.is_final.
+  // title/description -- only (tournament.is_final || tournament.tournament_type === "qualification_final").
   onAction?: () => void;
   actionLoading?: boolean;
   // Set (detail page) when self-service is closed for this player by a
@@ -129,9 +130,9 @@ export function TournamentCard({
   // area at all, matching the detail page's prior behavior.
   const showAction = tournament.status !== "completed";
 
-  const lockedLabel = tournament.is_final ? null : lockedActionLabel;
+  const lockedLabel = (tournament.is_final || tournament.tournament_type === "qualification_final") ? null : lockedActionLabel;
 
-  const actionLabel = tournament.is_final
+  const actionLabel = (tournament.is_final || tournament.tournament_type === "qualification_final")
     ? getFinalRegistrationLabel(isPlayerInFinal)
     : lockedLabel
       ? lockedLabel
@@ -143,13 +144,13 @@ export function TournamentCard({
             ? "Вы в листе ожидания"
             : "Записаться";
 
-  const isInteractive = Boolean(onAction) && !tournament.is_final && !lockedLabel;
+  const isInteractive = Boolean(onAction) && !(tournament.is_final || tournament.tournament_type === "qualification_final") && !lockedLabel;
   const boostBadge = getBoostRatingBadge(tournament);
 
   return (
     <div
       className={`relative overflow-hidden rounded-[28px] border p-4 shadow-[0_18px_50px_rgba(0,0,0,0.35)] ${
-        tournament.is_final
+        (tournament.is_final || tournament.tournament_type === "qualification_final")
           ? "border-red-500/25 bg-[radial-gradient(circle_at_top_left,rgba(153,27,27,0.22),transparent_32%),linear-gradient(145deg,#1c0a0c_0%,#0f0708_55%,#050405_100%)]"
           : "border-[#7f9b8c]/20 bg-[radial-gradient(circle_at_top_left,rgba(120,148,130,0.18),transparent_32%),linear-gradient(145deg,#122018_0%,#0b1210_58%,#050605_100%)]"
       } ${className}`}
@@ -162,6 +163,7 @@ export function TournamentCard({
       />
 
       <div className="relative z-10">
+        <QualificationTournamentNote tournamentId={tournament.id} compact/>
         <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
           {tournament.title}
         </h3>
@@ -196,7 +198,7 @@ export function TournamentCard({
         ) : showAction ? (
           <>
             <p className="mt-3 text-sm font-semibold text-white/70">
-              {tournament.is_final
+              {(tournament.is_final || tournament.tournament_type === "qualification_final")
                 ? countdownText === "Уже начался"
                   ? "Турнир уже начался"
                   : `Старт через ${countdownText}`
@@ -218,7 +220,7 @@ export function TournamentCard({
               ) : (
                 <div
                   className={`inline-flex min-w-[154px] items-center justify-center rounded-xl px-4 py-2.5 text-center text-sm font-semibold ${
-                    tournament.is_final
+                    (tournament.is_final || tournament.tournament_type === "qualification_final")
                       ? isPlayerInFinal
                         ? "border border-emerald-400/20 bg-emerald-500/14 text-emerald-100"
                         : "border border-white/10 bg-white/[0.06] text-white/65"

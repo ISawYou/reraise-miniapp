@@ -42,6 +42,7 @@ export const DEFAULT_PROFILE_GEOMETRY: TournamentVisualGeometry = {
 // logic -- adding/removing a tournament type here is the only place that
 // decides what artwork exists, not any lookup by file name.
 export const DEFAULT_TOURNAMENT_VISUALS = {
+  qualification_final: "/tournament-assets/classic.png", // Existing neutral artwork; independent type/config, no asset upload.
   classic: "/tournament-assets/classic.png",
   bounty: "/tournament-assets/bounty.png",
   boss_bounty: "/tournament-assets/boss-bounty.png",

@@ -91,7 +91,7 @@ it("home eligibility remains the public event list; empty list never renders a p
 it("home enriches only API-listed events through the existing read model using GET requests", async () => {
   const model = qualificationFixture(); const listed = { slug: model.event.slug, title: model.event.title, bestResultsCount: 3 };
   const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ events: [listed] }) }).mockResolvedValueOnce({ ok: true, json: async () => model }); vi.stubGlobal("fetch", fetchMock);
-  await act(async () => root.render(<HomeQualification/>)); expect(el.textContent).toContain("6–13 ноября"); expect(el.textContent).toContain("Финал 15 ноября");
+  await act(async () => root.render(<HomeQualification/>)); expect(el.textContent).toContain("6–13 ноября"); expect(el.textContent).toContain("Финал 14 ноября");
   expect(fetchMock.mock.calls.map(call => call[0])).toEqual(["/api/qualifications", `/api/qualifications/${listed.slug}`]); expect(fetchMock.mock.calls.every(call => call.length === 1)).toBe(true);
 });
 it.each([true, false])("personal invitation remains visible across tabs and posts the unchanged %s response contract", async accept => {
