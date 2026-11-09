@@ -199,6 +199,7 @@ export async function closeTournamentLateRegistration(
   // overwhelmingly common repeat-call case) returns immediately without
   // ever taking the lock. The lock-protected re-check below is what's
   // actually authoritative; this is purely an optimization.
+  if (tournament.tournament_type === "qualification_final") throw new Error("Закрытый финал не поддерживает позднюю регистрацию");
   const existing = await tournamentLateRegistrationRepository.findByTournamentId(tournamentId);
   if (existing) return existing;
 
@@ -261,6 +262,7 @@ export async function closeTournamentLateRegistrationOperation(
   // Cheap pre-check outside the lock, mirroring closeTournamentLateRegistration's
   // own fast path: the overwhelmingly common "already fully closed" repeat
   // call returns immediately without ever taking the lock.
+  if (tournament.tournament_type === "qualification_final") throw new Error("Закрытый финал не поддерживает позднюю регистрацию");
   const existingGeneric = await tournamentLateRegistrationRepository.findByTournamentId(tournamentId);
   if (existingGeneric) {
     const existingMystery =
@@ -410,6 +412,7 @@ export async function getTournamentStateForIntegration(tournamentId: string) {
   // calculator -- it must be gated here explicitly, not just rely on the
   // snapshot already being zero). lateRegistration status itself is an
   // operational concept, not a rating one, so it still reports normally.
+  if (tournament.tournament_type === "qualification_final") return {lateRegistration:{status:"closed" as const,closedAt:snapshot?.closed_at??null},rating:null};
   if (!isRatingEligibleTournament(tournament)) {
     return snapshot
       ? { lateRegistration: { status: "closed" as const, closedAt: snapshot.closed_at }, rating: null }

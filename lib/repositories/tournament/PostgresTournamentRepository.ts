@@ -15,6 +15,8 @@ function mapRowToTournament(row: typeof tournaments.$inferSelect): Tournament {
     google_sheet_tab_name: row.googleSheetTabName ?? null,
     start_at: row.startAt.toISOString(),
     max_players: row.maxPlayers,
+    starting_stack: row.startingStack,
+    late_registration_ends_at: row.lateRegistrationEndsAt?.toISOString() ?? null,
     // Hardcoded, not row.kind -- matches SupabaseTournamentRepository's own
     // mapTournamentRow exactly: every tournament created through the app is
     // "free" today, the stored kind column isn't trusted as the source of
@@ -45,6 +47,8 @@ function toColumnValues(data: TournamentInsert | TournamentPatch): Partial<typeo
   if (data.google_sheet_tab_name !== undefined) values.googleSheetTabName = data.google_sheet_tab_name;
   if (data.start_at !== undefined) values.startAt = new Date(data.start_at);
   if (data.max_players !== undefined) values.maxPlayers = data.max_players;
+  if (data.starting_stack !== undefined) values.startingStack = data.starting_stack;
+  if (data.late_registration_ends_at !== undefined) values.lateRegistrationEndsAt = data.late_registration_ends_at ? new Date(data.late_registration_ends_at) : null;
   if (data.kind !== undefined) values.kind = data.kind;
   if (data.tournament_type !== undefined) values.tournamentType = data.tournament_type;
   if (data.season_id !== undefined) values.seasonId = data.season_id;

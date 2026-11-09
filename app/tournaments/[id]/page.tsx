@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { QualificationTournamentNote } from "@/components/qualifications/tournament-note";
 import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
 import { useParams, useRouter } from "next/navigation";
@@ -647,7 +648,7 @@ const waitlistParticipants = participants.filter(
     // Invite-only: no self-register/cancel action, ever -- server-side
     // enforcement lives in registerPlayerForTournament/cancelPlayerRegistration
     // (features/tournaments.ts). This is purely the informational read-out.
-    if (tournament.is_final) {
+    if ((tournament.is_final || tournament.tournament_type === "qualification_final")) {
       const isPlayerInFinal = registrationStatus === "registered" || registrationStatus === "waitlist";
       return (
         <div
@@ -809,7 +810,7 @@ const waitlistParticipants = participants.filter(
                 : "border-white/10 bg-transparent text-white/70"
             }`}
           >
-            {tournament?.is_final
+            {(tournament?.is_final || tournament?.tournament_type === "qualification_final")
               ? `${FINAL_REGISTRATION_TAB_LABEL} (${registeredParticipants.length})`
               : `Регистрация (${registeredParticipants.length})`}
           </button>
@@ -863,7 +864,8 @@ const waitlistParticipants = participants.filter(
                 {/* Championship, not a rating tournament -- never show
                     "Рейтинговая зона" for is_final (see
                     lib/tournament-helpers.ts::isRatingEligibleTournament). */}
-                {expectedPrizePlaces > 0 && !tournament.is_final ? (
+                <QualificationTournamentNote tournamentId={tournament.id}/>
+                {expectedPrizePlaces > 0 && !(tournament.is_final || tournament.tournament_type === "qualification_final") ? (
                   <p className="mt-0.5 text-[11px] text-white/55">
                     Рейтинговая зона: места 1-{expectedPrizePlaces}
                   </p>
@@ -876,7 +878,7 @@ const waitlistParticipants = participants.filter(
                   <span>Тип турнира</span>
                 </div>
                 <p className="mt-1.5 text-sm font-semibold text-white">
-                  {tournament.is_final ? FINAL_MONTH_LABEL : getTournamentTypeLabel(tournament.tournament_type)}
+                  {(tournament.is_final || tournament.tournament_type === "qualification_final") ? (tournament.tournament_type === "qualification_final" ? "ФИНАЛ ОТБОРА" : FINAL_MONTH_LABEL) : getTournamentTypeLabel(tournament.tournament_type)}
                 </p>
                 {boostBadge ? (
                   <p
@@ -903,7 +905,7 @@ const waitlistParticipants = participants.filter(
         ) : activeTab === "results" ? (
           <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
             <div className="border-b border-white/10 px-3 py-2.5 text-xs font-medium text-emerald-200/75 sm:px-4">
-              {tournament.is_final ? "Результаты" : `Призовая зона: ТОП-${expectedPrizePlaces}`}
+              {(tournament.is_final || tournament.tournament_type === "qualification_final") ? "Результаты" : `Призовая зона: ТОП-${expectedPrizePlaces}`}
             </div>
             <div className={`grid ${resultsGridCols} gap-2 border-b border-white/10 px-3 py-3 text-xs uppercase tracking-wide text-white/50 sm:gap-3 sm:px-4`}>
               <div className="text-center">Место</div>
@@ -913,7 +915,7 @@ const waitlistParticipants = participants.filter(
             </div>
 
             {results.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-white/60">Результаты пока не заполнены</div>
+              <div className="px-4 py-6 text-sm text-white/60">{tournament.tournament_type==="qualification_final"?<QualificationTournamentNote tournamentId={tournament.id}/>:"Результаты пока не заполнены"}</div>
             ) : (
               results.map((result) => {
                 const isPodium = result.place <= 3;
@@ -1022,7 +1024,7 @@ const waitlistParticipants = participants.filter(
           {tournament.status !== "completed" ? (
             <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
               <p className="text-sm text-white/72">
-                {tournament.is_final
+                {(tournament.is_final || tournament.tournament_type === "qualification_final")
                   ? FINAL_REGISTRATION_EXPLANATION
                   : cancellationLocked
                     ? ARRIVED_PARTICIPATION_STATUS
@@ -1038,7 +1040,7 @@ const waitlistParticipants = participants.filter(
                         ? RESTRICTED_WAITLIST_STATUS
                         : "Вы в списке ожидания. Управление записью доступно внизу экрана."}
               </p>
-              {!tournament.is_final && registrationStatus === "waitlist" && registrationRestricted ? (
+              {!(tournament.is_final || tournament.tournament_type === "qualification_final") && registrationStatus === "waitlist" && registrationRestricted ? (
                 <p className="mt-1 text-xs text-white/55">{RESTRICTED_WAITLIST_EXPLANATION}</p>
               ) : null}
               {message ? (
@@ -1117,14 +1119,14 @@ const waitlistParticipants = participants.filter(
           <div className="mx-auto max-w-md">
             <div className="pointer-events-auto rounded-[22px] border border-white/10 bg-[#0d0f0f]/78 p-3 backdrop-blur-xl">
               {renderActionButton()}
-              {!tournament.is_final &&
+              {!(tournament.is_final || tournament.tournament_type === "qualification_final") &&
               !lockedActionLabel &&
               (!registrationStatus || registrationStatus === "registered") ? (
                 <p className="mt-2 text-center text-[11px] leading-snug text-white/45">
                   {REGISTRATION_RESERVES_SEAT_HINT}
                 </p>
               ) : null}
-              {!tournament.is_final && registrationStatus === "waitlist" && registrationRestricted ? (
+              {!(tournament.is_final || tournament.tournament_type === "qualification_final") && registrationStatus === "waitlist" && registrationRestricted ? (
                 <p className="mt-2 text-center text-[11px] leading-snug text-white/55">
                   {RESTRICTED_WAITLIST_EXPLANATION}
                 </p>

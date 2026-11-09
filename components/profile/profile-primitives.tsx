@@ -60,7 +60,7 @@ export function TournamentArtworkIcon({
 const TYPE_MARKS: Record<TournamentType, string> = {
   classic: "♠", phoenix: "PH", deep_stack: "DS", bounty: "KO",
   boss_bounty: "BOSS", win_the_button: "BTN", mystery_bounty: "?",
-  crazy_pineapple: "CP", bomb_pot: "BP", boost_rating: "↑", free_roll: "FR",
+  qualification_final: "ОТБОР", crazy_pineapple: "CP", bomb_pot: "BP", boost_rating: "↑", free_roll: "FR",
 };
 
 function CompactArtwork({ tournamentType, configs }: { tournamentType: TournamentType; configs: Record<string, TournamentVisualConfig> }) {

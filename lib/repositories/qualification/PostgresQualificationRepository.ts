@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { players, results, tournaments, registrations, qualificationEvents as events, qualificationSlots as slots, qualificationInvitations as invites, qualificationSquad as squad, qualificationAudit as audit } from "@/lib/db/schema";
+import { players, results, tournaments, registrations, qualificationEvents as events, qualificationSlots as slots, qualificationInvitations as invites, qualificationSquad as squad, qualificationAudit as audit, tournamentAttendance, tournamentPlayerEliminations } from "@/lib/db/schema";
 import { QualificationError, validateQualificationConfig, qualificationUuid, type QualificationConfig } from "@/lib/qualification-config";
 import { rankQualification, type QualificationFact } from "@/lib/qualification-ranking";
 import type { QualificationCommand } from "./QualificationRepository";
@@ -22,18 +22,20 @@ async function canonical(tx:Executor,ids:string[]){
   if(rows.length!==ids.length||rows.some(p=>p.merged||p.blocked))fail("Игрок недоступен или его аккаунт объединён — выберите действующий профиль");
 }
 async function state(tx:Executor,e:Event){
-  const schedule=await tx.select({id:slots.id,scheduledDate:slots.scheduledDate,tournamentId:slots.tournamentId,displayOrder:slots.displayOrder,tournament:{id:tournaments.id,title:tournaments.title,startAt:tournaments.startAt,status:tournaments.status,kind:tournaments.kind,isFinal:tournaments.isFinal,maxPlayers:tournaments.maxPlayers}}).from(slots).leftJoin(tournaments,eq(slots.tournamentId,tournaments.id)).where(eq(slots.eventId,e.id)).orderBy(asc(slots.displayOrder));
+  const schedule=await tx.select({id:slots.id,scheduledDate:slots.scheduledDate,tournamentId:slots.tournamentId,displayOrder:slots.displayOrder,tournament:{id:tournaments.id,title:tournaments.title,startAt:tournaments.startAt,status:tournaments.status,kind:tournaments.kind,isFinal:tournaments.isFinal,maxPlayers:tournaments.maxPlayers,tournamentType:tournaments.tournamentType}}).from(slots).leftJoin(tournaments,eq(slots.tournamentId,tournaments.id)).where(eq(slots.eventId,e.id)).orderBy(asc(slots.displayOrder));
   validateQualificationConfig(configOf(e,schedule.map(s=>s.scheduledDate)));
   if(schedule.some((s,i)=>s.displayOrder!==i || (s.tournamentId && (!s.tournament||s.tournamentId===e.finalTournamentId))))fail("Нарушена конфигурация слотов отбора");
   // The ONLY scoring input: persisted rating_points, completed selected tournaments.
-  const facts:QualificationFact[]=(await tx.select({...publicPlayer,tournament_id:tournaments.id,title:tournaments.title,date:tournaments.startAt,points:results.ratingPoints}).from(slots).innerJoin(tournaments,eq(slots.tournamentId,tournaments.id)).innerJoin(results,eq(results.tournamentId,tournaments.id)).innerJoin(players,eq(players.id,results.playerId)).where(and(eq(slots.eventId,e.id),eq(tournaments.status,"completed"),isNull(players.mergedIntoPlayerId)))).map(r=>({...r,date:r.date.toISOString()}));
+  const facts:QualificationFact[]=(await tx.select({...publicPlayer,tournament_id:tournaments.id,title:tournaments.title,date:tournaments.startAt,points:results.ratingPoints}).from(slots).innerJoin(tournaments,eq(slots.tournamentId,tournaments.id)).innerJoin(results,eq(results.tournamentId,tournaments.id)).innerJoin(players,eq(players.id,results.playerId)).where(and(eq(slots.eventId,e.id),eq(tournaments.status,"completed"),ne(tournaments.tournamentType,"qualification_final"),isNull(players.mergedIntoPlayerId)))).map(r=>({...r,date:r.date.toISOString()}));
   const factsFingerprint=hash({best:e.bestResultsCount,selected:schedule.map(s=>s.tournamentId),facts:facts.map(f=>[f.player_id,f.tournament_id,f.points]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))});
   const resolution=e.tieResolution?.fingerprint===factsFingerprint?e.tieResolution.playerOrder:[];
   const ranking=rankQualification(facts,e.bestResultsCount,resolution);
   const fingerprint=hash({factsFingerprint,resolution});
   const invitationRows=await tx.select({id:invites.id,eventId:invites.eventId,playerId:invites.playerId,qualifyingRank:invites.qualifyingRank,seat:invites.seat,status:invites.status,invitedAt:invites.invitedAt,respondedAt:invites.respondedAt,replacesId:invites.replacesId,...publicPlayer}).from(invites).innerJoin(players,eq(invites.playerId,players.id)).where(eq(invites.eventId,e.id)).orderBy(asc(invites.seat),desc(invites.invitedAt),asc(invites.id));
+  const finalSurvivors=e.finalOutcome ? await tx.select(publicPlayer).from(players).where(inArray(players.id,e.finalOutcome.survivorIds)).orderBy(asc(players.displayName),asc(players.id)) : [];
+  const finalEliminations=e.finalOutcome?.eliminations.length ? (await tx.select(publicPlayer).from(players).where(inArray(players.id,e.finalOutcome.eliminations.map(p=>p.playerId)))).map(p=>({...p,place:e.finalOutcome!.eliminations.find(r=>r.playerId===p.player_id)!.place})).sort((a,b)=>a.place-b.place) : [];
   const members=await tx.select({source:squad.source,slot:squad.slot,finalPlace:squad.finalPlace,confirmedAt:squad.confirmedAt,...publicPlayer}).from(squad).innerJoin(players,eq(squad.playerId,players.id)).where(eq(squad.eventId,e.id)).orderBy(asc(squad.source),asc(squad.slot));
-  return {event:e,schedule,ranking:{...ranking,fingerprint,factsFingerprint},invitations:invitationRows,members,needsReconciliation:e.rankingFingerprint!==null&&e.rankingFingerprint!==fingerprint};
+  return {event:e,schedule,finalSurvivors,finalEliminations,ranking:{...ranking,fingerprint,factsFingerprint},invitations:invitationRows,members,needsReconciliation:e.rankingFingerprint!==null&&e.rankingFingerprint!==fingerprint};
 }
 
 export class PostgresQualificationRepository {
@@ -53,11 +55,11 @@ export class PostgresQualificationRepository {
       if(!e||(!admin&&e.status==="draft"))fail("Отбор не найден",404);
       const s=await state(tx,e);
       if(admin){
-        const choices=await tx.select({id:tournaments.id,title:tournaments.title,startAt:tournaments.startAt,status:tournaments.status,kind:tournaments.kind,maxPlayers:tournaments.maxPlayers,isFinal:tournaments.isFinal}).from(tournaments).where(sql`${tournaments.startAt} >= ${s.schedule[0].scheduledDate}::date - interval '1 day' AND ${tournaments.startAt} < ${e.finalDate}::date + interval '2 days'`).orderBy(asc(tournaments.startAt)).limit(250);
-        const history=await tx.select({action:audit.action,detail:audit.detail,createdAt:audit.createdAt}).from(audit).where(eq(audit.eventId,e.id)).orderBy(desc(audit.createdAt)).limit(30);
+        const choices=await tx.select({id:tournaments.id,title:tournaments.title,startAt:tournaments.startAt,status:tournaments.status,kind:tournaments.kind,maxPlayers:tournaments.maxPlayers,isFinal:tournaments.isFinal,tournamentType:tournaments.tournamentType}).from(tournaments).where(sql`${tournaments.startAt} >= ${s.schedule[0].scheduledDate}::date - interval '1 day' AND ${tournaments.startAt} < ${e.finalDate}::date + interval '2 days'`).orderBy(asc(tournaments.startAt)).limit(250);
+        const history=await tx.select({actorId:audit.actorId,action:audit.action,detail:audit.detail,createdAt:audit.createdAt}).from(audit).where(eq(audit.eventId,e.id)).orderBy(desc(audit.createdAt)).limit(30);
         return {...s,tournamentChoices:choices,audit:history};
       }
-      return {event:{id:e.id,slug:e.slug,title:e.title,rules:e.rules,timezone:e.timezone,finalDate:e.finalDate,bestResultsCount:e.bestResultsCount,status:e.status,version:e.version,finalTournamentId:e.finalTournamentId,finalRosterLockedAt:e.finalRosterLockedAt},schedule:s.schedule,ranking:{standings:s.ranking.standings,hasUnresolvedTie:s.ranking.hasUnresolvedTie},needsReconciliation:s.needsReconciliation,members:e.squadConfirmedAt?s.members:[]};
+      return {event:{id:e.id,slug:e.slug,title:e.title,rules:e.rules,timezone:e.timezone,finalDate:e.finalDate,bestResultsCount:e.bestResultsCount,status:e.status,version:e.version,finalTournamentId:e.finalTournamentId,finalRosterLockedAt:e.finalRosterLockedAt},schedule:s.schedule,finalSurvivors:s.finalSurvivors,finalEliminations:s.finalEliminations,ranking:{standings:s.ranking.standings,hasUnresolvedTie:s.ranking.hasUnresolvedTie},needsReconciliation:s.needsReconciliation,members:e.squadConfirmedAt?s.members:[]};
     },{isolationLevel:"repeatable read",accessMode:"read only"});
   }
   async ownInvitation(slug:string,playerId:string){
@@ -70,12 +72,14 @@ export class PostgresQualificationRepository {
     this.available();return db.transaction(async tx=>{
       const [e]=await tx.select().from(events).where(eq(events.id,eventId)).for("update");if(!e)fail("Отбор не найден",404);
       if(e.version!==version)fail("Данные устарели — обновите страницу");if(e.status!=="inviting"||e.finalRosterLockedAt)fail("Приём ответов на приглашения закрыт");
+      if(e.finalTournamentId){const [t]=await tx.select({startAt:tournaments.startAt}).from(tournaments).where(eq(tournaments.id,e.finalTournamentId));if(t&&new Date()>=t.startAt)fail("Финал уже начался");}
+      const current=await state(tx,e);if(current.needsReconciliation)fail("Рейтинг изменился — требуется сверка состава");
       await canonical(tx,[playerId]);
       const [inv]=await tx.select().from(invites).where(and(eq(invites.id,invitationId),eq(invites.eventId,eventId),eq(invites.playerId,playerId)));
       if(!inv)fail("Приглашение не найдено",404);if(inv.status!=="pending")fail("На приглашение уже получен ответ");
       await tx.update(invites).set({status:accept?"accepted":"declined",respondedAt:new Date()}).where(eq(invites.id,inv.id));
       await tx.update(events).set({version:e.version+1,updatedAt:new Date()}).where(eq(events.id,e.id));
-      await tx.insert(audit).values({eventId,actorId:playerId,action:accept?"accept":"decline",detail:{invitationId}});
+      await tx.insert(audit).values({eventId,actorId:playerId,action:accept?"accept":"decline",detail:{invitationId,from:inv.status,to:accept?"accepted":"declined"}});
       return {ok:true};
     });
   }
@@ -83,7 +87,7 @@ export class PostgresQualificationRepository {
     this.available();return db.transaction(async tx=>{
       const [e]=await tx.select().from(events).where(eq(events.id,eventId)).for("update");if(!e)fail("Отбор не найден",404);
       if(e.version!==command.version)fail("Данные устарели — обновите страницу");if(e.status==="completed")fail("Сборная уже подтверждена; завершённый отбор неизменяем");
-      if(["close","reconcile","confirm_winner","lock_roster","confirm_squad","select_finalists"].includes(command.action)){
+      if(["close","reconcile","confirm_winner","lock_roster","confirm_squad","select_finalists","complete_final"].includes(command.action)){
         const sourceIds=(await tx.select({id:slots.tournamentId}).from(slots).where(eq(slots.eventId,e.id))).map(s=>s.id).filter((id):id is string=>!!id);
         if(e.finalTournamentId)sourceIds.push(e.finalTournamentId);
         if(sourceIds.length)await tx.select({id:tournaments.id}).from(tournaments).where(inArray(tournaments.id,sourceIds)).orderBy(asc(tournaments.id)).for("update");
@@ -98,6 +102,11 @@ export class PostgresQualificationRepository {
         await tx.insert(invites).values(s.ranking.standings.slice(1,19).map((p,i)=>({eventId:e.id,playerId:p.player_id,qualifyingRank:p.qualification_rank,seat:i+1})));
         patch={...patch,winnerPlayerId:s.ranking.standings[0].player_id,rankingFingerprint:s.ranking.fingerprint,qualificationClosedAt:now,status:"inviting"};
       };
+      const invitationAction=["admin_accept","admin_decline","undo_decline","cancel_invitation","replace_invitation"].includes(command.action);
+      if(invitationAction){
+        expectStage("inviting");if(e.finalRosterLockedAt)fail("Состав финала уже зафиксирован");currentRanking();
+        if(e.finalTournamentId){const [t]=await tx.select({startAt:tournaments.startAt}).from(tournaments).where(eq(tournaments.id,e.finalTournamentId));if(t&&now>=t.startAt)fail("Финал уже начался — перестановки приглашений запрещены");}
+      }
       switch(command.action){
         case "configure":{
           expectStage("draft","qualifying","inviting");if(e.finalRosterLockedAt)fail("Состав финала уже зафиксирован");
@@ -107,12 +116,12 @@ export class PostgresQualificationRepository {
           const selected=[...ids.filter((id):id is string=>!!id),...(finalId?[finalId]:[])].sort();
           const ts=selected.length?await tx.select().from(tournaments).where(inArray(tournaments.id,selected)).orderBy(asc(tournaments.id)).for("update"):[];
           if(ts.length!==selected.length)fail("Один из турниров не найден");
-          for(let i=0;i<6;i++){const t=ts.find(t=>t.id===ids[i]);if(t&&(dateInZone(t.startAt,c.timezone)!==c.dates[i]||t.isFinal))fail("Дата выбранного турнира должна совпадать со слотом; Финал месяца не подходит");}
-          if(finalId){const t=ts.find(t=>t.id===finalId)!;if(t.kind!=="free"||t.isFinal||t.maxPlayers!==18||t.status==="completed"||dateInZone(t.startAt,c.timezone)!==c.finalDate)fail("Нужен обычный бесплатный турнир на дату финала, ровно 18 мест, без is_final и завершения");
+          for(let i=0;i<6;i++){const t=ts.find(t=>t.id===ids[i]);if(t&&(dateInZone(t.startAt,c.timezone)!==c.dates[i]||t.isFinal||t.tournamentType==="qualification_final"))fail("Дата выбранного турнира должна совпадать со слотом; Финал месяца не подходит");}
+          if(finalId){const t=ts.find(t=>t.id===finalId)!;if(c.slug==="put-v-kaliningrad-2026"&&t.startAt.toISOString()!==c.finalDate+"T09:00:00.000Z")fail("Финал Калининграда начинается в 12:00 Europe/Moscow");if(t.kind!=="free"||t.isFinal||t.tournamentType!=="qualification_final"||t.startingStack!==50000||t.maxPlayers!==18||t.status==="completed"||dateInZone(t.startAt,c.timezone)!==c.finalDate)fail("Нужен тип qualification_final: бесплатный, ровно 18 мест, дата финала, без is_final и завершения");
             const otherSlot=await tx.select({id:slots.id}).from(slots).where(eq(slots.tournamentId,finalId));if(otherSlot.length)fail("Финал уже включён в квалификационные слоты");
             const existing=await tx.select({id:registrations.id}).from(registrations).where(and(eq(registrations.tournamentId,finalId),ne(registrations.status,"cancelled")));if(existing.length)fail("Перед привязкой финала его обычная регистрация должна быть пустой");}
           for(const id of ids.filter((id):id is string=>!!id)){const f=await tx.select({id:events.id}).from(events).where(eq(events.finalTournamentId,id));if(f.length)fail("Связанный финал не может быть источником отбора");}
-          await tx.delete(slots).where(eq(slots.eventId,e.id));await tx.insert(slots).values(c.dates.map((scheduledDate,displayOrder)=>({eventId:e.id,scheduledDate,displayOrder,tournamentId:ids[displayOrder]})));
+          for(const slot of s.schedule) await tx.update(slots).set({scheduledDate:c.dates[slot.displayOrder],tournamentId:ids[slot.displayOrder]}).where(eq(slots.id,slot.id));
           patch={title:c.title.trim(),slug:c.slug,rules:c.rules,timezone:c.timezone,bestResultsCount:c.bestResultsCount,finalDate:c.finalDate,finalTournamentId:finalId};
           break;
         }
@@ -137,6 +146,19 @@ export class PostgresQualificationRepository {
           await tx.update(invites).set({status:"cancelled",respondedAt:now}).where(and(eq(invites.eventId,e.id),inArray(invites.status,["pending","accepted"])));
           await tx.delete(squad).where(eq(squad.eventId,e.id));patch={status:"qualifying",winnerPlayerId:null,rankingFingerprint:null,qualificationClosedAt:null};break;
         }
+        case "admin_accept":case "admin_decline":case "undo_decline":{
+          const inv=s.invitations.find(i=>i.id===command.invitationId);if(!inv)fail("Приглашение не найдено",404);
+          const target=command.action==="admin_accept"?"accepted":command.action==="admin_decline"?"declined":"pending";
+          if(inv.status===target) return {ok:true,version:e.version};
+          if(command.action==="undo_decline"?!["declined","replaced"].includes(inv.status):!active(inv.status))fail("Это приглашение уже не активно");
+          if(target!=="declined"){
+            if(s.invitations.some(i=>i.id!==inv.id&&active(i.status)&&(i.seat===inv.seat||i.playerId===inv.playerId)))fail("Место уже занято заменой. Отмена отказа не вытесняет приглашённого или подтверждённого игрока");
+            if(s.invitations.filter(i=>i.status==="accepted"&&i.id!==inv.id).length>=18)fail("Все 18 мест подтверждены");
+            await canonical(tx,[inv.playerId]);
+          }
+          await tx.update(invites).set({status:target,respondedAt:now}).where(eq(invites.id,inv.id));
+          await tx.insert(audit).values({eventId:e.id,actorId,action:"invitation_state",detail:{invitationId:inv.id,playerId:inv.playerId,from:inv.status,to:target}});break;
+        }
         case "cancel_invitation":{
           expectStage("inviting");const inv=s.invitations.find(i=>i.id===command.invitationId);if(!inv||!active(inv.status))fail("Приглашение уже не активно");
           await tx.update(invites).set({status:"cancelled",respondedAt:now}).where(eq(invites.id,inv.id));break;
@@ -159,12 +181,39 @@ export class PostgresQualificationRepository {
           const accepted=s.invitations.filter(i=>i.status==="accepted");if(accepted.length!==18||new Set(accepted.map(i=>i.playerId)).size!==18)fail("Нужны ровно 18 принятых приглашений");
           if(!s.members.some(m=>m.source==="qualification_winner"&&m.player_id===e.winnerPlayerId))fail("Подтвердите прямого победителя отбора");
           await tx.select({id:tournaments.id}).from(tournaments).where(eq(tournaments.id,e.finalTournamentId)).for("update");
-          const [final]=await tx.select().from(tournaments).where(eq(tournaments.id,e.finalTournamentId));if(!final||final.kind!=="free"||final.isFinal||final.maxPlayers!==18||final.status==="completed"||dateInZone(final.startAt,e.timezone)!==e.finalDate)fail("Некорректный финальный турнир");
+          const [final]=await tx.select().from(tournaments).where(eq(tournaments.id,e.finalTournamentId));if(!final||final.kind!=="free"||final.isFinal||final.tournamentType!=="qualification_final"||final.startingStack!==50000||final.maxPlayers!==18||final.status==="completed"||dateInZone(final.startAt,e.timezone)!==e.finalDate)fail("Некорректный финальный турнир");
           await canonical(tx,accepted.map(i=>i.playerId));
           patch={status:"final",finalRosterLockedAt:now};
           // Set lock flag in the same transaction before guarded registrations.
           await tx.update(events).set(patch).where(eq(events.id,e.id));
           await tx.insert(registrations).values(accepted.map(i=>({playerId:i.playerId,tournamentId:e.finalTournamentId!,status:"registered"}))).onConflictDoUpdate({target:[registrations.playerId,registrations.tournamentId],set:{status:"registered"}});break;
+        }
+        case "complete_final":{
+          expectStage("final");acknowledged();if(!e.finalTournamentId||!e.finalRosterLockedAt||e.finalOutcome)fail("Финал не зафиксирован или уже завершён");
+          const [t]=await tx.select().from(tournaments).where(eq(tournaments.id,e.finalTournamentId)).for("update");
+          if(!t||t.tournamentType!=="qualification_final"||t.status==="completed"||t.maxPlayers!==18||t.isFinal)fail("Нужен незавершённый закрытый финал отбора");
+          if(now<t.startAt)fail("Финал ещё не начался");
+          const accepted=s.invitations.filter(i=>i.status==="accepted").map(i=>i.playerId);
+          if(accepted.length!==18||new Set(accepted).size!==18||accepted.includes(e.winnerPlayerId!))fail("Нужны 18 разных подтверждённых финалистов без прямого победителя");
+          const regs=await tx.select().from(registrations).where(eq(registrations.tournamentId,t.id));
+          if(regs.length!==18||regs.some(r=>!accepted.includes(r.playerId)||!["registered","attended"].includes(r.status)))fail("Состав регистраций не совпадает с зафиксированным финалом");
+          const attendance=await tx.select().from(tournamentAttendance).where(and(eq(tournamentAttendance.tournamentId,t.id),eq(tournamentAttendance.arrived,true)));
+          if(attendance.some(a=>!accepted.includes(a.playerId)))fail("В финале присутствует недопущенный игрок");
+          const eliminated=await tx.select().from(tournamentPlayerEliminations).where(and(eq(tournamentPlayerEliminations.tournamentId,t.id),eq(tournamentPlayerEliminations.eliminated,true)));
+          const arrivedIds=attendance.map(a=>a.playerId),finished=eliminated.filter(a=>arrivedIds.includes(a.playerId));
+          if(eliminated.some(a=>!accepted.includes(a.playerId)))fail("Есть выбытие недопущенного игрока");
+          const survivorIds=accepted.filter(id=>!eliminated.some(a=>a.playerId===id)).sort();
+          if(survivorIds.length!==3||survivorIds.some(id=>!arrivedIds.includes(id)))fail("Для завершения должны оставаться ровно три пришедших допущенных игрока");
+          if(finished.some(a=>!a.eliminatedAt)||new Set(finished.map(a=>a.eliminatedAt!.toISOString())).size!==finished.length)fail("Уточните уникальное время выбывания перед фиксацией мест");
+          if((await tx.select({id:results.id}).from(results).where(eq(results.tournamentId,t.id))).length)fail("Существующие результаты нельзя перезаписывать специальным завершением");
+          await canonical(tx,arrivedIds);
+          finished.sort((a,b)=>b.eliminatedAt!.getTime()-a.eliminatedAt!.getTime());
+          patch={finalOutcome:{survivorIds,arrivedIds:arrivedIds.sort(),eliminations:finished.map((a,i)=>({playerId:a.playerId,place:i+4})),completedAt:now.toISOString()}};
+          await tx.update(events).set(patch).where(eq(events.id,e.id));
+          await tx.update(tournaments).set({status:"completed"}).where(eq(tournaments.id,t.id));
+          await tx.update(registrations).set({status:"attended"}).where(and(eq(registrations.tournamentId,t.id),inArray(registrations.playerId,arrivedIds)));
+          await tx.insert(squad).values(survivorIds.map((playerId,i)=>({eventId:e.id,playerId,source:"final_top3",slot:i+1,finalPlace:null})));
+          break;
         }
         case "select_finalists":{
           expectStage("final");const top=await this.finalTop(tx,e,s.invitations);await tx.delete(squad).where(and(eq(squad.eventId,e.id),eq(squad.source,"final_top3")));
@@ -182,13 +231,18 @@ export class PostgresQualificationRepository {
         default:fail("Неизвестное действие",400);
       }
       await tx.update(events).set({...patch,version:e.version+1,updatedAt:now}).where(eq(events.id,e.id));
-      await tx.insert(audit).values({eventId:e.id,actorId,action:command.action,detail:{reason:command.reason??null,invitationId:command.invitationId??null,playerId:command.playerId??null,playerOrder:command.playerOrder??null,previousWinner:e.winnerPlayerId,previousInvitationIds:s.invitations.filter(i=>active(i.status)).map(i=>i.id),selectedTournamentIds:command.tournamentIds??null}});
+      const invitationAfter=command.invitationId?(await tx.select({status:invites.status}).from(invites).where(and(eq(invites.id,command.invitationId),eq(invites.eventId,e.id))))[0]:null;
+      await tx.insert(audit).values({eventId:e.id,actorId,action:command.action,detail:{previousPhase:e.status,phase:patch.status??e.status,invitationFrom:s.invitations.find(i=>i.id===command.invitationId)?.status??null,invitationTo:invitationAfter?.status??null,reason:command.reason??null,invitationId:command.invitationId??null,playerId:command.playerId??null,playerOrder:command.playerOrder??null,previousWinner:e.winnerPlayerId,previousInvitationIds:s.invitations.filter(i=>active(i.status)).map(i=>i.id),selectedTournamentIds:command.tournamentIds??null}});
       return {ok:true,version:e.version+1};
     });
   }
   private async finalTop(tx:Executor,e:Event,invitations:{playerId:string;status:string}[]){
     if(!e.finalTournamentId)fail("Финал не назначен");
     const [t]=await tx.select().from(tournaments).where(eq(tournaments.id,e.finalTournamentId)).for("update");if(!t||t.status!=="completed")fail("Финальный турнир ещё не завершён");
+    if(t.tournamentType==="qualification_final"){
+      const ids=e.finalOutcome?.survivorIds;if(!ids||ids.length!==3||new Set(ids).size!==3||ids.some(id=>id===e.winnerPlayerId||!invitations.some(i=>i.playerId===id&&i.status==="accepted")))fail("Нужны три зафиксированных оставшихся участника финала");
+      await canonical(tx,ids);return [...ids].sort().map(playerId=>({playerId,place:null as number|null}));
+    }
     const eligible=invitations.filter(i=>i.status==="accepted").map(i=>i.playerId);if(eligible.length!==18)fail("Повреждён зафиксированный состав финала");
     const rows=await tx.select({playerId:results.playerId,place:results.place}).from(results).innerJoin(players,eq(results.playerId,players.id)).where(and(eq(results.tournamentId,t.id),inArray(results.playerId,eligible),eq(results.arrived,true),isNull(players.mergedIntoPlayerId))).orderBy(asc(results.place)).limit(3);
     if(rows.length!==3||rows.some(r=>r.playerId===e.winnerPlayerId))fail("Недостаточно подтверждённых результатов допустимых финалистов");await canonical(tx,rows.map(r=>r.playerId));return rows;

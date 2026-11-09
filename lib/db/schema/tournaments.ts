@@ -11,6 +11,8 @@ export const tournaments = pgTable("tournaments", {
 
   startAt: timestamp("start_at", { withTimezone: true }).notNull(),
   maxPlayers: integer("max_players").notNull(),
+  startingStack: integer("starting_stack"),
+  lateRegistrationEndsAt: timestamp("late_registration_ends_at", { withTimezone: true }),
 
   status: text().notNull().default("draft"),
   kind: text().notNull().default("free"),
@@ -25,7 +27,7 @@ export const tournaments = pgTable("tournaments", {
   // picking up v2 math because the code changed underneath it.
   ratingFormulaVersion: text("rating_formula_version").notNull().default("v2"),
 
-  // Phoenix Rating Guarantee (spec §15) -- admin-set target for the tournament's
+  // Phoenix Rating Guarantee (spec §15) -- admin-set minimum floor for the tournament's
   // TOTAL rating pool (participation + placement). null = no guarantee, the
   // natural pool applies unchanged. Only meaningful for tournament_type =
   // "phoenix", but not DB-constrained to it -- enforced at the application layer
@@ -64,7 +66,7 @@ export const tournaments = pgTable("tournaments", {
   check("tournaments_kind_check", sql`${table.kind} IN ('free', 'paid', 'cash')`),
   check(
     "tournaments_tournament_type_check",
-    sql`${table.tournamentType} IN ('classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty', 'crazy_pineapple', 'bomb_pot', 'boost_rating', 'free_roll')`,
+    sql`${table.tournamentType} IN ('qualification_final', 'classic', 'phoenix', 'deep_stack', 'bounty', 'boss_bounty', 'win_the_button', 'mystery_bounty', 'crazy_pineapple', 'bomb_pot', 'boost_rating', 'free_roll')`,
   ),
   check(
     "tournaments_rating_formula_version_check",

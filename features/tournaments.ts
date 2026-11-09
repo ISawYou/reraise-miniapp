@@ -332,7 +332,7 @@ export async function registerPlayerForTournament(
   // function). Checked before any registered/waitlist entry is
   // created/reactivated below -- title/description/tournament_type must
   // never be used to infer this, only tournament.is_final.
-  if (tournament.is_final) {
+  if (tournament.is_final || tournament.tournament_type === "qualification_final") {
     // An (admin-curated) waitlist row on a final is returned untouched, as
     // before -- no self-service call may change a final's composition.
     if (existingRegistration?.status === "waitlist") {
@@ -399,7 +399,7 @@ export async function cancelPlayerRegistration(
   // A manually-added final participant must not be able to self-remove --
   // only the admin manual-participant flow (removeAdminTournamentParticipant,
   // a separate code path) can change a final's composition.
-  if (tournament.is_final) {
+  if (tournament.is_final || tournament.tournament_type === "qualification_final") {
     throw new Error(FINAL_CANCELLATION_REJECTED_MESSAGE);
   }
 
@@ -562,6 +562,8 @@ export async function createTournament(input: {
   start_at: string;
   max_players: number;
   tournament_type: TournamentType;
+  starting_stack?: number | null;
+  late_registration_ends_at?: string | null;
   rating_guarantee?: number | null;
   // Only kept for boost_rating; every other type is normalized to 1.
   placement_points_multiplier?: number | null;
@@ -570,6 +572,7 @@ export async function createTournament(input: {
   // publicly self-registerable tournaments unchanged.
   is_final?: boolean;
 }) {
+  if (input.tournament_type === "qualification_final" && (input.max_players !== 18 || input.is_final)) throw new Error("Финал отбора: ровно 18 мест, отдельный от Финала месяца тип");
   const season = await resolveSeasonForTournamentDate(input.start_at);
 
   return tournamentRepository.create({
@@ -582,6 +585,8 @@ export async function createTournament(input: {
     tournament_type: input.tournament_type,
     status: "open",
     season_id: season.id,
+    starting_stack: input.tournament_type === "qualification_final" || input.tournament_type === "phoenix" ? 50000 : input.starting_stack ?? null,
+    late_registration_ends_at: input.tournament_type === "qualification_final" ? null : input.late_registration_ends_at ?? null,
     rating_guarantee: input.rating_guarantee ?? null,
     placement_points_multiplier: normalizePlacementPointsMultiplier(
       input.tournament_type,
@@ -612,7 +617,9 @@ export async function updateTournament(
     start_at: string;
     max_players: number;
     tournament_type: TournamentType;
-    rating_guarantee?: number | null;
+    starting_stack?: number | null;
+  late_registration_ends_at?: string | null;
+  rating_guarantee?: number | null;
     // Absent/undefined on a boost_rating tournament keeps the STORED value
     // (never silently reset to a default); non-boost types always get 1.
     placement_points_multiplier?: number | null;
@@ -622,6 +629,7 @@ export async function updateTournament(
 ) {
   await assertServerActorRole(["admin", "operator"]);
 
+  if (input.tournament_type === "qualification_final" && (input.max_players !== 18 || input.is_final)) throw new Error("Финал отбора: ровно 18 мест, отдельный от Финала месяца тип");
   const current = await tournamentRepository.findById(tournamentId);
   // Fail closed: a historical legacy-formula tournament must never become a
   // v2-only format (bomb_pot / boost_rating) and then get legacy math.
@@ -638,7 +646,9 @@ export async function updateTournament(
     start_at: input.start_at,
     max_players: input.max_players,
     tournament_type: input.tournament_type,
-    rating_guarantee: input.rating_guarantee ?? null,
+    starting_stack: input.tournament_type === "qualification_final" || input.tournament_type === "phoenix" ? 50000 : input.starting_stack === undefined ? current.starting_stack ?? null : input.starting_stack,
+    late_registration_ends_at: input.tournament_type === "qualification_final" ? null : input.late_registration_ends_at === undefined ? current.late_registration_ends_at ?? null : input.late_registration_ends_at,
+    rating_guarantee: input.rating_guarantee === undefined ? current.rating_guarantee : input.rating_guarantee,
     placement_points_multiplier: normalizePlacementPointsMultiplier(
       input.tournament_type,
       input.placement_points_multiplier ??
@@ -1063,6 +1073,7 @@ async function resolveClubDiscountPercents(
 
 export async function completeTournamentFromLiveEntries(tournamentId: string) {
   const tournament = await getTournamentById(tournamentId);
+  if (tournament.tournament_type === "qualification_final") throw new Error("Финал завершается на трёх оставшихся игроках в редакторе отбора");
 
   if (tournament.kind === "free") {
     throw new Error("Завершение через live-режим доступно только для платных турниров и кэш-игр");
@@ -1645,6 +1656,9 @@ export async function setTournamentPlayerRebuyState(
   rebuys: number,
   addons: number
 ): Promise<{ rebuys: number; addons: number }> {
+  const tournament = await getTournamentById(tournamentId);
+  const maxEntries = tournament.tournament_type === "qualification_final" ? 1 : tournament.tournament_type === "phoenix" ? 2 : null;
+  if (maxEntries !== null && (addons !== 0 || !Number.isInteger(rebuys) || rebuys < 0 || rebuys > maxEntries)) throw new Error("Для этого формата запрещены Add-on и превышение лимита входов");
   return tournamentLiveStateRepository.upsertRebuyState({
     tournament_id: tournamentId,
     player_id: playerId,
