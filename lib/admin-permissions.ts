@@ -40,6 +40,11 @@ function route(method: OperatorRoute["method"], path: string): OperatorRoute {
 }
 
 const OPERATOR_ALLOWED_ROUTES: OperatorRoute[] = [
+  route("GET", "/api/admin/support"),
+  route("GET", "/api/admin/support/:id"),
+  route("POST", "/api/admin/support/:id/messages"),
+  route("POST", "/api/admin/support/:id/read"),
+  route("PATCH", "/api/admin/support/:id"),
   // Tournaments -- normal tournament-day operational flow.
   route("GET", "/api/admin/tournaments"),
   route("POST", "/api/admin/tournaments"),

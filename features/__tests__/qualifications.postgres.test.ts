@@ -53,7 +53,7 @@ describe.runIf(!!url)("Qualification V1: real PostgreSQL migration, repository, 
   await migrate(h.db,{migrationsFolder:"./lib/db/migrations"});
   expect(JSON.stringify(await client`select row_to_json(r) as result from results r`)).toBe(before);
   const migrationHash=createHash("sha256").update(readFileSync("./lib/db/migrations/0034_qualification_final_r2.sql")).digest("hex");
-  expect((await client`select hash from drizzle.__drizzle_migrations order by created_at desc limit 1`)[0].hash).toBe(migrationHash);
+  expect((await client`select hash from drizzle.__drizzle_migrations where hash=${migrationHash}`)[0].hash).toBe(migrationHash);
   // Real deferred COMMIT failure, local test-only trigger. Never a migration.
   await client.unsafe(`CREATE OR REPLACE FUNCTION qualification_test_commit_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF current_setting('qualification_test.fail_commit',true)='on' THEN RAISE EXCEPTION 'deliberate qualification COMMIT failure'; END IF; RETURN NEW; END $$; DROP TRIGGER IF EXISTS qualification_test_commit_guard ON qualification_audit; CREATE CONSTRAINT TRIGGER qualification_test_commit_guard AFTER INSERT ON qualification_audit DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION qualification_test_commit_guard();`);
  });

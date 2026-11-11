@@ -24,3 +24,5 @@ export * from "./follows";
 export * from "./tournamentNotificationBroadcasts";
 
 export * from "./qualifications";
+
+export * from "./nativeSupport";
