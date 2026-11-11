@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
+import { usePathname } from "next/navigation";
 import { BlockedScreen } from "@/components/blocked-screen";
 
 type AccessGateProps = {
@@ -22,6 +23,7 @@ type AccessGateProps = {
 // assertPlayerActive), which a blocked player cannot bypass by skipping
 // past this gate.
 export function AccessGate({ children }: AccessGateProps) {
+  const pathname=usePathname();
   const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
@@ -43,7 +45,7 @@ export function AccessGate({ children }: AccessGateProps) {
     };
   }, []);
 
-  if (blocked) {
+  if (blocked && pathname !== "/support") {
     return <BlockedScreen />;
   }
 

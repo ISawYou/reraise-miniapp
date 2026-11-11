@@ -1,0 +1,3 @@
+import {getAdminHeaders} from "@/lib/client-request";
+export class SupportClientError extends Error {constructor(message:string,public status:number){super(message);}}
+export async function supportRequest<T>(url:string,body?:unknown,method="POST"):Promise<T>{const r=await fetch(url,{method:body===undefined?"GET":method,credentials:"include",cache:"no-store",headers:{...await getAdminHeaders(),...(body===undefined?{}:{"Content-Type":"application/json"})},...(body===undefined?{}:{body:JSON.stringify(body)})});const data=await r.json().catch(()=>({}));if(!r.ok)throw new SupportClientError(data.error??"Не удалось выполнить запрос",r.status);return data;}

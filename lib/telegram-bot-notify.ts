@@ -61,7 +61,8 @@ export type TelegramNotificationParams = {
 // categorical log prefix (e.g. "teams") -- never user data.
 async function sendTelegramBotNotification(
   params: TelegramNotificationParams,
-  logTag: string
+  logTag: string,
+  supportTimeoutMs?: number
 ): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -81,6 +82,7 @@ async function sendTelegramBotNotification(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      ...(supportTimeoutMs ? { signal: AbortSignal.timeout(supportTimeoutMs) } : {}),
     });
 
     if (!response.ok) {
@@ -92,6 +94,10 @@ async function sendTelegramBotNotification(
       return false;
     }
 
+    if (supportTimeoutMs) {
+      const result = await response.json();
+      return result?.ok === true;
+    }
     return true;
   } catch (error) {
     console.warn(
@@ -127,4 +133,9 @@ export async function sendTournamentPromotionTelegramNotification(params: {
     },
     "tournament-promotion"
   );
+}
+
+// Optional staff alert only: never includes the player name or private content.
+export async function sendNativeSupportTelegramNotification(params:{telegramId:number;threadId:string}):Promise<boolean>{
+ return sendTelegramBotNotification({telegramId:params.telegramId,text:"Новое обращение в поддержку ReRaise",buttonText:"Открыть поддержку",path:`/admin/support/${params.threadId}`},"native-support",5000);
 }

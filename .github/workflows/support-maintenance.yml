@@ -1,0 +1,34 @@
+name: Native Support Maintenance
+on:
+  schedule:
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: true
+        description: Preview support retention; no changes or Telegram notifications
+permissions:
+  contents: read
+concurrency:
+  group: native-support-maintenance
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    if: github.event_name == 'workflow_dispatch' || vars.SUPPORT_MAINTENANCE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Bounded support maintenance
+        env:
+          SUPPORT_TOKEN: ${{ secrets.SUPPORT_MAINTENANCE_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+        run: |
+          set -Eeuo pipefail
+          [ "${#SUPPORT_TOKEN}" -ge 32 ] || { echo "Support maintenance token is missing" >&2; exit 1; }
+          # No transcript/identifiers in response: aggregate operation counts only.
+          curl --fail-with-body --silent --show-error --max-time 180 \
+            -H "Authorization: Bearer $SUPPORT_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data "{\"dryRun\":$DRY_RUN,\"limit\":50}" \
+            https://re-raise.ru/api/internal/support/maintenance

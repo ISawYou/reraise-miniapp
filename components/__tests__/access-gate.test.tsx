@@ -3,7 +3,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessGate } from "@/components/access-gate";
 
+vi.mock("next/navigation",()=>({usePathname:()=>mocks.pathname}));
 const mocks = vi.hoisted(() => ({
+  pathname:"/",
   resolveCurrentPlayer: vi.fn(),
 }));
 
@@ -35,6 +37,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   mocks.resolveCurrentPlayer.mockReset();
+  mocks.pathname="/";
 });
 
 afterEach(async () => {
@@ -76,3 +79,5 @@ describe("AccessGate", () => {
     );
   });
 });
+
+it("blocked accounts can reach only the exact support page",async()=>{mocks.pathname="/support";mocks.resolveCurrentPlayer.mockResolvedValue({id:"p1",is_blocked:true});await renderGate();expect(container.querySelector('[data-testid="app"]')).not.toBeNull();mocks.pathname="/support/other";await renderGate();expect(container.querySelector('[data-testid="app"]')).toBeNull();});

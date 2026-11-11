@@ -68,7 +68,7 @@ export function BottomNav() {
     };
   }, []); // player загружается один раз; pathname реактивен через usePathname()
 
-  if (!player) {
+  if (!player || player.is_blocked) {
     return null;
   }
 
@@ -92,7 +92,7 @@ export function BottomNav() {
 
   return (
     <nav className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+10px)] z-30 mx-auto max-w-md rounded-[26px] border border-white/[0.14] bg-[#111713]/90 p-1.5 shadow-[0_14px_40px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.08)] supports-[backdrop-filter]:bg-[#111713]/70 supports-[backdrop-filter]:backdrop-blur-2xl">
-      <div className="grid grid-cols-4 gap-1">
+      <div className="grid grid-cols-5 gap-1">
         <Link href="/" className={getItemClass(isHome)}>
           <HomeIcon />
           <span>Главная</span>
@@ -107,6 +107,8 @@ export function BottomNav() {
           <AcademyIcon />
           <span>Академия</span>
         </Link>
+
+        <Link href="/support" className={getItemClass(pathname === "/support")}><NavIcon><path d="M4 5h16v12H9l-5 4V5Z" /></NavIcon><span>Поддержка</span></Link>
 
         <Link href={profileHref} className={getItemClass(isProfile)}>
           <ProfileIcon />

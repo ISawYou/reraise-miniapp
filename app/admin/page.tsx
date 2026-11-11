@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson } from "@/lib/client-request";
 import { isOperator, isStaff, isSuperAdmin } from "@/lib/roles";
+import { SupportUnreadBadge } from "@/components/support/support-inbox";
 import { MyAdminShiftCard } from "@/components/admin/my-admin-shift-card";
 import type { Player } from "@/types/domain";
 
@@ -366,6 +367,7 @@ export default function AdminPage() {
             administrator and should not be prompted to clock a personal
             shift. Super Admin management (Смены администраторов) is
             unaffected, reached via SYSTEM_SECTION below. */}
+        <Link className="mt-4 flex min-h-14 items-center rounded-xl border border-white/15 bg-white/5 p-4" href="/admin/support">Поддержка<SupportUnreadBadge/></Link>
         {isOperator(player?.role) ? <MyAdminShiftCard /> : null}
 
         <div className="mt-6 space-y-6">
