@@ -38,7 +38,7 @@ function mapRowToTournament(row: typeof tournaments.$inferSelect): Tournament {
 // columns keep their table defaults and patch()/update()'s partial-update
 // semantics match the Supabase implementation's plain `.insert(data)` /
 // `.update(patch)` passthrough.
-function toColumnValues(data: TournamentInsert | TournamentPatch): Partial<typeof tournaments.$inferInsert> {
+export function tournamentColumnValues(data: TournamentInsert | TournamentPatch): Partial<typeof tournaments.$inferInsert> {
   const values: Partial<typeof tournaments.$inferInsert> = {};
   if (data.id !== undefined) values.id = data.id;
   if (data.title !== undefined) values.title = data.title;
@@ -144,7 +144,7 @@ export class PostgresTournamentRepository implements TournamentRepository {
   async create(data: TournamentInsert): Promise<Tournament> {
     const rows = await db
       .insert(tournaments)
-      .values(toColumnValues(data) as typeof tournaments.$inferInsert)
+      .values(tournamentColumnValues(data) as typeof tournaments.$inferInsert)
       .returning();
     const [row] = rows;
     if (!row) {
@@ -156,7 +156,7 @@ export class PostgresTournamentRepository implements TournamentRepository {
   async update(tournamentId: string, patch: TournamentPatch): Promise<Tournament> {
     const rows = await db
       .update(tournaments)
-      .set(toColumnValues(patch))
+      .set(tournamentColumnValues(patch))
       .where(eq(tournaments.id, tournamentId))
       .returning();
     const [row] = rows;
@@ -167,7 +167,7 @@ export class PostgresTournamentRepository implements TournamentRepository {
   }
 
   async patch(tournamentId: string, patch: TournamentPatch): Promise<void> {
-    await db.update(tournaments).set(toColumnValues(patch)).where(eq(tournaments.id, tournamentId));
+    await db.update(tournaments).set(tournamentColumnValues(patch)).where(eq(tournaments.id, tournamentId));
   }
 
   async delete(tournamentId: string): Promise<void> {

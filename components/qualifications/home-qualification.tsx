@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { QualificationPublicModel } from "@/types/qualifications";
 import { QualificationHomeCard } from "./qualification-view";
 
-type PromoEvent = { slug: string; title: string; bestResultsCount: number; dates?: string[]; finalDate?: string };
+type PromoEvent = { slug: string; title: string; bestResultsCount: number; dates?: string[]; finalDate?: string; finalStartAt?:string; timezone?:string };
 export function HomeQualification() {
   const [events, setEvents] = useState<PromoEvent[]>([]);
   useEffect(() => {
@@ -19,7 +19,7 @@ export function HomeQualification() {
           const response = await fetch(`/api/qualifications/${encodeURIComponent(event.slug)}`);
           if (!response.ok) return event;
           const model = await response.json() as QualificationPublicModel;
-          return { ...event, dates: model.schedule.map(slot => slot.scheduledDate), finalDate: model.event.finalDate };
+          return { ...event, dates: model.schedule.map(slot => slot.scheduledDate), finalDate: model.event.finalDate, finalStartAt:model.finalTournament?.startAt, timezone:model.event.timezone };
         } catch { return event; }
       }));
       if (live) setEvents(promos);
