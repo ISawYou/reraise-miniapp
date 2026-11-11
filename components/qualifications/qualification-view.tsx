@@ -1,4 +1,5 @@
 "use client";
+import { qualificationFinalLabel } from "@/lib/qualification-admin";
 
 import Link from "next/link";
 import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
@@ -40,8 +41,8 @@ export function QualificationAvatar({ player }: { player: QualificationPlayer })
     <img src={src} onError={() => setFailed(true)} alt="" className={styles.avatar}/>
   ) : <span className={styles.avatar}>{getPlayerAvatarFallback(player)}</span>;
 }
-export function QualificationHomeCard({ title = "Путь в Калининград", slug = KALININGRAD_SLUG, bestResultsCount = 3, dates, finalDate }: {
-  title?: string; slug?: string; bestResultsCount?: number; dates?: string[]; finalDate?: string;
+export function QualificationHomeCard({ title = "Путь в Калининград", slug = KALININGRAD_SLUG, bestResultsCount = 3, dates, finalDate, finalStartAt, timezone }: {
+  title?: string; slug?: string; bestResultsCount?: number; dates?: string[]; finalDate?: string; finalStartAt?:string; timezone?:string;
 }) {
   const amber = slug === KALININGRAD_SLUG, range = dates ? dateRange(dates) : null;
   return <Link href={`/qualifications/${slug}`} className={`${styles.promo} ${amber ? "" : styles.neutral}`} data-qualification-promo="">
@@ -51,7 +52,7 @@ export function QualificationHomeCard({ title = "Путь в Калинингр�
     <p className={styles.promoDescription}>6 квалификаций · {bestLabel(bestResultsCount)} · Финал ТОП-18</p>
     <div className={styles.promoFacts}>
       {range ? <span className={styles.pill}><Icon kind="calendar"/>{range}</span> : null}
-      <span className={styles.pill}><Icon kind="cup"/>{finalDate ? `Финал ${qualificationDate(finalDate)}` : "Бесплатный финал"}</span>
+      <span className={styles.pill}><Icon kind="cup"/>{finalStartAt ? `Финал ${qualificationFinalLabel(finalStartAt,timezone)}` : finalDate ? `Финал ${qualificationDate(finalDate)}` : "Бесплатный финал"}</span>
     </div>
     <div className={styles.promoFooter}><span className={styles.cta}>Смотреть отбор →</span><span className={styles.directNote}>1 место — сразу в сборную</span></div>
   </Link>;
@@ -87,7 +88,7 @@ export function QualificationView({ model }: { model: QualificationPublicModel }
       <div className={styles.heroFacts}>
         <span className={styles.pill}><Icon kind="calendar"/>{schedule.length} квалификаций</span>
         <span className={styles.pill}><Icon kind="stack"/>В зачёт: {bestLabel(event.bestResultsCount)}</span>
-        <span className={styles.pill}><Icon kind="cup"/>Финал {qualificationDate(event.finalDate)}{event.slug === KALININGRAD_SLUG && event.finalDate === "2026-11-14" ? " · 12:00 МСК" : ""} · бесплатно</span>
+        <span className={styles.pill}><Icon kind="cup"/>Финал {model.finalTournament?qualificationFinalLabel(model.finalTournament.startAt,event.timezone):qualificationDate(event.finalDate)} · бесплатно</span>
         <span className={styles.pill}><Icon kind="people"/>18 приглашённых</span>
       </div>
       {event.finalTournamentId ? <Link className={styles.finalLink} href={`/tournaments/${event.finalTournamentId}`}>Финальный турнир →</Link> : null}

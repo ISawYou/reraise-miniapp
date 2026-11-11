@@ -7,7 +7,7 @@ import type { QualificationCommand } from "@/lib/repositories/qualification";
 export const listQualifications=()=>repository.list();
 export const getPublicQualification=(slug:string)=>repository.read(slug);
 export async function listAdminQualifications(){await assertServerActorRole(["admin"]);return repository.list(true);}
-export async function getAdminQualification(id:string){await assertServerActorRole(["admin"]);return repository.read(id,true);}
+export async function getAdminQualification(id:string,previewFinalDate?:string){await assertServerActorRole(["admin"]);return repository.read(id,true,previewFinalDate);}
 export async function searchQualificationPlayers(q:string){await assertServerActorRole(["admin"]);return repository.searchPlayers(q);}
 export async function createQualification(config:QualificationConfig){const actor=await assertServerActorRole(["admin"]);return repository.create(config,actor.id);}
 export async function mutateQualification(id:string,command:QualificationCommand){
