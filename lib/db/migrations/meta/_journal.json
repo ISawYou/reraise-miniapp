@@ -246,6 +246,13 @@
       "when": 1794185672440,
       "tag": "0034_qualification_final_r2",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794412474698,
+      "tag": "0036_native_support",
+      "breakpoints": true
     }
   ]
 }
