@@ -90,6 +90,7 @@ export type TournamentCardProps = {
   // passes this, so its one visible artwork keeps loading eagerly. Only
   // Home's carousel opts an off-screen slide into "lazy", per-instance,
   // based on which slide is currently active.
+  qualificationPresentation?: "home" | "detail";
   artworkLoading?: "eager" | "lazy";
 };
 
@@ -112,6 +113,7 @@ export function TournamentCard({
   lockedActionLabel = null,
   className = "",
   artworkLoading = "eager",
+  qualificationPresentation = "detail",
 }: TournamentCardProps) {
   const prizePlaces = getExpectedPrizePlaces(registeredCount);
   const countdownText = formatTournamentCountdown(tournament.start_at);
@@ -163,7 +165,7 @@ export function TournamentCard({
       />
 
       <div className="relative z-10">
-        <QualificationTournamentNote tournamentId={tournament.id} compact/>
+        <QualificationTournamentNote tournamentId={tournament.id} compact presentation={qualificationPresentation}/>
         <h3 className="text-2xl font-black uppercase leading-tight tracking-[0.04em] text-white">
           {tournament.title}
         </h3>

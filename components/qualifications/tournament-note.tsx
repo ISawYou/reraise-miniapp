@@ -9,9 +9,12 @@ function currentEvent() {
   return cached.request;
 }
 // Public read model only. No invitation statuses, private actor or second ranking.
-export function QualificationTournamentNote({ tournamentId, compact = false }: { tournamentId: string; compact?: boolean }) {
+export function QualificationTournamentNote({ tournamentId, compact = false, presentation = "detail" }: { tournamentId: string; compact?: boolean; presentation?: "home" | "detail" }) {
   const [model, setModel] = useState<QualificationPublicModel | null>(null);
   useEffect(() => { let live = true; void currentEvent().then(m => { if (live) setModel(m); }); return () => { live = false; }; }, [tournamentId]);
+  const slotIndex = model?.schedule.findIndex(s => s.tournamentId === tournamentId) ?? -1;
+  const isFinal = model?.event.finalTournamentId === tournamentId;
+  if (presentation === "home") return <div className="h-6 min-w-0 text-xs leading-6 text-[#e9b654]" data-testid="home-qualification-slot">{model && (slotIndex >= 0 || isFinal) ? <span className="block truncate">{isFinal ? "Закрытый финал · Калининград" : `Квалификация №${slotIndex + 1} · Калининград`}</span> : null}</div>;
   if (!model) return null;
   const slot = model.schedule.findIndex(s => s.tournamentId === tournamentId), final = model.event.finalTournamentId === tournamentId;
   if (slot < 0 && !final) return null;

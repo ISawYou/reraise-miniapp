@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 describe("BottomNav", () => {
-  it("renders five items including native support, no Команды item", async () => {
+  it("renders four items without support or teams", async () => {
     await act(async () => {
       root.render(<BottomNav />);
     });
@@ -44,12 +44,12 @@ describe("BottomNav", () => {
     });
 
     const links = container.querySelectorAll("nav a");
-    expect(links).toHaveLength(5);
+    expect(links).toHaveLength(4);
     expect(container.textContent).toContain("Главная");
     expect(container.textContent).toContain("Турниры");
     expect(container.textContent).toContain("Академия");
     expect(container.textContent).toContain("Профиль");
     expect(container.textContent).not.toContain("Команды");
-    expect(container.querySelector('a[href="/support"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/support"]')).toBeNull();
   });
 });

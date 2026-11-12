@@ -103,11 +103,11 @@ export function supportsTournamentBossKnockouts(type: TournamentType): boolean {
   return type === "boss_bounty";
 }
 
-export function getTournamentTypeBonusLines(type: TournamentType): string[] {
+export function getTournamentTypeBonusLines(type: TournamentType, formula: "legacy" | "v2" = "legacy"): string[] {
   const lines: string[] = [];
   const multiplier = getTournamentTypeMultiplier(type);
 
-  if (multiplier > 1) {
+  if (multiplier > 1 && formula === "legacy") {
     lines.push(`Бонус рейтинга x${multiplier.toFixed(2)}`);
   }
 

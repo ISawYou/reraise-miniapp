@@ -142,6 +142,7 @@ describe("Home critical vs secondary loading", () => {
 
     const counts = fetchCalls.reduce<Record<string, number>>((acc, url) => ({ ...acc, [url]: (acc[url] ?? 0) + 1 }), {});
     expect(counts).toEqual({
+      "/api/qualifications": 1,
       "/api/tournament-visuals": 1,
       "/api/leaderboard": 1,
       "/api/teams?scope=current": 1,

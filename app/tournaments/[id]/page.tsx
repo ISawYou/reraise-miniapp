@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { TournamentDescription } from "@/components/tournaments/tournament-description";
 import { QualificationTournamentNote } from "@/components/qualifications/tournament-note";
 import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
@@ -33,7 +34,6 @@ import { TournamentCard } from "@/components/tournaments/tournament-card";
 import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import {
   getExpectedPrizePlaces,
-  getBoostRatingBadge,
   getTournamentTypeBonusLines,
   getTournamentTypeLabel,
   sortParticipantsByRating,
@@ -409,9 +409,9 @@ export default function TournamentDetailsPage() {
     : null;
   const expectedPrizePlaces = getExpectedPrizePlaces(participants.length);
   const tournamentTypeBonusLines = tournament
-    ? getTournamentTypeBonusLines(tournament.tournament_type)
+    ? getTournamentTypeBonusLines(tournament.tournament_type, tournament.rating_formula_version)
     : [];
-  const boostBadge = tournament ? getBoostRatingBadge(tournament) : null;
+
   // Results tab: KO column only for formats that actually have ordinary
   // knockouts -- elsewhere it's a column of zeros. Full literal class
   // strings so Tailwind picks both layouts up.
@@ -861,15 +861,8 @@ const waitlistParticipants = participants.filter(
                 <p className="mt-1.5 text-sm font-semibold text-white">
                   {expectedPrizePlaces}
                 </p>
-                {/* Championship, not a rating tournament -- never show
-                    "Рейтинговая зона" for is_final (see
-                    lib/tournament-helpers.ts::isRatingEligibleTournament). */}
-                <QualificationTournamentNote tournamentId={tournament.id}/>
-                {expectedPrizePlaces > 0 && !(tournament.is_final || tournament.tournament_type === "qualification_final") ? (
-                  <p className="mt-0.5 text-[11px] text-white/55">
-                    Рейтинговая зона: места 1-{expectedPrizePlaces}
-                  </p>
-                ) : null}
+                {tournament.tournament_type === "qualification_final" ? <QualificationTournamentNote tournamentId={tournament.id}/> : null}
+
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
@@ -880,14 +873,6 @@ const waitlistParticipants = participants.filter(
                 <p className="mt-1.5 text-sm font-semibold text-white">
                   {(tournament.is_final || tournament.tournament_type === "qualification_final") ? (tournament.tournament_type === "qualification_final" ? "ФИНАЛ ОТБОРА" : FINAL_MONTH_LABEL) : getTournamentTypeLabel(tournament.tournament_type)}
                 </p>
-                {boostBadge ? (
-                  <p
-                    data-testid="boost-rating-badge"
-                    className="mt-0.5 text-[11px] font-bold tracking-[0.04em] text-[#e8cd7f]"
-                  >
-                    {boostBadge}
-                  </p>
-                ) : null}
                 {tournamentTypeBonusLines.length > 0 ? (
                   <p className="mt-0.5 text-[11px] text-white/55">
                     {tournamentTypeBonusLines.join(" · ")}
@@ -898,7 +883,7 @@ const waitlistParticipants = participants.filter(
 
             {tournament.description ? (
               <section className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4">
-                {renderDescription(tournament.description)}
+                <TournamentDescription text={tournament.description}>{renderDescription(tournament.description)}</TournamentDescription>
               </section>
             ) : null}
           </div>
