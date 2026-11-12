@@ -11,6 +11,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Player, Tournament } from "@/types/domain";
 
+vi.mock("@/components/qualifications/home-qualification",()=>({HomeQualification:()=> <section data-testid="qualification-promo">Qualification</section>}));
+const supportMock=vi.hoisted(()=>vi.fn());
+vi.mock("@/lib/support",()=>({openSupportChat:supportMock}));
 vi.mock("@/features/auth", () => ({
   ensurePlayerFromTelegramUser: vi.fn(),
   acceptTerms: vi.fn(),
@@ -177,4 +180,16 @@ describe("Home tournament carousel -- lazy off-screen artwork (Phase 2B.1)", () 
     expect(imgs[1].getAttribute("loading")).toBe("lazy");
     expect(imgs[2].getAttribute("loading")).toBe("eager");
   });
+});
+
+it("Home order is profile, complete carousel/dots, qualification, season; support retained",async()=>{
+ await renderHomeWithCarousel();
+ const profile=container.querySelector('a[href="/players/p1"]')!;
+ const dot=container.querySelector('button[aria-current]')!;
+ const promo=container.querySelector('[data-testid="qualification-promo"]')!;
+ const rating=container.querySelector('a[href="/leaderboard"]')!;
+ for(const [a,b]of [[profile,dot],[dot,promo],[promo,rating]])expect(a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(container.querySelectorAll('[data-testid="qualification-promo"]')).toHaveLength(1);
+ const support=Array.from(container.querySelectorAll("button")).find(b=>b.textContent?.includes("Поддержка"))!;
+ expect(support).toBeTruthy();await act(async()=>support.click());expect(supportMock).toHaveBeenCalled();
 });

@@ -1287,7 +1287,7 @@ export default function HomePage() {
       <Link
         href={`/tournaments/${tournament.id}`}
         draggable={false}
-        className="block min-w-full shrink-0 transition active:scale-[0.99]"
+        className="flex w-full min-w-full shrink-0 transition active:scale-[0.99]"
       >
         <TournamentCard
           tournament={tournament}
@@ -1296,6 +1296,8 @@ export default function HomePage() {
           configs={tournamentVisuals}
           registrationStatus={registrationStatus}
           artworkLoading={artworkLoading}
+          qualificationPresentation="home"
+          className="w-full h-full"
         />
       </Link>
     );
@@ -1521,7 +1523,6 @@ export default function HomePage() {
     <main className="relative min-h-screen bg-[#080808] px-4 py-6 pb-28 text-white">
       <div aria-hidden="true" className="pointer-events-none fixed left-0 right-0 top-0 h-72 bg-[radial-gradient(ellipse_90%_50%_at_50%_-5%,#c9a84c0a,transparent)]" />
       <div className="relative mx-auto max-w-md">
-        <HomeQualification />
         <Link
           href={`/players/${player.id}`}
           className="mb-6 flex items-center gap-3 rounded-[24px] border border-white/10 bg-white/[0.04] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.22)]"
@@ -1662,6 +1663,8 @@ export default function HomePage() {
                 </div>
               )}
             </section>
+
+            <HomeQualification />
 
             <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
               <div className="flex items-start justify-between gap-3">

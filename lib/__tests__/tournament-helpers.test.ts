@@ -396,3 +396,10 @@ describe("isRatingEligibleTournament", () => {
     expect(isRatingEligibleTournament({ is_final: false })).toBe(true);
   });
 });
+
+describe("formula-aware legacy presentation", () => {
+ it.each(["phoenix", "win_the_button"] as const)("%s v2 never claims the legacy bonus", type => {
+  expect(getTournamentTypeBonusLines(type,"v2").join(" ")).not.toContain("x1.20");
+  expect(getTournamentTypeBonusLines(type,"legacy").join(" ")).toContain("x1.20");
+ });
+});
