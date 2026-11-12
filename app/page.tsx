@@ -1664,7 +1664,9 @@ export default function HomePage() {
               )}
             </section>
 
-            <HomeQualification />
+            <div className="mt-6">
+              <HomeQualification />
+            </div>
 
             <section className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
               <div className="flex items-start justify-between gap-3">
