@@ -41,7 +41,8 @@ describe.runIf(!!url)('Phoenix historical correction actual PostgreSQL',()=>{
   await repo.apply(owner,revision);
   const after=await h.db.select().from(schema.playerAchievements);
   expect(after.find(x=>x.achievementCode==='pro_1000_rating')?.currentValue).toBe(287);
-  expect(after.find(x=>x.achievementCode==='rookie_100_rating')?.completedAt).toEqual(earned);
+  expect(after.find(x=>x.achievementCode==='rookie_100_rating')).toEqual(before.find(x=>x.achievementCode==='rookie_100_rating'));
+  expect(after.find(x=>x.achievementCode==='pro_1000_rating')!.updatedAt.getTime()).toBeGreaterThanOrEqual(before.find(x=>x.achievementCode==='pro_1000_rating')!.updatedAt.getTime());
   expect(after.find(x=>x.achievementCode==='first_win')).toEqual(before.find(x=>x.achievementCode==='first_win'));
  });
  it('ordinary edit of closed but frozen Phoenix cannot invalidate snapshot',async()=>{
