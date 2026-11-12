@@ -618,7 +618,7 @@ export async function updateTournament(
     placement_points_multiplier: normalizePlacementPointsMultiplier(
       input.tournament_type,
       input.placement_points_multiplier ??
-        (current.tournament_type === "boost_rating" ? current.placement_points_multiplier : null)
+        (current.tournament_type === input.tournament_type && (current.tournament_type === "boost_rating" || current.tournament_type === "phoenix") ? current.placement_points_multiplier : null)
     ),
     is_final: input.is_final ?? false,
     ...seasonPatch,

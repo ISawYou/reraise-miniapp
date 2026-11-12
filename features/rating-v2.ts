@@ -52,7 +52,7 @@ export type CalculateRatingPointsV2Options = {
   // format-specific bounty components still come from this same engine.
   ratingPlaces?: readonly RatingPlace[];
   // Tournament-level placement_points_multiplier. Applied ONLY for
-  // tournament_type = "boost_rating" (a stray value on any other type is
+  // tournament_type = "boost_rating" or "phoenix" (any other type is
   // ignored -- see effectivePlacementPointsMultiplier) and ONLY to the
   // placement (itm) points, after the natural volume placement is rounded.
   // Participation is never multiplied. When `ratingPlaces` is supplied the
@@ -69,7 +69,7 @@ export type RatingPointsV2Meta =
       extraVolume: number;
       volumeShare: number;
       volumeMultiplier: number;
-      // Boost Rating only (1 for every other volume format).
+      // Boost Rating / PHOENIX (1 for every other volume format).
       placementPointsMultiplier: number;
     }
   | {
@@ -245,9 +245,9 @@ export function effectivePlacementPointsMultiplier(
   tournamentType: TournamentType,
   multiplier: number | null | undefined
 ): number {
-  if (tournamentType !== "boost_rating") return 1;
+  if (tournamentType !== "boost_rating" && tournamentType !== "phoenix") return 1;
   if (multiplier == null) return 1;
-  if (!Number.isFinite(multiplier) || multiplier <= 0) {
+  if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier >= 1000 || Math.abs(Math.round(multiplier * 100) - multiplier * 100) > 1e-9) {
     throw new Error(`Некорректный placement_points_multiplier: ${multiplier}`);
   }
   return multiplier;
@@ -570,7 +570,7 @@ export function calculateRatingPlaceStructureForTournament(
     ratingFormulaVersion,
     {
       ratingGuarantee: options.ratingGuarantee,
-      // Boost is folded in HERE, so the frozen rating_places snapshot is
+      // The placement premium is folded in HERE, so the frozen rating_places snapshot is
       // already boosted; completion then uses it verbatim (see
       // calculateRatingPointsForTournament's ratingPlaces override).
       placementPointsMultiplier: options.placementPointsMultiplier,

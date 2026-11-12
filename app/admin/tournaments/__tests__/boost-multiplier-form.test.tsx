@@ -146,6 +146,16 @@ describe("create screen", () => {
     });
   });
 
+  it("Phoenix starts at1 and submits configurable1.5 without guarantee UX", async () => {
+    await render(); await fillAndSelect("phoenix");
+    expect(multiplierInput()!.value).toBe("1");
+    expect(container.textContent).not.toMatch(/Rating Guarantee|Гарантированный рейтинговый/);
+    await act(async () => setValue(multiplierInput()!, "1.50"));
+    await click("Создать турнир"); await flush();
+    expect(submittedBody()).toMatchObject({tournament_type:"phoenix",placement_points_multiplier:1.5});
+    expect(submittedBody()).not.toHaveProperty("rating_guarantee");
+  });
+
   it("an edited 1.5 is submitted as 1.5", async () => {
     await render();
     await fillAndSelect("boost_rating");
@@ -214,6 +224,13 @@ describe("edit screen", () => {
       "t1",
       expect.objectContaining({ tournament_type: "boost_rating", placement_points_multiplier: 1.5 })
     );
+  });
+
+  it("completed Phoenix shows stored1.5 disabled, without guarantee field", async () => {
+    await render(tournament({tournament_type:"phoenix",status:"completed"}));
+    expect(multiplierInput()!.value).toBe("1.5");
+    expect(multiplierInput()!.disabled).toBe(true);
+    expect(container.textContent).toContain("историческую коррекцию");
   });
 
   it("an ordinary tournament has no multiplier field and submits 1", async () => {

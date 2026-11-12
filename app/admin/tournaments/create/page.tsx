@@ -46,8 +46,7 @@ export default function AdminTournamentCreatePage() {
   const [lateRegistrationEndsAt, setLateRegistrationEndsAt] = useState("");
   const [maxPlayers, setMaxPlayers] = useState("20");
   const [preset, setPreset] = useState<TournamentPreset>(DEFAULT_TOURNAMENT_TYPE);
-  const [ratingGuarantee, setRatingGuarantee] = useState("");
-  // Only shown/submitted for boost_rating; every other preset submits 1.
+  // Only shown for Boost / PHOENIX; all other presets submit 1.
   const [placementPointsMultiplier, setPlacementPointsMultiplier] = useState(
     String(DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER)
   );
@@ -160,10 +159,6 @@ export default function AdminTournamentCreatePage() {
           max_players: Number(maxPlayers),
           tournament_type,
           is_final,
-          rating_guarantee:
-            preset === "phoenix" && ratingGuarantee.trim() !== ""
-              ? Number(ratingGuarantee)
-              : null,
           placement_points_multiplier: parsedPlacementPointsMultiplier,
         }),
       });
@@ -174,7 +169,6 @@ export default function AdminTournamentCreatePage() {
       setStartAt("");
       setMaxPlayers("20");
       setPreset(DEFAULT_TOURNAMENT_TYPE);
-      setRatingGuarantee("");
       setPlacementPointsMultiplier(String(DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка создания турнира");
@@ -290,6 +284,7 @@ export default function AdminTournamentCreatePage() {
               if (nextPreset === "qualification_final") { setMaxPlayers("18"); setLateRegistrationEndsAt(""); }
               setTitle(template.title);
               setDescription(template.description);
+              if (nextPreset === "phoenix") setPlacementPointsMultiplier("1");
               if (nextPreset === "boost_rating") {
                 setPlacementPointsMultiplier(String(DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER));
               }
@@ -303,27 +298,7 @@ export default function AdminTournamentCreatePage() {
             ))}
           </select>
 
-          {preset === "phoenix" ? (
-            <>
-              <label className="mt-4 block text-sm text-white/80">
-                Rating Guarantee (опционально)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={ratingGuarantee}
-                onChange={(e) => setRatingGuarantee(e.target.value)}
-                placeholder="Например, 600"
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
-              />
-              <p className="mt-1 text-xs text-white/50">
-                Гарантированный итоговый рейтинговый пул турнира (участие + места).
-                Если оставить пустым — гарантии нет, начисляется обычный расчётный пул.
-              </p>
-            </>
-          ) : null}
-
-          {preset === "boost_rating" ? (
+          {preset === "boost_rating" || preset === "phoenix" ? (
             <>
               <label className="mt-4 block text-sm text-white/80">
                 Коэффициент буста (очки за место)

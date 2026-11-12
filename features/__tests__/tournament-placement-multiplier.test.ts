@@ -144,3 +144,19 @@ describe("updateTournament -- placement_points_multiplier", () => {
     expect(updated()).toMatchObject({ tournament_type: "classic", placement_points_multiplier: 1 });
   });
 });
+
+describe("Phoenix multiplier persistence", () => {
+  it("new Phoenix defaults to1, explicit1.5 is stored", async () => {
+    await createTournament(input({tournament_type:"phoenix"}));
+    expect(created().placement_points_multiplier).toBe(1);
+    mocks.tournamentCreate.mockClear();
+    await createTournament(input({tournament_type:"phoenix",placement_points_multiplier:1.5}));
+    expect(created().placement_points_multiplier).toBe(1.5);
+  });
+  it.each([undefined,null])("omitted/null Phoenix edit preserves stored1.5 (%s)", async value => {
+    mocks.tournamentFindById.mockResolvedValue(stored({tournament_type:"phoenix",rating_guarantee:null}));
+    await updateTournament("t1",input({tournament_type:"phoenix",placement_points_multiplier:value}));
+    expect(updated().placement_points_multiplier).toBe(1.5);
+    expect(updated().rating_guarantee).toBeNull();
+  });
+});

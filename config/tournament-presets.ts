@@ -64,7 +64,7 @@ export const TOURNAMENT_PRESET_TEMPLATES: Record<
   },
   phoenix: {
     title: "PHOENIX",
-    description: "PHOENIX — турнир с увеличенным стартовым стеком! Вход — 1 500 ₽, стартовый стек — 50 000. Доступен один Re-entry за 1 500 ₽ со стеком 50 000. Без Add-on. Если настроена гарантия рейтингового пула, она является минимумом: при большем естественном пуле учитывается весь естественный пул. 11 ноября — четвёртая квалификация проекта «Путь в Калининград».",
+    description: "PHOENIX — премиальный рейтинговый турнир РЕРЕЙЗ.\n\nВход — 1 500 ₽. Стартовый стек — 50 000 фишек. Допускается только один Re-entry за 1 500 ₽ со стеком 50 000 фишек. Без Add-on и бесплатных входов.\n\nВ PHOENIX может применяться повышенный коэффициент рейтинга за призовые места. Его значение устанавливается отдельно для каждого турнира. Стандартные 2 очка за участие не умножаются.",
   },
   crazy_pineapple: {
     title: "CRAZY PINEAPPLE",
@@ -126,14 +126,14 @@ export function tournamentToPreset(tournament: {
 export const DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER = 2;
 
 // Admin form input -> submitted placement_points_multiplier. Every
-// non-boost type always submits exactly 1. Returns null for an invalid
-// boost value (not positive / more than 2 decimals / out of numeric(5,2)
+// type other than Boost / PHOENIX submits 1. Returns null for an invalid
+// premium value (not positive / more than 2 decimals / out of numeric(5,2)
 // range) so the form can show an error instead of submitting.
 export function parsePlacementPointsMultiplierInput(
   tournamentType: TournamentType,
   input: string,
 ): number | null {
-  if (tournamentType !== "boost_rating") return 1;
+  if (tournamentType !== "boost_rating" && tournamentType !== "phoenix") return 1;
   const trimmed = input.trim().replace(",", ".");
   if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
   const value = Number(trimmed);
@@ -142,15 +142,15 @@ export function parsePlacementPointsMultiplierInput(
 }
 
 // Server-side canonical normalization (features/tournaments.ts create/
-// update). Non-boost types are always stored as exactly 1; a boost_rating
+// update). Other formats are stored as exactly 1; a boost_rating
 // tournament without an explicit value (API callers) gets the default.
 // Throws on an invalid explicit value -- never silently coerced.
 export function normalizePlacementPointsMultiplier(
   tournamentType: TournamentType,
   value: number | null | undefined,
 ): number {
-  if (tournamentType !== "boost_rating") return 1;
-  if (value == null) return DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER;
+  if (tournamentType !== "boost_rating" && tournamentType !== "phoenix") return 1;
+  if (value == null) return tournamentType === "boost_rating" ? DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER : 1;
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0 || numeric >= 1000) {
     throw new Error("Коэффициент буста должен быть положительным числом");
