@@ -1,5 +1,6 @@
 "use client";
 
+import {registerPlayerForTournamentAction} from "@/features/registration-action";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BackButton } from "@/components/ui/back-button";
@@ -12,7 +13,6 @@ import {
   getVisibleTournamentsForPlayer,
   getPlayerRegistrations,
   getTournamentRegistrationCounts,
-  registerPlayerForTournament,
 } from "@/features/tournaments";
 import { supabase } from "@/lib/supabase";
 import { getExpectedPrizePlaces } from "@/lib/tournament-helpers";
@@ -287,7 +287,9 @@ export default function TournamentsPage() {
 
     try {
       setActionLoadingId(tournamentId);
-      const result = await registerPlayerForTournament(playerId, tournamentId);
+      const outcome = await registerPlayerForTournamentAction(playerId, tournamentId);
+      if (!outcome.ok) { setPromotionToast(outcome.error); return; }
+      const result = outcome.registration;
       await refreshPageData(player, { showPromotionToast: false });
       // No-show policy: a restricted player's registration is a SUCCESSFUL
       // waitlist entry -- explain it rather than leaving it unexplained.

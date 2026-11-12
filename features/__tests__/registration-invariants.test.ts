@@ -213,8 +213,8 @@ describe("RULE 2 -- no new entrant after Late Registration closes", () => {
     addRegistration("c", "cancelled");
     fake.state.lateRegistrationClosed = true;
 
-    await expect(tournaments.addExistingPlayerToTournament("t1", "x")).rejects.toThrow(LATE_REG_MESSAGE);
-    await expect(tournaments.addExistingPlayerToTournament("t1", "c")).rejects.toThrow(LATE_REG_MESSAGE);
+    await expect(tournaments.addExistingPlayerToTournament("t1", "x")).resolves.toMatchObject({ok:false,code:"LATE_REGISTRATION_CLOSED",error:LATE_REG_MESSAGE});
+    await expect(tournaments.addExistingPlayerToTournament("t1", "c")).resolves.toMatchObject({ok:false,code:"LATE_REGISTRATION_CLOSED",error:LATE_REG_MESSAGE});
 
     expect(registrationOf("x")).toBeUndefined();
     expect(statusOf("c")).toBe("cancelled");
@@ -223,9 +223,7 @@ describe("RULE 2 -- no new entrant after Late Registration closes", () => {
   it("10. closed + admin add new nickname -> rejected, no orphan player, nothing written", async () => {
     fake.state.lateRegistrationClosed = true;
 
-    await expect(tournaments.addAdminTournamentParticipant("t1", "Walk-in")).rejects.toThrow(
-      LATE_REG_MESSAGE
-    );
+    await expect(tournaments.addAdminTournamentParticipant("t1", "Walk-in")).resolves.toMatchObject({ok:false,code:"LATE_REGISTRATION_CLOSED",error:LATE_REG_MESSAGE});
 
     expect(fake.state.players.size).toBe(0);
     expect(fake.state.registrations).toHaveLength(0);

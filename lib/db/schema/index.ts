@@ -26,3 +26,5 @@ export * from "./tournamentNotificationBroadcasts";
 export * from "./qualifications";
 
 export * from "./nativeSupport";
+
+export * from "./adminAdmissions";

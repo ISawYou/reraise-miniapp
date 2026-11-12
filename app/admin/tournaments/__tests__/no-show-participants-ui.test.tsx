@@ -17,6 +17,10 @@ const mocks = vi.hoisted(() => ({
   admitTournamentPlayerFromWaitlist: vi.fn(),
 }));
 
+vi.mock("@/features/admin-tournament-admission",()=>({
+ getStaffAdmissionContext:async()=>({phase:"normal",title:"Fixture",status:"open",tournamentType:"classic",ratedPlaces:null}),
+ admitTournamentPlayer:async()=>({ok:true,status:'registered',noOp:false}),
+}));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "t1" }),
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
@@ -462,7 +466,7 @@ describe("mobile participant cards (narrow width) -- two levels, nothing truncat
   });
 });
 
-describe("Late Registration closed -- adding NEW participants is hidden, the roster stays manageable", () => {
+describe("Late Registration closed -- staff addition stays available with confirmation", () => {
   function snapshotResponse(closed: boolean) {
     mocks.fetchAdminJson.mockImplementation(async (url: string) =>
       url.endsWith("/late-registration")
@@ -471,12 +475,12 @@ describe("Late Registration closed -- adding NEW participants is hidden, the ros
     );
   }
 
-  it("closed: no '+ Добавить', an explanation instead; existing roster actions remain", async () => {
+  it("closed: '+ Добавить' remains available; frozen warning and roster actions remain", async () => {
     snapshotResponse(true);
     await render();
 
-    expect(buttonIn(container, "+ Добавить")).toBeUndefined();
-    expect(container.textContent).toContain("Поздняя регистрация завершена — запись на турнир закрыта");
+    expect(buttonIn(container, "+ Добавить")).toBeDefined();
+    expect(container.textContent).toContain("без пересчёта зафиксированных очков");
     expect(buttonIn(container, "Создать нового")).toBeUndefined();
     expect(buttonIn(container, "Добавить существующего")).toBeUndefined();
     // Roster management is untouched.

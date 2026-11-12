@@ -12,6 +12,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Player, RegistrationStatus, Tournament } from "@/types/domain";
 
+// Qualification loading is independent of registration-policy controls.
+vi.mock("@/components/qualifications/tournament-note",()=>({QualificationTournamentNote:()=>null}));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "t1" }),
   useRouter: () => ({ back: vi.fn(), push: vi.fn() }),

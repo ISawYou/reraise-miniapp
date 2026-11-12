@@ -115,7 +115,7 @@ export function TournamentCard({
   artworkLoading = "eager",
   qualificationPresentation = "detail",
 }: TournamentCardProps) {
-  const prizePlaces = getExpectedPrizePlaces(registeredCount);
+  const prizePlaces = tournament.frozen_rating_places_count ?? getExpectedPrizePlaces(registeredCount);
   const countdownText = formatTournamentCountdown(tournament.start_at);
   const isPlayerInFinal = registrationStatus === "registered" || registrationStatus === "waitlist";
 

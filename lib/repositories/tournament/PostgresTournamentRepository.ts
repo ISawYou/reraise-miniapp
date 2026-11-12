@@ -71,12 +71,12 @@ export function tournamentColumnValues(data: TournamentInsert | TournamentPatch)
 // to ISO strings.
 export class PostgresTournamentRepository implements TournamentRepository {
   async findById(tournamentId: string): Promise<Tournament> {
-    const rows = await db.select().from(tournaments).where(eq(tournaments.id, tournamentId)).limit(1);
+    const rows = await db.select({tournament:tournaments,ratingPlaces:tournamentLateRegistration.ratingPlaces}).from(tournaments).leftJoin(tournamentLateRegistration,eq(tournamentLateRegistration.tournamentId,tournaments.id)).where(eq(tournaments.id, tournamentId)).limit(1);
     const [row] = rows;
     if (!row) {
       throw new Error("Tournament not found");
     }
-    return mapRowToTournament(row);
+    return {...mapRowToTournament(row.tournament),frozen_rating_places_count:row.ratingPlaces?.length??null};
   }
 
   async findSeasonIdById(tournamentId: string): Promise<{ id: string; season_id: string | null }> {
@@ -94,20 +94,22 @@ export class PostgresTournamentRepository implements TournamentRepository {
 
   async listOpen(): Promise<Tournament[]> {
     const rows = await db
-      .select()
+      .select({tournament:tournaments,ratingPlaces:tournamentLateRegistration.ratingPlaces})
       .from(tournaments)
+      .leftJoin(tournamentLateRegistration,eq(tournamentLateRegistration.tournamentId,tournaments.id))
       .where(eq(tournaments.status, "open"))
       .orderBy(asc(tournaments.startAt));
-    return rows.map(mapRowToTournament);
+    return rows.map(row=>({...mapRowToTournament(row.tournament),frozen_rating_places_count:row.ratingPlaces?.length??null}));
   }
 
   async listCompleted(): Promise<Tournament[]> {
     const rows = await db
-      .select()
+      .select({tournament:tournaments,ratingPlaces:tournamentLateRegistration.ratingPlaces})
       .from(tournaments)
+      .leftJoin(tournamentLateRegistration,eq(tournamentLateRegistration.tournamentId,tournaments.id))
       .where(eq(tournaments.status, "completed"))
       .orderBy(desc(tournaments.startAt));
-    return rows.map(mapRowToTournament);
+    return rows.map(row=>({...mapRowToTournament(row.tournament),frozen_rating_places_count:row.ratingPlaces?.length??null}));
   }
 
   async listCompletedInRange(from?: Date, to?: Date): Promise<Tournament[]> {
@@ -116,29 +118,32 @@ export class PostgresTournamentRepository implements TournamentRepository {
     if (to) conditions.push(lte(tournaments.startAt, to));
 
     const rows = await db
-      .select()
+      .select({tournament:tournaments,ratingPlaces:tournamentLateRegistration.ratingPlaces})
       .from(tournaments)
+      .leftJoin(tournamentLateRegistration,eq(tournamentLateRegistration.tournamentId,tournaments.id))
       .where(and(...conditions))
       .orderBy(desc(tournaments.startAt));
-    return rows.map(mapRowToTournament);
+    return rows.map(row=>({...mapRowToTournament(row.tournament),frozen_rating_places_count:row.ratingPlaces?.length??null}));
   }
 
   async listExcludingStatus(status: TournamentStatus): Promise<Tournament[]> {
     const rows = await db
-      .select()
+      .select({tournament:tournaments,ratingPlaces:tournamentLateRegistration.ratingPlaces})
       .from(tournaments)
+      .leftJoin(tournamentLateRegistration,eq(tournamentLateRegistration.tournamentId,tournaments.id))
       .where(ne(tournaments.status, status))
       .orderBy(asc(tournaments.startAt));
-    return rows.map(mapRowToTournament);
+    return rows.map(row=>({...mapRowToTournament(row.tournament),frozen_rating_places_count:row.ratingPlaces?.length??null}));
   }
 
   async listByStatuses(statuses: TournamentStatus[]): Promise<Tournament[]> {
     const rows = await db
-      .select()
+      .select({tournament:tournaments,ratingPlaces:tournamentLateRegistration.ratingPlaces})
       .from(tournaments)
+      .leftJoin(tournamentLateRegistration,eq(tournamentLateRegistration.tournamentId,tournaments.id))
       .where(inArray(tournaments.status, statuses))
       .orderBy(desc(tournaments.startAt));
-    return rows.map(mapRowToTournament);
+    return rows.map(row=>({...mapRowToTournament(row.tournament),frozen_rating_places_count:row.ratingPlaces?.length??null}));
   }
 
   async create(data: TournamentInsert): Promise<Tournament> {
