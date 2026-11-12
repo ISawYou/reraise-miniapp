@@ -1,4 +1,5 @@
 import "server-only";
+import {isRegistrationDeadlineElapsed} from "@/lib/registration-deadline-response";
 
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -237,6 +238,7 @@ async function readCapacityState(
     .from(tournamentLateRegistration)
     .where(eq(tournamentLateRegistration.tournamentId, tournamentId))
     .limit(1);
+  const [deadlineRow] = await tx.select({deadline:tournaments.lateRegistrationEndsAt}).from(tournaments).where(eq(tournaments.id,tournamentId)).limit(1);
   const registrationRows = await tx
     .select({
       id: registrations.id,
@@ -270,7 +272,7 @@ async function readCapacityState(
 
   return {
     maxPlayers,
-    lateRegistrationClosed: lateRegRows.length > 0,
+    lateRegistrationClosed: lateRegRows.length > 0 || isRegistrationDeadlineElapsed(deadlineRow?.deadline?.toISOString()),
     registrations: registrationRows,
     eliminatedPlayerIds: new Set(
       eliminationRows.filter((row) => row.eliminated).map((row) => row.playerId)

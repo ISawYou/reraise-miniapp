@@ -1,4 +1,5 @@
 import "server-only";
+import {admissionCompletionRejection} from "@/lib/admin-admission";
 
 import { extractPostgresError } from "@/lib/db/postgres-error";
 import { ResultPlaceValidationError } from "@/lib/tournament-results-validation";
@@ -28,6 +29,8 @@ export type CompletionErrorResolution = {
 // DB's own unique-constraint rejection as a defensive fallback for the same
 // problem (a race, or a request that bypassed the app's validation).
 export function resolveCompletionError(error: unknown): CompletionErrorResolution {
+  const admissionConflict=admissionCompletionRejection(error);
+  if(admissionConflict)return{status:409,message:admissionConflict,expected:true};
   if (error instanceof ResultPlaceValidationError) {
     return { status: 400, message: error.message, expected: true };
   }

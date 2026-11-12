@@ -88,6 +88,8 @@ export type TournamentLateRegistrationSnapshot = {
 
 
 export type Tournament = {
+  // Read-only projection of canonical frozen snapshot; never persisted on tournaments.
+  frozen_rating_places_count?: number | null;
   id: string;
   title: string;
   start_at: string;

@@ -1,4 +1,5 @@
 "use server";
+import {registrationDeadlineRejection,isRegistrationDeadlineElapsed} from "@/lib/registration-deadline-response";
 import { assertTournamentCreationShape, prepareTournamentCreation, type TournamentCreationInput } from "@/lib/tournament-creation";
 
 import {
@@ -432,13 +433,15 @@ export async function getMyTournamentRegistrationGuards(
   tournamentId: string
 ): Promise<{ lateRegistrationClosed: boolean; arrived: boolean }> {
   const snapshot = await tournamentLateRegistrationRepository.findByTournamentId(tournamentId);
+  const tournament = await tournamentRepository.findById(tournamentId);
+  const closed = snapshot != null || isRegistrationDeadlineElapsed(tournament?.late_registration_ends_at);
   const actor = await resolveCurrentServerActor();
   if (!actor) {
-    return { lateRegistrationClosed: snapshot != null, arrived: false };
+    return { lateRegistrationClosed: closed, arrived: false };
   }
   const attendance = await tournamentLiveStateRepository.findAttendanceByTournamentId(tournamentId);
   return {
-    lateRegistrationClosed: snapshot != null,
+    lateRegistrationClosed: closed,
     arrived: attendance.get(actor.id)?.arrived_at != null,
   };
 }
@@ -741,7 +744,10 @@ export async function addAdminTournamentParticipant(
   // LATE_REGISTRATION_CLOSED_MESSAGE and writes nothing -- no orphan Player.
   try {
     await createWalkInParticipantWithinLock(tournamentId, normalizedNick);
+    return {ok:true as const};
   } catch (err) {
+    const rejection=registrationDeadlineRejection(err);
+    if(rejection)return rejection;
     throw new Error(err instanceof Error ? err.message : String(err));
   }
 }
@@ -756,8 +762,9 @@ export async function addAdminTournamentParticipant(
 // redirected to the canonical target. That one expected rejection is
 // RETURNED as { ok: false, error } (production Server Actions don't forward
 // thrown messages) so the admin sees exactly why and re-selects the
-// canonical account; every other failure still throws, as before.
-export type AddExistingPlayerResult = { ok: true } | { ok: false; error: string };
+// canonical account. Confirmed deadline rejections are also returned;
+// unexpected database/authentication failures remain exceptions.
+export type AddExistingPlayerResult = { ok: true } | { ok: false; error: string; code?: "LATE_REGISTRATION_CLOSED" };
 
 export async function addExistingPlayerToTournament(
   tournamentId: string,
@@ -789,6 +796,8 @@ export async function addExistingPlayerToTournament(
     if (err instanceof MergedAwayPlayerSelectionError) {
       return { ok: false, error: err.message };
     }
+    const rejection=registrationDeadlineRejection(err);
+    if(rejection)return rejection;
     throw err;
   }
   return { ok: true };

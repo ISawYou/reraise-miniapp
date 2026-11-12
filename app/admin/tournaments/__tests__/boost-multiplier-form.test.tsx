@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
   updateTournament: vi.fn(),
 }));
 
+vi.mock("@/features/admin-tournament-admission",()=>({
+ getStaffAdmissionContext:async()=>({phase:"normal",title:"Fixture",status:"open",tournamentType:"classic",ratedPlaces:null}),
+ admitTournamentPlayer:async()=>({ok:true,status:'registered',noOp:false}),
+}));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "t1" }),
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),

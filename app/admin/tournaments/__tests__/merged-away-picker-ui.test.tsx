@@ -20,8 +20,14 @@ const mocks = vi.hoisted(() => ({
   getAdminTournamentParticipants: vi.fn(),
   addExistingPlayerToTournament: vi.fn(),
   directory: [] as unknown[],
+  phase: "normal" as "normal"|"after_time"|"after_snapshot",
+  requests: [] as Array<Record<string,unknown>>,
 }));
 
+vi.mock("@/features/admin-tournament-admission",()=>({
+ getStaffAdmissionContext:async()=>({phase:mocks.phase,title:"Вечерний",status:"open",tournamentType:"classic",ratedPlaces:null}),
+ admitTournamentPlayer:async (input:{playerId:string})=>{mocks.requests.push(input);return mocks.addExistingPlayerToTournament('t1',input.playerId);},
+}));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "t1" }),
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
@@ -87,7 +93,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks();mocks.phase="normal";mocks.requests.length=0;
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -103,7 +109,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
-  container.remove();
+  container.remove();vi.restoreAllMocks();
 });
 
 async function flush() {
@@ -176,4 +182,24 @@ describe("tournament 'Добавить существующего' picker", () =
     expect(pickerRow("savinska33")).toBeUndefined();
     expect(pickerRow("p_73a")).toBeDefined();
   });
+});
+
+describe('explicit privileged late confirmation',()=>{
+ it.each(['after_time','after_snapshot']as const)('%s cancellation never admits',async phase=>{
+  mocks.phase=phase;mocks.directory=[P_73A];const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+  await openExistingPicker();await click(button('Добавить',pickerRow('p_73a')!));
+  expect(confirm).toHaveBeenCalled();expect(confirm.mock.calls[0][0]).toContain('Вечерний');expect(confirm.mock.calls[0][0]).toContain('p_73a');
+  expect(confirm.mock.calls[0][0]).toContain(phase==='after_time'?'Время поздней регистрации истекло':'Очки за призовые места зафиксированы');
+  expect(mocks.requests).toHaveLength(0);expect(mocks.addExistingPlayerToTournament).not.toHaveBeenCalled();
+ });
+ it('after-snapshot approval explicitly carries physical confirmation and preserves phase',async()=>{
+  mocks.phase='after_snapshot';mocks.directory=[P_73A];mocks.addExistingPlayerToTournament.mockResolvedValue({ok:true,status:'registered'});vi.spyOn(window,'confirm').mockReturnValue(true);
+  await openExistingPicker();const label=Array.from(container.querySelectorAll('label')).find(l=>l.textContent?.includes('Игрок физически пришёл'))!;
+  await act(async()=>label.querySelector('input')!.click());await click(button('Добавить',pickerRow('p_73a')!));
+  expect(mocks.requests[0]).toMatchObject({playerId:'p_73a',expectedPhase:'after_snapshot',confirmed:true,arrivalConfirmed:true});expect(container.textContent).toContain('отмечен как «Пришёл»');
+ });
+ it('stale confirmation/business rejection shows actual Russian reason, never false success',async()=>{
+  mocks.phase='after_time';mocks.directory=[P_73A];mocks.addExistingPlayerToTournament.mockResolvedValue({ok:false,error:'Состояние регистрации изменилось — подтвердите добавление заново'});vi.spyOn(window,'confirm').mockReturnValue(true);
+  await openExistingPicker();await click(button('Добавить',pickerRow('p_73a')!));expect(container.textContent).toContain('подтвердите добавление заново');expect(container.textContent).not.toContain('Участник добавлен');
+ });
 });

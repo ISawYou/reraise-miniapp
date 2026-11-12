@@ -34,6 +34,8 @@ vi.mock("@/features/tournaments", () => ({
   getMyOnlineRegistrationRestriction: m.getMyOnlineRegistrationRestriction,
 }));
 vi.mock("@/lib/activity-client", () => ({ logEvent: vi.fn() }));
+// This harness tests registration controls, not qualification API payloads.
+vi.mock("@/components/qualifications/tournament-note", () => ({ QualificationTournamentNote: () => null }));
 
 const { default: TournamentDetailsPage } = await import("@/app/tournaments/[id]/page");
 

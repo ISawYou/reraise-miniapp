@@ -1,8 +1,10 @@
 ﻿"use client";
 
+import {admitTournamentPlayer,getStaffAdmissionContext} from "@/features/admin-tournament-admission";
+import {admissionConfirmation} from "@/lib/admin-admission";
 import { BackButton } from "@/components/ui/back-button";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import { resolveCurrentPlayer } from "@/lib/current-player";
 import {
   addAdminTournamentParticipant,
@@ -36,7 +38,6 @@ import {
   type TournamentPreset,
 } from "@/config/tournament-presets";
 import { FINAL_PARTICIPANTS_ADMIN_NOTE } from "@/lib/tournament-final-policy";
-import { LATE_REGISTRATION_CLOSED_MESSAGE } from "@/lib/registration-policy-copy";
 import type { Player } from "@/types/domain";
 
 export const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }> = [
@@ -198,10 +199,26 @@ export default function AdminTournamentEditPage() {
   const [seasonError, setSeasonError] = useState<string | null>(null);
   const [tournamentStatus, setTournamentStatus] = useState<string | null>(null);
   const [participants, setParticipants] = useState<AdminTournamentParticipant[]>([]);
-  // Late Registration closed (tournament_late_registration snapshot exists):
-  // adding NEW participants is closed server-side; hide the controls. The
-  // existing roster stays fully manageable.
+  // Snapshot remains frozen; staff additions use separately confirmed admission.
   const [lateRegistrationClosed, setLateRegistrationClosed] = useState(false);
+  const [physicalArrival,setPhysicalArrival]=useState(false);
+  const [frozenPrizeCount,setFrozenPrizeCount]=useState<number|null>(null);
+  const admissionRequest=useRef<{key:string;id:string}|null>(null);
+  async function confirmedAdmission(target:{playerId?:string;nickname?:string},nickname:string){
+    const context=await getStaffAdmissionContext(tournamentId!,target.playerId);
+    setFrozenPrizeCount(context.ratedPlaces);
+    if(context.status==='completed'){setError('Турнир завершён — добавление запрещено');return false;}
+    if(context.tournamentType==='qualification_final'){
+      const result=target.playerId?await addExistingPlayerToTournament(tournamentId!,target.playerId):await addAdminTournamentParticipant(tournamentId!,target.nickname!);
+      if(!result.ok){setError(result.error);return false;}setMessage('Участник добавлен');return true;
+    }
+    if(context.noShowRestricted&&!physicalArrival){setError('Для допуска после неявки подтвердите физическое присутствие игрока');return false;}
+    if((context.phase!=='normal'||context.noShowRestricted)&&!window.confirm(admissionConfirmation(context.phase,nickname,context.title)+(context.noShowRestricted?'\n\nУ игрока ограничение после неявки. Подтверждаю физическое присутствие и отдельный допуск со снятием ограничения.':'')+(physicalArrival?'\n\nПодтверждаю: игрок физически пришёл и получил первый стек.':'')))return false;
+    const key=JSON.stringify({target,physicalArrival});if(admissionRequest.current?.key!==key)admissionRequest.current={key,id:crypto.randomUUID()};
+    const result=await admitTournamentPlayer({tournamentId:tournamentId!,requestId:admissionRequest.current.id,...target,expectedPhase:context.phase,confirmed:context.phase!=='normal',arrivalConfirmed:physicalArrival,noShowAdmissionConfirmed:context.noShowRestricted&&physicalArrival});
+    if(!result.ok){setError(result.error);return false;}
+    setMessage(result.noOp?'Игрок уже зарегистрирован':result.status==='waitlist'?'Игрок добавлен в лист ожидания':physicalArrival?'Игрок добавлен и отмечен как «Пришёл»':'Участник добавлен');admissionRequest.current=null;setPhysicalArrival(false);return true;
+  }
   const [showAddParticipantForm, setShowAddParticipantForm] = useState(false);
   const [newParticipantNick, setNewParticipantNick] = useState("");
   const [participantSaving, setParticipantSaving] = useState(false);
@@ -212,7 +229,7 @@ export default function AdminTournamentEditPage() {
   const [noShowCandidate, setNoShowCandidate] = useState<AdminTournamentParticipant | null>(null);
   const [rosterActionRegistrationId, setRosterActionRegistrationId] = useState<string | null>(null);
 
-  const [addMode, setAddMode] = useState<"new" | "existing">("new");
+  const [addMode, setAddMode] = useState<"new" | "existing">("existing");
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
   const [playersLoading, setPlayersLoading] = useState(false);
   const [playerSearch, setPlayerSearch] = useState("");
@@ -235,9 +252,7 @@ export default function AdminTournamentEditPage() {
       );
       const closed = payload?.snapshot != null;
       setLateRegistrationClosed(closed);
-      if (closed) {
-        setShowAddParticipantForm(false);
-      }
+
       return closed;
     } catch {
       return false;
@@ -262,6 +277,7 @@ export default function AdminTournamentEditPage() {
         const participantsData = await getAdminTournamentParticipants(tournamentId);
 
         setTitle(tournament.title);
+        setFrozenPrizeCount(tournament.frozen_rating_places_count??null);
         setDescription(tournament.description ?? "");
         setLocation(tournament.location ?? "");
         setStartAt(toDateTimeLocalValue(tournament.start_at));
@@ -412,20 +428,15 @@ export default function AdminTournamentEditPage() {
       setMessage(null);
       setError(null);
 
-      await addAdminTournamentParticipant(tournamentId, newParticipantNick);
+      if(!await confirmedAdmission({nickname:newParticipantNick.trim()},newParticipantNick.trim()))return;
       await loadParticipants(tournamentId);
 
       setNewParticipantNick("");
       setShowAddParticipantForm(false);
-      setMessage("Участник добавлен");
     } catch (err) {
       const nextMessage =
         err instanceof Error ? err.message : "Ошибка добавления участника";
-      setError(
-        (await refreshLateRegistrationClosed(tournamentId))
-          ? LATE_REGISTRATION_CLOSED_MESSAGE
-          : nextMessage
-      );
+      setError(nextMessage);
     } finally {
       setParticipantSaving(false);
     }
@@ -572,7 +583,7 @@ export default function AdminTournamentEditPage() {
   const isCompleted = tournamentStatus === "completed";
 
   const registeredPlayerIds = useMemo(
-    () => new Set(participants.map((p) => p.player_id)),
+    () => new Set(participants.filter(p=>p.status==="registered"||p.status==="attended").map((p) => p.player_id)),
     [participants]
   );
 
@@ -584,8 +595,8 @@ export default function AdminTournamentEditPage() {
   const waitlistCount = waitlistParticipants.length;
   const noShowCount = noShowParticipants.length;
   const expectedPrizePlaces = useMemo(
-    () => getExpectedPrizePlaces(participants.length),
-    [participants.length]
+    () => frozenPrizeCount ?? getExpectedPrizePlaces(participants.length),
+    [participants.length,frozenPrizeCount]
   );
   const tournamentTypeBonusLines = useMemo(
     () => getTournamentTypeBonusLines(tournamentType),
@@ -631,30 +642,16 @@ export default function AdminTournamentEditPage() {
     setMessage(null);
     setError(null);
     try {
-      const result = await addExistingPlayerToTournament(tournamentId, playerId);
-      if (!result.ok) {
-        // Stale selection (e.g. the account was merged away after the list
-        // loaded) -- show the server's reason and reload the canonical-only
-        // directory so the stale entry disappears. Never auto-redirected.
-        setError(result.error);
-        try {
-          const data = await fetchAdminJson<{ players: Player[] }>("/api/admin/nicknames/players");
-          setAllPlayers(data.players);
-        } catch {
-          // Keep the error above; the list reloads on the next open.
-        }
+      const selected=allPlayers.find(p=>p.id===playerId);
+      if(!await confirmedAdmission({playerId},selected?.display_name??'Выбранный игрок')){
+        try{const data=await fetchAdminJson<{players:Player[]}>("/api/admin/nicknames/players");setAllPlayers(data.players);}catch{}
         return;
       }
       await loadParticipants(tournamentId);
-      setMessage("Участник добавлен");
       setPlayerSearch("");
     } catch (err) {
       const nextMessage = err instanceof Error ? err.message : "Ошибка добавления участника";
-      setError(
-        (await refreshLateRegistrationClosed(tournamentId))
-          ? LATE_REGISTRATION_CLOSED_MESSAGE
-          : nextMessage
-      );
+      setError(nextMessage);
     } finally {
       setAddingExistingPlayerId(null);
     }
@@ -859,10 +856,10 @@ export default function AdminTournamentEditPage() {
             <h2 className="text-lg font-semibold text-white">
               Участники
             </h2>
-            {lateRegistrationClosed ? null : (
+            {tournamentStatus === "completed" ? null : (
               <button
                 type="button"
-                onClick={() => setShowAddParticipantForm((prev) => !prev)}
+                onClick={() => { if(!showAddParticipantForm)void handleSwitchToExisting();setShowAddParticipantForm((prev) => !prev); }}
                 className="rounded-lg border border-white/15 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 + Добавить
@@ -872,8 +869,7 @@ export default function AdminTournamentEditPage() {
 
           {lateRegistrationClosed ? (
             <p className="mt-3 text-xs text-white/50">
-              {LATE_REGISTRATION_CLOSED_MESSAGE}. Добавление новых участников недоступно —
-              текущий состав можно вести как обычно.
+              Поздняя регистрация закрыта. Ручное добавление доступно с отдельным подтверждением, без пересчёта зафиксированных очков.
             </p>
           ) : null}
 
@@ -881,8 +877,9 @@ export default function AdminTournamentEditPage() {
             <p className="mt-3 text-xs text-white/50">{FINAL_PARTICIPANTS_ADMIN_NOTE}</p>
           ) : null}
 
-          {showAddParticipantForm && !lateRegistrationClosed ? (
+          {showAddParticipantForm && tournamentStatus !== "completed" ? (
             <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
+              <label className="mb-3 flex gap-2 text-sm text-white/80"><input type="checkbox" checked={physicalArrival} onChange={e=>setPhysicalArrival(e.target.checked)}/>Игрок физически пришёл и получил первый стек — добавить и отметить «Пришёл»</label>
               <div className="flex gap-2">
                 <button
                   type="button"

@@ -177,12 +177,10 @@ describe("addExistingPlayerToTournament (admin 'Добавить существ�
     expect(statusOf(SAVINSKA33)).toBeUndefined();
   });
 
-  it("9. other failures still throw unchanged (Late Registration closed)", async () => {
+  it("9. Late Registration rejection is returned with readable typed response", async () => {
     fake.state.lateRegistrationClosed = true;
 
-    await expect(tournaments.addExistingPlayerToTournament("t1", P_73A)).rejects.toThrow(
-      "Поздняя регистрация завершена — запись на турнир закрыта"
-    );
+    await expect(tournaments.addExistingPlayerToTournament("t1", P_73A)).resolves.toMatchObject({ok:false,code:"LATE_REGISTRATION_CLOSED",error:"Поздняя регистрация завершена — запись на турнир закрыта"});
   });
 });
 

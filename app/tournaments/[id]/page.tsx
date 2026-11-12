@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import {registerPlayerForTournamentAction} from "@/features/registration-action";
 import { TournamentDescription } from "@/components/tournaments/tournament-description";
 import { QualificationTournamentNote } from "@/components/qualifications/tournament-note";
 import Link from "next/link";
@@ -12,7 +13,6 @@ import {
   getTournamentParticipants,
   getTournamentResults,
   getPlayerRegistrationForTournament,
-  registerPlayerForTournament,
   cancelPlayerRegistration,
   getMyOnlineRegistrationRestriction,
   getMyTournamentRegistrationGuards,
@@ -407,7 +407,7 @@ export default function TournamentDetailsPage() {
   const tournamentDateParts = tournament
     ? formatTournamentDateParts(tournament.start_at)
     : null;
-  const expectedPrizePlaces = getExpectedPrizePlaces(participants.length);
+  const expectedPrizePlaces = tournament?.frozen_rating_places_count ?? getExpectedPrizePlaces(participants.length);
   const tournamentTypeBonusLines = tournament
     ? getTournamentTypeBonusLines(tournament.tournament_type, tournament.rating_formula_version)
     : [];
@@ -562,7 +562,9 @@ const waitlistParticipants = participants.filter(
       setActionLoading(true);
       setMessage(null);
 
-      const result = await registerPlayerForTournament(player.id, tournamentId);
+      const outcome = await registerPlayerForTournamentAction(player.id, tournamentId);
+      if (!outcome.ok) { setMessage(outcome.error); return; }
+      const result = outcome.registration;
 
       const restrictedWaitlist =
         result.status === "waitlist" &&
