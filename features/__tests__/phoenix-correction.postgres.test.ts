@@ -1,0 +1,57 @@
+import {beforeAll,beforeEach,afterAll,afterEach,describe,it,expect,vi} from 'vitest';
+import postgres from 'postgres';import {drizzle} from 'drizzle-orm/postgres-js';import {migrate} from 'drizzle-orm/postgres-js/migrator';import {eq,sql} from 'drizzle-orm';
+import * as schema from '@/lib/db/schema';import {calculateRatingPointsV2,calculateRatingPlaceStructureForTournament} from '@/features/rating-v2';import {PHOENIX_ID,PHOENIX_OWNER_CONFIRMATION,PHOENIX_CORRECTION_KEY} from '@/lib/phoenix-correction';
+import type {db as Database} from '@/lib/db';
+const h=vi.hoisted(()=>({db:null as unknown as typeof Database,fail:false}));vi.mock('@/lib/db',()=>({db:new Proxy({},{get(_t,k){if(k==='transaction')return async(fn:(tx:unknown)=>Promise<unknown>,options:unknown)=>h.db.transaction(async tx=>{if(h.fail)await tx.execute(sql`set local phoenix_test.fail_commit='on'`);return fn(tx);},options as Parameters<typeof h.db.transaction>[1]);const v=Reflect.get(h.db,k);return typeof v==='function'?v.bind(h.db):v;}})}));
+const {PostgresPhoenixCorrectionRepository}=await import('@/lib/repositories/phoenix-correction/PostgresPhoenixCorrectionRepository');const {PostgresTournamentRepository}=await import('@/lib/repositories/tournament/PostgresTournamentRepository');
+const url=process.env.RERAISE_PHOENIX_TEST_DATABASE_URL;if(url){const u=new URL(url);if(u.hostname!=='127.0.0.1'||!u.pathname.startsWith('/reraise_phoenix_test_'))throw Error('Disposable localhost DB only');}
+let client:ReturnType<typeof postgres>;let repo:InstanceType<typeof PostgresPhoenixCorrectionRepository>;let revision:string;const pid=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;const owner={kind:'owner-release' as const,confirmation:PHOENIX_OWNER_CONFIRMATION};
+describe.runIf(!!url)('Phoenix historical correction actual PostgreSQL',()=>{
+ beforeAll(async()=>{client=postgres(url!,{max:8,onnotice:()=>{}});h.db=drizzle(client,{schema});await migrate(h.db,{migrationsFolder:'lib/db/migrations'});await client.unsafe(`CREATE OR REPLACE FUNCTION phoenix_test_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF current_setting('phoenix_test.fail_commit',true)='on' THEN RAISE EXCEPTION 'deliberate deferred COMMIT failure'; END IF; RETURN NEW; END $$; DROP TRIGGER IF EXISTS phoenix_test_guard ON results; CREATE CONSTRAINT TRIGGER phoenix_test_guard AFTER UPDATE ON results DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION phoenix_test_guard();`);});
+ afterAll(async()=>client?.end());afterEach(()=>{vi.unstubAllEnvs();h.fail=false;});
+ beforeEach(async()=>{vi.stubEnv('DATABASE_PROVIDER','postgres');h.fail=false;await client`truncate app_settings,results,tournament_late_registration,tournaments,players,seasons cascade`;await h.db.insert(schema.seasons).values({id:pid(800),title:'Fixture season',startDate:'2026-09-01',isActive:true});for(let n=1;n<=35;n++)await h.db.insert(schema.players).values({id:pid(n),displayName:n===1?'kresh':'Fixture'+n});for(const [n,role,blocked]of [[900,'admin',false],[901,'operator',false],[902,'admin',true]]as const)await h.db.insert(schema.players).values({id:pid(n),displayName:'Staff'+n,role,isBlocked:blocked});await h.db.insert(schema.tournaments).values({id:PHOENIX_ID,title:'PHOENIX',description:'Original description',kind:'free',status:'completed',tournamentType:'phoenix',ratingFormulaVersion:'v2',startingStack:50000,placementPointsMultiplier:1,ratingGuarantee:null,seasonId:pid(800),startAt:new Date('2026-11-11T16:00:00Z'),maxPlayers:46});const inputs=Array.from({length:35},(_,i)=>({player_id:pid(i+1),place:i+1,arrived:true,entries:i<14?2:1,addons:0,knockouts:0}));const rs=calculateRatingPointsV2(inputs,'phoenix',{placementPointsMultiplier:1}).results;await h.db.insert(schema.results).values(rs.map((r,i)=>({tournamentId:PHOENIX_ID,playerId:r.player_id,seasonId:pid(800),place:i+1,reentries:inputs[i].entries,addons:0,knockouts:0,arrived:true,ratingPoints:r.rating_points,itmPoints:r.itm_points,participationPoints:2,knockoutPoints:0,bossBountyPoints:0,mysteryBountyPoints:0})));await h.db.insert(schema.tournamentLateRegistration).values({tournamentId:PHOENIX_ID,arrivedPlayersCount:35,initialStacksCount:35,totalEntriesCount:49,rebuysCount:14,addonsCount:0,tournamentType:'phoenix',ratingFormulaVersion:'v2',ratingGuarantee:null,ratingPlaces:calculateRatingPlaceStructureForTournament(inputs,'phoenix','v2',{placementPointsMultiplier:1})});const p=await new PostgresPhoenixCorrectionRepository('UNSET').preview(owner);if(p.status!=='preview')throw Error('fixture');revision=p.revision;repo=new PostgresPhoenixCorrectionRepository(revision);});
+ it('preview writes nothing and exact expected pool/winner',async()=>{const p=await repo.preview(owner);expect(p.status).toBe('preview');if(p.status==='preview'){expect(p.afterPool).toBe(1182);expect(p.afterResults[0].ratingPoints).toBe(287);}expect(await h.db.select().from(schema.appSettings)).toHaveLength(0);});
+ it('in-place35 IDs/dates/facts preserved,11 changes,24 unchanged; durable before-image',async()=>{const p=await repo.preview(owner);expect(await repo.apply(owner,revision)).toMatchObject({status:'applied',afterPool:1182});const after=await h.db.select().from(schema.results).orderBy(schema.results.place);expect(after.reduce((s,r)=>s+r.ratingPoints,0)).toBe(1182);expect(p.status).toBe('preview');if(p.status!=='preview')return;for(let i=0;i<35;i++){const {ratingPoints:oldPoints,itmPoints:oldItm,...old}=p.before.results[i];const {ratingPoints,itmPoints,...rest}=after[i];expect(rest).toEqual(old);if(i>=11)expect([ratingPoints,itmPoints]).toEqual([oldPoints,oldItm]);}const [a]=await h.db.select().from(schema.appSettings);expect(a.key).toBe(PHOENIX_CORRECTION_KEY);expect((a.value as {before:unknown}).before).toBeTruthy();});
+ it('retry exact desired state is NO-OP and audit is immutable',async()=>{await repo.apply(owner,revision);const before=JSON.stringify(await h.db.select().from(schema.appSettings));expect(await repo.apply(owner,revision)).toMatchObject({status:'no-op'});expect(JSON.stringify(await h.db.select().from(schema.appSettings))).toBe(before);expect(await repo.preview(owner)).toMatchObject({status:'already_applied'});});
+ it('concurrent retries serialize into applied and NO-OP',async()=>{const a=await Promise.all([repo.apply(owner,revision),repo.apply(owner,revision)]);expect(a.map(r=>r.status).sort()).toEqual(['applied','no-op']);expect(await h.db.select().from(schema.appSettings)).toHaveLength(1);});
+ it('stale snapshot rejected with zero writes',async()=>{await h.db.update(schema.tournamentLateRegistration).set({totalEntriesCount:50}).where(eq(schema.tournamentLateRegistration.tournamentId,PHOENIX_ID));await expect(repo.apply(owner,revision)).rejects.toThrow();expect(await h.db.select().from(schema.appSettings)).toHaveLength(0);expect((await h.db.select().from(schema.tournaments))[0].placementPointsMultiplier).toBe(1);});
+ it('unapproved baseline hash rejected',async()=>{await expect(repo.apply(owner,'bad')).rejects.toThrow('unapproved');});
+ it('partial desired state cannot receive delta again',async()=>{await repo.apply(owner,revision);await h.db.update(schema.results).set({ratingPoints:288,itmPoints:286}).where(eq(schema.results.playerId,pid(1)));await expect(repo.apply(owner,revision)).rejects.toThrow('partial/stale');});
+ it('actual deferred COMMIT failure rolls back config,snapshot,results and audit',async()=>{h.fail=true;await expect(repo.apply(owner,revision)).rejects.toThrow();h.fail=false;expect((await repo.preview(owner)).status).toBe('preview');expect(await h.db.select().from(schema.appSettings)).toHaveLength(0);});
+ it.each([1,901,902])('non-authorized/blocked staff%d denied',async n=>{await expect(repo.apply({kind:'admin',playerId:pid(n)},revision)).rejects.toThrow('authorization');expect(await h.db.select().from(schema.appSettings)).toHaveLength(0);});
+ it('valid canonical admin may apply',async()=>{expect(await repo.apply({kind:'admin',playerId:pid(900)},revision)).toMatchObject({status:'applied'});});
+ it('owner phrase required',async()=>{await expect(repo.apply({kind:'owner-release',confirmation:'bad'},revision)).rejects.toThrow('authorization');});
+ it('ordinary frozen/completed multiplier edit is rejected',async()=>{await expect(new PostgresTournamentRepository().update(PHOENIX_ID,{placement_points_multiplier:1.5})).rejects.toThrow('зафиксирован');expect((await h.db.select().from(schema.tournaments))[0].placementPointsMultiplier).toBe(1);});
+ it('registrations, discounts and total entry facts remain untouched',async()=>{
+  await h.db.insert(schema.registrations).values({playerId:pid(1),tournamentId:PHOENIX_ID,status:'attended',waitlistPromotionNotificationClaimedAt:new Date('2026-11-11T15:00:00Z')});
+  const before=await h.db.select().from(schema.registrations);
+  await repo.apply(owner,revision);
+  expect(await h.db.select().from(schema.registrations)).toEqual(before);
+  expect((await h.db.select().from(schema.results)).reduce((s,r)=>s+r.reentries,0)).toBe(49);
+ });
+ it('invalid finance/baseline fact blocks preview/correction',async()=>{await h.db.update(schema.results).set({freeReentries:1}).where(eq(schema.results.playerId,pid(1)));await expect(repo.preview(owner)).rejects.toThrow();await expect(repo.apply(owner,revision)).rejects.toThrow();});
+ it('rating achievement refresh only; other metrics and earned timestamps preserved',async()=>{
+  const earned=new Date('2026-01-01T00:00:00Z');
+  await h.db.insert(schema.playerAchievements).values([
+   {playerId:pid(1),achievementCode:'rookie_100_rating',currentValue:100,completedAt:earned},
+   {playerId:pid(1),achievementCode:'pro_1000_rating',currentValue:192},
+   {playerId:pid(1),achievementCode:'first_win',currentValue:1,completedAt:earned},
+  ]);
+  const before=await h.db.select().from(schema.playerAchievements);
+  await repo.apply(owner,revision);
+  const after=await h.db.select().from(schema.playerAchievements);
+  expect(after.find(x=>x.achievementCode==='pro_1000_rating')?.currentValue).toBe(287);
+  expect(after.find(x=>x.achievementCode==='rookie_100_rating')?.completedAt).toEqual(earned);
+  expect(after.find(x=>x.achievementCode==='first_win')).toEqual(before.find(x=>x.achievementCode==='first_win'));
+ });
+ it('ordinary edit of closed but frozen Phoenix cannot invalidate snapshot',async()=>{
+  await h.db.update(schema.tournaments).set({status:'closed'}).where(eq(schema.tournaments.id,PHOENIX_ID));
+  await expect(new PostgresTournamentRepository().update(PHOENIX_ID,{placement_points_multiplier:1.25})).rejects.toThrow();
+ });
+ it('ordinary cosmetic edit preserving the premium still works after correction',async()=>{
+  await repo.apply(owner,revision);
+  await new PostgresTournamentRepository().update(PHOENIX_ID,{title:'PHOENIX updated',placement_points_multiplier:1.5});
+  expect((await h.db.select().from(schema.tournaments))[0].placementPointsMultiplier).toBe(1.5);
+ });
+ it('unrelated tournament rows unchanged',async()=>{const id=pid(999);await h.db.insert(schema.tournaments).values({id,title:'Other',status:'completed',kind:'free',tournamentType:'classic',maxPlayers:40,startAt:new Date()});await h.db.insert(schema.results).values({tournamentId:id,playerId:pid(1),place:1,ratingPoints:123});const before=await h.db.select().from(schema.results).where(eq(schema.results.tournamentId,id));await repo.apply(owner,revision);expect(await h.db.select().from(schema.results).where(eq(schema.results.tournamentId,id))).toEqual(before);});
+});

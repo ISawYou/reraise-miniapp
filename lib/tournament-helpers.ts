@@ -75,6 +75,10 @@ export function getBoostRatingBadge(tournament: {
   tournament_type: TournamentType;
   placement_points_multiplier?: number | null;
 }): string | null {
+  if (tournament.tournament_type === "phoenix") {
+    const value = tournament.placement_points_multiplier ?? 1;
+    return value === 1 ? null : `PHOENIX ×${formatPlacementPointsMultiplier(value).replace(".", ",")}`;
+  }
   if (tournament.tournament_type !== "boost_rating") return null;
   return `BOOST RATING ×${formatPlacementPointsMultiplier(tournament.placement_points_multiplier ?? 1)}`;
 }

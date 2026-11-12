@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, asc, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { tournaments } from "@/lib/db/schema";
+import { tournaments, tournamentLateRegistration } from "@/lib/db/schema";
 import type { Tournament, TournamentStatus, TournamentType } from "@/types/domain";
 import type { TournamentRepository, TournamentInsert, TournamentPatch } from "./TournamentRepository";
 
@@ -154,16 +154,23 @@ export class PostgresTournamentRepository implements TournamentRepository {
   }
 
   async update(tournamentId: string, patch: TournamentPatch): Promise<Tournament> {
-    const rows = await db
-      .update(tournaments)
-      .set(tournamentColumnValues(patch))
-      .where(eq(tournaments.id, tournamentId))
-      .returning();
-    const [row] = rows;
-    if (!row) {
-      throw new Error("Failed to update tournament: no rows returned");
-    }
-    return mapRowToTournament(row);
+    return db.transaction(async tx => {
+      const [current] = await tx.select().from(tournaments).where(eq(tournaments.id,tournamentId)).for("update");
+      if (!current) throw new Error("Tournament not found");
+      if (current.tournamentType === "phoenix" || patch.tournament_type === "phoenix") {
+        const changed = (patch.placement_points_multiplier != null && patch.placement_points_multiplier !== current.placementPointsMultiplier)
+          || (patch.rating_guarantee !== undefined && patch.rating_guarantee !== current.ratingGuarantee)
+          || (patch.tournament_type !== undefined && patch.tournament_type !== current.tournamentType)
+          || (patch.rating_formula_version !== undefined && patch.rating_formula_version !== current.ratingFormulaVersion);
+        if (changed) {
+          const [frozen] = await tx.select({id:tournamentLateRegistration.tournamentId}).from(tournamentLateRegistration).where(eq(tournamentLateRegistration.tournamentId,tournamentId)).limit(1);
+          if (frozen || current.status === "completed") throw new Error("Рейтинг PHOENIX зафиксирован. Изменение коэффициента требует отдельной исторической коррекции.");
+        }
+      }
+      const [row] = await tx.update(tournaments).set(tournamentColumnValues(patch)).where(eq(tournaments.id,tournamentId)).returning();
+      if (!row) throw new Error("Failed to update tournament: no rows returned");
+      return mapRowToTournament(row);
+    });
   }
 
   async patch(tournamentId: string, patch: TournamentPatch): Promise<void> {

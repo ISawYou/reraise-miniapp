@@ -189,7 +189,6 @@ export default function AdminTournamentEditPage() {
   // Used anywhere real per-type behavior (bonus lines, the type label) is
   // needed; is_final is the only signal for anything final-specific.
   const { tournament_type: tournamentType, is_final: isFinal } = presetToTournamentFields(preset);
-  const [ratingGuarantee, setRatingGuarantee] = useState("");
   // Loaded from the stored tournament and submitted back unchanged unless
   // the admin edits it -- never silently reset to the default.
   const [placementPointsMultiplier, setPlacementPointsMultiplier] = useState(
@@ -269,15 +268,12 @@ export default function AdminTournamentEditPage() {
         setMaxPlayers(String(tournament.max_players));
         setLateRegistrationEndsAt(tournament.late_registration_ends_at ? toDateTimeLocalValue(tournament.late_registration_ends_at) : "");
         setPreset(tournamentToPreset(tournament));
-        setRatingGuarantee(
-          tournament.rating_guarantee != null ? String(tournament.rating_guarantee) : ""
-        );
-        // A stored boost_rating value is authoritative; any other type has
+        // A stored Boost / PHOENIX value is authoritative; other types have
         // 1 stored, so pre-fill the boost default in case the admin
-        // switches this tournament to Boost Rating.
+        // switches this tournament to a multiplier-enabled format.
         setPlacementPointsMultiplier(
           String(
-            tournament.tournament_type === "boost_rating"
+            tournament.tournament_type === "boost_rating" || tournament.tournament_type === "phoenix"
               ? tournament.placement_points_multiplier
               : DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER
           )
@@ -388,10 +384,6 @@ export default function AdminTournamentEditPage() {
         max_players: Number(maxPlayers),
         tournament_type: tournamentType,
         is_final: isFinal,
-        rating_guarantee:
-          tournamentType === "phoenix" && ratingGuarantee.trim() !== ""
-            ? Number(ratingGuarantee)
-            : null,
         placement_points_multiplier: parsedPlacementPointsMultiplier,
       });
 
@@ -793,6 +785,8 @@ export default function AdminTournamentEditPage() {
                 setTitle(template.title);
                 setDescription(template.description);
               }
+              if (nextPreset === "phoenix" && preset !== "phoenix") setPlacementPointsMultiplier("1");
+              if (nextPreset === "boost_rating" && preset !== "boost_rating") setPlacementPointsMultiplier(String(DEFAULT_BOOST_PLACEMENT_POINTS_MULTIPLIER));
               setPreset(nextPreset);
               if (nextPreset === "qualification_final") { setMaxPlayers("18"); setLateRegistrationEndsAt(""); }
             }}
@@ -805,27 +799,7 @@ export default function AdminTournamentEditPage() {
             ))}
           </select>
 
-          {preset === "phoenix" ? (
-            <>
-              <label className="mt-4 block text-sm text-white/80">
-                Rating Guarantee (опционально)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={ratingGuarantee}
-                onChange={(e) => setRatingGuarantee(e.target.value)}
-                placeholder="Например, 600"
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
-              />
-              <p className="mt-1 text-xs text-white/50">
-                Гарантированный итоговый рейтинговый пул турнира (участие + места).
-                Если оставить пустым — гарантии нет, начисляется обычный расчётный пул.
-              </p>
-            </>
-          ) : null}
-
-          {preset === "boost_rating" ? (
+          {preset === "boost_rating" || preset === "phoenix" ? (
             <>
               <label className="mt-4 block text-sm text-white/80">
                 Коэффициент буста (очки за место)
@@ -835,6 +809,7 @@ export default function AdminTournamentEditPage() {
                 min="0.01"
                 step="0.01"
                 value={placementPointsMultiplier}
+                disabled={preset === "phoenix" && tournamentStatus === "completed"}
                 onChange={(e) => setPlacementPointsMultiplier(e.target.value)}
                 placeholder="Например, 2 или 1.5"
                 className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
@@ -842,6 +817,7 @@ export default function AdminTournamentEditPage() {
               <p className="mt-1 text-xs text-white/50">
                 Умножает только рейтинговые очки за занятое место. +2 за участие не умножаются.
                 Фиксируется в структуре мест при закрытии поздней регистрации.
+                {preset === "phoenix" && tournamentStatus === "completed" ? " Завершённый PHOENIX: изменение возможно только через отдельную историческую коррекцию." : ""}
               </p>
             </>
           ) : null}
