@@ -2,6 +2,7 @@ import {beforeEach,it,expect,vi} from "vitest";
 const h=vi.hoisted(()=>({auth:vi.fn(),read:vi.fn(),patch:vi.fn()}));
 vi.mock("@/lib/admin-auth",()=>{class UnauthorizedActionError extends Error{};class ForbiddenActionError extends Error{};return {assertServerActorRole:h.auth,UnauthorizedActionError,ForbiddenActionError};});
 vi.mock("@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository",()=>({tournamentOperationsRepository:{read:h.read,patch:h.patch},OperationsError:class extends Error{status=409;}}));
+vi.mock("@/features/tournaments",()=>({getAdminTournamentParticipants:async()=>[{player_id:"p",admin_nick:"P",status:"registered"}],getTournamentAttendance:async()=>new Map([["p",{arrived:true}]]),getTournamentRebuyState:async()=>new Map([["p",{rebuys:1,addons:0}]]),getTournamentEliminations:async()=>new Map([["p",{eliminated:true,eliminated_at:"2026-11-13T20:00:00Z"}]]),getDerivedEliminationPlaces:async()=>new Map([["p",1]])}));
 import {GET,PATCH} from "../route";
 import {UnauthorizedActionError,ForbiddenActionError} from "@/lib/admin-auth";
 const context={params:Promise.resolve({id:"t"})};
@@ -14,3 +15,4 @@ it.each([{ratingPoints:100},{knockouts:-1},{freeReentries:1.5},{place:0},{paymen
 it("fails closed outside PostgreSQL",async()=>{vi.stubEnv("DATABASE_PROVIDER","supabase");expect((await GET(request({}),context)).status).toBe(503);expect(h.read).not.toHaveBeenCalled();});
 it.each([undefined,null,-1,0.5,"1",2147483647])("requires a valid optimistic version (%s) before writing",async expectedVersion=>{expect((await PATCH(request({playerId:"p",expectedVersion,patch:{paid:true}}),context)).status).toBe(400);expect(h.patch).not.toHaveBeenCalled();});
 it("retains the explicit staff role guard at the write boundary",async()=>{await PATCH(request({playerId:"p",expectedVersion:0,patch:{paid:true}}),context);expect(h.auth).toHaveBeenCalledWith(["admin","operator"]);});
+it("poll read model includes canonical derived place independently of stored operation place",async()=>{h.read.mockResolvedValue([{playerId:"p",place:null}]);const response=await GET(request({}),context);expect(response.status).toBe(200);const result=await response.json();expect(result.liveRows[0]).toMatchObject({id:"p",eliminated:true,derivedPlace:1,attendanceKnown:true,entriesKnown:true});expect(result.rows[0].place).toBeNull();expect(h.patch).not.toHaveBeenCalled();});

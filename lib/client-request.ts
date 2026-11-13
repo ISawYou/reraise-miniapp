@@ -70,7 +70,9 @@ export async function fetchJsonWithRetry<T>(
           typeof payload?.error === "string"
             ? payload.error
             : "Не удалось выполнить запрос";
-        throw new Error(message);
+        // Preserve structured validation details for actionable callers while
+        // keeping the existing Error/message and retry contracts unchanged.
+        throw Object.assign(new Error(message), {details: payload});
       }
 
       return payload as T;
