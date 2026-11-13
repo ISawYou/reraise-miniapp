@@ -28,6 +28,10 @@ import {
   TournamentNotFoundError,
 } from "@/lib/tournament-errors";
 import { assertPlayerActive, PlayerMergedAwayError } from "@/features/auth-server";
+import {
+  buildCompletedResultsResponse,
+  type CompletedResultsResponse,
+} from "@/lib/completed-results";
 import { MergedAwayPlayerSelectionError } from "@/lib/merged-away-player";
 import { assertServerActorRole, resolveCurrentServerActor } from "@/lib/admin-auth";
 import {
@@ -1339,6 +1343,24 @@ export async function getTournamentResults(
   tournamentId: string
 ): Promise<TournamentResult[]> {
   return resultRepository.findByTournamentIdWithPlayer(tournamentId);
+}
+
+// Read-only machine-to-machine projection of persisted official results.
+// Unlike getArrivedPlayersForIntegration, this never reads live attendance,
+// eliminations, or season aggregates. The result rows are frozen at completion
+// and remain the sole source of tournament-earned points and official places.
+export async function getCompletedTournamentResults(
+  tournamentId: string,
+): Promise<CompletedResultsResponse> {
+  let tournament: Tournament;
+  try {
+    tournament = await getTournamentById(tournamentId);
+  } catch {
+    throw new TournamentNotFoundError(tournamentId);
+  }
+
+  const rows = await resultRepository.findByTournamentIdForIntegration(tournamentId);
+  return buildCompletedResultsResponse(tournament, rows);
 }
 
 export type TournamentEntryStats = {
