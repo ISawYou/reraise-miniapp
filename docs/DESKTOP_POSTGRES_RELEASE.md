@@ -8,6 +8,8 @@ Open **Турниры → Управление турниром** in a computer 
 
 Owner payment update: **Оплачен** is a simple checkbox; obsolete payment method is hidden and is never required for completion. Historical `payment_method` values and legacy Sheet parsing are retained. **Комментарий** is optional per tournament/player (including active qualification finals), saves on blur, is limited to 1000 characters in API/UI/DB, and uses the existing operation version/audit. Untouched comments stay null. Sheet cutover has no comment source and does not fabricate text. Comments and their version/audit timestamps are excluded from the completion fingerprint and never enter rating/results/financial inputs.
 
+Final blocker correction: PHOENIX hides free re-entry usage and rejects nonzero usage in operation writes, source comparison/cutover and both completion paths. Stored historical values are not erased or normalized; an active invalid value blocks completion/cutover pending explicit correction. The old results screen checks ownership before completion: PG-owned tournaments navigate to `/control` before legacy validation/submission. A stale legacy POST against PG ownership returns `409 POSTGRES_CONSOLE_REQUIRED` with an internal console destination and performs no completion/Sheet write. Legacy Sheet completion keeps its previous body/behavior. If ownership changes during submission, the old screen rechecks and navigates rather than reporting a misleading completion.
+
 The console refreshes operations and live-state every 15 seconds, preserving focused/dirty cells and ignoring older operation versions. Entries/Add-on share a per-player save queue. Unsupported KO/Boss/Mystery fields are rejected server-side. Phoenix hides Add-on and keeps its canonical two-entry maximum. Qualification final stays in the existing qualification roster/completion workflow.
 
 For Mystery, independently enter physical envelopes won and points. The summary compares assigned quantities against the existing frozen snapshot. Completion rejects unknown or mismatched envelope/point totals.
@@ -43,6 +45,7 @@ Safety refusals: special qualification finals/paid-cash cutover are not imported
 - Real authenticated Chromium `/control` at 1366 and 1920 with 60 disposable PostgreSQL players: actual KO persistence, completion preview, sticky behavior, no document overflow, GS/completed readonly controls and unauthenticated API 401.
 - Screenshots: `/private/tmp/console-real-1366.png`, `/private/tmp/console-real-1920.png`.
 - Final TypeScript, changed-file lint and `git diff --check` passed. Production build passed after correcting nine Sheet Server Action wrappers to explicitly declare `async`. The affected Sheet sync suite was rerun: 48 tests passed. Build retains Edge Runtime import warnings, including `node:async_hooks` through the source-fence module; this is not claimed as warning-free.
+- Final blocker correction verification: 79 focused tests passed; 5 actual PostgreSQL integration scenarios passed, including Phoenix API/cutover/completion rejection and editable qualification-final comments with confirmed invitations and unchanged special completion guards. TypeScript, changed-file lint and production build passed. No additional schema migration was needed.
 
 ## Remaining acceptance gaps
 

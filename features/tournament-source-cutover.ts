@@ -6,7 +6,7 @@ import {tournaments,players,tournamentSourceAudit,tournamentOperations,tournamen
 import {getAdminTournamentParticipants,getTournamentAttendance,getTournamentRebuyState,getTournamentEliminations} from "@/features/tournaments";
 import {readSpreadsheetTabValues} from "@/lib/google-sheets";
 import {getFreeSheetColumnLayout,parseBooleanCell} from "@/lib/tournament-sheet-parsing";
-import {operationFieldsFor,parseOperationPatch,validateFormatPatch,type OperationFields} from "@/lib/tournament-operation-fields";
+import {operationFieldsFor,parseOperationPatch,validateFormatPatch,assertPhoenixFreeReentries,type OperationFields} from "@/lib/tournament-operation-fields";
 import type {TournamentType} from "@/types/domain";
 import {tournamentOperationsRepository} from "@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository";
 import {postgresCompletionFingerprint} from "./postgres-completion-fingerprint";
@@ -27,6 +27,8 @@ export async function previewCutover(id:string){
  const comparisons:Comparison[]=[];
  for(const p of active){const raw=data.find(r=>r[0]===p.player_id);if(!raw)throw Error(`${p.admin_nick}: строка отсутствует в Google Sheet`);
   const op=ops.find(o=>o.playerId===p.player_id);
+  assertPhoenixFreeReentries(t.tournamentType as TournamentType,op?.freeReentries);
+  assertPhoenixFreeReentries(t.tournamentType as TournamentType,raw[8]?.trim()?Number(raw[8]):null);
   const indexes:Record<string,number>={paid:6,paymentMethod:7,freeReentries:8,rebuys:9,addons:10,knockouts:layout.knockoutsIndex,bossKnockouts:layout.bossKnockoutsIndex??-1,mysteryPoints:layout.mysteryBountyPointsIndex??-1,place:layout.placeIndex,arrived:5,eliminated:layout.eliminatedIndex};
   const pg:Record<string,Value>={...op,arrived:a.get(p.player_id)?.arrived??null,eliminated:e.get(p.player_id)?.eliminated??null,rebuys:b.get(p.player_id)?.rebuys??null,addons:b.get(p.player_id)?.addons??null} as unknown as Record<string,Value>;
   for(const field of ["arrived","eliminated","rebuys",...(t.tournamentType!=="phoenix"?["addons"]:[]),...operationFieldsFor(t.tournamentType as TournamentType)]){

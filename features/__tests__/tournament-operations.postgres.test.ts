@@ -87,3 +87,25 @@ it.runIf(!!url)("completes from real PostgreSQL without any Google read, preserv
   expect(await h.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId,id))).toEqual(frozen);expect(google.read).not.toHaveBeenCalled();
  }finally{await h.db.delete(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId,id));await h.db.delete(schema.tournaments).where(eq(schema.tournaments.id,id));}
 });
+it.runIf(!!url)("Phoenix rejects free usage in API/repository, cutover and completion while retaining stored historical values",async()=>{
+ const {previewPostgresCompletion}=await import("@/features/postgres-tournament-completion");const {previewCutover,applyCutover}=await import("@/features/tournament-source-cutover");const {getFreeSheetColumnLayout}=await import("@/lib/tournament-sheet-parsing");
+ const id=randomUUID();await h.db.insert(schema.tournaments).values({id,title:"Phoenix guard fixture",kind:"free",status:"open",tournamentType:"phoenix",sourceMode:"POSTGRESQL",startAt:new Date(),maxPlayers:46});await h.db.insert(schema.registrations).values({tournamentId:id,playerId:pid,status:"registered"});await h.db.insert(schema.tournamentOperations).values({tournamentId:id,playerId:pid,updatedBy:aid,freeReentries:2});
+ try{
+  await expect(repo.patch({tournamentId:id,playerId:pid,actorId:aid,expectedVersion:1,patch:{freeReentries:1}})).rejects.toThrow("PHOENIX");
+  await expect(previewPostgresCompletion(id)).rejects.toThrow("бесплатные re-entry запрещены");expect((await repo.read(id))[0].freeReentries).toBe(2);
+  await h.db.update(schema.tournaments).set({sourceMode:"LEGACY_GOOGLE_SHEETS",googleSheetTabName:"fixture"}).where(eq(schema.tournaments.id,id));
+  const sheet:string[][]=Array.from({length:6},()=>[]);sheet.push(getFreeSheetColumnLayout("phoenix").headers,[pid,"","P","","registered","TRUE","FALSE","","0","1","0","0","1","0","FALSE",""]);google.read.mockImplementation(async()=>sheet);
+  await expect(previewCutover(id)).rejects.toThrow("PHOENIX");expect((await repo.read(id))[0].freeReentries).toBe(2);
+  await h.db.update(schema.tournamentOperations).set({freeReentries:0}).where(eq(schema.tournamentOperations.tournamentId,id));const preview=await previewCutover(id);sheet[7][8]="1";
+  await expect(applyCutover({id,actorId:aid,requestId:randomUUID(),confirmed:true,fingerprint:preview.fingerprint,sheetHash:preview.sheetHash,choices:{}})).rejects.toThrow("PHOENIX");
+  expect((await h.db.select().from(schema.tournaments).where(eq(schema.tournaments.id,id)))[0].sourceMode).toBe("LEGACY_GOOGLE_SHEETS");expect(await h.db.select().from(schema.tournamentSourceAudit).where(eq(schema.tournamentSourceAudit.tournamentId,id))).toHaveLength(0);
+ }finally{await h.db.delete(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId,id));await h.db.delete(schema.tournaments).where(eq(schema.tournaments.id,id));}
+});
+it.runIf(!!url)("qualification final permits comment persistence and audit but retains special completion and field restrictions",async()=>{
+ const {previewPostgresCompletion}=await import("@/features/postgres-tournament-completion");const id=randomUUID(),eventId=randomUUID();await h.db.insert(schema.tournaments).values({id,title:"Final comment fixture",kind:"free",status:"open",tournamentType:"qualification_final",sourceMode:"POSTGRESQL",startAt:new Date("2026-11-14T09:00:00Z"),maxPlayers:18,startingStack:50000});
+ await h.db.insert(schema.qualificationEvents).values({id:eventId,slug:`fixture-${eventId}`,title:"Final comment fixture",rules:"Fixture",finalDate:"2026-11-14",status:"final",finalTournamentId:id,winnerPlayerId:aid,finalRosterLockedAt:new Date()});
+ await h.db.insert(schema.qualificationInvitations).values({eventId,playerId:pid,qualifyingRank:2,seat:1,status:"accepted"});
+ await h.db.insert(schema.registrations).values({tournamentId:id,playerId:pid,status:"registered"});
+ try{expect(await repo.patch({tournamentId:id,playerId:pid,actorId:aid,expectedVersion:0,patch:{comment:"Final seating note"}})).toMatchObject({comment:"Final seating note",version:1});await expect(repo.patch({tournamentId:id,playerId:pid,actorId:aid,expectedVersion:1,patch:{place:1}})).rejects.toThrow("недоступно");await expect(previewPostgresCompletion(id)).rejects.toThrow("трёх");expect(await h.db.select().from(schema.results).where(eq(schema.results.tournamentId,id))).toHaveLength(0);expect(await h.db.select().from(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId,id))).toHaveLength(1);}
+ finally{await h.db.delete(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId,id));await h.db.delete(schema.qualificationInvitations).where(eq(schema.qualificationInvitations.eventId,eventId));await h.db.delete(schema.qualificationEvents).where(eq(schema.qualificationEvents.id,eventId));await h.db.delete(schema.tournaments).where(eq(schema.tournaments.id,id));}
+});

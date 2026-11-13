@@ -3,7 +3,7 @@ import {getAdminTournamentParticipants,getTournamentById,getTournamentAttendance
 import {getTournamentLateRegistrationSnapshot} from "@/features/late-registration";
 import {getMysteryBountySnapshot} from "@/features/mystery-bounty";
 import {tournamentOperationsRepository,OperationsError} from "@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository";
-import {operationFieldsFor,validateMysteryAllocation} from "@/lib/tournament-operation-fields";
+import {operationFieldsFor,validateMysteryAllocation,assertPhoenixFreeReentries} from "@/lib/tournament-operation-fields";
 import {calculateRatingPointsForTournament} from "@/features/rating-v2";
 import {isRatingEligibleTournament} from "@/lib/tournament-helpers";
 import {postgresCompletionFingerprint} from "./postgres-completion-fingerprint";
@@ -21,6 +21,7 @@ export async function previewPostgresCompletion(id:string){
  const derivedPlaces=await getDerivedEliminationPlaces(id);
  const rows=roster.map(p=>{
   const op=operations.find(o=>o.playerId===p.player_id),a=attendance.get(p.player_id),b=entries.get(p.player_id);
+  assertPhoenixFreeReentries(t.tournament_type,op?.freeReentries);
   const eliminated=eliminations.get(p.player_id)?.eliminated??false;
   const place=eliminated?derivedPlaces.get(p.player_id)??op?.place:op?.place;
   if(!op||place==null||!a||!b)throw new OperationsError(`${p.admin_nick}: заполните место, приход и входы`,409);

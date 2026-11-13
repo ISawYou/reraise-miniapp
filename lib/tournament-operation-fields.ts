@@ -27,11 +27,15 @@ export function parseOperationPatch(value: unknown): Partial<OperationFields> {
 }
 export function operationFieldsFor(type:TournamentType): (keyof OperationFields)[]{
  if(type==="qualification_final")return ["comment"];
- return ["paid","freeReentries","place",...(type==="bounty"?["knockouts" as const]:type==="boss_bounty"?["knockouts" as const,"bossKnockouts" as const]:type==="mystery_bounty"?["mysteryEnvelopesWon" as const,"mysteryPoints" as const]:[]),"comment"];
+ return ["paid",...(type==="phoenix"?[]:["freeReentries" as const]),"place",...(type==="bounty"?["knockouts" as const]:type==="boss_bounty"?["knockouts" as const,"bossKnockouts" as const]:type==="mystery_bounty"?["mysteryEnvelopesWon" as const,"mysteryPoints" as const]:[]),"comment"];
+}
+export function assertPhoenixFreeReentries(type:TournamentType,value:number|null|undefined){
+ if(type==="phoenix"&&value!=null&&value!==0)throw Error("PHOENIX: бесплатные re-entry запрещены");
 }
 export function validateFormatPatch(type:TournamentType,patch:Partial<OperationFields>){
+ assertPhoenixFreeReentries(type,patch.freeReentries);
  const allowed=operationFieldsFor(type);
- if(Object.keys(patch).some(key=>!allowed.includes(key as keyof OperationFields)))throw Error("Поле недоступно для этого формата турнира");
+ if(Object.keys(patch).some(key=>!allowed.includes(key as keyof OperationFields)&&!(type==="phoenix"&&key==="freeReentries")))throw Error("Поле недоступно для этого формата турнира");
 }
 export function validateMysteryAllocation(rows:Partial<OperationFields>[],snapshot:{envelope_count:number;mystery_pool:number}|null){
  if(!snapshot)throw Error("Mystery: сначала зафиксируйте пул и конверты");
