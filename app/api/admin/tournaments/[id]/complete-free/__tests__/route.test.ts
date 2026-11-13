@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+vi.mock("@/lib/admin-auth",()=>({assertServerActorRole:vi.fn().mockResolvedValue({id:"staff"})}));
 
 const mocks = vi.hoisted(() => ({
+  source: vi.fn(),
   getDerivedEliminationPlaces: vi.fn(),
   getTournamentAttendance: vi.fn(),
   getTournamentById: vi.fn(),
@@ -15,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   applyLiveFieldsFromSheetSnapshot: vi.fn(),
   finishPokerClockTournament: vi.fn(),
 }));
+vi.mock("@/lib/tournament-source",()=>({getTournamentSource:mocks.source,withTournamentSourceFence:async(_id:string,work:()=>Promise<unknown>)=>work()}));
 
 vi.mock("@/features/tournaments", () => ({
   getDerivedEliminationPlaces: mocks.getDerivedEliminationPlaces,
@@ -90,6 +93,7 @@ function row(overrides: Partial<{
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.source.mockResolvedValue("LEGACY_GOOGLE_SHEETS");
   submittedPlayerIds = [];
   mocks.getTournamentResultsDraft.mockImplementation(async () =>
     Array.from(new Set(submittedPlayerIds)).map((player_id) => ({
@@ -122,6 +126,9 @@ beforeEach(() => {
   });
   mocks.finishPokerClockTournament.mockResolvedValue({ status: "not_linked" });
 });
+
+it("rejects a PG-owned legacy completion body with a console destination and zero completion/Sheet writes",async()=>{mocks.source.mockResolvedValue("POSTGRESQL");const response=await POST(request({rows:[row()]}),context());expect(response.status).toBe(409);expect(await response.json()).toMatchObject({code:"POSTGRES_CONSOLE_REQUIRED",redirectUrl:"/admin/tournaments/t1/control"});expect(mocks.getTournamentResultsDraft).not.toHaveBeenCalled();expect(mocks.saveTournamentResults).not.toHaveBeenCalled();expect(mocks.syncTournamentSheet).not.toHaveBeenCalled();});
+it("rejects nonzero Phoenix free usage during legacy completion without saving results",async()=>{mocks.getTournamentById.mockResolvedValue({id:"t1",status:"open",tournament_type:"phoenix",rating_formula_version:"v2"});const response=await POST(request({rows:[{...row(),free_reentries:1}]}),context());expect(response.status).not.toBe(200);expect((await response.json()).error).toContain("бесплатные re-entry запрещены");expect(mocks.saveTournamentResults).not.toHaveBeenCalled();});
 
 describe("POST /api/admin/tournaments/[id]/complete-free -- live rebuy-state reconciliation", () => {
   it("live tournament_rebuy_state wins over the submitted row when a live row exists (same precedence as arrived)", async () => {
@@ -326,7 +333,8 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- GS-linked freshness 
     expect(mocks.applyLiveFieldsFromSheetSnapshot).toHaveBeenCalledWith(
       "t1",
       expect.any(Map),
-      new Set(["p1"])
+      new Set(["p1"]),
+      expect.objectContaining({rebuyAuthorization:{source:"staff",actorId:"staff"}})
     );
     // applyLiveFieldsFromSheetSnapshot must be awaited BEFORE saveTournamentResults.
     const applyOrder = mocks.applyLiveFieldsFromSheetSnapshot.mock.invocationCallOrder[0];

@@ -15,6 +15,7 @@ import {
   getTournamentResultsDraft,
 } from "@/features/tournaments";
 import { fetchAdminJson } from "@/lib/client-request";
+import {redirectPostgresCompletion} from "@/lib/legacy-completion-navigation";
 import { AttendanceWriteQueue } from "@/lib/attendance-write-queue";
 import { RebuyWriteQueue } from "@/lib/rebuy-write-queue";
 import {
@@ -1553,6 +1554,9 @@ export default function AdminTournamentResultsPage() {
     setMessage(null);
     setError(null);
 
+    try{if(await redirectPostgresCompletion(tournamentId,url=>window.location.assign(url)))return;}
+    catch(err){setError(err instanceof Error?err.message:"Не удалось проверить источник данных");return;}
+
     // The roster to complete is the CANONICAL one (registered/attended in
     // Postgres), never whatever rows this page happens to hold: a player
     // marked "Не пришёл", cancelled or removed after this page loaded is
@@ -1683,6 +1687,7 @@ export default function AdminTournamentResultsPage() {
     } catch (err) {
       const nextMessage =
         err instanceof Error ? err.message : "Ошибка завершения турнира";
+      try{if(await redirectPostgresCompletion(tournamentId,url=>window.location.assign(url)))return;}catch{/* Keep the original failure visible if the follow-up source read fails. */}
       setError(nextMessage);
     } finally {
       setCompleting(false);

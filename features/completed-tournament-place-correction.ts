@@ -389,6 +389,7 @@ async function syncCorrectedPlacesToSheet(
   tournament: TournamentInfo,
   changes: PlannedChange[]
 ): Promise<string | undefined> {
+  if(await (await import("@/lib/tournament-source")).getTournamentSource(tournament.id)==="POSTGRESQL")return;
   const tabName = tournament.googleSheetTabName?.trim();
   if (!tabName || changes.length === 0) {
     return undefined;

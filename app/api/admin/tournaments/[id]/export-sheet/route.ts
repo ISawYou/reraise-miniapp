@@ -371,7 +371,11 @@ function buildLiveSheetValues(
   ];
 }
 
-export async function syncTournamentSheet(
+import {getTournamentSource,withTournamentSourceFence} from "@/lib/tournament-source";
+export async function syncTournamentSheet(...args:Parameters<typeof syncTournamentSheetImpl>){
+ return withTournamentSourceFence(args[0],async()=>{if(await getTournamentSource(args[0])==="POSTGRESQL")return {skipped:true};return syncTournamentSheetImpl(...args);});
+}
+async function syncTournamentSheetImpl(
   tournamentId: string,
   rows?: FreeSheetRowInput[],
   entryPrice = 0,

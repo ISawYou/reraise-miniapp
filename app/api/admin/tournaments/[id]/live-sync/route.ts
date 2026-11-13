@@ -97,7 +97,11 @@ function buildLiveSheetValues(
   ];
 }
 
-export async function syncTournamentLiveSheet(
+import {getTournamentSource,withTournamentSourceFence} from "@/lib/tournament-source";
+export async function syncTournamentLiveSheet(...args:Parameters<typeof syncTournamentLiveSheetImpl>){
+ return withTournamentSourceFence(args[0],async()=>{if(await getTournamentSource(args[0])==="POSTGRESQL")return {skipped:true};return syncTournamentLiveSheetImpl(...args);});
+}
+async function syncTournamentLiveSheetImpl(
   tournamentId: string,
   rows?: Array<{
     player_id: string;

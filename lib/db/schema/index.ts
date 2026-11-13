@@ -29,3 +29,6 @@ export * from "./nativeSupport";
 
 export * from "./adminAdmissions";
 export * from "./staffLiveEdits";
+export * from "./tournamentOperations";
+export * from "./tournamentSourceAudit";
+export * from "./accountMergeMaintenance";

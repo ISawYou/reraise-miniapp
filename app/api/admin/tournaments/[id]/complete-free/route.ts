@@ -23,6 +23,17 @@ import { TournamentAlreadyCompletedError } from "@/lib/tournament-errors";
 import { finishPokerClockTournament } from "@/lib/poker-clock-client";
 import { reconcileCompletionRosterRows } from "@/lib/tournament-completion-roster";
 import { assertServerActorRole } from "@/lib/admin-auth";
+import {getTournamentSource,withTournamentSourceFence} from "@/lib/tournament-source";
+import {assertPhoenixFreeReentries} from "@/lib/tournament-operation-fields";
+export async function GET(_request:Request,context:{params:Promise<{id:string}>}){
+ try{await assertServerActorRole(["admin","operator"]);const id=(await context.params).id;return NextResponse.json({sourceMode:await getTournamentSource(id)},{headers:{"Cache-Control":"no-store"}});}
+ catch(e){return NextResponse.json({error:(e as Error).message},{status:(e as Error).name==="UnauthorizedActionError"?401:(e as Error).name==="ForbiddenActionError"?403:409});}
+}
+export async function POST(request:Request,context:{params:Promise<{id:string}>}){
+ try{await assertServerActorRole(["admin","operator"]);const id=(await context.params).id;
+ return await withTournamentSourceFence(id,async()=>await getTournamentSource(id)==="POSTGRESQL"?NextResponse.json({error:"Для турнира PostgreSQL откройте новую консоль и проверьте завершение там",code:"POSTGRES_CONSOLE_REQUIRED",redirectUrl:`/admin/tournaments/${encodeURIComponent(id)}/control`},{status:409}):legacyPOST(request,context));
+ }catch(e){return NextResponse.json({error:(e as Error).message},{status:409});}
+}
 
 // ReRaise is the authoritative tournament/results system -- everything
 // through the GS sync below is completion as it already worked before
@@ -39,7 +50,7 @@ import { assertServerActorRole } from "@/lib/admin-auth";
 // narrow admin retry for when this step itself fails).
 const OPERATION = "complete-free";
 
-export async function POST(
+async function legacyPOST(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -217,6 +228,8 @@ export async function POST(
       };
     });
 
+    try{for(const row of rows)assertPhoenixFreeReentries(tournament.tournament_type,row.free_reentries);}
+    catch(error){return NextResponse.json({error:(error as Error).message},{status:400});}
     // Mystery Bounty: completion is only allowed once every drawn envelope
     // point has actually been recorded against a player — otherwise the
     // rating pipeline would silently under/over-count the pool (spec §21

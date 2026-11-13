@@ -1,0 +1,14 @@
+import {beforeEach,it,expect,vi} from "vitest";
+const h=vi.hoisted(()=>({auth:vi.fn(),read:vi.fn(),patch:vi.fn()}));
+vi.mock("@/lib/admin-auth",()=>{class UnauthorizedActionError extends Error{};class ForbiddenActionError extends Error{};return {assertServerActorRole:h.auth,UnauthorizedActionError,ForbiddenActionError};});
+vi.mock("@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository",()=>({tournamentOperationsRepository:{read:h.read,patch:h.patch},OperationsError:class extends Error{status=409;}}));
+import {GET,PATCH} from "../route";
+import {UnauthorizedActionError,ForbiddenActionError} from "@/lib/admin-auth";
+const context={params:Promise.resolve({id:"t"})};
+const request=(body:unknown)=>new Request("http://localhost/operations",{method:"PATCH",body:JSON.stringify(body)});
+beforeEach(()=>{vi.stubEnv("DATABASE_PROVIDER","postgres");h.auth.mockReset().mockResolvedValue({id:"actor"});h.read.mockReset().mockResolvedValue([]);h.patch.mockReset().mockResolvedValue({version:1});});
+it.each([GET,PATCH])("rejects unauthenticated requests before repository access",async handler=>{h.auth.mockRejectedValue(new UnauthorizedActionError());expect((await handler(request({}),context)).status).toBe(401);expect(h.read).not.toHaveBeenCalled();expect(h.patch).not.toHaveBeenCalled();});
+it("rejects player access",async()=>{h.auth.mockRejectedValue(new ForbiddenActionError());expect((await PATCH(request({}),context)).status).toBe(403);});
+it("passes server actor identity and validates writes",async()=>{const response=await PATCH(request({playerId:"p",actorId:"forged",expectedVersion:0,patch:{paid:true,knockouts:2}}),context);expect(response.status).toBe(200);expect(h.patch).toHaveBeenCalledWith({tournamentId:"t",playerId:"p",actorId:"actor",expectedVersion:0,patch:{paid:true,knockouts:2}});});
+it.each([{ratingPoints:100},{knockouts:-1},{freeReentries:1.5},{place:0},{paymentMethod:"bad"},{}])("rejects invalid patch %j",async patch=>{expect((await PATCH(request({playerId:"p",expectedVersion:0,patch}),context)).status).toBe(400);expect(h.patch).not.toHaveBeenCalled();});
+it("fails closed outside PostgreSQL",async()=>{vi.stubEnv("DATABASE_PROVIDER","supabase");expect((await GET(request({}),context)).status).toBe(503);expect(h.read).not.toHaveBeenCalled();});

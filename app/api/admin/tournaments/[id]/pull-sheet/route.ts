@@ -16,6 +16,11 @@ import {
   parseFreeSheetValues,
 } from "@/lib/tournament-sheet-parsing";
 import { assertServerActorRole } from "@/lib/admin-auth";
+import {withLegacySheetFence} from "@/lib/tournament-source";
+export async function POST(request:Request,context:{params:Promise<{id:string}>}){
+ try{await assertServerActorRole(["admin","operator"]);return await withLegacySheetFence((await context.params).id,()=>legacyPOST(request,context));}
+ catch(e){return NextResponse.json({error:(e as Error).message},{status:409});}
+}
 
 // `commit` (opt-in, default false): when true, additionally persists the
 // pulled values into live Postgres state for kind='free' tournaments --
@@ -30,7 +35,7 @@ import { assertServerActorRole } from "@/lib/admin-auth";
 // silently overwrite live state with a stale sheet snapshot -- only an
 // admin's deliberate click can (see
 // docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md §6).
-export async function POST(
+async function legacyPOST(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {

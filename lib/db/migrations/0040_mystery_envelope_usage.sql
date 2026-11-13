@@ -1,0 +1,1 @@
+ALTER TABLE "tournament_operations" ADD COLUMN "mystery_envelopes_won" integer;

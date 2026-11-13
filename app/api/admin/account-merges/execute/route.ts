@@ -92,6 +92,7 @@ export async function POST(request: Request) {
     }
 
     const result = await executeAdminMerge({
+      actorPlayerId:actor.id,
       targetPlayerId,
       sourcePlayerId,
       confirmation: body.confirmation,
