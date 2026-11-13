@@ -1,7 +1,8 @@
 import {and,eq} from "drizzle-orm";
 import {db} from "@/lib/db";
-import {tournaments,players,registrations,tournamentOperations,tournamentOperationAudit} from "@/lib/db/schema";
-import {parseOperationPatch} from "@/lib/tournament-operation-fields";
+import {tournaments,players,registrations,tournamentOperations,tournamentOperationAudit,tournamentPlayerEliminations} from "@/lib/db/schema";
+import {parseOperationPatch,validateFormatPatch} from "@/lib/tournament-operation-fields";
+import type {TournamentType} from "@/types/domain";
 
 export class OperationsError extends Error {
  constructor(message:string,public status:number){super(message);}
@@ -14,11 +15,13 @@ export class PostgresTournamentOperationsRepository {
    const [t]=await tx.select().from(tournaments).where(eq(tournaments.id,input.tournamentId)).for("update");
    if(!t)throw new OperationsError("Турнир не найден",404);
    if(t.status==="completed")throw new OperationsError("Завершённый турнир доступен только для просмотра",409);
-   if(t.googleSheetTabName?.trim())throw new OperationsError("Турнир управляется через Google Sheets; требуется проверенное переключение источника",409);
+   if(t.sourceMode!=="POSTGRESQL")throw new OperationsError("Турнир управляется через Google Sheets; требуется проверенное переключение источника",409);
+   try{validateFormatPatch(t.tournamentType as TournamentType,patch);}catch(e){throw new OperationsError((e as Error).message,400);}
    const [actor]=await tx.select().from(players).where(eq(players.id,input.actorId)).for("share");
    if(!actor||!["admin","operator"].includes(actor.role)||actor.isBlocked||actor.mergedIntoPlayerId)throw new OperationsError("Недостаточно прав",403);
    const [registration]=await tx.select().from(registrations).where(and(eq(registrations.tournamentId,input.tournamentId),eq(registrations.playerId,input.playerId))).for("share");
    if(!registration||!["registered","attended"].includes(registration.status))throw new OperationsError("Игрок не входит в состав турнира",409);
+   if(Object.hasOwn(patch,"place")){const [e]=await tx.select().from(tournamentPlayerEliminations).where(and(eq(tournamentPlayerEliminations.tournamentId,input.tournamentId),eq(tournamentPlayerEliminations.playerId,input.playerId)));if(e?.eliminated)throw new OperationsError("Место выбывшего определяется порядком выбытия; используйте исправление порядка",409);}
    const key=and(eq(tournamentOperations.tournamentId,input.tournamentId),eq(tournamentOperations.playerId,input.playerId));
    const [before]=await tx.select().from(tournamentOperations).where(key);
    if((before?.version??0)!==input.expectedVersion)throw new OperationsError("Данные изменены другим сотрудником; обновите строку",409);

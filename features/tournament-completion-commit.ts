@@ -1,4 +1,5 @@
 import "server-only";
+import {postgresCompletionFingerprint} from "@/features/postgres-completion-fingerprint";
 
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -59,6 +60,7 @@ export async function commitTournamentCompletion(input: {
   tournamentId: string;
   results: ResultInsert[];
   attendedPlayerIds: string[];
+  expectedFingerprint?: string;
 }): Promise<void> {
   const { tournamentId, results: rows, attendedPlayerIds } = input;
   assertPostgresMode();
@@ -80,6 +82,7 @@ export async function commitTournamentCompletion(input: {
       // Nothing written yet -- the transaction rolls back with zero writes.
       throw new TournamentAlreadyCompletedError();
     }
+    if(input.expectedFingerprint && await postgresCompletionFingerprint(tournamentId,tx)!==input.expectedFingerprint)throw new Error("Данные турнира изменились во время завершения; проверьте таблицу и повторите");
 
     // Same statements, same values as PostgresResultRepository's
     // deleteByTournamentId + insertMany and

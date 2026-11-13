@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+vi.mock("@/lib/admin-auth",()=>({assertServerActorRole:vi.fn().mockResolvedValue({id:"staff"})}));
 
 const mocks = vi.hoisted(() => ({
   getDerivedEliminationPlaces: vi.fn(),
@@ -326,7 +327,8 @@ describe("POST /api/admin/tournaments/[id]/complete-free -- GS-linked freshness 
     expect(mocks.applyLiveFieldsFromSheetSnapshot).toHaveBeenCalledWith(
       "t1",
       expect.any(Map),
-      new Set(["p1"])
+      new Set(["p1"]),
+      expect.objectContaining({rebuyAuthorization:{source:"staff",actorId:"staff"}})
     );
     // applyLiveFieldsFromSheetSnapshot must be awaited BEFORE saveTournamentResults.
     const applyOrder = mocks.applyLiveFieldsFromSheetSnapshot.mock.invocationCallOrder[0];

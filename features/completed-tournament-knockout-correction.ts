@@ -115,6 +115,7 @@ function column(index: number) {
 const SHEET_REQUEST_OPTIONS = { timeout: 10_000, retry: false };
 const SHEET_WARNING = "KO сохранены в PostgreSQL, но Google-таблица не синхронизирована — требуется синхронизация вручную.";
 async function syncSheet(t: TournamentInfo, playerId: string): Promise<string | undefined> {
+  if(await (await import("@/lib/tournament-source")).getTournamentSource(t.id)==="POSTGRESQL")return;
   if (!t.googleSheetTabName?.trim()) return;
   if (t.kind !== "free") return SHEET_WARNING;
   try {

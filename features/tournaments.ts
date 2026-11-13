@@ -256,7 +256,12 @@ export async function getVisibleTournamentsForPlayer(player: {
 }
 
 export async function getTournamentById(tournamentId: string) {
-  return tournamentRepository.findById(tournamentId);
+  const tournament=await tournamentRepository.findById(tournamentId);
+  if(process.env.DATABASE_PROVIDER==="postgres"){
+    const {getTournamentSource}=await import("@/lib/tournament-source");
+    if(await getTournamentSource(tournamentId)==="POSTGRESQL")return {...tournament,google_sheet_tab_name:null};
+  }
+  return tournament;
 }
 
 export async function getVisibleTournamentByIdForPlayer(
@@ -975,7 +980,12 @@ export async function getTournamentLiveSheetData(
   };
 }
 
-export async function applyTournamentLiveSheetRows(
+export async function applyTournamentLiveSheetRows(...args:Parameters<typeof applyTournamentLiveSheetRowsImpl>){
+ await assertServerActorRole(["admin","operator"]);
+ const {withLegacySheetFence}=await import("@/lib/tournament-source");
+ return withLegacySheetFence(args[0],()=>applyTournamentLiveSheetRowsImpl(...args));
+}
+async function applyTournamentLiveSheetRowsImpl(
   tournamentId: string,
   rows: Array<{
     player_id: string;
@@ -1174,7 +1184,8 @@ export async function completeTournamentFromLiveEntries(tournamentId: string) {
 
 export async function saveTournamentResults(
   tournamentId: string,
-  results: TournamentResultInput[]
+  results: TournamentResultInput[],
+  expectedFingerprint?: string
 ) {
   assertValidResultPlaces(
     results.map((item) => ({
@@ -1230,6 +1241,7 @@ export async function saveTournamentResults(
     tournamentId,
     results: payload,
     attendedPlayerIds: playerIds,
+    expectedFingerprint,
   });
 
   try {

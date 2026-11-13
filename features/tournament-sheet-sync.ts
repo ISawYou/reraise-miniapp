@@ -97,6 +97,16 @@ function formatEliminationTimestamp(value: string | null | undefined) {
 
 type SheetCellValue = string | number | boolean | null;
 
+import {withLegacySheetFence,withTournamentSourceFence,getTournamentSource} from "@/lib/tournament-source";
+export const readAndParseFreeTournamentSheet=async(...a:Parameters<typeof readAndParseFreeTournamentSheetImpl>)=>withLegacySheetFence(a[0].id,()=>readAndParseFreeTournamentSheetImpl(...a));
+export const applyLiveFieldsFromSheetSnapshot=async(...a:Parameters<typeof applyLiveFieldsFromSheetSnapshotImpl>)=>withLegacySheetFence(a[0],()=>applyLiveFieldsFromSheetSnapshotImpl(...a));
+export const syncDerivedPlacementToSheet=async(...a:Parameters<typeof syncDerivedPlacementToSheetImpl>)=>withLegacySheetFence(a[0].id,()=>syncDerivedPlacementToSheetImpl(...a));
+export const syncTournamentRosterToSheet=async(...a:Parameters<typeof syncTournamentRosterToSheetImpl>)=>withLegacySheetFence(a[0].id,()=>syncTournamentRosterToSheetImpl(...a));
+export const syncOperationalRosterToSheet=async(...a:Parameters<typeof syncOperationalRosterToSheetImpl>)=>withTournamentSourceFence(a[0],()=>syncOperationalRosterToSheetImpl(...a));
+export const reconcileTournamentFromSheet=async(...a:Parameters<typeof reconcileTournamentFromSheetImpl>)=>withTournamentSourceFence(a[0],()=>reconcileTournamentFromSheetImpl(...a));
+export const setTournamentPlayerEliminationThroughSheet=async(...a:Parameters<typeof setTournamentPlayerEliminationThroughSheetImpl>)=>withTournamentSourceFence(a[0],()=>setTournamentPlayerEliminationThroughSheetImpl(...a));
+export const reorderTournamentEliminationsThroughSheet=async(...a:Parameters<typeof reorderTournamentEliminationsThroughSheetImpl>)=>withTournamentSourceFence(a[0],()=>reorderTournamentEliminationsThroughSheetImpl(...a));
+export const syncAdmittedPlayerToSheet=async(...a:Parameters<typeof syncAdmittedPlayerToSheetImpl>)=>withTournamentSourceFence(a[0],()=>syncAdmittedPlayerToSheetImpl(...a));
 function logSyncError(message: string, details: Record<string, unknown>) {
   console.error(`[tournament-sheet-sync] ${message}`, details);
 }
@@ -107,8 +117,9 @@ function logSyncError(message: string, details: Record<string, unknown>) {
 // business logic, so it stays here, not in the repository.
 export async function getActiveFreeTournamentsWithSheet(): Promise<Tournament[]> {
   const tournaments = await tournamentRepository.listExcludingStatus("completed");
+  const modes=await Promise.all(tournaments.map(t=>getTournamentSource(t.id)));
   return tournaments.filter(
-    (tournament) => tournament.kind === "free" && !!tournament.google_sheet_tab_name?.trim()
+    (tournament,index) => modes[index]==="LEGACY_GOOGLE_SHEETS" && tournament.kind === "free" && !!tournament.google_sheet_tab_name?.trim()
   );
 }
 
@@ -124,7 +135,7 @@ export type ReadFreeTournamentSheetResult =
 // Reads the tournament's tab ONCE and parses it -- callers (both the
 // poller and the completion route) reuse the same returned snapshot for
 // every downstream reconciliation step instead of re-fetching.
-export async function readAndParseFreeTournamentSheet(
+async function readAndParseFreeTournamentSheetImpl(
   tournament: Tournament
 ): Promise<ReadFreeTournamentSheetResult> {
   const tabName = tournament.google_sheet_tab_name?.trim();
@@ -183,7 +194,7 @@ export type LiveFieldSyncResult = {
 // value is never rewritten. A player_id present in eligiblePlayerIds but
 // absent from `parsedRows` this tick (temporarily missing row) is left
 // completely untouched, never reset.
-export async function applyLiveFieldsFromSheetSnapshot(
+async function applyLiveFieldsFromSheetSnapshotImpl(
   tournamentId: string,
   parsedRows: Map<string, NormalizedFreeSheetRow>,
   eligiblePlayerIds: Set<string>,
@@ -296,7 +307,7 @@ export type PlacementSyncResult = {
 // Место for an active top finisher, is left completely alone. This is the
 // one place that enforces "ReRaise owns Место only while Выбыл=TRUE" (see
 // this module's top-of-file source-of-truth contract).
-export async function syncDerivedPlacementToSheet(
+async function syncDerivedPlacementToSheetImpl(
   tournament: Tournament,
   parsedRows: Map<string, NormalizedFreeSheetRow>,
   eligiblePlayerIds: Set<string>,
@@ -614,7 +625,7 @@ async function syncRosterToSheetWithSnapshot(
 // `rowNumbersByPlayerId`) come from the SAME read already performed by the
 // caller (see readAndParseFreeTournamentSheet); additional reads happen only
 // when stale rows actually have to be removed.
-export async function syncTournamentRosterToSheet(
+async function syncTournamentRosterToSheetImpl(
   tournament: Tournament,
   parsedRows: Map<string, NormalizedFreeSheetRow>,
   dataRowCount: number,
@@ -639,7 +650,7 @@ export type OperationalRosterSheetSyncResult = RosterSyncResult & { synced: bool
 // Postgres action itself is never affected, and the periodic reconciler
 // (reconcileTournamentFromSheet) self-heals on its next pass. A tournament
 // that isn't GS-operated (not free, completed, no linked tab) is a no-op.
-export async function syncOperationalRosterToSheet(
+async function syncOperationalRosterToSheetImpl(
   tournamentId: string
 ): Promise<OperationalRosterSheetSyncResult> {
   const tournament = await getTournamentById(tournamentId);
@@ -674,7 +685,7 @@ export type ReconcileTournamentResult =
 // derived-placement sync. This is the function the background poller
 // calls per tournament (see runTournamentSheetSyncPass), and the function
 // tests call directly.
-export async function reconcileTournamentFromSheet(
+async function reconcileTournamentFromSheetImpl(
   tournamentId: string
 ): Promise<ReconcileTournamentResult> {
   const tournament = await getTournamentById(tournamentId);
@@ -844,7 +855,7 @@ export type EliminationWriteThroughResult = {
 // Postgres is never touched and the caller gets a clear error. The ordinary
 // checkbox path (eliminated: false | true from the results screen) never
 // sets this flag, so its behavior above is completely unchanged.
-export async function setTournamentPlayerEliminationThroughSheet(
+async function setTournamentPlayerEliminationThroughSheetImpl(
   tournamentId: string,
   playerId: string,
   eliminated: boolean,
@@ -969,7 +980,7 @@ export async function setTournamentPlayerEliminationThroughSheet(
 // below is a best-effort convenience, and a failure here just means the
 // very next ~15s poll (or the next manual "Синхронизировать сейчас") writes
 // the same already-correct derived cells instead.
-export async function reorderTournamentEliminationsThroughSheet(
+async function reorderTournamentEliminationsThroughSheetImpl(
   tournamentId: string,
   orderedPlayerIds: string[]
 ): Promise<ReorderEliminationsResult> {
@@ -1020,7 +1031,7 @@ export type AdmissionSheetSyncResult = {
 // true writes nothing. If a poll slips in between the admission commit and
 // this write, it may briefly mirror arrived=false; the next poll after this
 // write restores arrived=true (self-healing within one tick).
-export async function syncAdmittedPlayerToSheet(
+async function syncAdmittedPlayerToSheetImpl(
   tournamentId: string,
   playerId: string
 ): Promise<AdmissionSheetSyncResult> {

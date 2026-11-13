@@ -8,6 +8,7 @@ export const tournaments = pgTable("tournaments", {
   description: text(),
   location: text(),
   googleSheetTabName: text("google_sheet_tab_name"),
+  sourceMode: text("source_mode").notNull().default("POSTGRESQL"),
 
   startAt: timestamp("start_at", { withTimezone: true }).notNull(),
   maxPlayers: integer("max_players").notNull(),
@@ -61,6 +62,7 @@ export const tournaments = pgTable("tournaments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("tournaments_title_length", sql`char_length(${table.title}) BETWEEN 1 AND 200`),
+  check("tournaments_source_mode",sql`${table.sourceMode} in ('LEGACY_GOOGLE_SHEETS','POSTGRESQL')`),
   check("tournaments_max_players_check", sql`${table.maxPlayers} > 0`),
   check("tournaments_status_check", sql`${table.status} IN ('draft', 'open', 'closed', 'completed')`),
   check("tournaments_kind_check", sql`${table.kind} IN ('free', 'paid', 'cash')`),

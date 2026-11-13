@@ -1,5 +1,7 @@
 # Desktop console: PostgreSQL operations stages
 
+This records the original Stage 1 boundary. The subsequent consolidated local implementation and current release/acceptance status are documented in `DESKTOP_POSTGRES_RELEASE.md`.
+
 Stage 1 adds nullable canonical operation fields, a PostgreSQL repository and authenticated GET/PATCH API. Null means unknown; no historical values are fabricated or backfilled. `freeReentries` records tournament usage only: it does not grant or debit `players.free_reentries_balance`. Payment state is an operational marker, not a finance posting.
 
 Writes require a current unblocked admin/operator, active tournament, registered/attended player and exact `expectedVersion` (0 for an absent row). Tournament row locking serializes writes with completion. Updates patch only supplied fields and atomically append before/after audit. Sheet-linked tournaments reject all operation writes until an explicit ownership switch is implemented. Legacy live entries/results are not rewritten. Late-registration cutoff and snapshots do not restrict staff operation fields.

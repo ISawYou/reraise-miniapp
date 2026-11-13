@@ -274,6 +274,34 @@
       "when": 1794533757048,
       "tag": "0039_tournament_operation_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794534308439,
+      "tag": "0040_mystery_envelope_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794534533197,
+      "tag": "0041_operation_completion_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794534846075,
+      "tag": "0042_tournament_source_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794534974840,
+      "tag": "0043_tournament_cutover_audit",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,11 @@
+import {beforeEach,it,expect,vi} from "vitest";
+const h=vi.hoisted(()=>({auth:vi.fn(),preview:vi.fn(),apply:vi.fn()}));
+vi.mock("@/lib/admin-auth",()=>{class UnauthorizedActionError extends Error{};class ForbiddenActionError extends Error{};return {assertServerActorRole:h.auth,UnauthorizedActionError,ForbiddenActionError};});
+vi.mock("@/features/tournament-source-cutover",()=>({previewCutover:h.preview,applyCutover:h.apply}));
+import {GET,POST} from "../route";
+import {UnauthorizedActionError,ForbiddenActionError} from "@/lib/admin-auth";
+const c={params:Promise.resolve({id:"t"})},req=(body:unknown)=>new Request("http://localhost",{method:"POST",body:JSON.stringify(body)});
+beforeEach(()=>{vi.stubEnv("DATABASE_PROVIDER","postgres");vi.clearAllMocks();h.auth.mockResolvedValue({id:"real-admin"});h.preview.mockResolvedValue({});h.apply.mockResolvedValue({ok:true});});
+it.each([GET,POST])("rejects unauthenticated before accessing sources",async fn=>{h.auth.mockRejectedValue(new UnauthorizedActionError());expect((await fn(req({}),c)).status).toBe(401);expect(h.preview).not.toHaveBeenCalled();expect(h.apply).not.toHaveBeenCalled();});
+it("requires admin (not operator) and explicit confirmation",async()=>{h.auth.mockRejectedValueOnce(new ForbiddenActionError());expect((await POST(req({}),c)).status).toBe(403);expect((await POST(req({confirmed:false}),c)).status).toBe(400);expect(h.apply).not.toHaveBeenCalled();});
+it("uses server actor and confirmed versioned comparison",async()=>{const body={requestId:"00000000-0000-4000-8000-000000000001",confirmed:true,fingerprint:"pg",sheetHash:"gs",choices:{},actorId:"forged"};expect((await POST(req(body),c)).status).toBe(200);expect(h.apply).toHaveBeenCalledWith({...body,id:"t",actorId:"real-admin"});expect(h.auth).toHaveBeenCalledWith(["admin"]);});
