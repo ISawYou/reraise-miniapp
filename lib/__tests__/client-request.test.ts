@@ -36,6 +36,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("preserves structured completion blockers without parsing the error message or retrying writes",async()=>{
+ const details={error:"Validation failed",blockers:[{player_id:"p",display_name:"P",fields:["KO"]}]};fetchMock.mockResolvedValue(jsonResponse(details,false));
+ await expect(fetchAdminJson("/api/admin/tournaments/t/operations/complete",undefined,{retries:0})).rejects.toMatchObject({message:"Validation failed",details});expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 describe("getAdminHeaders", () => {
   it("normal browser: returns immediately and never calls getTelegramInitData (even if it would hang forever)", async () => {
     mocks.isTelegramMiniAppContext.mockReturnValue(false);

@@ -57,3 +57,5 @@
 .workspace [data-completion-panel] button { padding: 7px 12px; border-radius: 4px; background: #326052; }
 .workspace footer { flex-shrink: 0; color: var(--muted); font-size: 11px; }
 @media (max-width: 900px) { .workspace { padding: 12px; gap: 10px; } .workspace h1 { font-size: 18px; } .workspace [data-toolbar] nav { margin-left: 0; } .workspace [data-kpi] { flex-basis: 80px; padding: 7px 10px; } .workspace [data-kpi] strong { font-size: 19px; } }
+.workspace td[data-missing] { box-shadow: inset 3px 0 #b59352; }
+.workspace [data-completion] details { max-width: min(850px, 85vw); }

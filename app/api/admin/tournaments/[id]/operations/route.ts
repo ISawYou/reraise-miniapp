@@ -13,7 +13,8 @@ export async function GET(_request:Request,{params}:Context){try{
  const id=(await params).id;
  const f=await import("@/features/tournaments");
  const [rows,players,a,b,e]=await Promise.all([tournamentOperationsRepository.read(id),f.getAdminTournamentParticipants(id),f.getTournamentAttendance(id),f.getTournamentRebuyState(id),f.getTournamentEliminations(id)]);
- const liveRows=players.map(p=>({id:p.player_id,name:p.admin_nick,status:p.status,arrived:a.get(p.player_id)?.arrived??false,eliminated:e.get(p.player_id)?.eliminated??false,time:e.get(p.player_id)?.eliminated_at??null,rebuys:b.get(p.player_id)?.rebuys??0,addons:b.get(p.player_id)?.addons??0}));
+ const derived=await f.getDerivedEliminationPlaces(id);
+ const liveRows=players.map(p=>({id:p.player_id,name:p.admin_nick,status:p.status,arrived:a.get(p.player_id)?.arrived??false,eliminated:e.get(p.player_id)?.eliminated??false,time:e.get(p.player_id)?.eliminated_at??null,rebuys:b.get(p.player_id)?.rebuys??0,addons:b.get(p.player_id)?.addons??0,derivedPlace:derived.get(p.player_id)??null,attendanceKnown:a.has(p.player_id),entriesKnown:b.has(p.player_id)}));
  return NextResponse.json({rows,liveRows},{headers:{"Cache-Control":"no-store"}});
 }catch(e){return failure(e);}}
 export async function PATCH(request:Request,{params}:Context){try{

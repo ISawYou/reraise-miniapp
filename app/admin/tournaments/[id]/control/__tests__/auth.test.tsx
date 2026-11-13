@@ -3,7 +3,7 @@ import {renderToStaticMarkup} from "react-dom/server";
 const h=vi.hoisted(()=>({guard:vi.fn(),read:vi.fn(),source:vi.fn(),snapshot:vi.fn()}));
 vi.mock("@/lib/admin-auth",()=>({assertServerActorRole:h.guard,UnauthorizedActionError:class UnauthorizedActionError extends Error{},ForbiddenActionError:class ForbiddenActionError extends Error{}}));
 vi.mock("next/navigation",()=>({redirect:(path:string)=>{throw Error(`REDIRECT:${path}`);}}));
-vi.mock("@/features/tournaments",()=>({getTournamentById:h.read,getAdminTournamentParticipants:vi.fn(async()=>[]),getTournamentAttendance:vi.fn(async()=>new Map()),getTournamentEliminations:vi.fn(async()=>new Map()),getTournamentRebuyState:vi.fn(async()=>new Map())}));
+vi.mock("@/features/tournaments",()=>({getTournamentById:h.read,getAdminTournamentParticipants:vi.fn(async()=>[]),getTournamentAttendance:vi.fn(async()=>new Map()),getTournamentEliminations:vi.fn(async()=>new Map()),getTournamentRebuyState:vi.fn(async()=>new Map()),getDerivedEliminationPlaces:vi.fn(async()=>new Map())}));
 vi.mock("@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository",()=>({tournamentOperationsRepository:{read:vi.fn(async()=>[])}}));
 vi.mock("@/features/mystery-bounty",()=>({getMysteryBountySnapshot:h.snapshot}));
 vi.mock("@/features/late-registration",()=>({getTournamentLateRegistrationSnapshot:h.snapshot}));
