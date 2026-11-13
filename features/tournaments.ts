@@ -1629,9 +1629,11 @@ export async function setTournamentPlayerRebuyState(
   tournamentId: string,
   playerId: string,
   rebuys: number,
-  addons: number
+  addons: number,
+  authorization?: { source: "staff"; actorId: string } | { source: "sheet_sync" }
 ): Promise<{ rebuys: number; addons: number }> {
   const tournament = await getTournamentById(tournamentId);
+  if (tournament.status === "completed") throw new Error("Завершённый турнир нельзя редактировать");
   const maxEntries = tournament.tournament_type === "qualification_final" ? 1 : tournament.tournament_type === "phoenix" ? 2 : null;
   if (maxEntries !== null && (addons !== 0 || !Number.isInteger(rebuys) || rebuys < 0 || rebuys > maxEntries)) throw new Error("Для этого формата запрещены Add-on и превышение лимита входов");
   return tournamentLiveStateRepository.upsertRebuyState({
@@ -1639,6 +1641,12 @@ export async function setTournamentPlayerRebuyState(
     player_id: playerId,
     rebuys,
     addons,
+    authorization:
+      authorization?.source === "staff"
+        ? { source: "staff", actor_id: authorization.actorId, request_id: crypto.randomUUID() }
+        : authorization?.source === "sheet_sync"
+          ? { source: "sheet_sync", actor_id: null, request_id: crypto.randomUUID() }
+          : undefined,
   });
 }
 

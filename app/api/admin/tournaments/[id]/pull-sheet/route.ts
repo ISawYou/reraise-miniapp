@@ -15,6 +15,7 @@ import {
   parseNumberCell,
   parseFreeSheetValues,
 } from "@/lib/tournament-sheet-parsing";
+import { assertServerActorRole } from "@/lib/admin-auth";
 
 // `commit` (opt-in, default false): when true, additionally persists the
 // pulled values into live Postgres state for kind='free' tournaments --
@@ -37,6 +38,7 @@ export async function POST(
     const { id } = await context.params;
     const body = (await request.json().catch(() => null)) as { commit?: boolean } | null;
     const commit = body?.commit === true;
+    const actor = commit ? await assertServerActorRole(["admin", "operator"]) : null;
     const tournament = await getTournamentById(id);
 
     if (!tournament.google_sheet_tab_name?.trim()) {
@@ -86,7 +88,10 @@ export async function POST(
             Promise.all([
               setTournamentPlayerAttendance(id, row.player_id, row.arrived),
               setTournamentPlayerElimination(id, row.player_id, row.eliminated),
-              setTournamentPlayerRebuyState(id, row.player_id, row.rebuys, row.addons),
+              setTournamentPlayerRebuyState(id, row.player_id, row.rebuys, row.addons, {
+                source: "staff",
+                actorId: actor!.id,
+              }),
             ])
           )
         );

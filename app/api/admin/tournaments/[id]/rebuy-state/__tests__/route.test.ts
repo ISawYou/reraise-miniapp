@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/admin-auth", () => ({
+  assertServerActorRole: vi.fn().mockResolvedValue({ id: "staff-1", role: "admin" }),
+}));
+
 const mockSetTournamentPlayerRebuyState = vi.fn();
 
 vi.mock("@/features/tournaments", () => ({
@@ -31,7 +35,10 @@ describe("POST /api/admin/tournaments/[id]/rebuy-state", () => {
     const response = await POST(request({ player_id: "p1", rebuys: 2, addons: 1 }), context("t1"));
     const json = await response.json();
 
-    expect(mockSetTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 2, 1);
+    expect(mockSetTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 2, 1, {
+      source: "staff",
+      actorId: "staff-1",
+    });
     expect(response.status).toBe(200);
     expect(json).toEqual({ ok: true, rebuys: 2, addons: 1 });
   });
@@ -69,7 +76,10 @@ describe("POST /api/admin/tournaments/[id]/rebuy-state", () => {
     const response = await POST(request({ player_id: "p1", rebuys: 0, addons: 0 }), context());
 
     expect(response.status).toBe(200);
-    expect(mockSetTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 0, 0);
+    expect(mockSetTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 0, 0, {
+      source: "staff",
+      actorId: "staff-1",
+    });
   });
 
   it("returns 500 with the feature-layer error message when the repository call throws", async () => {
