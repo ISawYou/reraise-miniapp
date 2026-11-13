@@ -64,6 +64,12 @@ const OPERATOR_ALLOWED_ROUTES: OperatorRoute[] = [
   route("POST", "/api/admin/tournaments/:id/mystery-bounty/recalculate"),
   route("POST", "/api/admin/tournaments/:id/complete-free"),
   route("POST", "/api/admin/tournaments/:id/complete-live"),
+  // Native console operations and confirmed completion only. Exact matches
+  // deliberately exclude /operations/source (administrator-only cutover).
+  route("GET", "/api/admin/tournaments/:id/operations"),
+  route("PATCH", "/api/admin/tournaments/:id/operations"),
+  route("GET", "/api/admin/tournaments/:id/operations/complete"),
+  route("POST", "/api/admin/tournaments/:id/operations/complete"),
   // Retry ONLY the Poker Clock finish side effect of an already-completed
   // tournament (see app/api/admin/tournaments/[id]/poker-clock/finish/route.ts)
   // -- same permission class as completing the tournament itself, since it's

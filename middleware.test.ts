@@ -19,6 +19,39 @@ vi.mock("@/lib/telegram-web-session", () => ({
 
 import { config, middleware } from "@/middleware";
 
+describe("native tournament console operator permissions", () => {
+  const base = "/api/admin/tournaments/tournament-1/operations";
+  const allowed = [["GET", base], ["PATCH", base], ["GET", `${base}/complete`], ["POST", `${base}/complete`]];
+  beforeEach(() => vi.clearAllMocks());
+  async function access(role: string | null, method: string, path: string) {
+    mocks.verifySession.mockReturnValue(role ? "caller" : null);
+    mocks.findById.mockResolvedValue(role ? { id: "caller", role } : null);
+    return middleware(new NextRequest(`https://re-raise.ru${path}`, {method, headers: role ? {cookie: "reraise_session=signed"} : {}}));
+  }
+  it.each(allowed)("permits operator %s %s through the actual middleware", async (method, path) => {
+    expect(config.matcher).toContain("/api/admin/:path*");
+    const response = await access("operator", method, path);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+  it.each(allowed)("retains all role boundaries for %s %s", async (method, path) => {
+    expect((await access("admin", method, path)).status).toBe(200);
+    expect((await access(null, method, path)).status).toBe(401);
+    expect((await access("player", method, path)).status).toBe(403);
+  });
+  it.each([
+    ["GET", `${base}/source`], ["POST", `${base}/source`],
+    ["POST", base], ["PUT", base], ["DELETE", base], ["HEAD", base], ["OPTIONS", base],
+    ["PATCH", `${base}/complete`], ["PUT", `${base}/complete`], ["DELETE", `${base}/complete`],
+    ["HEAD", `${base}/complete`], ["OPTIONS", `${base}/complete`],
+    ["GET", `${base}/complete/extra`], ["PATCH", `${base}/extra`],
+    ["GET", "/api/admin/settings"], ["DELETE", "/api/admin/players/player-1"],
+  ])("keeps operator %s %s denied", async (method, path) => {
+    expect((await access("operator", method, path)).status).toBe(403);
+    expect((await access("admin", method, path)).status).toBe(200);
+  });
+});
+
 describe("Profile artwork settings authorization", () => {
   it.each([
     ["GET", ""], ["PUT", ""], ["POST", "/upload"], ["POST", "/reset"],
