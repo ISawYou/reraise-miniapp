@@ -1,0 +1,18 @@
+import {beforeEach,it,expect,vi} from "vitest";
+import {renderToStaticMarkup} from "react-dom/server";
+const h=vi.hoisted(()=>({guard:vi.fn(),read:vi.fn(),source:vi.fn(),snapshot:vi.fn()}));
+vi.mock("@/lib/admin-auth",()=>({assertServerActorRole:h.guard,UnauthorizedActionError:class UnauthorizedActionError extends Error{},ForbiddenActionError:class ForbiddenActionError extends Error{}}));
+vi.mock("next/navigation",()=>({redirect:(path:string)=>{throw Error(`REDIRECT:${path}`);}}));
+vi.mock("@/features/tournaments",()=>({getTournamentById:h.read,getAdminTournamentParticipants:vi.fn(async()=>[]),getTournamentAttendance:vi.fn(async()=>new Map()),getTournamentEliminations:vi.fn(async()=>new Map()),getTournamentRebuyState:vi.fn(async()=>new Map())}));
+vi.mock("@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository",()=>({tournamentOperationsRepository:{read:vi.fn(async()=>[])}}));
+vi.mock("@/features/mystery-bounty",()=>({getMysteryBountySnapshot:h.snapshot}));
+vi.mock("@/features/late-registration",()=>({getTournamentLateRegistrationSnapshot:h.snapshot}));
+vi.mock("@/lib/tournament-source",()=>({getTournamentSource:h.source}));
+import Control from "../page";
+import {UnauthorizedActionError,ForbiddenActionError} from "@/lib/admin-auth";
+beforeEach(()=>{vi.clearAllMocks();h.read.mockResolvedValue({title:"Classic",status:"open",tournament_type:"classic"});h.source.mockResolvedValue("POSTGRESQL");h.snapshot.mockResolvedValue(null);});
+const page=()=>Control({params:Promise.resolve({id:"t1"})});
+it("redirects anonymous users to existing login flow with internal returnTo before any private read",async()=>{h.guard.mockRejectedValue(new UnauthorizedActionError());await expect(page()).rejects.toThrow("REDIRECT:/login?returnTo=%2Fadmin%2Ftournaments%2Ft1%2Fcontrol");expect(h.read).not.toHaveBeenCalled();expect(h.source).not.toHaveBeenCalled();});
+it("renders safe access denial for non-staff without loading operations",async()=>{h.guard.mockRejectedValue(new ForbiddenActionError());const html=renderToStaticMarkup(await page());expect(html).toContain("Доступ ограничен");expect(h.read).not.toHaveBeenCalled();expect(h.source).not.toHaveBeenCalled();});
+it.each(["admin","operator"])("allows %s through the same server-side role guard",async role=>{h.guard.mockResolvedValue({role});const result=await page();expect(h.guard).toHaveBeenCalledWith(["admin","operator"]);expect(result.props.source).toBe("POSTGRESQL");expect(result.props.status).toBe("open");expect(h.read).toHaveBeenCalledWith("t1");});
+it("does not conceal infrastructure failures as authorization failures",async()=>{h.guard.mockRejectedValue(Error("database unavailable"));await expect(page()).rejects.toThrow("database unavailable");});

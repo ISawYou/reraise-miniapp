@@ -2,15 +2,18 @@
 import Link from "next/link";
 import {useEffect,useRef, useState} from "react";
 import {fetchAdminJson} from "@/lib/client-request";
-import {OperationCells,operationLabels,type Operations} from "./operation-cells";
-import {operationFieldsFor} from "@/lib/tournament-operation-fields";
+import {OperationCells,operationLabels,consoleFieldsFor,operationGroup,type Operations} from "./operation-cells";
+import styles from "./console.module.css";
 import type {TournamentType} from "@/types/domain";
 import {CompletionAction} from "./completion-action";
 import type {ReactNode} from "react";
 export type Row={id:string;name:string;status:string;arrived:boolean;eliminated:boolean;time:string|null;rebuys:number;addons:number};
 type Field="arrived"|"eliminated"|"rebuys"|"addons";
 const participant=(r:Row)=>["registered","attended"].includes(r.status);
-function PlayerRow({row,id,locked,onPersist,type,operations,hidden,rating}:{row:Row;id:string;locked:boolean;onPersist:(r:Row)=>void;type:TournamentType;operations?:Operations;hidden?:boolean;rating?:number}) {
+const registrationLabel=(status:string)=>({registered:"Зарегистрирован",attended:"Участник",waitlist:"Лист ожидания",cancelled:"Отменена"}[status]??status);
+const typeLabels:Record<string,string>={classic:"CLASSIC",bounty:"BOUNTY",boss_bounty:"BOSS BOUNTY",mystery_bounty:"MYSTERY",phoenix:"PHOENIX",free_roll:"FREE ROLL",qualification_final:"ФИНАЛ ОТБОРА"};
+const typeLabel=(type:TournamentType)=>typeLabels[type]??type.replaceAll("_"," ").toUpperCase();
+function PlayerRow({row,id,locked,onPersist,type,operations,hidden,rating,onOperationSaved}:{row:Row;id:string;locked:boolean;onPersist:(r:Row)=>void;type:TournamentType;operations?:Operations;hidden?:boolean;rating?:number;onOperationSaved?:(row:Operations)=>void}) {
  const [draft,setDraft]=useState({arrived:row.arrived,eliminated:row.eliminated,rebuys:String(row.rebuys),addons:String(row.addons)});
  const [states,setStates]=useState<Partial<Record<Field,string>>>({});
  const persisted=useRef(row),queue=useRef(Promise.resolve()),pending=useRef<Partial<Record<Field,string|boolean>>>({}),revision=useRef<Partial<Record<Field,number>>>({});
@@ -38,16 +41,17 @@ function PlayerRow({row,id,locked,onPersist,type,operations,hidden,rating}:{row:
    finally{if(revision.current[field]===version)delete pending.current[field];}
   });
  }
- return <tr hidden={hidden}><td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border border-zinc-700 bg-zinc-900 p-2 break-words">{row.name}</td><td className="border border-zinc-700 p-2">{row.status}</td>
- {(["arrived","eliminated","rebuys","addons"] as const).filter(field=>field!=="addons"||!["phoenix","qualification_final"].includes(type)).map(field=><td key={field} className="border border-zinc-700 p-2 align-top">
+ return <tr hidden={hidden}><td>{row.name}<span data-registration>{registrationLabel(row.status)}</span></td>
+ {(["arrived","eliminated","rebuys","addons"] as const).filter(field=>field!=="addons"||!["phoenix","qualification_final"].includes(type)).map(field=><td key={field} data-group-start={field==="rebuys"||undefined}>
   {field==="arrived"||field==="eliminated"?<input aria-label={`${row.name}: ${field}`} type="checkbox" checked={draft[field]} disabled={readonly} onChange={e=>{const value=e.target.checked;dirty.current.add(field);setDraft(d=>({...d,[field]:value}));save(field,value);}}/>:
   <input aria-label={`${row.name}: ${field}`} aria-invalid={states[field]?.startsWith("Не сохранено")||undefined} type="number" min="0" step="1" value={draft[field]} disabled={readonly} className="w-20 rounded border border-zinc-600 bg-zinc-900 p-1 focus:outline-2 focus:outline-emerald-400" onChange={e=>{const value=e.target.value;dirty.current.add(field);setDraft(d=>({...d,[field]:value}));setStates(s=>({...s,[field]:"Не сохранено"}));}} onBlur={()=>save(field,draft[field])}/>}
-  <span aria-live="polite" className={`block max-w-48 text-xs ${states[field]?.startsWith("Не сохранено")?"text-amber-200":"text-zinc-300"}`}>{states[field]}</span>
-  {states[field]?.startsWith("Не сохранено:")&&<button className="text-xs underline" onClick={()=>save(field,draft[field])}>Повторить</button>}
+  {field==="eliminated"&&row.time&&<time data-time dateTime={row.time}>{new Date(row.time).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Moscow"})} МСК</time>}
+  <span aria-live="polite" data-save={states[field]?.startsWith("Не сохранено:")?"error":states[field]==="Не сохранено"?"unsaved":"saved"}>{states[field]}</span>
+  {states[field]?.startsWith("Не сохранено:")&&<button data-retry onClick={()=>save(field,draft[field])}>Повторить</button>}
  </td>)}
- <td className="whitespace-nowrap border border-zinc-700 p-2">{row.time?new Date(row.time).toLocaleTimeString("ru-RU"):"—"}</td><OperationCells id={id} playerId={row.id} type={type} locked={locked||!participant(row)} initial={operations} eliminated={row.eliminated}/><td className="border border-zinc-700 p-2" title="Предварительный рейтинг последней проверки завершения; перед финальным сохранением проверяется свежесть">{rating??"—"}</td></tr>;
+ <OperationCells id={id} playerId={row.id} type={type} locked={locked||!participant(row)} initial={operations} eliminated={row.eliminated} rating={rating} onSaved={onOperationSaved}/></tr>;
 }
-export function TournamentConsole({id,title,locked,rows:initial,type="classic",operations=[],frozenPool,mystery,sourceAction}:{id:string;title:string;locked:boolean;rows:Row[];type?:TournamentType;operations?:Operations[];frozenPool?:number|null;mystery?:{envelope_count:number;mystery_pool:number}|null;sourceAction?:ReactNode}) {
+export function TournamentConsole({id,title,locked,rows:initial,type="classic",operations=[],frozenPool,mystery,sourceAction,status,source}:{id:string;title:string;locked:boolean;rows:Row[];type?:TournamentType;operations?:Operations[];frozenPool?:number|null;mystery?:{envelope_count:number;mystery_pool:number}|null;sourceAction?:ReactNode;status?:string;source?:string}) {
  const [rows,setRows]=useState(initial),[search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[sort,setSort]=useState(false);
  const [liveOperations,setLiveOperations]=useState(operations);
  const [ratings,setRatings]=useState<Record<string,number>>({});
@@ -57,20 +61,20 @@ export function TournamentConsole({id,title,locked,rows:initial,type="classic",o
  const visible=rows.filter(r=>r.name.toLowerCase().includes(search.toLowerCase())&&(filter==="all"||filter==="arrived"&&participant(r)&&r.arrived||filter==="active"&&participant(r)&&r.arrived&&!r.eliminated||filter==="eliminated"&&participant(r)&&r.eliminated)).sort((a,b)=>sort?b.name.localeCompare(a.name):a.name.localeCompare(b.name));
  const applicable=liveOperations.filter(o=>counted.some(r=>r.id===o.playerId));
  const assignedEnvelopes=applicable.reduce((s,o)=>s+(o.mysteryEnvelopesWon??0),0),assignedPoints=applicable.reduce((s,o)=>s+(o.mysteryPoints??0),0);
- return <main className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-zinc-950 p-6 text-white">
- <Link href={`/admin/tournaments/${id}/edit`}>← Турнир / добавить существующего игрока</Link><h1 className="my-4 shrink-0 text-2xl font-semibold">{title} · Управление турниром</h1>
- <p data-testid="totals" className="mb-4">Игроки: {counted.length} · Пришли: {counted.filter(r=>r.arrived).length} · Входы: {counted.reduce((s,r)=>s+r.rebuys,0)} · Add-on: {counted.reduce((s,r)=>s+r.addons,0)} · Выбыли: {counted.filter(r=>r.eliminated).length}</p>
- <p className="mb-2 text-sm">В игре: {counted.filter(r=>r.arrived&&!r.eliminated).length} · Re-entry: {counted.reduce((s,r)=>s+Math.max(0,r.rebuys-1),0)}{["bounty","boss_bounty"].includes(type)?` · KO: ${applicable.reduce((s,o)=>s+(o.knockouts??0),0)}`:""}{type==="boss_bounty"?` · Boss KO: ${applicable.reduce((s,o)=>s+(o.bossKnockouts??0),0)}`:""}</p>
- <p className="mb-2 text-sm text-amber-200">Зафиксированный фонд мест: {frozenPool??"ещё не зафиксирован"}</p>
- {type==="mystery_bounty"&&<p className="mb-2 text-sm text-amber-200">Конверты: всего {mystery?.envelope_count??"неизвестно"}, назначено {assignedEnvelopes}, осталось {mystery?mystery.envelope_count-assignedEnvelopes:"неизвестно"}. Очки: всего {mystery?.mystery_pool??"неизвестно"}, назначено {assignedPoints}, осталось {mystery?mystery.mystery_pool-assignedPoints:"неизвестно"}. Незаданные значения требуют проверки.</p>}
- {locked&&<p className="mb-4 text-amber-200">Только просмотр: завершённый турнир или управление через Google Sheets.</p>}
- {sourceAction}
- {type==="qualification_final"&&<Link className="mb-2 text-amber-200 underline" href="/admin/qualifications">Состав и завершение финала отбора</Link>}
- {!locked&&type!=="qualification_final"&&<CompletionAction id={id} onPreview={results=>setRatings(Object.fromEntries(results.map(r=>[r.player_id,r.rating_points])))}/>}
- <div className="mb-2 flex gap-4 text-sm"><Link href={`/admin/results/${id}`}>Закрытие регистрации / порядок выбытия / вернуть в игру</Link><Link href={`/admin/tournaments/${id}/edit`}>Состав и добавление игроков</Link></div>
- <div className="mb-4 flex shrink-0 flex-wrap gap-4"><input aria-label="Поиск игрока" placeholder="Поиск игрока" value={search} onChange={e=>setSearch(e.target.value)} className="rounded border border-zinc-600 bg-zinc-900 p-2"/><select aria-label="Фильтр" value={filter} onChange={e=>setFilter(e.target.value)} className="bg-zinc-900"><option value="all">Все игроки</option><option value="arrived">Пришли</option><option value="active">В игре</option><option value="eliminated">Выбыли</option></select></div>
- <div data-testid="grid-scroll" className="min-h-0 flex-1 overflow-auto border border-zinc-700"><table className="w-full min-w-[1650px] border-separate border-spacing-0 text-sm" onKeyDown={e=>{if(e.key==="Enter"&&e.target instanceof HTMLInputElement){e.preventDefault();const controls=Array.from(e.currentTarget.querySelectorAll<HTMLInputElement>('input:not(:disabled)')).filter(i=>!i.closest('tr')?.hidden);const index=controls.indexOf(e.target);if(controls[index+1])controls[index+1].focus();else e.target.blur();}}}>
- <thead className="sticky top-0 z-20 bg-zinc-800"><tr>{["Никнейм","Регистрация","Пришёл","Выбыл","Всего входов",...(!["phoenix","qualification_final"].includes(type)?["Add-on"]:[]),"Время выбытия",...operationFieldsFor(type).map(f=>operationLabels[f]),"Рейтинг"].map((h,i)=><th scope="col" key={h} className={`whitespace-nowrap border border-zinc-700 bg-zinc-800 p-2 text-left ${i===0?"sticky left-0 z-30":""}`}>{i===0?<button onClick={()=>setSort(!sort)}>{h} ↕</button>:h}</th>)}</tr></thead>
- <tbody>{rows.slice().sort((a,b)=>sort?b.name.localeCompare(a.name):a.name.localeCompare(b.name)).map(r=><PlayerRow key={r.id} hidden={!visible.some(v=>v.id===r.id)} row={r} id={id} locked={locked} type={type} rating={ratings[r.id]} operations={liveOperations.find(o=>o.playerId===r.id)} onPersist={next=>{writeEpoch.current++;setRows(old=>old.map(r=>r.id===next.id?next:r));}}/>)}</tbody></table></div><p className="mt-3 shrink-0 text-sm text-zinc-400">Tab / Enter — следующая ячейка и сохранение. Неизвестные значения остаются пустыми.</p>
+ const metrics:[string,number|string][]=[['Игроки',counted.length],['Пришли',counted.filter(r=>r.arrived).length],['В игре',counted.filter(r=>r.arrived&&!r.eliminated).length],['Входы',counted.reduce((s,r)=>s+r.rebuys,0)],['Re-entry',counted.reduce((s,r)=>s+Math.max(0,r.rebuys-1),0)],...(!['phoenix','qualification_final'].includes(type)?[['Add-on',counted.reduce((s,r)=>s+r.addons,0)] as [string,number]]:[])];
+ const knownTotal=(field:'knockouts'|'bossKnockouts')=>{const known=applicable.filter(o=>o[field]!=null);return `${known.reduce((s,o)=>s+o[field]!,0)}${known.length<counted.length?' + ?':''}`;};
+ if(['bounty','boss_bounty'].includes(type))metrics.push(['KO',knownTotal('knockouts')]);
+ if(type==='boss_bounty')metrics.push(['Boss KO',knownTotal('bossKnockouts')]);
+ if(type==='mystery_bounty')metrics.push(['Конверты',`${assignedEnvelopes} / ${mystery?.envelope_count??'?'}`],['Mystery очки',`${assignedPoints} / ${mystery?.mystery_pool??'?'}`]);
+ const headers=[{label:'Никнейм',group:'Участник'},{label:'Пришёл',group:'Участие'},{label:'Выбыл',group:'Участие'},{label:'Всего входов',group:'Входы'},...(!['phoenix','qualification_final'].includes(type)?[{label:'Add-on',group:'Входы'}]:[]),...consoleFieldsFor(type).flatMap(f=>[{label:operationLabels[f],group:operationGroup(f)},...(f==='place'?[{label:'Рейтинг',group:'Результат'}]:[])])];
+ return <main className={styles.workspace}>
+ <header><div><Link href="/admin/tournaments">← К турнирам</Link><h1>{title}<small>{typeLabel(type)}</small></h1></div><div data-badges><span>{status==='completed'?'Завершён':status==='open'?'Открыт':status??'Управление турниром'}</span><span>{source==='LEGACY_GOOGLE_SHEETS'?'Google Sheets':source==='POSTGRESQL'?'PostgreSQL':'Источник не указан'}</span>{locked&&<span>Только просмотр</span>}</div></header>
+ <section data-kpis data-testid="totals" aria-label="Сводка турнира">{metrics.map(([label,value])=><div data-kpi key={label}><span>{label}: </span><strong>{value}</strong></div>)}</section>
+ <div data-context><span>Фонд мест: {frozenPool==null?'не зафиксирован':`${frozenPool} очков · зафиксирован`}</span>{type==='mystery_bounty'&&<span>Распределение Mystery: незаданные значения требуют проверки, неизвестное ≠ 0.</span>}{locked&&<span>Изменения недоступны: завершённый турнир или источник Google Sheets.</span>}</div>
+ <div data-toolbar><input aria-label="Поиск игрока" placeholder="Найти по никнейму…" value={search} onChange={e=>setSearch(e.target.value)}/><select aria-label="Фильтр" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Все игроки</option><option value="arrived">Пришли</option><option value="active">В игре</option><option value="eliminated">Выбыли</option></select><span data-count>Показано {visible.length} из {rows.length}</span><nav><Link href={`/admin/results/${id}`}>Выбытия и регистрация</Link><Link href={`/admin/tournaments/${id}/edit`}>Состав / добавить игрока</Link></nav></div>
+ <div data-actions>{sourceAction}{type==='qualification_final'&&<Link href="/admin/qualifications">Состав и завершение финала отбора →</Link>}{!locked&&type!=='qualification_final'&&<CompletionAction id={id} onPreview={results=>setRatings(Object.fromEntries(results.map(r=>[r.player_id,r.rating_points])))}/>}</div>
+ <div data-grid data-testid="grid-scroll"><table aria-label="Управление игроками турнира" onKeyDown={e=>{if(e.key==='Enter'&&e.target instanceof HTMLInputElement){e.preventDefault();const controls=Array.from(e.currentTarget.querySelectorAll<HTMLInputElement>('input:not(:disabled)')).filter(i=>!i.closest('tr')?.hidden);const index=controls.indexOf(e.target);if(controls[index+1])controls[index+1].focus();else e.target.blur();}}}>
+ <thead><tr>{headers.map((h,i)=><th scope="col" key={h.label} data-group-start={i>0&&h.group!==headers[i-1].group||undefined}><small>{h.group}</small>{i===0?<button aria-label="Сортировать по никнейму" onClick={()=>setSort(!sort)}>{h.label} {sort?'↓':'↑'}</button>:h.label}</th>)}</tr></thead>
+ <tbody>{rows.slice().sort((a,b)=>sort?b.name.localeCompare(a.name):a.name.localeCompare(b.name)).map(r=><PlayerRow key={r.id} hidden={!visible.some(v=>v.id===r.id)} row={r} id={id} locked={locked} type={type} rating={ratings[r.id]} onOperationSaved={saved=>setLiveOperations(old=>[...old.filter(o=>o.playerId!==saved.playerId),saved])} operations={liveOperations.find(o=>o.playerId===r.id)} onPersist={next=>{writeEpoch.current++;setRows(old=>old.map(r=>r.id===next.id?next:r));}}/>)}</tbody></table>{visible.length===0&&<p className="p-6 text-center text-zinc-400">По выбранным условиям игроков нет</p>}</div><footer>Tab / Enter — следующая ячейка · Сохранение при выходе из поля · Время МСК · «?» и пустые поля — неизвестно</footer>
  </main>;
 }
