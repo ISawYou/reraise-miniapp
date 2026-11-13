@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { setTournamentPlayerRebuyState } from "@/features/tournaments";
+import { assertServerActorRole } from "@/lib/admin-auth";
 
 // POST /api/admin/tournaments/[id]/rebuy-state
 // Persists the raw Re-buy/Add-on values for one player the instant the
@@ -11,6 +12,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const actor = await assertServerActorRole(["admin", "operator"]);
     const { id } = await context.params;
     const body = (await request.json().catch(() => null)) as
       | { player_id?: string; rebuys?: number; addons?: number }
@@ -35,7 +37,8 @@ export async function POST(
       id,
       body.player_id,
       body.rebuys,
-      body.addons
+      body.addons,
+      { source: "staff", actorId: actor.id }
     );
 
     return NextResponse.json({ ok: true, ...result });

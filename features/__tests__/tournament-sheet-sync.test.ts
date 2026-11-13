@@ -61,6 +61,7 @@ const {
   reconcileTournamentFromSheet,
   runTournamentSheetSyncPass,
   getActiveFreeTournamentsWithSheet,
+  applyLiveFieldsFromSheetSnapshot,
   setTournamentPlayerEliminationThroughSheet,
   reorderTournamentEliminationsThroughSheet,
 } = await import("@/features/tournament-sheet-sync");
@@ -176,7 +177,9 @@ describe("reconcileTournamentFromSheet -- live field reconciliation", () => {
 
     await reconcileTournamentFromSheet("t1");
 
-    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 3, 1);
+    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 3, 1, {
+      source: "sheet_sync",
+    });
   });
 
   it("unchanged values are never rewritten", async () => {
@@ -192,6 +195,36 @@ describe("reconcileTournamentFromSheet -- live field reconciliation", () => {
 
     expect(mocks.setTournamentPlayerAttendance).not.toHaveBeenCalled();
     expect(mocks.setTournamentPlayerElimination).not.toHaveBeenCalled();
+    expect(mocks.setTournamentPlayerRebuyState).not.toHaveBeenCalled();
+  });
+
+  it("frozen snapshot keeps automatic GS Re-entry/Add-on differences pending for staff review", async () => {
+    mocks.getTournamentById.mockResolvedValue(tournament({ frozen_rating_places_count: 12 }));
+    mocks.getTournamentRebuyState.mockResolvedValue(new Map([["p1", { rebuys: 2, addons: 1 }]]));
+    mocks.readSpreadsheetTabValues.mockResolvedValue(sheetValues([p1Row({ 9: "3", 10: "2" })]));
+
+    const result = await reconcileTournamentFromSheet("t1");
+
+    expect(result.skipped).toBe(false);
+    if (result.skipped) throw new Error(result.reason);
+    expect(result.rebuyChanges).toBe(0);
+    expect(mocks.setTournamentPlayerRebuyState).not.toHaveBeenCalled();
+  });
+
+  it("completion fails closed while frozen Re-entry/Add-on discrepancies remain", async () => {
+    mocks.getTournamentRebuyState.mockResolvedValue(new Map([["p1", { rebuys: 2, addons: 1 }]]));
+    const parsed = new Map([["p1", {
+      rowNumber: 8, player_id: "p1", raw_system: "", raw_display_name: "Alice",
+      raw_telegram: "", raw_status: "registered", raw_place: "", raw_eliminated_at: "",
+      arrived: true, paid: false, payment_type: "", free_reentries: 0, rebuys: 3,
+      addons: 2, knockouts: 0, boss_knockouts: 0, mystery_bounty_points: 0,
+      place: null, eliminated: false,
+    }]]);
+
+    await expect(applyLiveFieldsFromSheetSnapshot("t1", parsed, new Set(["p1"]), {
+      frozenRebuyPolicy: "reject",
+      rebuyAuthorization: { source: "staff", actorId: "staff-1" },
+    })).rejects.toThrow("Сначала проверьте расхождения");
     expect(mocks.setTournamentPlayerRebuyState).not.toHaveBeenCalled();
   });
 
@@ -879,7 +912,9 @@ describe("reconcileTournamentFromSheet -- waitlist capacity", () => {
     const result = await reconcileTournamentFromSheet("t1");
 
     expect(result).toMatchObject({ skipped: false, eliminationChanges: 0, unEliminatedPlayerIds: [], rebuyChanges: 1 });
-    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 4, 0);
+    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 4, 0, {
+      source: "sheet_sync",
+    });
     expect(mocks.reconcileTournamentWaitlistCapacity).toHaveBeenCalled();
     consoleError.mockRestore();
   });

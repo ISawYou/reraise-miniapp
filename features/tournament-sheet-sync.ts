@@ -186,7 +186,11 @@ export type LiveFieldSyncResult = {
 export async function applyLiveFieldsFromSheetSnapshot(
   tournamentId: string,
   parsedRows: Map<string, NormalizedFreeSheetRow>,
-  eligiblePlayerIds: Set<string>
+  eligiblePlayerIds: Set<string>,
+  options?: {
+    rebuyAuthorization?: { source: "staff"; actorId: string } | { source: "sheet_sync" };
+    frozenRebuyPolicy?: "skip" | "reject";
+  }
 ): Promise<LiveFieldSyncResult> {
   const [attendance, eliminations, rebuyState] = await Promise.all([
     getTournamentAttendance(tournamentId),
@@ -246,7 +250,21 @@ export async function applyLiveFieldsFromSheetSnapshot(
       (currentRebuy?.rebuys ?? 0) !== sheetRow.rebuys ||
       (currentRebuy?.addons ?? 0) !== sheetRow.addons
     ) {
-      await setTournamentPlayerRebuyState(tournamentId, playerId, sheetRow.rebuys, sheetRow.addons);
+      if (options?.frozenRebuyPolicy === "skip") {
+        continue;
+      }
+      if (options?.frozenRebuyPolicy === "reject") {
+        throw new Error(
+          "Re-entry/Add-on отличаются от зафиксированного состояния. Сначала проверьте расхождения и явно сохраните нужные значения."
+        );
+      }
+      await setTournamentPlayerRebuyState(
+        tournamentId,
+        playerId,
+        sheetRow.rebuys,
+        sheetRow.addons,
+        options?.rebuyAuthorization
+      );
       rebuyChanges++;
     }
   }
@@ -684,7 +702,12 @@ export async function reconcileTournamentFromSheet(
   const liveResult = await applyLiveFieldsFromSheetSnapshot(
     tournamentId,
     readResult.rows,
-    eligiblePlayerIds
+    eligiblePlayerIds,
+    {
+      rebuyAuthorization: { source: "sheet_sync" },
+      frozenRebuyPolicy:
+        tournament.frozen_rating_places_count != null ? "skip" : undefined,
+    }
   );
 
   // Seat capacity, every tick, unconditionally (not only when this tick saw
@@ -706,7 +729,12 @@ export async function reconcileTournamentFromSheet(
     const promotedLiveResult = await applyLiveFieldsFromSheetSnapshot(
       tournamentId,
       readResult.rows,
-      new Set(reconciliation.promotedPlayerIds)
+      new Set(reconciliation.promotedPlayerIds),
+      {
+        rebuyAuthorization: { source: "sheet_sync" },
+        frozenRebuyPolicy:
+          tournament.frozen_rating_places_count != null ? "skip" : undefined,
+      }
     );
     liveResult.attendanceChanges += promotedLiveResult.attendanceChanges;
     liveResult.eliminationChanges += promotedLiveResult.eliminationChanges;

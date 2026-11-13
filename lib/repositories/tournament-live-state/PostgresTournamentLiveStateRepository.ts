@@ -9,6 +9,7 @@ import {
   tournamentLiveEntries,
   tournamentPlayerEliminations,
   tournamentRebuyState,
+  staffTournamentLiveEdits,
 } from "@/lib/db/schema";
 import type {
   TournamentLiveStateRepository,
@@ -341,23 +342,42 @@ export class PostgresTournamentLiveStateRepository implements TournamentLiveStat
   // straightforward overwrite (last-processed-wins, same accepted
   // cross-tab semantics as attendance).
   async upsertRebuyState(row: RebuyStateUpsert): Promise<RebuyState> {
-    const rows = await db
-      .insert(tournamentRebuyState)
-      .values({
-        tournamentId: row.tournament_id,
-        playerId: row.player_id,
-        rebuys: row.rebuys,
-        addons: row.addons,
-      })
-      .onConflictDoUpdate({
-        target: [tournamentRebuyState.tournamentId, tournamentRebuyState.playerId],
-        set: {
-          rebuys: sql`excluded.rebuys`,
-          addons: sql`excluded.addons`,
-          updatedAt: sql`now()`,
-        },
-      })
-      .returning({ rebuys: tournamentRebuyState.rebuys, addons: tournamentRebuyState.addons });
+    const write = async (executor: typeof db) => executor
+        .insert(tournamentRebuyState)
+        .values({
+          tournamentId: row.tournament_id,
+          playerId: row.player_id,
+          rebuys: row.rebuys,
+          addons: row.addons,
+        })
+        .onConflictDoUpdate({
+          target: [tournamentRebuyState.tournamentId, tournamentRebuyState.playerId],
+          set: {
+            rebuys: sql`excluded.rebuys`,
+            addons: sql`excluded.addons`,
+            updatedAt: sql`now()`,
+          },
+        })
+        .returning({ rebuys: tournamentRebuyState.rebuys, addons: tournamentRebuyState.addons });
+
+    const rows = row.authorization
+      ? await db.transaction(async (tx) => {
+          await tx.execute(sql`select public.issue_staff_live_edit_permit(
+            ${row.authorization!.request_id}::uuid,
+            ${row.tournament_id}::uuid,
+            ${row.player_id}::uuid,
+            ${row.authorization!.actor_id ?? null}::uuid,
+            ${row.authorization!.source},
+            ${row.rebuys},
+            ${row.addons}
+          )`);
+          const result = await write(tx as unknown as typeof db);
+          await tx.update(staffTournamentLiveEdits)
+            .set({ state: "succeeded" })
+            .where(eq(staffTournamentLiveEdits.requestId, row.authorization!.request_id));
+          return result;
+        })
+      : await write(db);
 
     const [result] = rows;
 

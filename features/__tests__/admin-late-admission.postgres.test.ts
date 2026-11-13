@@ -18,6 +18,7 @@ vi.mock('@/lib/repositories', async () => {
     return { tournamentRepository: new PostgresTournamentRepository(), tournamentLateRegistrationRepository: new PostgresTournamentLateRegistrationRepository(), tournamentLiveStateRepository: new PostgresTournamentLiveStateRepository() };
 });
 const { PostgresAdminAdmissionRepository } = await import('@/lib/repositories/admin-admission/PostgresAdminAdmissionRepository');
+const { PostgresTournamentLiveStateRepository } = await import('@/lib/repositories/tournament-live-state/PostgresTournamentLiveStateRepository');
 const { admitPlayerToTournament } = await import('@/features/tournament-waitlist-capacity');
 const { commitTournamentCompletion } = await import('@/features/tournament-completion-commit');
 const url = process.env.RERAISE_ADMIN_ADMISSION_TEST_DATABASE_URL;
@@ -28,7 +29,7 @@ if (url) {
 }
 let client: ReturnType<typeof postgres>;
 const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const tid = pid(500), staff = pid(900), repo = new PostgresAdminAdmissionRepository();
+const tid = pid(500), staff = pid(900), repo = new PostgresAdminAdmissionRepository(), liveRepo = new PostgresTournamentLiveStateRepository();
 const request = (extra: Partial<StaffAdmissionInput> = {}): StaffAdmissionInput => ({ tournamentId: tid, requestId: randomUUID(), playerId: pid(9), expectedPhase: 'normal', confirmed: false, arrivalConfirmed: false, ...extra });
 async function late() { await h.db.update(schema.tournaments).set({ lateRegistrationEndsAt: new Date('2026-01-01T22:00:00Z') }).where(eq(schema.tournaments.id, tid)); }
 async function seed(n = 8) { for (let i = 1; i <= n; i++) {
@@ -41,12 +42,45 @@ async function snapshotBytes() { const [r] = await client `select row_to_json(s)
 describe.runIf(!!url)('Admin admission actual PostgreSQL', () => {
     beforeAll(async () => { vi.stubEnv('DATABASE_PROVIDER', 'postgres'); client = postgres(url!, { max: 10, prepare: false, onnotice: () => { } }); h.db = drizzle(client, { schema }); await client.unsafe('DROP SCHEMA public CASCADE; CREATE SCHEMA public; DROP SCHEMA IF EXISTS drizzle CASCADE;'); await migrate(h.db, { migrationsFolder: 'lib/db/migrations' }); });
     afterAll(async () => { await client?.end(); vi.unstubAllEnvs(); });
-    beforeEach(async () => { await client `truncate admin_tournament_admissions,results,tournaments,players cascade`; for (let i = 1; i <= 12; i++)
+    beforeEach(async () => { await client `truncate staff_tournament_live_edits,admin_tournament_admissions,results,tournaments,players cascade`; for (let i = 1; i <= 12; i++)
         await h.db.insert(schema.players).values({ id: pid(i), displayName: 'P' + i }); for (const [n, role, blocked] of [[900, 'admin', false], [901, 'operator', false], [902, 'player', false], [903, 'admin', true]] as const)
         await h.db.insert(schema.players).values({ id: pid(n), displayName: 'Role' + n, role, isBlocked: blocked }); await h.db.insert(schema.tournaments).values({ id: tid, title: 'Fixture CLASSIC', kind: 'free', status: 'open', startAt: new Date('2025-01-01T16:00:00Z'), maxPlayers: 46, tournamentType: 'classic', ratingFormulaVersion: 'v2', lateRegistrationEndsAt: new Date('2099-01-01T22:00:00Z') }); });
     it('ordinary self-registration before cutoff works', async () => { expect(await admitPlayerToTournament(tid, pid(9))).toMatchObject({ status: 'registered' }); });
     it('self-registration after cutoff rejected by DB even without snapshot', async () => { await late(); await expect(admitPlayerToTournament(tid, pid(9))).rejects.toThrow(); expect(await h.db.select().from(schema.registrations)).toHaveLength(0); });
     it('manual snapshot closes self-registration even before deadline', async () => { await freeze(); await expect(admitPlayerToTournament(tid, pid(9))).rejects.toThrow(); await expect(h.db.insert(schema.registrations).values({ tournamentId: tid, playerId: pid(9), status: 'registered' })).rejects.toThrow(); });
+    it('staff Re-entry/Add-on edit works after cutoff and snapshot without changing frozen pool', async () => {
+        await h.db.insert(schema.registrations).values({ tournamentId: tid, playerId: pid(9), status: 'registered' });
+        await late(); await freeze(); const before = await snapshotBytes();
+        const result = await liveRepo.upsertRebuyState({ tournament_id: tid, player_id: pid(9), rebuys: 3, addons: 2, authorization: { source: 'staff', actor_id: staff, request_id: randomUUID() } });
+        expect(result).toEqual({ rebuys: 3, addons: 2 }); expect(await snapshotBytes()).toBe(before);
+        expect((await h.db.select().from(schema.staffTournamentLiveEdits))[0]).toMatchObject({ actorId: staff, source: 'staff', state: 'succeeded' });
+        expect(await liveRepo.upsertRebuyState({ tournament_id: tid, player_id: pid(9), rebuys: 2, addons: 1, authorization: { source: 'staff', actor_id: pid(901), request_id: randomUUID() } })).toEqual({ rebuys: 2, addons: 1 });
+        expect(await snapshotBytes()).toBe(before);
+        expect(await h.db.select().from(schema.staffTournamentLiveEdits)).toHaveLength(2);
+    });
+    it('nonstaff cannot obtain a live-edit permit or change Re-entry/Add-on state', async () => {
+        await h.db.insert(schema.registrations).values({ tournamentId: tid, playerId: pid(9), status: 'registered' });
+        await late(); await freeze();
+        await expect(liveRepo.upsertRebuyState({ tournament_id: tid, player_id: pid(9), rebuys: 2, addons: 1, authorization: { source: 'staff', actor_id: pid(902), request_id: randomUUID() } })).rejects.toThrow();
+        expect(await h.db.select().from(schema.tournamentRebuyState)).toHaveLength(0);
+        expect(await h.db.select().from(schema.staffTournamentLiveEdits)).toHaveLength(0);
+    });
+    it('automatic sheet sync cannot overwrite a frozen discrepancy without staff review', async () => {
+        await h.db.insert(schema.registrations).values({ tournamentId: tid, playerId: pid(9), status: 'registered' });
+        await late(); await freeze(); const before = await snapshotBytes();
+        await expect(liveRepo.upsertRebuyState({ tournament_id: tid, player_id: pid(9), rebuys: 3, addons: 2, authorization: { source: 'sheet_sync', actor_id: null, request_id: randomUUID() } })).rejects.toThrow();
+        expect(await h.db.select().from(schema.tournamentRebuyState)).toHaveLength(0); expect(await h.db.select().from(schema.staffTournamentLiveEdits)).toHaveLength(0); expect(await snapshotBytes()).toBe(before);
+    });
+    it('unpermitted post-cutoff stack increase remains blocked', async () => {
+        await h.db.insert(schema.registrations).values({ tournamentId: tid, playerId: pid(9), status: 'registered' }); await late();
+        await expect(liveRepo.upsertRebuyState({ tournament_id: tid, player_id: pid(9), rebuys: 2, addons: 1 })).rejects.toThrow();
+    });
+    it('completed tournament rejects even an authenticated staff live edit', async () => {
+        await h.db.insert(schema.registrations).values({ tournamentId: tid, playerId: pid(9), status: 'registered' });
+        await h.db.update(schema.tournaments).set({ status: 'completed' }).where(eq(schema.tournaments.id, tid));
+        await expect(liveRepo.upsertRebuyState({ tournament_id: tid, player_id: pid(9), rebuys: 2, addons: 1, authorization: { source: 'staff', actor_id: staff, request_id: randomUUID() } })).rejects.toThrow();
+        expect(await h.db.select().from(schema.tournamentRebuyState)).toHaveLength(0); expect(await h.db.select().from(schema.staffTournamentLiveEdits)).toHaveLength(0);
+    });
     it('admin after time before snapshot admitted, actor/mode audited', async () => { await late(); const r = await repo.admit(staff, request({ expectedPhase: 'after_time', confirmed: true })); expect(r.status).toBe('registered'); const [a] = await h.db.select().from(schema.adminAdmissions); expect(a).toMatchObject({ actorId: staff, playerId: pid(9), phase: 'after_time', state: 'succeeded', arrivalConfirmed: false }); expect(await h.db.select().from(schema.tournamentLateRegistration)).toHaveLength(0); });
     it('operator after snapshot admitted without changing frozen bytes or rules', async () => { await seed(); await late(); await freeze(); const b = await snapshotBytes(); const [t] = await h.db.select().from(schema.tournaments); await repo.admit(pid(901), request({ expectedPhase: 'after_snapshot', confirmed: true })); expect(await snapshotBytes()).toBe(b); expect((await h.db.select().from(schema.tournaments))[0]).toEqual(t); });
     it.each([902, 903])('DB role/blocked authorization rejects actor%d', async (n) => { await late(); await expect(repo.admit(pid(n), request({ expectedPhase: 'after_time', confirmed: true }))).rejects.toThrow('прав'); expect(await h.db.select().from(schema.adminAdmissions)).toHaveLength(0); });

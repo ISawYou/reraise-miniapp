@@ -22,6 +22,7 @@ import { logCompletionError, resolveCompletionError } from "@/lib/tournament-com
 import { TournamentAlreadyCompletedError } from "@/lib/tournament-errors";
 import { finishPokerClockTournament } from "@/lib/poker-clock-client";
 import { reconcileCompletionRosterRows } from "@/lib/tournament-completion-roster";
+import { assertServerActorRole } from "@/lib/admin-auth";
 
 // ReRaise is the authoritative tournament/results system -- everything
 // through the GS sync below is completion as it already worked before
@@ -45,6 +46,7 @@ export async function POST(
   const { id } = await context.params;
 
   try {
+    const actor = await assertServerActorRole(["admin", "operator"]);
     const body = (await request.json()) as {
       rows?: Array<{
         player_id: string;
@@ -124,7 +126,12 @@ export async function POST(
       await applyLiveFieldsFromSheetSnapshot(
         id,
         sheetResult.rows,
-        new Set(rawRows.map((row) => row.player_id))
+        new Set(rawRows.map((row) => row.player_id)),
+        {
+          rebuyAuthorization: { source: "staff", actorId: actor.id },
+          frozenRebuyPolicy:
+            tournament.frozen_rating_places_count != null ? "reject" : undefined,
+        }
       );
     }
 

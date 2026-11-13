@@ -142,6 +142,9 @@ export type RebuyStateUpsert = {
   player_id: string;
   rebuys: number;
   addons: number;
+  authorization?:
+    | { source: "staff"; actor_id: string; request_id: string }
+    | { source: "sheet_sync"; actor_id?: null; request_id: string };
 };
 
 export interface TournamentLiveStateRepository {

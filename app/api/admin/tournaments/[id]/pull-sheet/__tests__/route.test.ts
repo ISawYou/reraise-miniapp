@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/admin-auth", () => ({
+  assertServerActorRole: vi.fn().mockResolvedValue({ id: "staff-1", role: "admin" }),
+}));
+
 const mocks = vi.hoisted(() => ({
   getTournamentById: vi.fn(),
   getTournamentResultsDraft: vi.fn(),
@@ -127,7 +131,10 @@ describe("POST /api/admin/tournaments/[id]/pull-sheet (kind=free)", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.setTournamentPlayerAttendance).toHaveBeenCalledWith("t1", "p1", true);
-    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 3, 1);
+    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 3, 1, {
+      source: "staff",
+      actorId: "staff-1",
+    });
     // The response payload is unaffected by commit -- same shape either way.
     expect(json.rows).toEqual([
       expect.objectContaining({ player_id: "p1", arrived: true, rebuys: 3, addons: 1 }),
@@ -139,19 +146,19 @@ describe("POST /api/admin/tournaments/[id]/pull-sheet (kind=free)", () => {
       freeSheetValues(["p1", "alice", "Alice", "@alice", "registered", "true", "false", "", "0", "0", "0", "0", ""])
     );
     await POST(request({ commit: true }), context());
-    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenLastCalledWith("t1", "p1", 0, 0);
+    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenLastCalledWith("t1", "p1", 0, 0, expect.anything());
 
     mocks.readSpreadsheetTabValues.mockResolvedValueOnce(
       freeSheetValues(["p1", "alice", "Alice", "@alice", "registered", "true", "false", "", "0", "1", "0", "0", ""])
     );
     await POST(request({ commit: true }), context());
-    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenLastCalledWith("t1", "p1", 1, 0);
+    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenLastCalledWith("t1", "p1", 1, 0, expect.anything());
 
     mocks.readSpreadsheetTabValues.mockResolvedValueOnce(
       freeSheetValues(["p1", "alice", "Alice", "@alice", "registered", "true", "false", "", "0", "2", "0", "0", ""])
     );
     await POST(request({ commit: true }), context());
-    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenLastCalledWith("t1", "p1", 2, 0);
+    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenLastCalledWith("t1", "p1", 2, 0, expect.anything());
   });
 
   it("commit:true with arrived flipping false->true: persists the new value into tournament_attendance", async () => {
@@ -174,7 +181,7 @@ describe("POST /api/admin/tournaments/[id]/pull-sheet (kind=free)", () => {
     );
     await POST(request({ commit: true }), context());
 
-    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 3, 1);
+    expect(mocks.setTournamentPlayerRebuyState).toHaveBeenCalledWith("t1", "p1", 3, 1, expect.anything());
     expect(mocks.setTournamentPlayerRebuyState).not.toHaveBeenCalledWith("t1", "p1", 7, expect.anything());
   });
 });
