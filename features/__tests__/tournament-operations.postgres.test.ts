@@ -24,7 +24,7 @@ it.runIf(!!url)("persists atomic field patches and audit without touching frozen
  await h.db.insert(schema.tournamentLateRegistration).values({tournamentId:tid,arrivedPlayersCount:1,initialStacksCount:1,totalEntriesCount:1,rebuysCount:0,addonsCount:0,tournamentType:"classic",ratingFormulaVersion:"v2",ratingPlaces:[{place:1,points:50}]});
  const before=await h.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId,tid));
  const base={tournamentId:tid,playerId:pid,actorId:aid,expectedVersion:0};
- expect(await repo.patch({...base,patch:{paid:true,paymentMethod:"cash",knockouts:2}})).toMatchObject({version:1,paid:true,knockouts:2,place:null});
+ expect(await repo.patch({...base,patch:{paid:true,knockouts:2}})).toMatchObject({version:1,paid:true,knockouts:2,place:null});
  await expect(repo.patch({...base,patch:{paid:false}})).rejects.toThrow("изменены");
  expect(await repo.patch({...base,expectedVersion:1,patch:{place:1}})).toMatchObject({version:2,paid:true,knockouts:2,place:1});
  await expect(repo.patch({...base,expectedVersion:2,actorId:pid,patch:{paid:false}})).rejects.toThrow("прав");
@@ -43,6 +43,7 @@ it.runIf(!!url)("atomically imports reviewed values, preserves snapshot, waits f
  const id=randomUUID(),requestId=randomUUID();await h.db.update(schema.players).set({role:"admin"}).where(eq(schema.players.id,aid));
  await h.db.insert(schema.tournaments).values({id,title:"Cutover",kind:"free",status:"open",sourceMode:"LEGACY_GOOGLE_SHEETS",googleSheetTabName:"fixture",tournamentType:"bounty",startAt:new Date(),maxPlayers:46});
  await h.db.insert(schema.registrations).values({tournamentId:id,playerId:pid,status:"registered"});
+ await h.db.insert(schema.tournamentOperations).values({tournamentId:id,playerId:pid,updatedBy:aid,paymentMethod:"cash",comment:null});
  await h.db.insert(schema.tournamentLateRegistration).values({tournamentId:id,arrivedPlayersCount:1,initialStacksCount:1,totalEntriesCount:1,rebuysCount:0,addonsCount:0,tournamentType:"bounty",ratingFormulaVersion:"v2",ratingPlaces:[{place:1,points:50}]});
  const frozen=await h.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId,id));
  const sheet:string[][]=Array.from({length:6},()=>[]);sheet.push(getFreeSheetColumnLayout("bounty").headers,[pid,"","P","","registered","TRUE","TRUE","cash","0","1","0","2","1","0","FALSE",""]);google.read.mockImplementation(async()=>sheet);
@@ -55,7 +56,7 @@ it.runIf(!!url)("atomically imports reviewed values, preserves snapshot, waits f
   let switched=false;const switching=applyCutover(input).then(r=>{switched=true;return r;});
   await new Promise(r=>setTimeout(r,30));expect(switched).toBe(false);release();await running;expect(await switching).toEqual({ok:true,noOp:false});
   expect(await applyCutover(input)).toEqual({ok:true,noOp:true});await expect(withLegacySheetFence(id,async()=>{})).rejects.toThrow("архив");
-  expect((await repo.read(id))[0]).toMatchObject({paid:true,paymentMethod:"cash",knockouts:2,place:1,mysteryEnvelopesWon:null});
+  expect((await repo.read(id))[0]).toMatchObject({paid:true,paymentMethod:"cash",comment:null,knockouts:2,place:1,mysteryEnvelopesWon:null});
   expect((await h.db.select().from(schema.tournaments).where(eq(schema.tournaments.id,id)))[0]).toMatchObject({sourceMode:"POSTGRESQL",googleSheetTabName:"fixture"});
   expect(await h.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId,id))).toEqual(frozen);
  }finally{await h.db.delete(schema.tournamentSourceAudit).where(eq(schema.tournamentSourceAudit.tournamentId,id));await h.db.delete(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId,id));await h.db.delete(schema.tournaments).where(eq(schema.tournaments.id,id));}
@@ -66,7 +67,7 @@ it.runIf(!!url)("completes from real PostgreSQL without any Google read, preserv
  await h.db.insert(schema.registrations).values({tournamentId:id,playerId:pid,status:"registered"});
  await h.db.insert(schema.tournamentAttendance).values({tournamentId:id,playerId:pid,arrived:true});
  await h.db.insert(schema.tournamentRebuyState).values({tournamentId:id,playerId:pid,rebuys:1,addons:0});
- await h.db.insert(schema.tournamentOperations).values({tournamentId:id,playerId:pid,updatedBy:aid,paid:true,paymentMethod:"cash",freeReentries:0,knockouts:2,place:1});
+ await h.db.insert(schema.tournamentOperations).values({tournamentId:id,playerId:pid,updatedBy:aid,paid:false,paymentMethod:null,freeReentries:0,knockouts:2,place:1});
  await h.db.insert(schema.tournamentLateRegistration).values({tournamentId:id,arrivedPlayersCount:1,initialStacksCount:1,totalEntriesCount:1,rebuysCount:0,addonsCount:0,tournamentType:"bounty",ratingFormulaVersion:"v2",ratingPlaces:[{place:1,points:50}]});
  const frozen=await h.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId,id));
  google.read.mockRejectedValue(new Error("Google must not be used"));google.read.mockClear();
@@ -74,7 +75,13 @@ it.runIf(!!url)("completes from real PostgreSQL without any Google read, preserv
   const preview=await previewPostgresCompletion(id);
   await repo.patch({tournamentId:id,playerId:pid,actorId:aid,expectedVersion:1,patch:{knockouts:3}});
   await expect(completePostgresTournament(id,preview.fingerprint)).rejects.toThrow("устарел");
-  const fresh=await previewPostgresCompletion(id);expect(await completePostgresTournament(id,fresh.fingerprint)).toMatchObject({ok:true,completedCount:1});
+  const fresh=await previewPostgresCompletion(id);
+  await repo.patch({tournamentId:id,playerId:pid,actorId:aid,expectedVersion:2,patch:{comment:"Без финансовых изменений"}});
+  const audit=await h.db.select().from(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId,id));expect(audit.map(a=>a.after)).toContainEqual(expect.objectContaining({comment:"Без финансовых изменений",version:3}));
+  expect((await previewPostgresCompletion(id)).fingerprint).toBe(fresh.fingerprint);
+  await expect(repo.patch({tournamentId:id,playerId:pid,actorId:aid,expectedVersion:2,patch:{comment:"Stale"}})).rejects.toThrow("изменены");
+  await expect(h.db.update(schema.tournamentOperations).set({comment:"x".repeat(1001)}).where(eq(schema.tournamentOperations.tournamentId,id))).rejects.toThrow();
+  expect(await completePostgresTournament(id,fresh.fingerprint)).toMatchObject({ok:true,completedCount:1});
   const [result]=await h.db.select().from(schema.results).where(eq(schema.results.tournamentId,id));expect(result).toMatchObject({place:1,knockouts:3,itmPoints:50,participationPoints:2,knockoutPoints:15,ratingPoints:67});
   await expect(completePostgresTournament(id,fresh.fingerprint)).rejects.toThrow("уже завершён");
   expect(await h.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId,id))).toEqual(frozen);expect(google.read).not.toHaveBeenCalled();

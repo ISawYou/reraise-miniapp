@@ -45,7 +45,7 @@ function PlayerRow({row,id,locked,onPersist,type,operations,hidden,rating}:{row:
   <span aria-live="polite" className={`block max-w-48 text-xs ${states[field]?.startsWith("Не сохранено")?"text-amber-200":"text-zinc-300"}`}>{states[field]}</span>
   {states[field]?.startsWith("Не сохранено:")&&<button className="text-xs underline" onClick={()=>save(field,draft[field])}>Повторить</button>}
  </td>)}
- <td className="whitespace-nowrap border border-zinc-700 p-2">{row.time?new Date(row.time).toLocaleTimeString("ru-RU"):"—"}</td><OperationCells id={id} playerId={row.id} type={type} locked={readonly} initial={operations} eliminated={row.eliminated}/><td className="border border-zinc-700 p-2" title="Предварительный рейтинг последней проверки завершения; перед финальным сохранением проверяется свежесть">{rating??"—"}</td></tr>;
+ <td className="whitespace-nowrap border border-zinc-700 p-2">{row.time?new Date(row.time).toLocaleTimeString("ru-RU"):"—"}</td><OperationCells id={id} playerId={row.id} type={type} locked={locked||!participant(row)} initial={operations} eliminated={row.eliminated}/><td className="border border-zinc-700 p-2" title="Предварительный рейтинг последней проверки завершения; перед финальным сохранением проверяется свежесть">{rating??"—"}</td></tr>;
 }
 export function TournamentConsole({id,title,locked,rows:initial,type="classic",operations=[],frozenPool,mystery,sourceAction}:{id:string;title:string;locked:boolean;rows:Row[];type?:TournamentType;operations?:Operations[];frozenPool?:number|null;mystery?:{envelope_count:number;mystery_pool:number}|null;sourceAction?:ReactNode}) {
  const [rows,setRows]=useState(initial),[search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[sort,setSort]=useState(false);

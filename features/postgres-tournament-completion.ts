@@ -24,7 +24,7 @@ export async function previewPostgresCompletion(id:string){
   const eliminated=eliminations.get(p.player_id)?.eliminated??false;
   const place=eliminated?derivedPlaces.get(p.player_id)??op?.place:op?.place;
   if(!op||place==null||!a||!b)throw new OperationsError(`${p.admin_nick}: заполните место, приход и входы`,409);
-  if(a.arrived&&fields.filter(f=>f!=="place").some(f=>op[f]==null))throw new OperationsError(`${p.admin_nick}: заполните все применимые операционные поля`,409);
+  if(a.arrived&&fields.filter(f=>f!=="place"&&f!=="comment"&&f!=="paid").some(f=>op[f]==null))throw new OperationsError(`${p.admin_nick}: заполните все применимые операционные поля`,409);
   if(a.arrived&&b.rebuys<1)throw new OperationsError(`${p.admin_nick}: пришедшему игроку нужен минимум один вход`,409);
   if(t.tournament_type==="phoenix"&&(b.rebuys>2||b.addons!==0))throw new OperationsError("PHOENIX: максимум два входа и без Add-on",409);
   return {player_id:p.player_id,display_name:p.admin_nick,place,arrived:a.arrived,entries:b.rebuys,addons:b.addons,knockouts:fields.includes("knockouts")?op.knockouts??0:0,boss_knockouts:fields.includes("bossKnockouts")?op.bossKnockouts??0:0,mystery_bounty_points:fields.includes("mysteryPoints")?op.mysteryPoints??0:0,free_reentries:op.freeReentries??0,eliminated};

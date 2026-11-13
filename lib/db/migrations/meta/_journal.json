@@ -302,6 +302,13 @@
       "when": 1794534974840,
       "tag": "0043_tournament_cutover_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794565886075,
+      "tag": "0044_tournament_operation_comments",
+      "breakpoints": true
     }
   ]
 }

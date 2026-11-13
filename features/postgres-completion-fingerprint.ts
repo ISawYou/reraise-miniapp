@@ -9,7 +9,7 @@ export async function postgresCompletionFingerprint(id:string,executor:Pick<Exec
  'a',(select jsonb_agg(to_jsonb(a) order by a.player_id) from tournament_attendance a where a.tournament_id=${id}::uuid),
  'e',(select jsonb_agg(to_jsonb(e) order by e.player_id) from tournament_player_eliminations e where e.tournament_id=${id}::uuid),
  'b',(select jsonb_agg(to_jsonb(b) order by b.player_id) from tournament_rebuy_state b where b.tournament_id=${id}::uuid),
- 'o',(select jsonb_agg(to_jsonb(o) order by o.player_id) from tournament_operations o where o.tournament_id=${id}::uuid),
+ 'o',(select jsonb_agg(to_jsonb(o)-'comment'-'payment_method'-'version'-'updated_by'-'updated_at' order by o.player_id) from tournament_operations o where o.tournament_id=${id}::uuid),
  'l',(select to_jsonb(l) from tournament_late_registration l where l.tournament_id=${id}::uuid),
  'm',(select to_jsonb(m) from tournament_mystery_bounty m where m.tournament_id=${id}::uuid)
  )::text) as fingerprint`);
