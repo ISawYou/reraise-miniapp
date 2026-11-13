@@ -267,6 +267,13 @@
       "when": 1794517228662,
       "tag": "0038_staff_live_operations_hotfix",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794533757048,
+      "tag": "0039_tournament_operation_fields",
+      "breakpoints": true
     }
   ]
 }

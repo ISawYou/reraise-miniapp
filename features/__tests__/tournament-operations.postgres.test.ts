@@ -1,0 +1,32 @@
+import {beforeAll,afterAll,it,expect,vi} from "vitest";
+import postgres from "postgres";
+import {drizzle} from "drizzle-orm/postgres-js";
+import {migrate} from "drizzle-orm/postgres-js/migrator";
+import {randomUUID} from "node:crypto";
+import {eq} from "drizzle-orm";
+import * as schema from "@/lib/db/schema";
+import type {db as DB} from "@/lib/db";
+const h=vi.hoisted(()=>({db:null as unknown as typeof DB}));
+vi.mock("@/lib/db",()=>({db:new Proxy({},{get(_t,k){const v=Reflect.get(h.db,k);return typeof v==="function"?v.bind(h.db):v;}})}));
+const {tournamentOperationsRepository:repo}=await import("@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository");
+const url=process.env.RERAISE_ADMIN_ADMISSION_TEST_DATABASE_URL;
+if(url){const u=new URL(url);if(u.hostname!=="127.0.0.1"||!u.pathname.startsWith("/reraise_admin_admission_test_"))throw Error("Disposable local DB only");}
+let client:ReturnType<typeof postgres>;const tid=randomUUID(),pid=randomUUID(),aid=randomUUID();
+beforeAll(async()=>{if(!url)return;client=postgres(url,{prepare:false,onnotice:()=>{}});h.db=drizzle(client,{schema});await migrate(h.db,{migrationsFolder:"lib/db/migrations"});await h.db.insert(schema.players).values([{id:pid,displayName:"Operations fixture"},{id:aid,displayName:"Staff fixture",role:"operator"}]);await h.db.insert(schema.tournaments).values({id:tid,title:"Operations fixture",kind:"free",status:"open",startAt:new Date(),maxPlayers:46});await h.db.insert(schema.registrations).values({tournamentId:tid,playerId:pid,status:"registered"});});
+afterAll(async()=>{if(!client)return;await h.db.delete(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId,tid));await h.db.delete(schema.tournaments).where(eq(schema.tournaments.id,tid));for(const id of [pid,aid])await h.db.delete(schema.players).where(eq(schema.players.id,id));await client.end();});
+it.runIf(!!url)("persists atomic field patches and audit without touching frozen snapshots; rejects stale, GS and completed writes",async()=>{
+ await h.db.insert(schema.tournamentLateRegistration).values({tournamentId:tid,arrivedPlayersCount:1,initialStacksCount:1,totalEntriesCount:1,rebuysCount:0,addonsCount:0,tournamentType:"classic",ratingFormulaVersion:"v2",ratingPlaces:[{place:1,points:50}]});
+ const before=await h.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId,tid));
+ const base={tournamentId:tid,playerId:pid,actorId:aid,expectedVersion:0};
+ expect(await repo.patch({...base,patch:{paid:true,paymentMethod:"cash",knockouts:2}})).toMatchObject({version:1,paid:true,knockouts:2,place:null});
+ await expect(repo.patch({...base,patch:{paid:false}})).rejects.toThrow("изменены");
+ expect(await repo.patch({...base,expectedVersion:1,patch:{place:1}})).toMatchObject({version:2,paid:true,knockouts:2,place:1});
+ await expect(repo.patch({...base,expectedVersion:2,actorId:pid,patch:{paid:false}})).rejects.toThrow("прав");
+ await h.db.update(schema.tournaments).set({googleSheetTabName:"GS"}).where(eq(schema.tournaments.id,tid));
+ await expect(repo.patch({...base,expectedVersion:2,patch:{paid:false}})).rejects.toThrow("Google Sheets");
+ await h.db.update(schema.tournaments).set({status:"completed",googleSheetTabName:null}).where(eq(schema.tournaments.id,tid));
+ await expect(repo.patch({...base,expectedVersion:2,patch:{paid:false}})).rejects.toThrow("Завершённый");
+ expect(await h.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId,tid))).toEqual(before);
+ expect(await repo.read(tid)).toHaveLength(1);expect((await repo.read(tid))[0]).toMatchObject({version:2,paid:true});
+ expect(await h.db.select().from(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId,tid))).toHaveLength(2);
+});
