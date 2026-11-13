@@ -269,6 +269,7 @@ export default function AdminTournamentsPage() {
                       >
                         Редактировать турнир
                       </Link>
+                      <Link href={`/admin/tournaments/${tournament.id}/control`} className="block rounded border border-emerald-600 px-3 py-2 text-sm">Управление турниром</Link>
 
                       {isCompleted ? (
                         <button
