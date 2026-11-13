@@ -1,4 +1,5 @@
 import "server-only";
+import {beginMergeMaintenance,finishMergeMaintenance} from "@/lib/account-merge-maintenance";
 
 import { and, asc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -1196,8 +1197,10 @@ export async function executeMerge(params: {
       // Same-tournament collisions (auto-resolvable only -- eligibility
       // already routed result/live-place conflicts to the admin queue) are
       // collapsed first, then the generic history move runs.
+      await beginMergeMaintenance(tx as unknown as typeof db,{sourceId,targetId,actorId:params.sessionPlayerId,intentId:intent.id,plan:collisionPlan});
       await applyTournamentCollisionPlan(tx as unknown as typeof db, targetId, sourceId, collisionPlan, {});
       await moveMergeHistory(tx as unknown as typeof db, targetId, sourceId, dealerState.dealerProfileRows);
+      await finishMergeMaintenance(tx as unknown as typeof db);
 
       // Reconciliation policy. Everything not listed here (role, access
       // flags, display_name, avatar, terms/profile-completion state,
@@ -1984,7 +1987,8 @@ function isSerializationFailure(err: unknown): boolean {
 async function runAdminMergeTransaction(
   targetId: string,
   sourceId: string,
-  resultResolutions: ResultResolutions
+  resultResolutions: ResultResolutions,
+  actorId:string
 ): Promise<AdminMergeExecuteResult> {
   return db.transaction(
     async (tx) => {
@@ -2044,8 +2048,10 @@ async function runAdminMergeTransaction(
         };
       }
 
+      await beginMergeMaintenance(executor,{sourceId,targetId,actorId,plan:plan.collisionPlan});
       await applyTournamentCollisionPlan(executor, targetId, sourceId, plan.collisionPlan, resultResolutions);
       await moveMergeHistory(executor, targetId, sourceId, plan.dealerProfileRows);
+      await finishMergeMaintenance(executor);
 
       // Identity union. With both conflict blockers clear, every identity
       // source owns is either moved to target or (when target already has
@@ -2120,6 +2126,8 @@ async function runAdminMergeTransaction(
 // No network I/O inside the transaction; the achievement refresh runs after
 // commit via finalizeMergeSideEffects (by the caller).
 export async function executeAdminMerge(params: {
+  // Server-resolved identity only; the route never reads this from the body.
+  actorPlayerId?: string;
   targetPlayerId: string;
   sourcePlayerId: string;
   confirmation: string;
@@ -2138,9 +2146,10 @@ export async function executeAdminMerge(params: {
   }
 
   const resultResolutions: ResultResolutions = { ...(params.resultResolutions ?? {}) };
+  const actorId=params.actorPlayerId??(await (await import("@/lib/admin-auth")).assertServerActorRole(["admin"])).id;
 
   try {
-    return await runAdminMergeTransaction(params.targetPlayerId, params.sourcePlayerId, resultResolutions);
+    return await runAdminMergeTransaction(params.targetPlayerId, params.sourcePlayerId, resultResolutions,actorId);
   } catch (err) {
     if (!isSerializationFailure(err)) throw err;
   }
@@ -2149,7 +2158,7 @@ export async function executeAdminMerge(params: {
   // concurrent merge of the same pair, and the retry now sees
   // source_merged and returns it as a blocker instead of merging twice.
   try {
-    return await runAdminMergeTransaction(params.targetPlayerId, params.sourcePlayerId, resultResolutions);
+    return await runAdminMergeTransaction(params.targetPlayerId, params.sourcePlayerId, resultResolutions,actorId);
   } catch (err) {
     if (isSerializationFailure(err)) throw new AdminMergeConcurrentUpdateError();
     throw err;

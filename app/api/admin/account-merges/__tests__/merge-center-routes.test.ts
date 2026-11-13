@@ -203,6 +203,7 @@ describe("POST /api/admin/account-merges/execute", () => {
     expect(response.status).toBe(200);
     expect(mocks.executeAdminMerge).toHaveBeenCalledTimes(1);
     expect(mocks.executeAdminMerge).toHaveBeenCalledWith({
+      actorPlayerId: ADMIN_ID,
       targetPlayerId: TARGET_ID,
       sourcePlayerId: SOURCE_ID,
       confirmation: "ОБЪЕДИНИТЬ",
@@ -220,6 +221,7 @@ describe("POST /api/admin/account-merges/execute", () => {
     );
     expect(response.status).toBe(200);
     expect(mocks.executeAdminMerge).toHaveBeenCalledWith({
+      actorPlayerId: ADMIN_ID,
       targetPlayerId: TARGET_ID,
       sourcePlayerId: SOURCE_ID,
       confirmation: "ОБЪЕДИНИТЬ",
