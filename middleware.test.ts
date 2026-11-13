@@ -21,7 +21,7 @@ import { config, middleware } from "@/middleware";
 
 describe("native tournament console operator permissions", () => {
   const base = "/api/admin/tournaments/tournament-1/operations";
-  const allowed = [["GET", base], ["PATCH", base], ["GET", `${base}/complete`], ["POST", `${base}/complete`]];
+  const allowed = [["GET", "/api/admin/tournaments/tournament-1/complete-free"], ["GET", base], ["PATCH", base], ["GET", `${base}/complete`], ["POST", `${base}/complete`]];
   beforeEach(() => vi.clearAllMocks());
   async function access(role: string | null, method: string, path: string) {
     mocks.verifySession.mockReturnValue(role ? "caller" : null);
@@ -45,7 +45,7 @@ describe("native tournament console operator permissions", () => {
     ["PATCH", `${base}/complete`], ["PUT", `${base}/complete`], ["DELETE", `${base}/complete`],
     ["HEAD", `${base}/complete`], ["OPTIONS", `${base}/complete`],
     ["GET", `${base}/complete/extra`], ["PATCH", `${base}/extra`],
-    ["GET", "/api/admin/settings"], ["DELETE", "/api/admin/players/player-1"],
+    ["PATCH", "/api/admin/tournaments/tournament-1/complete-free"], ["GET", "/api/admin/tournaments/tournament-1/complete-free/extra"], ["GET", "/api/admin/settings"], ["DELETE", "/api/admin/players/player-1"],
   ])("keeps operator %s %s denied", async (method, path) => {
     expect((await access("operator", method, path)).status).toBe(403);
     expect((await access("admin", method, path)).status).toBe(200);
