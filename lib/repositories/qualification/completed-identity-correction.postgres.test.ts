@@ -17,6 +17,8 @@ const source = IDENTITY_CORRECTION.sourcePlayerId;
 const target = IDENTITY_CORRECTION.targetPlayerId;
 const other = ["00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004", "00000000-0000-4000-8000-000000000005"];
 const finalId = IDENTITY_CORRECTION.finalTournamentId;
+const otherEventId = "00000000-0000-4000-8000-000000000010";
+const otherTournamentId = "00000000-0000-4000-8000-000000000011";
 let client: ReturnType<typeof postgres>;
 
 async function seed() {
@@ -45,14 +47,14 @@ async function seed() {
   await h.db.insert(schema.playerAchievements).values({ playerId: target, achievementCode: "existing", currentValue: 1 });
 }
 
-async function seedOtherCompletedFinal() {
-  const eventId = "00000000-0000-4000-8000-000000000010";
-  const tournamentId = "00000000-0000-4000-8000-000000000011";
-  await client`INSERT INTO tournaments (id,title,kind,max_players,starting_stack,start_at,status,tournament_type) VALUES (${tournamentId}::uuid,'Other final','free',18,50000,'2026-11-14T09:00:00Z','open','qualification_final')`;
-  await client`INSERT INTO qualification_events (id,slug,title,rules,timezone,final_date,status,version,final_tournament_id,winner_player_id,final_roster_locked_at) VALUES (${eventId}::uuid,'other-final','Other final','rules','Europe/Moscow','2026-11-14','final',1,${tournamentId}::uuid,${other[3]}::uuid,'2026-11-13T23:00:00Z')`;
-  await client`INSERT INTO qualification_squad_members (event_id,player_id,selection_source,slot,confirmed_at) VALUES (${eventId}::uuid,${other[0]}::uuid,'final_top3',1,'2026-11-14T13:00:00Z'),(${eventId}::uuid,${other[1]}::uuid,'final_top3',2,'2026-11-14T13:00:00Z'),(${eventId}::uuid,${other[2]}::uuid,'final_top3',3,'2026-11-14T13:00:00Z'),(${eventId}::uuid,${source}::uuid,'captain',0,'2026-11-14T13:00:00Z'),(${eventId}::uuid,${target}::uuid,'qualification_winner',0,'2026-11-14T13:00:00Z')`;
-  await client`UPDATE qualification_events SET status='completed',squad_confirmed_at='2026-11-14T13:40:00Z',final_outcome=${JSON.stringify({ survivorIds: [other[0], other[1], other[2]], arrivedIds: other, eliminations: [], completedAt: "2026-11-14T13:39:00.000Z" })}::jsonb WHERE id=${eventId}::uuid`;
-  await client`UPDATE tournaments SET status='completed' WHERE id=${tournamentId}::uuid`;
+async function seedOtherFinal(completed = true) {
+  await client`INSERT INTO tournaments (id,title,kind,max_players,starting_stack,start_at,status,tournament_type) VALUES (${otherTournamentId}::uuid,'Other final','free',18,50000,'2026-11-14T09:00:00Z','open','qualification_final')`;
+  await client`INSERT INTO qualification_events (id,slug,title,rules,timezone,final_date,status,version,final_tournament_id,winner_player_id,final_roster_locked_at) VALUES (${otherEventId}::uuid,'other-final','Other final','rules','Europe/Moscow','2026-11-14','final',1,${otherTournamentId}::uuid,${other[3]}::uuid,'2026-11-13T23:00:00Z')`;
+  await client`INSERT INTO qualification_squad_members (event_id,player_id,selection_source,slot,confirmed_at) VALUES (${otherEventId}::uuid,${other[0]}::uuid,'final_top3',1,'2026-11-14T13:00:00Z'),(${otherEventId}::uuid,${other[1]}::uuid,'final_top3',2,'2026-11-14T13:00:00Z'),(${otherEventId}::uuid,${other[2]}::uuid,'final_top3',3,'2026-11-14T13:00:00Z'),(${otherEventId}::uuid,${source}::uuid,'captain',0,'2026-11-14T13:00:00Z'),(${otherEventId}::uuid,${target}::uuid,'qualification_winner',0,'2026-11-14T13:00:00Z')`;
+  if (completed) {
+    await client`UPDATE qualification_events SET status='completed',squad_confirmed_at='2026-11-14T13:40:00Z',final_outcome=${JSON.stringify({ survivorIds: [other[0], other[1], other[2]], arrivedIds: other, eliminations: [], completedAt: "2026-11-14T13:39:00.000Z" })}::jsonb WHERE id=${otherEventId}::uuid`;
+    await client`UPDATE tournaments SET status='completed' WHERE id=${otherTournamentId}::uuid`;
+  }
 }
 
 describe.runIf(!!url)("completed qualification identity correction", () => {
@@ -104,11 +106,22 @@ describe.runIf(!!url)("completed qualification identity correction", () => {
     expect(await client`SELECT player_id FROM qualification_squad_members WHERE id=${IDENTITY_CORRECTION.squadMemberId}`).toEqual([{ player_id: source }]);
   });
 
-  it("protects another completed final and forbids elimination/operations mutations", async () => {
-    await seedOtherCompletedFinal();
-    await expect(client`UPDATE qualification_squad_members SET player_id=${target} WHERE event_id='00000000-0000-4000-8000-000000000010'::uuid AND player_id=${source}`).rejects.toMatchObject({ code: "23514" });
+  it("blocks completed-to-other moves, ordinary completed edits and elimination/operations mutations", async () => {
+    await seedOtherFinal();
+    await expect(client`UPDATE qualification_squad_members SET event_id=${otherEventId}::uuid WHERE event_id=${IDENTITY_CORRECTION.eventId}::uuid AND player_id=${other[0]}`).rejects.toMatchObject({ code: "23514" });
+    await expect(client`UPDATE qualification_invitations SET event_id=${otherEventId}::uuid WHERE event_id=${IDENTITY_CORRECTION.eventId}::uuid AND player_id=${source}`).rejects.toMatchObject({ code: "23514" });
+    await expect(client`UPDATE qualification_squad_members SET confirmed_at=NULL WHERE event_id=${IDENTITY_CORRECTION.eventId}::uuid AND player_id=${other[0]}`).rejects.toMatchObject({ code: "23514" });
     await expect(client`INSERT INTO tournament_player_eliminations (tournament_id,player_id,eliminated) VALUES (${finalId},${source},true)`).rejects.toMatchObject({ code: "23514" });
     await expect(client`INSERT INTO tournament_operations (tournament_id,player_id,paid,updated_by) VALUES (${finalId},${source},true,${admin})`).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("blocks other-to-completed moves for both squad and invitation rows", async () => {
+    await seedOtherFinal(false);
+    await client`INSERT INTO qualification_invitations (event_id,player_id,qualifying_rank,seat,status) VALUES (${otherEventId}::uuid,${target}::uuid,2,1,'accepted')`;
+    const otherSquad = (await client`SELECT id FROM qualification_squad_members WHERE event_id=${otherEventId}::uuid AND player_id=${target}::uuid`)[0].id;
+    const otherInvitation = (await client`SELECT id FROM qualification_invitations WHERE event_id=${otherEventId}::uuid AND player_id=${target}::uuid`)[0].id;
+    await expect(client`UPDATE qualification_squad_members SET event_id=${IDENTITY_CORRECTION.eventId}::uuid WHERE id=${otherSquad}`).rejects.toMatchObject({ code: "23514" });
+    await expect(client`UPDATE qualification_invitations SET event_id=${IDENTITY_CORRECTION.eventId}::uuid WHERE id=${otherInvitation}`).rejects.toMatchObject({ code: "23514" });
   });
 
   it("keeps the ordinary completed-final registration guard effective", async () => {
@@ -122,5 +135,6 @@ describe.runIf(!!url)("completed qualification identity correction", () => {
     expect(await client`SELECT player_id FROM qualification_squad_members WHERE id=${IDENTITY_CORRECTION.squadMemberId}`).toEqual([{ player_id: source }]);
     expect(await client`SELECT player_id FROM registrations WHERE id=(SELECT (detail->>'registrationId')::uuid FROM qualification_audit WHERE id=${applied.auditId})`).toEqual([{ player_id: source }]);
     await expect(reverseCompletedIdentityCorrection(admin, applied.auditId, 41, "Повторная отмена должна быть запрещена")).rejects.toThrow("reversal");
+    await expect(client`SELECT * FROM public.qualification_identity_repair_begin(${admin}::uuid,41,'Повторное Apply без отдельного разрешения')`).rejects.toMatchObject({ code: "42501" });
   });
 });

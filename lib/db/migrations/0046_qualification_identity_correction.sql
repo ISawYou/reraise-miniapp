@@ -94,7 +94,8 @@ BEGIN
   IF NOT FOUND OR actor_row.role<>'admin' OR actor_row.is_blocked OR actor_row.merged_into_player_id IS NOT NULL THEN RAISE EXCEPTION 'Только действующий Super Admin может выполнить коррекцию' USING ERRCODE='42501'; END IF;
   IF length(btrim(reason)) NOT BETWEEN 10 AND 500 THEN RAISE EXCEPTION 'Причина коррекции должна быть от 10 до 500 символов' USING ERRCODE='22023'; END IF;
   SELECT * INTO event_row FROM public.qualification_events WHERE id='1b98f989-5668-4461-9126-5e36397929e7'::uuid FOR UPDATE;
-  IF NOT FOUND OR event_row.status<>'completed' OR event_row.final_tournament_id<>'bd2c3795-1a1a-4f9a-a1f2-6f018f2c0902'::uuid OR event_row.version<>expected_version OR event_row.final_outcome IS NULL THEN RAISE EXCEPTION 'Состояние события не соответствует утверждённой коррекции' USING ERRCODE='40001'; END IF;
+  IF EXISTS(SELECT 1 FROM public.qualification_audit a WHERE a.event_id='1b98f989-5668-4461-9126-5e36397929e7'::uuid AND a.action='completed_identity_correction' AND a.detail->>'oldPlayerId'='9571d26e-cea2-47d2-b37b-854cad67d3e9' AND a.detail->>'newPlayerId'='1e802bf2-e6ab-4861-9863-3d3ebc40cce8') THEN RAISE EXCEPTION 'Первичное Apply уже выполнялось; для повторной операции требуется отдельная авторизация' USING ERRCODE='42501'; END IF;
+  IF event_row.id IS NULL OR event_row.status<>'completed' OR event_row.final_tournament_id<>'bd2c3795-1a1a-4f9a-a1f2-6f018f2c0902'::uuid OR event_row.version<>expected_version OR event_row.final_outcome IS NULL THEN RAISE EXCEPTION 'Состояние события не соответствует утверждённой коррекции' USING ERRCODE='40001'; END IF;
   SELECT id INTO squad_row FROM public.qualification_squad_members WHERE event_id=event_row.id AND selection_source='final_top3' AND slot=1 AND player_id='9571d26e-cea2-47d2-b37b-854cad67d3e9'::uuid;
   IF squad_row IS NULL OR (SELECT count(*) FROM public.qualification_squad_members WHERE event_id=event_row.id)<>5 OR (SELECT count(DISTINCT player_id) FROM public.qualification_squad_members WHERE event_id=event_row.id)<>5 THEN RAISE EXCEPTION 'Состав сборной не соответствует утверждённому состоянию' USING ERRCODE='40001'; END IF;
   SELECT id INTO invitation_row FROM public.qualification_invitations WHERE event_id=event_row.id AND player_id='9571d26e-cea2-47d2-b37b-854cad67d3e9'::uuid AND status='accepted';
@@ -191,22 +192,23 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION public.qualification_identity_squad_guard() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE eid uuid; tid uuid;
+DECLARE old_eid uuid; new_eid uuid; old_completed boolean:=false; new_completed boolean:=false; tid uuid;
 BEGIN
- eid:=CASE WHEN TG_OP='DELETE' THEN OLD.event_id ELSE NEW.event_id END;
- SELECT final_tournament_id INTO tid FROM public.qualification_events WHERE id=eid AND status='completed';
- IF tid IS NULL THEN IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF; END IF;
- IF TG_OP='UPDATE' AND OLD.event_id=NEW.event_id AND OLD.player_id IS DISTINCT FROM NEW.player_id AND to_jsonb(OLD)-'player_id'=to_jsonb(NEW)-'player_id' AND public.qualification_identity_repair_permit_matches('qualification_squad_members',eid,NULL,OLD.id,OLD.player_id,NEW.player_id) THEN RETURN NEW; END IF;
+ old_eid:=CASE WHEN TG_OP='INSERT' THEN NULL ELSE OLD.event_id END; new_eid:=CASE WHEN TG_OP='DELETE' THEN NULL ELSE NEW.event_id END;
+ SELECT EXISTS(SELECT 1 FROM public.qualification_events WHERE id=old_eid AND status='completed'), EXISTS(SELECT 1 FROM public.qualification_events WHERE id=new_eid AND status='completed') INTO old_completed,new_completed;
+ IF NOT old_completed AND NOT new_completed THEN IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF; END IF;
+ IF TG_OP='UPDATE' AND old_eid=new_eid AND old_completed AND OLD.player_id IS DISTINCT FROM NEW.player_id AND to_jsonb(OLD)-'player_id'=to_jsonb(NEW)-'player_id' AND public.qualification_identity_repair_permit_matches('qualification_squad_members',old_eid,NULL,OLD.id,OLD.player_id,NEW.player_id) THEN RETURN NEW; END IF;
  RAISE EXCEPTION 'Состав завершённой квалификации доступен только для просмотра' USING ERRCODE='23514';
 END $$;
 
 CREATE OR REPLACE FUNCTION public.qualification_identity_invitation_guard() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE eid uuid; tid uuid;
+DECLARE old_eid uuid; new_eid uuid; old_completed boolean:=false; new_completed boolean:=false; tid uuid;
 BEGIN
- eid:=CASE WHEN TG_OP='DELETE' THEN OLD.event_id ELSE NEW.event_id END;
- SELECT final_tournament_id INTO tid FROM public.qualification_events WHERE id=eid AND status='completed';
- IF tid IS NULL THEN IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF; END IF;
- IF TG_OP='UPDATE' AND OLD.event_id=NEW.event_id AND OLD.player_id IS DISTINCT FROM NEW.player_id AND to_jsonb(OLD)-'player_id'=to_jsonb(NEW)-'player_id' AND public.qualification_identity_repair_permit_matches('qualification_invitations',eid,tid,OLD.id,OLD.player_id,NEW.player_id) THEN RETURN NEW; END IF;
+ old_eid:=CASE WHEN TG_OP='INSERT' THEN NULL ELSE OLD.event_id END; new_eid:=CASE WHEN TG_OP='DELETE' THEN NULL ELSE NEW.event_id END;
+ SELECT EXISTS(SELECT 1 FROM public.qualification_events WHERE id=old_eid AND status='completed'), EXISTS(SELECT 1 FROM public.qualification_events WHERE id=new_eid AND status='completed') INTO old_completed,new_completed;
+ IF NOT old_completed AND NOT new_completed THEN IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF; END IF;
+ SELECT final_tournament_id INTO tid FROM public.qualification_events WHERE id=old_eid AND status='completed';
+ IF TG_OP='UPDATE' AND old_eid=new_eid AND old_completed AND OLD.player_id IS DISTINCT FROM NEW.player_id AND to_jsonb(OLD)-'player_id'=to_jsonb(NEW)-'player_id' AND public.qualification_identity_repair_permit_matches('qualification_invitations',old_eid,tid,OLD.id,OLD.player_id,NEW.player_id) THEN RETURN NEW; END IF;
  RAISE EXCEPTION 'Приглашения завершённой квалификации доступны только для просмотра' USING ERRCODE='23514';
 END $$;
 
