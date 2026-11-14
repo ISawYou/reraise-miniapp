@@ -149,6 +149,21 @@ export type ResultAttendanceRow = {
   club_discount_percent: number | null;
 };
 
+// Minimal, sanitized read model for the machine-to-machine completed-results
+// endpoint. It deliberately contains no account, contact, payment, or role
+// fields. Nullable legacy columns stay nullable so the integration can
+// distinguish historical unknowns from real zero values.
+export type IntegrationCompletedResultRow = {
+  player_id: string;
+  display_name: string;
+  place: number;
+  rating_points: number;
+  knockouts: number;
+  boss_knockouts: number | null;
+  mystery_bounty_points: number | null;
+  arrived: boolean | null;
+};
+
 // Teams v1 (lib/team-scoring.ts) -- every result row's frozen
 // rating_points, its own season_id, and its tournament's start_at. This is
 // the ONE bulk read the team-scoring temporal attribution needs: no rating
@@ -212,6 +227,7 @@ export interface ResultRepository {
   findArrivedPlacementsByPlayerId(playerId: string): Promise<ArrivedPlacementRow[]>;
 
   findByTournamentIdWithPlayer(tournamentId: string): Promise<TournamentResult[]>;
+  findByTournamentIdForIntegration(tournamentId: string): Promise<IntegrationCompletedResultRow[]>;
   // `tournament_id` -- additive, needed by
   // features/leaderboard.ts::getOfficialSeasonLeaderboardWithMovement to
   // reconstruct the season's standing as it stood immediately before the

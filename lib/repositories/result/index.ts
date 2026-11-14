@@ -9,6 +9,7 @@ export type {
   KnockoutsRow,
   ResultAttendanceRow,
   ResultHistoryRow,
+  IntegrationCompletedResultRow,
 } from "./ResultRepository";
 
 const usePostgres = process.env.DATABASE_PROVIDER === "postgres";

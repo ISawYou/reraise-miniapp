@@ -17,6 +17,7 @@ import type {
   SeasonRecapResultRow,
   TeamScoringResultRow,
   PlayerClubDiscountHistoryRow,
+  IntegrationCompletedResultRow,
 } from "./ResultRepository";
 
 function errorMessage(err: unknown): string {
@@ -188,6 +189,29 @@ export class PostgresResultRepository implements ResultRepository {
         display_name: player?.display_name ?? "Игрок",
       };
     });
+  }
+
+  async findByTournamentIdForIntegration(tournamentId: string): Promise<IntegrationCompletedResultRow[]> {
+    const rows = await db
+      .select({
+        player_id: results.playerId,
+        display_name: players.displayName,
+        place: results.place,
+        rating_points: results.ratingPoints,
+        knockouts: results.knockouts,
+        boss_knockouts: results.bossKnockouts,
+        mystery_bounty_points: results.mysteryBountyPoints,
+        arrived: results.arrived,
+      })
+      .from(results)
+      .leftJoin(players, eq(results.playerId, players.id))
+      .where(eq(results.tournamentId, tournamentId))
+      .orderBy(results.place);
+
+    return rows.map((row) => ({
+      ...row,
+      display_name: row.display_name ?? "Игрок",
+    }));
   }
 
   async findWithPlayerBySeasonId(seasonId: string) {
