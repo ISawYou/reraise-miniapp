@@ -238,6 +238,26 @@ function hasTelegramLaunchParams(): boolean {
 // JS object in memory stays valid — its safeAreaInset and event listeners
 // remain functional.
 let _cachedWebApp: TelegramWebApp | null = null;
+// Once true, stays true for the lifetime of this JS module (i.e. the session).
+let _isTelegramContext: boolean | null = null;
+
+export const TELEGRAM_CONTEXT_CHANGED_EVENT = "reraise-telegram-context-changed";
+
+function markTelegramMiniAppContext() {
+  if (_isTelegramContext === true) return;
+  _isTelegramContext = true;
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(TELEGRAM_CONTEXT_CHANGED_EVENT));
+  }
+}
+
+export function subscribeToTelegramContext(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+
+  window.addEventListener(TELEGRAM_CONTEXT_CHANGED_EVENT, listener);
+  return () => window.removeEventListener(TELEGRAM_CONTEXT_CHANGED_EVENT, listener);
+}
 
 export function getTelegramWebApp(): TelegramWebApp | null {
   if (typeof window === "undefined") {
@@ -251,6 +271,7 @@ export function getTelegramWebApp(): TelegramWebApp | null {
       // Full-featured object — always prefer and cache.
       _cachedWebApp = webApp;
       cacheTelegramInitData(webApp.initData);
+      markTelegramMiniAppContext();
     } else if (!_cachedWebApp) {
       // Object exists but no initData yet (natively injected before initData
       // is populated). Cache it so it's available for API calls.
@@ -358,18 +379,15 @@ export async function getTelegramInitData(): Promise<string> {
   return readCachedTelegramInitData();
 }
 
-// Once true, stays true for the lifetime of this JS module (i.e. the session).
 // isTelegramMiniAppContext() used to re-check the URL on every call, which
 // returned false after SPA navigation to pages without tgWebAppData params.
-let _isTelegramContext: boolean | null = null;
-
 export function isTelegramMiniAppContext(): boolean {
   if (_isTelegramContext === true) return true;
 
   const webApp = getTelegramWebApp();
 
   if (webApp?.initData || webApp?.initDataUnsafe?.user) {
-    _isTelegramContext = true;
+    markTelegramMiniAppContext();
     return true;
   }
 
@@ -383,18 +401,48 @@ export function isTelegramMiniAppContext(): boolean {
   const launchInitData = getTelegramInitDataFromLaunchParams();
   if (launchInitData) {
     cacheTelegramInitData(launchInitData);
-    _isTelegramContext = true;
+    markTelegramMiniAppContext();
     return true;
   }
 
   // Fallback: initData cached to sessionStorage on a previous page load
   // (e.g. the landing page had tgWebAppData in the URL; /admin did not).
   if (readCachedTelegramInitData()) {
-    _isTelegramContext = true;
+    markTelegramMiniAppContext();
     return true;
   }
 
   return false;
+}
+
+// Profile pages can mount before Telegram's SDK has populated initData. Keep
+// the logout control hidden while the platform is unknown, then resolve to a
+// normal web session only after a short probe window. A later SDK signal is
+// still published to subscribers, so consumers can immediately hide any
+// Mini App-only controls when the platform becomes known.
+export function detectTelegramMiniAppContext(timeoutMs = 5000): Promise<boolean> {
+  if (isTelegramMiniAppContext()) return Promise.resolve(true);
+  if (typeof window === "undefined") return Promise.resolve(false);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const interval = window.setInterval(() => {
+      if (isTelegramMiniAppContext()) finish(true);
+    }, 50);
+    const timeout = window.setTimeout(() => finish(false), timeoutMs);
+    const unsubscribe = subscribeToTelegramContext(() => {
+      if (isTelegramMiniAppContext()) finish(true);
+    });
+
+    function finish(value: boolean) {
+      if (settled) return;
+      settled = true;
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      unsubscribe();
+      resolve(value);
+    }
+  });
 }
 
 export function getTelegramUser(): TelegramWebAppUser | null {

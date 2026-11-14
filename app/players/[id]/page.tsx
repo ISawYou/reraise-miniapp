@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { BackButton } from "@/components/ui/back-button";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { submitNicknameForModeration } from "@/features/auth";
 import type { PlayerRatingSummary } from "@/features/leaderboard";
@@ -10,7 +10,7 @@ import { ProfileUpcomingRow } from "@/components/profile/profile-upcoming-row";
 import { ProfileResultRow } from "@/components/profile/profile-result-row";
 import type { ProfileV2Response } from "@/features/profile-v2";
 
-import { invalidateCurrentPlayerCache, resolveCurrentPlayer } from "@/lib/current-player";
+import { resolveCurrentPlayer } from "@/lib/current-player";
 import { fetchAdminJson, getAdminHeaders } from "@/lib/client-request";
 import { FollowListModal } from "@/components/follows/follow-list-modal";
 import {
@@ -20,7 +20,8 @@ import {
   type FollowSummary,
 } from "@/lib/follows-client";
 import { uploadPlayerAvatar } from "@/lib/player-avatar-client";
-import { isTelegramMiniAppContext } from "@/lib/telegram";
+import { detectTelegramMiniAppContext } from "@/lib/telegram";
+import { ProfileLogout } from "@/components/profile/profile-logout";
 import { PlayerAvatarImage } from "@/components/profile/player-avatar-image";
 import { logEvent } from "@/lib/activity-client";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
@@ -156,7 +157,6 @@ function ArrowRightIcon() {
 export default function PlayerProfilePage() {
   const MAX_AVATAR_SIZE_BYTES = 20 * 1024 * 1024;
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const playerId = params?.id;
 
   const [viewerId, setViewerId] = useState<string | null>(null);
@@ -195,9 +195,6 @@ export default function PlayerProfilePage() {
     Array<{ request_id: string; team_id: string; team_name: string; team_emblem: string }>
   >([]);
   const [teamStatusBusy, setTeamStatusBusy] = useState(false);
-  const [logoutOpen, setLogoutOpen] = useState(false);
-  const [logoutBusy, setLogoutBusy] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
   const [isMiniApp, setIsMiniApp] = useState<boolean | null>(null);
   // Player following -- an auxiliary block that loads and fails on its own
   // (never part of loadPage's Promise.all). The summary and the error are
@@ -215,7 +212,15 @@ export default function PlayerProfilePage() {
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    setIsMiniApp(isTelegramMiniAppContext());
+    let cancelled = false;
+
+    void detectTelegramMiniAppContext().then((isTelegram) => {
+      if (!cancelled) setIsMiniApp(isTelegram);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -527,31 +532,6 @@ export default function PlayerProfilePage() {
     }
   }
 
-  async function handleLogout() {
-    setLogoutBusy(true);
-    setLogoutError(null);
-
-    try {
-      const response = await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Не удалось выйти из аккаунта.");
-      }
-
-      invalidateCurrentPlayerCache();
-      router.replace("/login");
-      router.refresh();
-    } catch (error) {
-      setLogoutError(error instanceof Error ? error.message : "Не удалось выйти из аккаунта.");
-      setLogoutBusy(false);
-    }
-  }
-
   if (loading) {
     return (
       <main className="min-h-screen bg-[radial-gradient(ellipse_80%_32%_at_50%_-5%,rgba(76,116,95,0.2),transparent_58%),linear-gradient(180deg,#09100d_0%,#090b0a_38%,#070707_100%)] px-4 py-6 text-white">
@@ -644,19 +624,7 @@ export default function PlayerProfilePage() {
           <p data-testid="free-reentries-balance" className="mt-2 px-1 text-xs text-[#d5b867]">Бесплатные re-entry: {player.free_reentries_balance}</p>
         ) : null}
 
-        {isOwnProfile && isMiniApp === false ? (
-          <button
-            type="button"
-            data-testid="logout-open"
-            onClick={() => {
-              setLogoutError(null);
-              setLogoutOpen(true);
-            }}
-            className="mt-3 min-h-11 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 transition-colors hover:border-white/20 hover:text-white/85"
-          >
-            Выйти
-          </button>
-        ) : null}
+        <ProfileLogout enabled={isOwnProfile && isMiniApp === false} />
 
         {player.nickname_status === "pending" && player.pending_display_name ? (
           <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/60">
@@ -856,40 +824,6 @@ export default function PlayerProfilePage() {
           )}
         </section>
       </div>
-
-      {logoutOpen && isOwnProfile && isMiniApp === false ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4" role="presentation">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="logout-title"
-            className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#101612] p-5 shadow-2xl"
-          >
-            <h2 id="logout-title" className="text-lg font-semibold">Выйти из аккаунта?</h2>
-            <p className="mt-2 text-sm leading-relaxed text-white/60">Вы сможете снова войти через Telegram или email.</p>
-            {logoutError ? <p className="mt-3 text-sm text-red-300">{logoutError}</p> : null}
-            <div className="mt-5 flex gap-3">
-              <button
-                type="button"
-                disabled={logoutBusy}
-                onClick={() => setLogoutOpen(false)}
-                className="min-h-11 flex-1 rounded-full border border-white/10 px-4 py-2 text-sm text-white/75 disabled:opacity-50"
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                data-testid="logout-confirm"
-                disabled={logoutBusy}
-                onClick={() => void handleLogout()}
-                className="min-h-11 flex-1 rounded-full bg-[#d5b867] px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
-              >
-                {logoutBusy ? "Выходим..." : "Выйти"}
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
 
       {showFeaturedEditor && isOwnProfile ? (
         <div className="fixed inset-0 z-50 flex items-end bg-black/70" onClick={() => setShowFeaturedEditor(false)}>

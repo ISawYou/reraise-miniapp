@@ -1,7 +1,21 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { COOKIE_NAME } from "@/lib/telegram-web-session";
 
-export async function POST() {
+function isSameOriginLogout(request: NextRequest): boolean {
+  const requestOrigin = new URL(request.url).origin;
+  const origin = request.headers.get("origin");
+
+  if (origin) return origin === requestOrigin;
+
+  const fetchSite = request.headers.get("sec-fetch-site");
+  return fetchSite === "same-origin" || fetchSite === "none";
+}
+
+export async function POST(request: NextRequest) {
+  if (!isSameOriginLogout(request)) {
+    return NextResponse.json({ error: "Недопустимый источник запроса" }, { status: 403 });
+  }
+
   const response = NextResponse.json({ ok: true });
 
   // Clearing the HttpOnly cookie must happen on the server. The path and

@@ -1,7 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getTelegramUser, getTelegramWebApp } from '@/lib/telegram';
 
 const TELEGRAM_USER_CACHE_KEY = 'reraise.telegram.user';
+let getTelegramUser: typeof import('@/lib/telegram').getTelegramUser;
+let getTelegramWebApp: typeof import('@/lib/telegram').getTelegramWebApp;
+
+beforeEach(async () => {
+  vi.resetModules();
+  ({ getTelegramUser, getTelegramWebApp } = await import('@/lib/telegram'));
+  window.Telegram = {
+    WebApp: {
+      initData: 'mock',
+      initDataUnsafe: {
+        user: { id: 123456, first_name: 'Test', username: 'testuser' },
+      },
+      ready: vi.fn(),
+      expand: vi.fn(),
+    },
+  };
+  window.sessionStorage.clear();
+});
 
 describe('getTelegramWebApp', () => {
   it('returns the mock WebApp object', () => {
@@ -12,21 +29,6 @@ describe('getTelegramWebApp', () => {
 });
 
 describe('getTelegramUser', () => {
-  beforeEach(() => {
-    // Restore mock WebApp before each test
-    window.Telegram = {
-      WebApp: {
-        initData: 'mock',
-        initDataUnsafe: {
-          user: { id: 123456, first_name: 'Test', username: 'testuser' },
-        },
-        ready: vi.fn(),
-        expand: vi.fn(),
-      },
-    };
-    window.sessionStorage.clear();
-  });
-
   it('returns the mock user from WebApp', () => {
     const user = getTelegramUser();
     expect(user).not.toBeNull();
