@@ -1,4 +1,5 @@
 import "server-only";
+import {manualFinalActions,mutateManualFinalRoster,readManualFinalRoster} from "./manual-final-roster";
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -40,7 +41,7 @@ async function state(tx:Executor,e:Event){
   const resolution=e.tieResolution?.fingerprint===factsFingerprint?e.tieResolution.playerOrder:[];
   const ranking=rankQualification(facts,e.bestResultsCount,resolution);
   const fingerprint=hash({factsFingerprint,resolution});
-  const invitationRows=await tx.select({id:invites.id,eventId:invites.eventId,playerId:invites.playerId,qualifyingRank:invites.qualifyingRank,seat:invites.seat,status:invites.status,invitedAt:invites.invitedAt,respondedAt:invites.respondedAt,replacesId:invites.replacesId,...publicPlayer}).from(invites).innerJoin(players,eq(invites.playerId,players.id)).where(eq(invites.eventId,e.id)).orderBy(asc(invites.seat),desc(invites.invitedAt),asc(invites.id));
+  const invitationRows=await tx.select({id:invites.id,eventId:invites.eventId,playerId:invites.playerId,qualifyingRank:invites.qualifyingRank,manualAdmission:invites.manualAdmission,seat:invites.seat,status:invites.status,invitedAt:invites.invitedAt,respondedAt:invites.respondedAt,replacesId:invites.replacesId,...publicPlayer}).from(invites).innerJoin(players,eq(invites.playerId,players.id)).where(eq(invites.eventId,e.id)).orderBy(asc(invites.seat),desc(invites.invitedAt),asc(invites.id));
   const finalSurvivors=e.finalOutcome ? await tx.select(publicPlayer).from(players).where(inArray(players.id,e.finalOutcome.survivorIds)).orderBy(asc(players.displayName),asc(players.id)) : [];
   const finalEliminations=e.finalOutcome?.eliminations.length ? (await tx.select(publicPlayer).from(players).where(inArray(players.id,e.finalOutcome.eliminations.map(p=>p.playerId)))).map(p=>({...p,place:e.finalOutcome!.eliminations.find(r=>r.playerId===p.player_id)!.place})).sort((a,b)=>a.place-b.place) : [];
   const members=await tx.select({source:squad.source,slot:squad.slot,finalPlace:squad.finalPlace,confirmedAt:squad.confirmedAt,...publicPlayer}).from(squad).innerJoin(players,eq(squad.playerId,players.id)).where(eq(squad.eventId,e.id)).orderBy(asc(squad.source),asc(squad.slot));
@@ -71,14 +72,14 @@ export class PostgresQualificationRepository {
           hasResults:sql<boolean>`exists(select 1 from ${results} where ${results.tournamentId}=${tournaments.id})`
         }).from(tournaments).where(previewFinalDate?sql`(${tournaments.startAt} AT TIME ZONE ${e.timezone})::date=${previewFinalDate}::date`:sql`${tournaments.startAt} >= ${s.schedule[0].scheduledDate}::date - interval '1 day' AND ${tournaments.startAt} < ${e.finalDate}::date + interval '2 days'`).orderBy(asc(tournaments.startAt),asc(tournaments.id)).limit(250);
         const history=await tx.select({actorId:audit.actorId,action:audit.action,detail:audit.detail,createdAt:audit.createdAt}).from(audit).where(eq(audit.eventId,e.id)).orderBy(desc(audit.createdAt)).limit(30);
-        return {...s,tournamentChoices:choices,audit:history};
+        return {...s,finalRoster:await readManualFinalRoster(tx,e),tournamentChoices:choices,audit:history};
       }
       return {event:{id:e.id,slug:e.slug,title:e.title,rules:e.rules,timezone:e.timezone,finalDate:e.finalDate,bestResultsCount:e.bestResultsCount,status:e.status,version:e.version,finalTournamentId:e.finalTournamentId,finalRosterLockedAt:e.finalRosterLockedAt},schedule:s.schedule,finalTournament:s.finalTournament,finalSurvivors:s.finalSurvivors,finalEliminations:s.finalEliminations,ranking:{standings:s.ranking.standings,hasUnresolvedTie:s.ranking.hasUnresolvedTie},needsReconciliation:s.needsReconciliation,members:e.squadConfirmedAt?s.members:[]};
     },{isolationLevel:"repeatable read",accessMode:"read only"});
   }
   async ownInvitation(slug:string,playerId:string){
     this.available();const [e]=await db.select({id:events.id,status:events.status,version:events.version}).from(events).where(eq(events.slug,slug));if(!e||e.status==="draft")fail("Отбор не найден",404);
-    const rows=await db.select({id:invites.id,status:invites.status,qualifyingRank:invites.qualifyingRank,seat:invites.seat,invitedAt:invites.invitedAt}).from(invites).where(and(eq(invites.eventId,e.id),eq(invites.playerId,playerId))).orderBy(desc(invites.invitedAt),desc(invites.id));
+    const rows=await db.select({id:invites.id,status:invites.status,qualifyingRank:invites.qualifyingRank,manualAdmission:invites.manualAdmission,seat:invites.seat,invitedAt:invites.invitedAt}).from(invites).where(and(eq(invites.eventId,e.id),eq(invites.playerId,playerId))).orderBy(desc(invites.invitedAt),desc(invites.id));
     return {eventId:e.id,version:e.version,status:e.status,invitations:rows};
   }
   async searchPlayers(q:string){this.available();if(q.trim().length<2)return [];return db.select(publicPlayer).from(players).where(and(isNull(players.mergedIntoPlayerId),eq(players.isBlocked,false),sql`${players.displayName} ILIKE ${"%"+q.trim().replace(/[\\%_]/g,"\\$&")+"%"}`)).orderBy(asc(players.displayName)).limit(20);}
@@ -102,6 +103,7 @@ export class PostgresQualificationRepository {
       const [e]=await tx.select().from(events).where(eq(events.id,eventId)).for("update");if(!e)fail("Отбор не найден",404);
       if(command.action==="create_final")return this.createAndLinkFinal(tx,e,command,actorId);
       if(e.version!==command.version)fail("Данные устарели — обновите страницу");if(e.status==="completed")fail("Сборная уже подтверждена; завершённый отбор неизменяем");
+      if(manualFinalActions.includes(command.action))return mutateManualFinalRoster(tx,e,command,actorId);
       if(["close","reconcile","confirm_winner","lock_roster","confirm_squad","select_finalists","complete_final"].includes(command.action)){
         const sourceIds=(await tx.select({id:slots.tournamentId}).from(slots).where(eq(slots.eventId,e.id))).map(s=>s.id).filter((id):id is string=>!!id);
         if(e.finalTournamentId)sourceIds.push(e.finalTournamentId);

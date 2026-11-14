@@ -309,6 +309,13 @@
       "when": 1794565886075,
       "tag": "0044_tournament_operation_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794646391931,
+      "tag": "0045_qualification_manual_roster",
+      "breakpoints": true
     }
   ]
 }
