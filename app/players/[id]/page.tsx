@@ -566,9 +566,12 @@ export default function PlayerProfilePage() {
         <div className="mb-4">
           <BackButton href="/" />
 
-          <h1 className="mt-4 text-3xl font-bold tracking-tight text-white">
-            Профиль
-          </h1>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <h1 className="min-w-0 text-3xl font-bold tracking-tight text-white">
+              Профиль
+            </h1>
+            <ProfileLogout enabled={isOwnProfile && isMiniApp === false} />
+          </div>
         </div>
 
         <div data-testid="profile-hero" className="rounded-[28px] border border-[#7f9b8c]/15 bg-[linear-gradient(160deg,#15231b_0%,#0d1512_55%,#0a0f0c_100%)] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.25)]">
@@ -627,8 +630,6 @@ export default function PlayerProfilePage() {
         {isOwnProfile && (player.free_reentries_balance ?? 0) > 0 ? (
           <p data-testid="free-reentries-balance" className="mt-2 px-1 text-xs text-[#d5b867]">Бесплатные re-entry: {player.free_reentries_balance}</p>
         ) : null}
-
-        <ProfileLogout enabled={isOwnProfile && isMiniApp === false} />
 
         {player.nickname_status === "pending" && player.pending_display_name ? (
           <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/60">

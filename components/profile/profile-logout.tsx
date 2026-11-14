@@ -4,6 +4,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { invalidateCurrentPlayerCache } from "@/lib/current-player";
 
+function LogoutIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M10 5H6.75A1.75 1.75 0 0 0 5 6.75v10.5A1.75 1.75 0 0 0 6.75 19H10" />
+      <path d="M14 8l4 4-4 4M18 12H9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function ProfileLogout({ enabled }: { enabled: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -46,8 +55,9 @@ export function ProfileLogout({ enabled }: { enabled: boolean }) {
           setError(null);
           setOpen(true);
         }}
-        className="mt-3 min-h-11 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 transition-colors hover:border-white/20 hover:text-white/85"
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-red-300/25 bg-red-400/[0.06] px-3 py-2 text-sm text-red-200 transition-colors hover:border-red-300/45 hover:bg-red-400/[0.11] hover:text-red-100"
       >
+        <LogoutIcon />
         Выйти
       </button>
 
