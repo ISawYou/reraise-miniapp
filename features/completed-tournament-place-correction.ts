@@ -6,9 +6,6 @@ import { players, results, tournaments } from "@/lib/db/schema";
 import { assertServerActorRole } from "@/lib/admin-auth";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
 import { syncPlayerAchievements } from "@/features/achievements";
-import { batchUpdateSpreadsheetValues, readSpreadsheetTabValues } from "@/lib/google-sheets";
-import { getFreeSheetColumnLayout, parseFreeSheetValues } from "@/lib/tournament-sheet-parsing";
-import type { TournamentType } from "@/types/domain";
 
 // "Исправить места" -- Super Admin correction of finishing places for an
 // ALREADY-COMPLETED tournament. A separate path from the LIVE
@@ -60,8 +57,8 @@ import type { TournamentType } from "@/types/domain";
 // features/tournament-waitlist-capacity.ts / lib/player-merge.ts: the
 // tournament row is locked FOR UPDATE first, then results are read, validated
 // against the request (stale requests are rejected) and written within the
-// same transaction. Achievement resync and the Google Sheets push happen
-// only after commit and never roll the correction back.
+// same transaction. Achievement resync happens only after commit and never
+// rolls the correction back.
 
 export class CompletedPlaceCorrectionUnavailableError extends Error {
   constructor() {
@@ -69,7 +66,6 @@ export class CompletedPlaceCorrectionUnavailableError extends Error {
     this.name = "CompletedPlaceCorrectionUnavailableError";
   }
 }
-
 // Any business-rule rejection (stale request, winner pinned, not completed,
 // legacy NULL breakdown). Mapped to 409 by the route handler; always thrown
 // before any write (or inside the transaction, rolling it back).
@@ -103,18 +99,9 @@ export type CompletedPlaceCorrectionChange = {
 
 export type CompletedPlaceCorrectionResult = {
   changed: CompletedPlaceCorrectionChange[];
-  sheet_sync_warning?: string;
 };
 
 type Executor = typeof db;
-
-type TournamentInfo = {
-  id: string;
-  status: string;
-  kind: string;
-  tournamentType: string;
-  googleSheetTabName: string | null;
-};
 
 type ResultRow = {
   id: string;
@@ -148,7 +135,6 @@ const tournamentColumns = {
   status: tournaments.status,
   kind: tournaments.kind,
   tournamentType: tournaments.tournamentType,
-  googleSheetTabName: tournaments.googleSheetTabName,
 };
 
 // Pure validation + planning: given the persisted rows and the request,
@@ -257,12 +243,11 @@ export async function correctCompletedTournamentPlaces(
     throw new CompletedPlaceCorrectionRejectedError(NOT_COMPLETED_MESSAGE);
   }
 
-  const { tournament, changes, displayNames } = await db.transaction(async (rawTx) => {
+  const { changes, displayNames } = await db.transaction(async (rawTx) => {
     const tx = rawTx as unknown as Executor;
 
     // Lock the tournament row FIRST -- same serialization point as every
-    // other per-tournament transaction (features/tournament-row-lock.ts),
-    // inlined here because we also need status/sheet info from the row.
+    // other per-tournament transaction (features/tournament-row-lock.ts).
     const [locked] = await tx
       .select(tournamentColumns)
       .from(tournaments)
@@ -292,7 +277,7 @@ export async function correctCompletedTournamentPlaces(
 
     const planned = planCorrection(persisted, rows);
     if (planned.length === 0) {
-      return { tournament: locked as TournamentInfo, changes: planned, displayNames: new Map() };
+      return { changes: planned, displayNames: new Map() };
     }
 
     // Phase 1: park every changed row on a distinct temporary place above
@@ -326,7 +311,6 @@ export async function correctCompletedTournamentPlaces(
       .where(inArray(players.id, planned.map((change) => change.playerId)));
 
     return {
-      tournament: locked as TournamentInfo,
       changes: planned,
       displayNames: new Map(nameRows.map((row) => [row.id, row.displayName])),
     };
@@ -360,96 +344,5 @@ export async function correctCompletedTournamentPlaces(
     })),
   };
 
-  const sheetWarning = await syncCorrectedPlacesToSheet(tournament, changes);
-  if (sheetWarning) {
-    result.sheet_sync_warning = sheetWarning;
-  }
-
   return result;
-}
-
-function columnIndexToLetter(index: number): string {
-  let n = index + 1;
-  let letters = "";
-  while (n > 0) {
-    const remainder = (n - 1) % 26;
-    letters = String.fromCharCode(65 + remainder) + letters;
-    n = Math.floor((n - 1) / 26);
-  }
-  return letters;
-}
-
-const SHEET_SYNC_WARNING =
-  "Места исправлены, но Google-таблицу обновить не удалось — обновите её вручную";
-
-// Best-effort: writes ONLY the Место and Рейтинг cells of the changed
-// players' rows (matched by the sheet's Player ID column, never by
-// position/name). Never throws; returns a warning string on failure.
-async function syncCorrectedPlacesToSheet(
-  tournament: TournamentInfo,
-  changes: PlannedChange[]
-): Promise<string | undefined> {
-  if(await (await import("@/lib/tournament-source")).getTournamentSource(tournament.id)==="POSTGRESQL")return;
-  const tabName = tournament.googleSheetTabName?.trim();
-  if (!tabName || changes.length === 0) {
-    return undefined;
-  }
-
-  // Only the free-tournament sheet layout is known/header-validated
-  // (lib/tournament-sheet-parsing.ts); other kinds' sheets aren't touched.
-  if (tournament.kind !== "free") {
-    return "Места исправлены; Google-таблица этого типа турнира не обновляется автоматически";
-  }
-
-  try {
-    const tournamentType = tournament.tournamentType as TournamentType;
-    const values = await readSpreadsheetTabValues(tabName);
-    const parsed = parseFreeSheetValues(values, tournamentType);
-    if (!parsed.ok) {
-      throw new Error(parsed.reason);
-    }
-
-    const layout = getFreeSheetColumnLayout(tournamentType);
-    const placeColumn = columnIndexToLetter(layout.placeIndex);
-    const ratingColumn = columnIndexToLetter(layout.ratingIndex);
-
-    const updates: { range: string; values: (string | number)[][] }[] = [];
-    const missing: string[] = [];
-    for (const change of changes) {
-      const sheetRow = parsed.rows.get(change.playerId);
-      if (!sheetRow) {
-        missing.push(change.playerId);
-        continue;
-      }
-      updates.push({
-        range: `${tabName}!${placeColumn}${sheetRow.rowNumber}`,
-        values: [[change.newPlace]],
-      });
-      updates.push({
-        range: `${tabName}!${ratingColumn}${sheetRow.rowNumber}`,
-        values: [[change.ratingPoints]],
-      });
-    }
-
-    if (updates.length > 0) {
-      await batchUpdateSpreadsheetValues(updates);
-    }
-
-    if (missing.length > 0) {
-      console.error("[completed-place-correction] players missing from sheet", {
-        tournamentId: tournament.id,
-        tabName,
-        missing,
-      });
-      return SHEET_SYNC_WARNING;
-    }
-    return undefined;
-  } catch (error) {
-    console.error("[completed-place-correction] sheet sync failed", {
-      tournamentId: tournament.id,
-      tabName,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return SHEET_SYNC_WARNING;
-  }
 }

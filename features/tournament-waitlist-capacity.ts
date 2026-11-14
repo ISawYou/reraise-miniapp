@@ -613,8 +613,7 @@ export async function admitPlayerToTournament(
 }
 
 // How many seats un-eliminating `playerId` would add: 1 only if they are
-// currently eliminated AND hold a seat-consuming registration, else 0 (e.g.
-// pull-sheet re-asserting eliminated=false for an already-active player).
+// currently eliminated AND hold a seat-consuming registration, else 0.
 function returnToGameSeatDelta(state: CapacityState, playerId: string): number {
   if (!state.eliminatedPlayerIds.has(playerId)) {
     return 0;
@@ -945,8 +944,8 @@ export async function admitWaitlistedRegistrationWithinCapacity(
 
 // Confirmed physical attendance clears the online-registration restriction
 // -- called by features/tournaments.ts::setTournamentPlayerAttendance (the
-// ONE canonical attendance setter, shared by the admin UI route AND the
-// Google Sheets live sync / pull-sheet) after it writes arrived=true.
+// ONE canonical attendance setter, shared by the admin UI route and console)
+// after it writes arrived=true.
 // Rules:
 //   - only ever CLEARS; arrived=false never reaches this and nothing here
 //     can create/restore a restriction;

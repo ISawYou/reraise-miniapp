@@ -160,8 +160,8 @@ async function computeSnapshotInputs(
   const playersCount = uniqueArrivedPlayerIds.size;
 
   // `row.rebuys` is the shared free-tournament "Re-buy" field — typed
-  // directly by the admin or pulled from Google Sheets, there is no
-  // separate channel for either. Google Sheets never stores initial
+  // directly by the admin, there is no
+  // separate channel for either. The operational source never stores initial
   // entries and rebuys separately, so this number is each player's TOTAL
   // ENTRIES (initial buy-in + every rebuy), not a rebuy count on its own.
   // Summed across arrived players this is the tournament's Total Entries;

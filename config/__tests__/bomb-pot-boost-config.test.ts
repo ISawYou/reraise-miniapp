@@ -22,7 +22,6 @@ import {
   supportsTournamentBossKnockouts,
   supportsTournamentKnockouts,
 } from "@/lib/tournament-helpers";
-import { getFreeSheetColumnLayout } from "@/lib/tournament-sheet-parsing";
 
 describe("templates", () => {
   it("1. Bomb Pot: BOMB POT title + the product description says TWO boards (Double Board)", () => {
@@ -102,10 +101,6 @@ describe("labels / KO / bonus lines", () => {
     expect(getTournamentTypeBonusLines(type)).toEqual([]);
   });
 
-  it("use the ordinary (non-Boss/non-Mystery) free sheet layout", () => {
-    expect(getFreeSheetColumnLayout("bomb_pot")).toEqual(getFreeSheetColumnLayout("classic"));
-    expect(getFreeSheetColumnLayout("boost_rating")).toEqual(getFreeSheetColumnLayout("classic"));
-  });
 });
 
 describe("Boost badge", () => {

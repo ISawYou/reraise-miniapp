@@ -5,8 +5,8 @@ import { tournaments } from "./tournaments";
 import { registrations } from "./registrations";
 
 // All four tables here model the *operational* state of a currently-running
-// tournament, read/written together during live play and feeding the
-// Google Sheets live-sync — matching the single, already-agreed
+// tournament, read/written together during live play — matching the
+// single, already-agreed
 // TournamentLiveStateRepository that covers all of them (see
 // docs/ARCHITECTURE_RULES.md, principle 2's stated exception). Kept in one
 // schema file for the same reason, not split further.

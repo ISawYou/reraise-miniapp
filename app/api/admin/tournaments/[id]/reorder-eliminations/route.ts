@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { reorderTournamentEliminationsThroughSheet } from "@/features/tournament-sheet-sync";
+import { reorderTournamentEliminations } from "@/features/tournaments";
 
 // "Исправить порядок выбывания" -- corrects the elimination ORDER when
 // every affected player genuinely is eliminated, just in the wrong
@@ -20,7 +20,7 @@ export async function POST(
       return NextResponse.json({ error: "player_ids (string[]) обязателен" }, { status: 400 });
     }
 
-    const result = await reorderTournamentEliminationsThroughSheet(id, body.player_ids);
+    const result = await reorderTournamentEliminations(id, body.player_ids);
 
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 409 });

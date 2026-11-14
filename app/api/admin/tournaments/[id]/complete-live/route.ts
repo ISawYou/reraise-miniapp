@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { completeTournamentFromLiveEntries, getTournamentById } from "@/features/tournaments";
-import { syncTournamentLiveSheet } from "@/app/api/admin/tournaments/[id]/live-sync/route";
 import { logCompletionError, resolveCompletionError } from "@/lib/tournament-completion-errors";
 import { TournamentAlreadyCompletedError } from "@/lib/tournament-errors";
+import { assertServerActorRole } from "@/lib/admin-auth";
 
 const OPERATION = "complete-live";
 
@@ -13,28 +13,10 @@ export async function POST(
   const { id } = await context.params;
 
   try {
-    const body = (await request.json().catch(() => null)) as
-      | {
-          rows?: Array<{
-            player_id: string;
-            arrived: boolean;
-            paid?: boolean;
-            payment_type?: string;
-            free_reentries?: number;
-            rebuys: number;
-            addons: number;
-            knockouts: number;
-            boss_knockouts?: number;
-            place: number | null;
-          }>;
-          entryPrice?: number;
-          addonPrice?: number;
-          bountyPrice?: number;
-        }
-      | null;
+    await assertServerActorRole(["admin", "operator"]);
 
-    // Re-completion guard, fail fast BEFORE the pre-completion live-entry /
-    // Google Sheets sync below. The authoritative (locked) check is inside
+    // Re-completion guard, fail fast before the authoritative completion.
+    // The locked check is inside
     // completeTournamentFromLiveEntries -> commitTournamentCompletion
     // (features/tournament-completion-commit.ts).
     const tournament = await getTournamentById(id);
@@ -42,24 +24,7 @@ export async function POST(
       throw new TournamentAlreadyCompletedError();
     }
 
-    if (body?.rows?.length) {
-      await syncTournamentLiveSheet(
-        id,
-        body.rows,
-        body.entryPrice ?? 0,
-        body.addonPrice ?? 0,
-        body.bountyPrice ?? 0
-      );
-    }
-
     const result = await completeTournamentFromLiveEntries(id);
-    await syncTournamentLiveSheet(
-      id,
-      body?.rows,
-      body?.entryPrice ?? 0,
-      body?.addonPrice ?? 0,
-      body?.bountyPrice ?? 0
-    );
 
     return NextResponse.json({
       ok: true,

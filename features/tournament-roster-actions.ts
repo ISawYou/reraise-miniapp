@@ -17,10 +17,6 @@ import {
   markRegistrationNoShowWithinCapacity,
   TournamentRosterActionError,
 } from "@/features/tournament-waitlist-capacity";
-import {
-  syncAdmittedPlayerToSheet,
-  syncOperationalRosterToSheet,
-} from "@/features/tournament-sheet-sync";
 
 export type RosterActionResult =
   | { ok: true; promotedCount: number; warning?: string }
@@ -32,9 +28,6 @@ function toRejection(error: unknown): { ok: false; error: string } {
   }
   throw error;
 }
-
-const NO_SHOW_SHEET_WARNING =
-  "Игрок отмечен как «Не пришёл», но Google Таблицу обновить не удалось — строка будет удалена при следующей синхронизации";
 
 // "Не пришёл" -- see markRegistrationNoShowWithinCapacity for the exact
 // atomic semantics. Distinct from removeAdminTournamentParticipant
@@ -59,16 +52,6 @@ export async function markTournamentPlayerNoShow(
     return toRejection(error);
   }
 
-  try {
-    await syncOperationalRosterToSheet(tournamentId);
-  } catch (error) {
-    console.error(
-      "[markTournamentPlayerNoShow] Google Sheet cleanup failed (no-show kept):",
-      error instanceof Error ? error.name : "unknown error"
-    );
-    return { ok: true, promotedCount, warning: NO_SHOW_SHEET_WARNING };
-  }
-
   return { ok: true, promotedCount };
 }
 
@@ -83,27 +66,10 @@ export async function admitTournamentPlayerFromWaitlist(
 ): Promise<RosterActionResult> {
   await assertServerActorRole(["admin", "operator"]);
 
-  let playerId: string;
   try {
-    const result = await admitWaitlistedRegistrationWithinCapacity(tournamentId, registrationId);
-    playerId = result.playerId;
+    await admitWaitlistedRegistrationWithinCapacity(tournamentId, registrationId);
   } catch (error) {
     return toRejection(error);
-  }
-
-  try {
-    await syncAdmittedPlayerToSheet(tournamentId, playerId);
-  } catch (error) {
-    console.error(
-      "[admitTournamentPlayerFromWaitlist] Google Sheet update failed (admission kept):",
-      error instanceof Error ? error.name : "unknown error"
-    );
-    return {
-      ok: true,
-      promotedCount: 0,
-      warning:
-        "Игрок допущен, но Google Таблицу обновить не удалось — отметьте «Пришел» в таблице вручную",
-    };
   }
 
   return { ok: true, promotedCount: 0 };

@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BackButton } from "@/components/ui/back-button";
 import { resolveCurrentPlayer } from "@/lib/current-player";
@@ -79,29 +80,12 @@ type FreeFormRow = {
   boss_knockouts: string;
   mystery_bounty_points: string;
   // Server-derived for eliminated players (see
-  // features/tournament-sheet-sync.ts's setTournamentPlayerEliminationThroughSheet
-  // / lib/tournament-placement.ts) -- the input is read-only while
+  // lib/tournament-placement.ts) -- the input is read-only while
   // `eliminated` is true. Freely editable only for a non-eliminated
   // (active/winner) row.
   place: string;
   eliminated: boolean;
   eliminated_at: string | null;
-};
-
-type PulledFreeRow = {
-  player_id: string;
-  display_name: string;
-  username: string | null;
-  arrived: boolean;
-  paid?: boolean;
-  payment_type?: string;
-  free_reentries: number;
-  rebuys: number;
-  addons: number;
-  knockouts: number;
-  boss_knockouts?: number;
-  mystery_bounty_points?: number;
-  place: number | null;
 };
 
 type LiveFormRow = {
@@ -207,51 +191,7 @@ function snapshotFreeRows(rows: FreeFormRow[]) {
   );
 }
 
-// "Unsaved local edit" for the Sheet auto-refresh below: only fields that
-// live nowhere but this form until "Сохранить в GS"/"Завершить турнир".
-// Пришел (instant attendance write), Re-buy/Add-on (committed on blur)
-// and an eliminated row's server-derived place are already durable in
-// Postgres the moment they're edited -- they're guarded by the write
-// queues / focused-input check instead, so toggling "Пришел" doesn't
-// freeze the live mirror until the next manual save.
-function snapshotSheetOnlyFreeFields(rows: FreeFormRow[]) {
-  return JSON.stringify(
-    rows.map((row) => ({
-      player_id: row.player_id,
-      paid: row.paid,
-      payment_type: row.payment_type,
-      free_reentries: row.free_reentries,
-      knockouts: row.knockouts,
-      boss_knockouts: row.boss_knockouts,
-      mystery_bounty_points: row.mystery_bounty_points,
-      place: row.eliminated ? null : row.place,
-    }))
-  );
-}
-
-function mapPulledFreeRows(rows: PulledFreeRow[]): FreeFormRow[] {
-  return rows.map((row) => ({
-    player_id: row.player_id,
-    display_name: row.display_name,
-    username: row.username,
-    arrived: row.arrived,
-    paid: row.paid ?? false,
-    payment_type: row.payment_type ?? "",
-    free_reentries: String(row.free_reentries ?? 0),
-    rebuys: String(row.rebuys),
-    addons: String(row.addons),
-    knockouts: String(row.knockouts),
-    boss_knockouts: String(row.boss_knockouts ?? 0),
-    mystery_bounty_points: String(row.mystery_bounty_points ?? 0),
-    place: row.place == null ? "" : String(row.place),
-    eliminated: false,
-    eliminated_at: null,
-  }));
-}
-
-// Overlays the authoritative live Postgres state onto Sheet/draft rows --
-// shared by the initial load, the manual "Синхронизировать сейчас" and the
-// periodic Sheet auto-refresh so all three reconcile identically.
+// Overlays authoritative live PostgreSQL state onto draft rows.
 async function overlayLiveFreeState(
   tournamentId: string,
   rows: FreeFormRow[]
@@ -272,15 +212,11 @@ async function overlayLiveFreeState(
       ...(elimination
         ? { eliminated: elimination.eliminated, eliminated_at: elimination.eliminated_at }
         : null),
-      // Postgres attendance always wins over whatever arrived value
-      // came from Google Sheets/draft above -- same precedence
-      // eliminations already use. This is what keeps the checkbox
-      // and the integration API from ever disagreeing (see Step 9).
+      // Postgres attendance is authoritative for the operational checkbox.
       ...(attendanceRecord ? { arrived: attendanceRecord.arrived } : null),
       // Same precedence for Re-buy/Add-on against
-      // tournament_rebuy_state -- live Postgres state (from a direct
-      // UI edit or a prior "Обновить из GS" commit) wins over
-      // whatever the sheet/draft preview above shows, so reloading
+      // tournament_rebuy_state -- live Postgres state from a direct
+      // UI edit wins over the draft preview, so reloading
       // this page can never make a durably-saved edit look reverted.
       ...(rebuyRecord
         ? { rebuys: String(rebuyRecord.rebuys), addons: String(rebuyRecord.addons) }
@@ -288,7 +224,7 @@ async function overlayLiveFreeState(
       // Same single authoritative placement algorithm as the
       // eliminate action itself (lib/tournament-placement.ts) --
       // only ever overrides an eliminated row's place, so the UI
-      // never displays a stale client-typed/sheet-lagging number.
+      // never displays a stale client-typed number.
       ...(elimination?.eliminated
         ? { place: String(derivedPlaces.get(row.player_id) ?? row.place) }
         : null),
@@ -296,15 +232,6 @@ async function overlayLiveFreeState(
   });
 }
 
-const SHEET_AUTO_REFRESH_MS = 15_000;
-
-function formatSheetSyncAge(syncedAt: number, now: number) {
-  const seconds = Math.max(0, Math.floor((now - syncedAt) / 1000));
-
-  if (seconds < 10) return "только что";
-  if (seconds < 60) return `${seconds} сек назад`;
-  return `${Math.floor(seconds / 60)} мин назад`;
-}
 
 export default function AdminTournamentResultsPage() {
   const params = useParams<{ id: string }>();
@@ -326,19 +253,12 @@ export default function AdminTournamentResultsPage() {
   const [retryingPokerClockSync, setRetryingPokerClockSync] = useState(false);
   const [accessChecked, setAccessChecked] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [pulling, setPulling] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [freeRows, setFreeRows] = useState<FreeFormRow[]>([]);
   const [liveRows, setLiveRows] = useState<LiveFormRow[]>([]);
   const [initialFreeSnapshot, setInitialFreeSnapshot] = useState("");
-  // Wall-clock time of the last SUCCESSFUL Sheet read (load, manual or
-  // automatic) -- drives the small "Google Sheets · синхронизировано …"
-  // status; `sheetSyncNow` just re-renders its relative age.
-  const [lastSheetSyncAt, setLastSheetSyncAt] = useState<number | null>(null);
-  const [sheetSyncNow, setSheetSyncNow] = useState(() => Date.now());
   const [initialLiveSnapshot, setInitialLiveSnapshot] = useState("");
   const [entryPrice, setEntryPrice] = useState("0");
   const [addonPrice, setAddonPrice] = useState("0");
@@ -350,8 +270,8 @@ export default function AdminTournamentResultsPage() {
   const [recalculatingMysteryBounty, setRecalculatingMysteryBounty] = useState(false);
   const [bountyPrice, setBountyPrice] = useState("0");
 
-  // "Исправить порядок выбывания" (see features/tournament-sheet-sync.ts's
-  // reorderTournamentEliminationsThroughSheet). `correctionOrder` holds only
+  // "Исправить порядок выбывания" uses the canonical PostgreSQL order.
+  // `correctionOrder` holds only
   // player_ids, in the admin's current (possibly reordered) chronological
   // elimination order -- freeRows itself stays the single source of display
   // data (name/derived place/time), looked up by id.
@@ -464,8 +384,8 @@ export default function AdminTournamentResultsPage() {
   // onBlur so either field changing keeps both persisted together (they're
   // always written as a pair, matching how the server stores them). Invalid
   // input (non-finite/negative) is silently skipped here rather than
-  // surfaced as an error -- the existing "Сохранить в GS"/"Завершить
-  // турнир" validation already catches and reports bad values explicitly;
+  // surfaced as an error -- the completion validation catches and reports
+  // bad values explicitly;
   // this background sync should not double-report the same problem.
   function handleCommitFreeRebuyState(playerId: string, rebuysValue: string, addonsValue: string) {
     if (!tournamentId) {
@@ -507,8 +427,8 @@ export default function AdminTournamentResultsPage() {
         }
 
         // Once a tournament is completed, `results` is the one frozen,
-        // canonical snapshot -- never re-read the live Google Sheet (or,
-        // for a paid/cash tournament, tournament_live_entries) for result
+        // canonical snapshot -- never re-read mutable live operational state
+        // for result
         // VALUES again. Either source can keep changing after completion
         // (an admin editing a cell, a later live-state write) while
         // `results` stays exactly what was saved at completion time; this
@@ -529,84 +449,29 @@ export default function AdminTournamentResultsPage() {
             setLateRegistrationSnapshot(null);
           }
 
-          let nextRows: FreeFormRow[] = [];
-          let sheetReadAt: number | null = null;
-
-          if (nextTournament.google_sheet_tab_name?.trim()) {
-            try {
-              const payload = await fetchAdminJson<{
-                rows: PulledFreeRow[];
-                entryPrice?: number;
-                addonPrice?: number;
-                bountyPrice?: number;
-              }>(
-                `/api/admin/tournaments/${tournamentId}/pull-sheet`,
-                {
-                  method: "POST",
-                }
-              );
-
-              nextRows = mapPulledFreeRows(payload.rows);
-              sheetReadAt = Date.now();
-              if (payload.entryPrice !== undefined) setEntryPrice(String(payload.entryPrice));
-              if (payload.addonPrice !== undefined) setAddonPrice(String(payload.addonPrice));
-              if (payload.bountyPrice !== undefined) setBountyPrice(String(payload.bountyPrice));
-            } catch {
-              nextRows = [];
-            }
-          }
-
-          if (nextRows.length === 0) {
-            const draft = await getTournamentResultsDraft(tournamentId);
-            nextRows = draft.map((item: DraftRow) => ({
-              player_id: item.player_id,
-              display_name: item.display_name,
-              username: item.username,
-              arrived: false,
-              paid: false,
-              payment_type: "",
-              free_reentries: "0",
-              rebuys: "0",
-              addons: "0",
-              knockouts: "0",
-              boss_knockouts: "0",
-              mystery_bounty_points: "0",
-              place: "",
-              eliminated: false,
-              eliminated_at: null,
-            }));
-          }
-
-          nextRows = await overlayLiveFreeState(tournamentId, nextRows);
+          const draft = await getTournamentResultsDraft(tournamentId);
+          const nextRows = await overlayLiveFreeState(tournamentId, draft.map((item: DraftRow) => ({
+            player_id: item.player_id,
+            display_name: item.display_name,
+            username: item.username,
+            arrived: false,
+            paid: false,
+            payment_type: "",
+            free_reentries: "0",
+            rebuys: "0",
+            addons: "0",
+            knockouts: "0",
+            boss_knockouts: "0",
+            mystery_bounty_points: "0",
+            place: "",
+            eliminated: false,
+            eliminated_at: null,
+          })));
 
           setFreeRows(nextRows);
           setInitialFreeSnapshot(snapshotFreeRows(nextRows));
-          if (sheetReadAt !== null) setLastSheetSyncAt(sheetReadAt);
         } else if (!isCompletedTournament) {
-          let entries = await getTournamentLiveEntries(tournamentId);
-
-          if (nextTournament.google_sheet_tab_name?.trim()) {
-            try {
-              const payload = await fetchAdminJson<{
-                rows: (TournamentLiveEntry & { paid?: boolean })[];
-                entryPrice?: number;
-                addonPrice?: number;
-                bountyPrice?: number;
-              }>(
-                `/api/admin/tournaments/${tournamentId}/pull-sheet`,
-                {
-                  method: "POST",
-                }
-              );
-              entries = payload.rows;
-              if (payload.entryPrice !== undefined) setEntryPrice(String(payload.entryPrice));
-              if (payload.addonPrice !== undefined) setAddonPrice(String(payload.addonPrice));
-              if (payload.bountyPrice !== undefined) setBountyPrice(String(payload.bountyPrice));
-            } catch {
-              // fallback to DB rows from getTournamentLiveEntries
-            }
-          }
-
+          const entries = await getTournamentLiveEntries(tournamentId);
           const nextRows = mapLiveEntriesToFormRows(entries);
           setLiveRows(nextRows);
           setInitialLiveSnapshot(JSON.stringify(nextRows));
@@ -673,137 +538,6 @@ export default function AdminTournamentResultsPage() {
   }, [initialLiveSnapshot, isFreeTournament, liveRows]);
   const hasUnsavedChanges = hasUnsavedFreeChanges || hasUnsavedLiveChanges;
 
-  const isSheetAutoRefreshActive =
-    tournament?.kind === "free" &&
-    tournament.status !== "completed" &&
-    Boolean(tournament.google_sheet_tab_name?.trim());
-
-  // Read by the interval callback below, which is created once per
-  // activation and would otherwise close over stale render state.
-  const autoRefreshStateRef = useRef({
-    freeRows,
-    initialFreeSnapshot,
-    busy: false,
-  });
-  autoRefreshStateRef.current = {
-    freeRows,
-    initialFreeSnapshot,
-    busy: loading || saving || pulling || completing || correctionSaving,
-  };
-  const autoRefreshInFlightRef = useRef(false);
-
-  // Live mirror of the Sheet for an OPEN, GS-linked free tournament: every
-  // ~15s re-run the SAME read-only pull-sheet preview loadPage uses (no
-  // commit -- only an explicit "Синхронизировать сейчас" may write the
-  // Sheet into live Postgres), then the same Postgres overlay, so
-  // Оплатил/Нал-карта/Беспл. re-entry/KO/… track the Sheet while
-  // Пришел/Выбыл/place/Re-buy/Add-on keep their live-Postgres precedence.
-  // A tick is skipped -- silently -- whenever applying it could clobber
-  // something: another request of ours is running, the admin has an
-  // unsaved Sheet-only edit or a focused input, or a Пришел/Re-buy write is
-  // still queued. A failed read keeps the last rows and just retries on
-  // the next tick; no error is surfaced for background failures.
-  useEffect(() => {
-    if (!isSheetAutoRefreshActive || !tournamentId) {
-      return;
-    }
-
-    function hasLocalEdits() {
-      const state = autoRefreshStateRef.current;
-      const baseline = state.initialFreeSnapshot
-        ? (JSON.parse(state.initialFreeSnapshot) as FreeFormRow[])
-        : [];
-      const baselineById = new Map(baseline.map((row) => [row.player_id, row]));
-      // The persisted baseline has no `eliminated` field, so compare using
-      // the CURRENT row's eliminated flag on both sides.
-      const baselineRows = state.freeRows.map((row) => ({
-        ...row,
-        ...(baselineById.get(row.player_id) ?? {}),
-        eliminated: row.eliminated,
-      }));
-
-      return (
-        baseline.length !== state.freeRows.length ||
-        snapshotSheetOnlyFreeFields(baselineRows) !== snapshotSheetOnlyFreeFields(state.freeRows)
-      );
-    }
-
-    function shouldSkipTick() {
-      const active = document.activeElement;
-
-      return (
-        autoRefreshStateRef.current.busy ||
-        hasLocalEdits() ||
-        !attendanceQueueRef.current!.isIdle() ||
-        !rebuyQueueRef.current!.isIdle() ||
-        (active instanceof HTMLElement &&
-          (active.tagName === "INPUT" || active.tagName === "SELECT" || active.tagName === "TEXTAREA"))
-      );
-    }
-
-    async function tick() {
-      if (autoRefreshInFlightRef.current || document.hidden || shouldSkipTick()) {
-        return;
-      }
-
-      autoRefreshInFlightRef.current = true;
-      const rowsAtStart = autoRefreshStateRef.current.freeRows;
-
-      try {
-        const payload = await fetchAdminJson<{
-          rows: PulledFreeRow[];
-          entryPrice?: number;
-          addonPrice?: number;
-          bountyPrice?: number;
-        }>(`/api/admin/tournaments/${tournamentId}/pull-sheet`, { method: "POST" });
-        const nextRows = await overlayLiveFreeState(
-          tournamentId!,
-          mapPulledFreeRows(payload.rows)
-        );
-
-        // Anything the admin did while this was in flight (an edit, an
-        // elimination response, a manual sync) wins -- drop this result
-        // rather than overwrite it; the next tick re-reads.
-        if (autoRefreshStateRef.current.freeRows !== rowsAtStart || shouldSkipTick()) {
-          return;
-        }
-
-        setFreeRows(nextRows);
-        setInitialFreeSnapshot(snapshotFreeRows(nextRows));
-        if (payload.entryPrice !== undefined) setEntryPrice(String(payload.entryPrice));
-        if (payload.addonPrice !== undefined) setAddonPrice(String(payload.addonPrice));
-        if (payload.bountyPrice !== undefined) setBountyPrice(String(payload.bountyPrice));
-        const syncedAt = Date.now();
-        setLastSheetSyncAt(syncedAt);
-        setSheetSyncNow(syncedAt);
-      } catch {
-        // Background refresh: keep the last known rows, retry next tick.
-      } finally {
-        autoRefreshInFlightRef.current = false;
-      }
-    }
-
-    const intervalId = window.setInterval(() => void tick(), SHEET_AUTO_REFRESH_MS);
-    function handleVisibilityChange() {
-      if (!document.hidden) void tick();
-    }
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [isSheetAutoRefreshActive, tournamentId]);
-
-  useEffect(() => {
-    if (!isSheetAutoRefreshActive || lastSheetSyncAt === null) {
-      return;
-    }
-
-    setSheetSyncNow(Date.now());
-    const intervalId = window.setInterval(() => setSheetSyncNow(Date.now()), 5_000);
-    return () => window.clearInterval(intervalId);
-  }, [isSheetAutoRefreshActive, lastSheetSyncAt]);
   // Completed: freeRows/liveRows are never populated (see the loading
   // effect above) -- the canonical persisted results count is the correct
   // field size, not 0.
@@ -1033,7 +767,7 @@ export default function AdminTournamentResultsPage() {
   }
 
   // Place is now entirely server-derived for an eliminated player (see
-  // lib/tournament-placement.ts / setTournamentPlayerEliminationThroughSheet)
+  // lib/tournament-placement.ts)
   // -- no client-side guess is made here, optimistically or otherwise. The
   // checkbox state and eliminated_at update optimistically as before; place
   // is left untouched until the server's authoritative response lands, then
@@ -1122,13 +856,7 @@ export default function AdminTournamentResultsPage() {
 
   // Re-reads only the derived elimination fields (eliminated_at, place) for
   // rows the server still considers eliminated, and leaves every other row
-  // completely untouched -- in particular a manually-typed Место for a
-  // non-eliminated top finisher, exactly like
-  // syncDerivedPlacementToSheet's own "never touch a non-eliminated row"
-  // rule. Deliberately NOT a full handlePullFreeRows() reuse: that pulls
-  // fresh from Google Sheets with commit:true, which requires a linked
-  // sheet and would throw for a tournament with none -- both correction
-  // actions must work either way.
+  // completely untouched.
   async function refreshDerivedEliminationFields() {
     if (!tournamentId) return;
 
@@ -1153,13 +881,7 @@ export default function AdminTournamentResultsPage() {
     );
   }
 
-  // "Вернуть в игру" -- a safe one-player correction, fail-closed on the
-  // sheet side (see setTournamentPlayerEliminationThroughSheet's
-  // failClosedOnSheetWrite doc comment): if the required GS write fails,
-  // the server returns an error and Postgres is left exactly as it was, so
-  // there is never a moment where GS still says Выбыл=true while Postgres
-  // says false (the state the next poller tick would "fix" by silently
-  // re-eliminating this player).
+  // "Вернуть в игру" is a guarded PostgreSQL correction.
   async function handleReturnPlayerToGame(playerId: string) {
     if (!tournamentId) return;
 
@@ -1309,7 +1031,6 @@ export default function AdminTournamentResultsPage() {
           new_place: number;
           rating_points: number;
         }[];
-        sheet_sync_warning?: string;
       }>(`/api/admin/tournaments/${tournamentId}/completed-place-correction`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1329,11 +1050,7 @@ export default function AdminTournamentResultsPage() {
       );
       setShowPlaceCorrection(false);
       setPlaceCorrectionConfirming(false);
-      setMessage(
-        payload.sheet_sync_warning
-          ? `Места исправлены. ${payload.sheet_sync_warning}`
-          : "Места исправлены"
-      );
+      setMessage("Места исправлены");
     } catch (err) {
       setPlaceCorrectionError(err instanceof Error ? err.message : "Не удалось исправить места");
       setPlaceCorrectionConfirming(false);
@@ -1402,148 +1119,6 @@ export default function AdminTournamentResultsPage() {
         row.player_id === playerId ? { ...row, [field]: value } : row
       )
     );
-  }
-
-  async function handleSyncFreeRows() {
-    if (!tournamentId) {
-      return;
-    }
-
-    setMessage(null);
-    setError(null);
-
-    for (const row of freeRows) {
-      if (
-        Number(row.free_reentries || 0) < 0 ||
-        Number(row.rebuys || 0) < 0 ||
-        Number(row.addons || 0) < 0 ||
-        Number(row.knockouts || 0) < 0 ||
-        Number(row.boss_knockouts || 0) < 0 ||
-        Number(row.mystery_bounty_points || 0) < 0
-      ) {
-        setError(`Проверьте числовые поля у игрока ${row.display_name}`);
-        return;
-      }
-    }
-
-    // Rows without a place yet are still a valid draft (see
-    // handlePullFreeRows) -- only the ones an admin already filled in get
-    // checked for a duplicate/invalid place here.
-    const placeIssue = describeResultPlaceIssues(
-      freeRows
-        .filter((row) => row.place.trim() !== "")
-        .map((row) => ({
-          player_id: row.player_id,
-          place: Number(row.place),
-          display_name: row.display_name,
-        }))
-    );
-
-    if (placeIssue) {
-      setError(placeIssue);
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const payload = await fetchAdminJson<{ tabName: string }>(
-        `/api/admin/tournaments/${tournamentId}/export-sheet`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            rows: freeRows.map((row) => ({
-              player_id: row.player_id,
-              arrived: row.arrived,
-              paid: row.paid,
-              payment_type: row.payment_type.trim(),
-              free_reentries: Number(row.free_reentries || 0),
-              rebuys: Number(row.rebuys || 0),
-              addons: Number(row.addons || 0),
-              knockouts: Number(row.knockouts || 0),
-              boss_knockouts: Number(row.boss_knockouts || 0),
-              mystery_bounty_points: Number(row.mystery_bounty_points || 0),
-              place: row.place ? Number(row.place) : null,
-              eliminated: row.eliminated,
-              eliminated_at: row.eliminated_at,
-            })),
-            entryPrice: Number(entryPrice || 0),
-            addonPrice: Number(addonPrice || 0),
-            bountyPrice: Number(bountyPrice || 0),
-          }),
-        }
-      );
-
-      setTournament((current) =>
-        current ? { ...current, google_sheet_tab_name: payload.tabName } : current
-      );
-      setInitialFreeSnapshot(snapshotFreeRows(freeRows));
-      setMessage("Данные турнира сохранены");
-    } catch (err) {
-      const nextMessage =
-        err instanceof Error ? err.message : "Ошибка синхронизации с таблицей";
-      setError(nextMessage);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handlePullFreeRows() {
-    if (!tournamentId) {
-      return;
-    }
-
-    setMessage(null);
-    setError(null);
-
-    try {
-      setPulling(true);
-
-      const payload = await fetchAdminJson<{
-        rows: PulledFreeRow[];
-        entryPrice?: number;
-        addonPrice?: number;
-        bountyPrice?: number;
-      }>(
-        `/api/admin/tournaments/${tournamentId}/pull-sheet`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          // Explicit admin click, not the read-only preview fetch in
-          // loadPage above -- this is the one action that means "trust the
-          // sheet now": the server additionally commits arrived/rebuys/addons
-          // into live Postgres state (see pull-sheet/route.ts's `commit`
-          // handling and docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md §6).
-          body: JSON.stringify({ commit: true }),
-        }
-      );
-
-      // The server just committed arrived/rebuys/addons from the sheet
-      // (commit:true above), so the Postgres overlay is normally a no-op
-      // echo here -- kept as defense in depth, and so "Синхронизировать
-      // сейчас" never resurrects a stale arrived value over live state.
-      const nextRows = await overlayLiveFreeState(
-        tournamentId,
-        mapPulledFreeRows(payload.rows)
-      );
-
-      setFreeRows(nextRows);
-      setInitialFreeSnapshot(snapshotFreeRows(nextRows));
-      setLastSheetSyncAt(Date.now());
-      if (payload.entryPrice !== undefined) setEntryPrice(String(payload.entryPrice));
-      if (payload.addonPrice !== undefined) setAddonPrice(String(payload.addonPrice));
-      if (payload.bountyPrice !== undefined) setBountyPrice(String(payload.bountyPrice));
-      setMessage("Данные подтянуты из Google Sheets");
-    } catch (err) {
-      const nextMessage =
-        err instanceof Error ? err.message : "Ошибка чтения данных из таблицы";
-      setError(nextMessage);
-    } finally {
-      setPulling(false);
-    }
   }
 
   async function handleCompleteFreeTournament() {
@@ -1675,14 +1250,14 @@ export default function AdminTournamentResultsPage() {
       setPokerClockSyncStatus(syncStatus);
 
       if (syncStatus === "finished") {
-        setMessage("Турнир завершён, данные сохранены и обновлены в GS. Poker Clock остановлен.");
+        setMessage("Турнир завершён в ReRaise. Poker Clock остановлен.");
       } else if (syncStatus === "failed") {
         // Deliberately NOT setError -- this must never read as "завершение
         // турнира не удалось". ReRaise completion above already succeeded
         // unconditionally; only the retry card below offers an action.
         setMessage("Турнир завершён в ReRaise, но Poker Clock не удалось завершить.");
       } else {
-        setMessage("Турнир завершен, данные сохранены и обновлены в GS");
+        setMessage("Турнир завершён в ReRaise");
       }
     } catch (err) {
       const nextMessage =
@@ -1696,7 +1271,7 @@ export default function AdminTournamentResultsPage() {
 
   // Narrow retry for ONLY the Poker Clock finish side effect -- never
   // reruns completion, never recalculates rating, never saves results
-  // again, never re-syncs Google Sheets (see
+  // again (see
   // app/api/admin/tournaments/[id]/poker-clock/finish/route.ts). Safe to
   // click repeatedly.
   async function handleRetryPokerClockSync() {
@@ -1849,127 +1424,6 @@ export default function AdminTournamentResultsPage() {
     }
   }
 
-  async function handleSyncLiveRows() {
-    if (!tournamentId) {
-      return;
-    }
-
-    setMessage(null);
-    setError(null);
-
-    for (const row of liveRows) {
-      if (
-        Number(row.free_reentries || 0) < 0 ||
-        Number(row.rebuys || 0) < 0 ||
-        Number(row.addons || 0) < 0 ||
-        Number(row.knockouts || 0) < 0 ||
-        Number(row.boss_knockouts || 0) < 0
-      ) {
-        setError(`Проверьте числовые поля у игрока ${row.display_name}`);
-        return;
-      }
-    }
-
-    // Rows without a place yet are still a valid draft -- only the ones an
-    // admin already filled in get checked for a duplicate/invalid place.
-    const placeIssue = describeResultPlaceIssues(
-      liveRows
-        .filter((row) => row.place.trim() !== "")
-        .map((row) => ({
-          player_id: row.player_id,
-          place: Number(row.place),
-          display_name: row.display_name,
-        }))
-    );
-
-    if (placeIssue) {
-      setError(placeIssue);
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const payload = await fetchAdminJson<{ tabName: string }>(
-        `/api/admin/tournaments/${tournamentId}/live-sync`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            rows: liveRows.map((row) => ({
-              player_id: row.player_id,
-              arrived: row.arrived,
-              paid: row.paid,
-              payment_type: row.payment_type.trim(),
-              free_reentries: Number(row.free_reentries || 0),
-              rebuys: Number(row.rebuys || 0),
-              addons: Number(row.addons || 0),
-              knockouts: Number(row.knockouts || 0),
-              boss_knockouts: Number(row.boss_knockouts || 0),
-              place: row.place ? Number(row.place) : null,
-            })),
-            entryPrice: Number(entryPrice || 0),
-            addonPrice: Number(addonPrice || 0),
-            bountyPrice: Number(bountyPrice || 0),
-          }),
-        }
-      );
-
-      setTournament((current) =>
-        current ? { ...current, google_sheet_tab_name: payload.tabName } : current
-      );
-      setInitialLiveSnapshot(JSON.stringify(liveRows));
-      setMessage("Данные турнира сохранены");
-    } catch (err) {
-      const nextMessage =
-        err instanceof Error ? err.message : "Ошибка синхронизации с таблицей";
-      setError(nextMessage);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handlePullFromSheet() {
-    if (!tournamentId) {
-      return;
-    }
-
-    setMessage(null);
-    setError(null);
-
-    try {
-      setPulling(true);
-
-      const payload = await fetchAdminJson<{
-        rows: (TournamentLiveEntry & { paid?: boolean })[];
-        entryPrice?: number;
-        addonPrice?: number;
-        bountyPrice?: number;
-      }>(
-        `/api/admin/tournaments/${tournamentId}/pull-sheet`,
-        {
-          method: "POST",
-        }
-      );
-
-      const nextRows = mapLiveEntriesToFormRows(payload.rows);
-      setLiveRows(nextRows);
-      setInitialLiveSnapshot(JSON.stringify(nextRows));
-      if (payload.entryPrice !== undefined) setEntryPrice(String(payload.entryPrice));
-      if (payload.addonPrice !== undefined) setAddonPrice(String(payload.addonPrice));
-      if (payload.bountyPrice !== undefined) setBountyPrice(String(payload.bountyPrice));
-      setMessage("Данные подтянуты из Google Sheets");
-    } catch (err) {
-      const nextMessage =
-        err instanceof Error ? err.message : "Ошибка чтения данных из таблицы";
-      setError(nextMessage);
-    } finally {
-      setPulling(false);
-    }
-  }
-
   async function handleCompleteLiveTournament() {
     if (!tournamentId) {
       return;
@@ -2037,9 +1491,7 @@ export default function AdminTournamentResultsPage() {
         current ? { ...current, status: "completed" } : current
       );
       setInitialLiveSnapshot(JSON.stringify(liveRows));
-      setMessage(
-        "Турнир завершен, данные перенесены в results и обновлены в GS"
-      );
+      setMessage("Турнир завершён, данные сохранены в PostgreSQL");
     } catch (err) {
       const nextMessage =
         err instanceof Error ? err.message : "Ошибка завершения турнира";
@@ -2281,8 +1733,7 @@ export default function AdminTournamentResultsPage() {
                   </div>
                 </div>
                 <p className="mt-1 text-[11px] text-white/40">
-                  Rebuys = Total entries − Players (Google Sheets хранит только
-                  суммарное количество входов, без отдельного счётчика ре-баев)
+                  Rebuys = Total entries − Players
                 </p>
 
                 <p className="mt-3 text-sm font-semibold text-white">
@@ -2393,42 +1844,13 @@ export default function AdminTournamentResultsPage() {
               />
             </div>
           </div>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {isFreeTournament && tournament?.google_sheet_tab_name && tournament.status !== "completed" ? (
-              // Once a GS-linked free tournament is active, a full-tab
-              // rebuild from potentially stale browser state is unsafe --
-              // the sheet is now the live operational source (Пришел,
-              // Выбыл, Re-buy, Addon, KO, Boss KO, Mystery points, Место
-              // are all edited there directly and synced back
-              // automatically, see features/tournament-sheet-sync.ts).
-              // The normal workflow no longer needs this button at all.
-              <div className="flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3 py-3 text-center text-xs text-white/55">
-                Таблица активна — правьте данные в Google Sheets
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={isFreeTournament ? handleSyncFreeRows : handleSyncLiveRows}
-                disabled={saving}
-                className="rounded-lg bg-yellow-500 px-3 py-3 text-sm font-semibold text-black disabled:opacity-60"
-              >
-                {saving
-                  ? "Сохраняем..."
-                  : tournament?.google_sheet_tab_name
-                    ? "Сохранить в GS"
-                    : "Создать таблицу"}
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={isFreeTournament ? handlePullFreeRows : handlePullFromSheet}
-              disabled={pulling || !tournament?.google_sheet_tab_name}
-              className="rounded-lg border border-white/10 px-3 py-3 text-sm font-semibold text-white/85 disabled:opacity-50"
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Link
+              href={`/admin/tournaments/${tournamentId}/control`}
+              className="rounded-lg border border-yellow-400/30 bg-yellow-400/10 px-3 py-3 text-center text-sm font-semibold text-yellow-100"
             >
-              {pulling ? "Обновляем..." : "Синхронизировать сейчас"}
-            </button>
-
+              Открыть PostgreSQL-консоль
+            </Link>
             <button
               type="button"
               onClick={
@@ -2442,19 +1864,6 @@ export default function AdminTournamentResultsPage() {
               {completing ? "Завершаем..." : "Завершить турнир"}
             </button>
           </div>
-          {isSheetAutoRefreshActive && lastSheetSyncAt !== null ? (
-            <p
-              data-testid="sheet-sync-status"
-              className="mt-1.5 text-center text-[11px] text-white/40"
-            >
-              Google Sheets · синхронизировано {formatSheetSyncAge(lastSheetSyncAt, sheetSyncNow)}
-            </p>
-          ) : tournament?.google_sheet_tab_name ? (
-            <p className="mt-1.5 text-center text-[11px] text-white/40">
-              Google Sheets → приложение
-            </p>
-          ) : null}
-
           {isFreeTournament && tournament?.status !== "completed" ? (
             <div className="mt-2">
               <button
