@@ -158,4 +158,45 @@ describe.runIf(!!url)("Qualification V1: real PostgreSQL migration, repository, 
   const after=await adminState(e.id);expect(after.event).toEqual(before.event);expect(after.event).toMatchObject({finalDate:"2026-11-15",finalTournamentId:null,version:3});expect(after.invitations).toEqual(before.invitations);expect(after.audit).toEqual(before.audit);expect(await client`select id from tournaments where tournament_type='qualification_final'`).toHaveLength(0);
  });
 
+ it("manual removal from locked final preserves lock/history/ranking and never selects a replacement",async()=>{
+  const e=await locked(),before=await adminState(e.id),frozen=await fingerprintResults(),old=before.invitations.find(i=>i.seat===1)!;
+  await h.db.insert(schema.tournamentAttendance).values({tournamentId:finalId,playerId:old.playerId,arrived:false});
+  await act(e.id,"manual_remove_finalist",{invitationId:old.id,reason:"Не сможет приехать"});const after=await adminState(e.id);
+  expect(after.event).toMatchObject({status:"final",finalRosterLockedAt:before.event.finalRosterLockedAt,version:before.event.version+1});expect(after.finalRoster).toHaveLength(17);expect(after.invitations.find(i=>i.id===old.id)?.status).toBe("cancelled");expect(after.invitations).toHaveLength(18);expect(after.ranking).toEqual(before.ranking);expect(await fingerprintResults()).toBe(frozen);
+  const entry=after.audit.find(a=>a.action==="manual_remove_finalist")!;expect(entry.actorId).toBe(admin);expect(entry.detail).toMatchObject({removedPlayer:old.playerId,addedPlayer:null,seat:1,reason:"Не сможет приехать"});expect(entry.detail.beforeRoster).toHaveLength(18);expect(entry.detail.afterRoster).toHaveLength(17);
+  vi.setSystemTime(new Date("2026-11-14T12:00:00Z"));await expect(act(e.id,"complete_final")).rejects.toThrow("18");
+ });
+ it("manual add selects an existing account, records no invented rank and keeps accepted-invitation guards",async()=>{
+  const e=await locked(),s=await adminState(e.id),old=s.invitations[0];await act(e.id,"manual_remove_finalist",{invitationId:old.id,reason:"Освободить место"});await act(e.id,"manual_add_finalist",{playerId:pid(22),reason:"Лично согласовано"});const after=await adminState(e.id);
+  expect(after.finalRoster).toHaveLength(18);expect(after.invitations.find(i=>i.playerId===pid(22))).toMatchObject({manualAdmission:true,qualifyingRank:null,status:"accepted",respondedAt:null,seat:old.seat});expect(after.finalRoster!.find(r=>r.playerId===pid(22))?.registrationStatus).toBe("registered");
+  await expect(client`insert into registrations(tournament_id,player_id,status) values(${finalId},${pid(23)},'registered')`).rejects.toThrow();await expect(client`delete from registrations where tournament_id=${finalId} and player_id=${pid(22)}`).rejects.toThrow("зафиксирован");
+ });
+ it("manual replace is atomic, preserves invitation lineage and allows past schedule only without game facts",async()=>{
+  const e=await locked(),s=await adminState(e.id),old=s.invitations[0],before=await fingerprintResults();vi.setSystemTime(new Date("2026-11-15T12:00:00Z"));await act(e.id,"manual_replace_finalist",{invitationId:old.id,playerId:pid(23),reason:"Подтверждена замена"});const after=await adminState(e.id);expect(after.finalRoster).toHaveLength(18);expect(after.finalRoster!.some(r=>r.playerId===old.playerId)).toBe(false);expect(after.invitations.find(i=>i.playerId===pid(23))).toMatchObject({seat:old.seat,replacesId:old.id,manualAdmission:true,qualifyingRank:null});expect(after.invitations.find(i=>i.id===old.id)?.status).toBe("replaced");expect(after.invitations.find(i=>i.id===old.id)?.respondedAt).toEqual(old.respondedAt);expect(after.event.finalRosterLockedAt).toEqual(s.event.finalRosterLockedAt);expect(await fingerprintResults()).toBe(before);
+ });
+ it("manual inviting corrections await canonical lock before registering and retain official completion",async()=>{
+  const e=await accepted(),s=await adminState(e.id),old=s.invitations[0];await act(e.id,"manual_replace_finalist",{invitationId:old.id,playerId:pid(23),reason:"Замена до фиксации"});expect(await h.db.select().from(schema.registrations).where(eq(schema.registrations.tournamentId,finalId))).toHaveLength(0);await act(e.id,"confirm_winner");await act(e.id,"lock_roster");expect((await adminState(e.id)).finalRoster).toHaveLength(18);
+ });
+ it("manual capacity, duplicate, winner, nonexistent, blocked and merged identities fail without mutations",async()=>{
+  const e=await locked(),s=await adminState(e.id),old=s.invitations[0];await expect(act(e.id,"manual_add_finalist",{playerId:pid(22),reason:"Полный финал"})).rejects.toThrow("18");
+  for(const id of [pid(3),pid(1),pid(88)])await expect(act(e.id,"manual_replace_finalist",{invitationId:old.id,playerId:id,reason:"Проверка допуска"})).rejects.toThrow();await h.db.update(schema.players).set({isBlocked:true}).where(eq(schema.players.id,pid(22)));await expect(act(e.id,"manual_replace_finalist",{invitationId:old.id,playerId:pid(22),reason:"Проверка блокировки"})).rejects.toThrow("недоступен");await h.db.update(schema.players).set({mergedIntoPlayerId:pid(1)}).where(eq(schema.players.id,pid(23)));await expect(act(e.id,"manual_replace_finalist",{invitationId:old.id,playerId:pid(23),reason:"Проверка объединения"})).rejects.toThrow("объединён");expect((await adminState(e.id)).event.version).toBe(s.event.version);
+ });
+ it.each(["arrival","old_arrival","elimination","entries","live","operations"])("manual correction rejects actual gameplay (%s)",async kind=>{
+  const e=await locked(),s=await adminState(e.id),old=s.invitations[0];
+  if(kind==="arrival"||kind==="old_arrival")await h.db.insert(schema.tournamentAttendance).values({tournamentId:finalId,playerId:old.playerId,arrived:kind==="arrival",arrivedAt:new Date()});
+  if(kind==="elimination")await h.db.insert(schema.tournamentPlayerEliminations).values({tournamentId:finalId,playerId:old.playerId,eliminated:true,eliminatedAt:new Date()});
+  if(kind==="entries")await h.db.insert(schema.tournamentRebuyState).values({tournamentId:finalId,playerId:old.playerId,rebuys:1,addons:0});
+  if(kind==="live"){const [r]=await h.db.select().from(schema.registrations).where(eq(schema.registrations.playerId,old.playerId));await h.db.insert(schema.tournamentLiveEntries).values({tournamentId:finalId,playerId:old.playerId,registrationId:r.id,arrived:false});}
+  if(kind==="operations")await h.db.insert(schema.tournamentOperations).values({tournamentId:finalId,playerId:old.playerId,updatedBy:admin,place:18});
+  await expect(act(e.id,"manual_remove_finalist",{invitationId:old.id,reason:"Не трогать игру"})).rejects.toThrow("игровые данные");expect((await adminState(e.id)).event.version).toBe(s.event.version);
+ });
+ it("manual audit failure rolls back all rows; stale and concurrent admin commands cannot duplicate seats",async()=>{
+  const e=await locked(),before=await adminState(e.id),old=before.invitations[0];h.failAudit=true;await expect(act(e.id,"manual_replace_finalist",{invitationId:old.id,playerId:pid(22),reason:"Проверка rollback"})).rejects.toThrow();h.failAudit=false;const rolled=await adminState(e.id);expect(rolled.event).toEqual(before.event);expect(rolled.finalRoster).toEqual(before.finalRoster);expect(rolled.invitations).toEqual(before.invitations);expect(rolled.audit).toEqual(before.audit);
+  const command={action:"manual_replace_finalist" as const,version:before.event.version,confirmation:true,invitationId:old.id,reason:"Две вкладки администратора"};const attempts=await Promise.allSettled([repo.mutate(e.id,{...command,playerId:pid(22)},admin),repo.mutate(e.id,{...command,playerId:pid(23)},admin)]);expect(attempts.filter(a=>a.status==="fulfilled")).toHaveLength(1);expect((await adminState(e.id)).finalRoster).toHaveLength(18);await expect(repo.mutate(e.id,{...command,playerId:pid(24)},admin)).rejects.toThrow("устарели");
+ });
+ it("manual correction is admin-only, reasoned, confirmed, target-scoped and completed-final immutable",async()=>{
+  const e=await locked(),s=await adminState(e.id),command={action:"manual_remove_finalist" as const,version:s.event.version,confirmation:true,reason:"Административная коррекция",invitationId:s.invitations[0].id};await expect(repo.mutate(e.id,command,pid(2))).rejects.toThrow("администратор");await expect(repo.mutate(e.id,{...command,reason:""},admin)).rejects.toThrow("причину");await expect(repo.mutate(e.id,{...command,confirmation:false},admin)).rejects.toThrow("Подтвердите");
+  await h.db.update(schema.qualificationEvents).set({slug:"another-event"}).where(eq(schema.qualificationEvents.id,e.id));await expect(repo.mutate(e.id,command,admin)).rejects.toThrow("недоступна");await h.db.update(schema.qualificationEvents).set({slug:KALININGRAD_EVENT.slug}).where(eq(schema.qualificationEvents.id,e.id));await finish(e.id);await expect(act(e.id,"manual_remove_finalist",{invitationId:command.invitationId,reason:"Завершённый финал"})).rejects.toThrow("недоступна");
+ });
+
 });

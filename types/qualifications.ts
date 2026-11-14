@@ -12,8 +12,9 @@ export type QualificationPublicModel={
 export type QualificationAdminModel=Omit<QualificationPublicModel,"event"|"ranking">&{
   event:QualificationPublicModel["event"]&{winnerPlayerId:string|null;rankingFingerprint:string|null};
   ranking:QualificationPublicModel["ranking"]&{fingerprint:string;factsFingerprint:string;tieGroups:string[][];consequentialGroups:string[][]};
-  invitations:(QualificationPlayer&{id:string;playerId:string;qualifyingRank:number;seat:number;status:string;invitedAt:string;respondedAt:string|null;replacesId:string|null})[];
+  invitations:(QualificationPlayer&{id:string;playerId:string;qualifyingRank:number|null;manualAdmission?:boolean;seat:number;status:string;invitedAt:string;respondedAt:string|null;replacesId:string|null})[];
+  finalRoster?:{playerId:string;displayName:string;seat:number|null;invitationId:string|null;invitationStatus:string|null;registrationId:string|null;registrationStatus:string|null;manualAdmission:boolean}[];
   tournamentChoices:{id:string;title:string;startAt:string;status:string;kind:string;maxPlayers:number;isFinal:boolean;tournamentType?:string;startingStack?:number|null;lateRegistrationEndsAt?:string|null;ratingGuarantee?:number|null;linkedFinalEventId?:string|null;hasRegistrations?:boolean;hasResults?:boolean}[];
   audit:{actorId?:string;action:string;detail:Record<string,unknown>;createdAt:string}[];
 };
-export type OwnQualificationInvitation={eventId:string;version:number;status:string;invitations:{id:string;status:string;qualifyingRank:number;seat:number;invitedAt:string}[]};
+export type OwnQualificationInvitation={eventId:string;version:number;status:string;invitations:{id:string;status:string;qualifyingRank:number|null;manualAdmission?:boolean;seat:number;invitedAt:string}[]};

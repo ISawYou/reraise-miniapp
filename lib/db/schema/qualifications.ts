@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, date, jsonb, uniqueIndex, index, check, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, boolean, timestamp, date, jsonb, uniqueIndex, index, check, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { players } from "./players";
 import { tournaments } from "./tournaments";
@@ -43,7 +43,7 @@ export const qualificationInvitations = pgTable("qualification_invitations", {
   id: uuid().primaryKey().defaultRandom(),
   eventId: uuid("event_id").notNull().references(() => qualificationEvents.id),
   playerId: uuid("player_id").notNull().references(() => players.id),
-  qualifyingRank: integer("qualifying_rank").notNull(), seat: integer().notNull(),
+  qualifyingRank: integer("qualifying_rank"), manualAdmission:boolean("manual_admission").notNull().default(false), seat: integer().notNull(),
   status: text().notNull().default("pending"),
   invitedAt: timestamp("invited_at",{withTimezone:true}).notNull().defaultNow(),
   respondedAt: timestamp("responded_at",{withTimezone:true}),
@@ -55,6 +55,7 @@ export const qualificationInvitations = pgTable("qualification_invitations", {
   check("qualification_invitation_status_check",sql`${t.status} IN ('pending','accepted','declined','cancelled','replaced')`),
   check("qualification_invitation_seat_check",sql`${t.seat} BETWEEN 1 AND 18`),
   check("qualification_invitation_rank_check",sql`${t.qualifyingRank} >=2`),
+  check("qualification_invitation_admission_check",sql`(${t.manualAdmission} AND ${t.qualifyingRank} IS NULL) OR (NOT ${t.manualAdmission} AND ${t.qualifyingRank} IS NOT NULL AND ${t.qualifyingRank}>=2)`),
 ]);
 export const qualificationSquad = pgTable("qualification_squad_members", {
   id:uuid().primaryKey().defaultRandom(),eventId:uuid("event_id").notNull().references(()=>qualificationEvents.id),

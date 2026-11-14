@@ -1,6 +1,6 @@
 import {and,eq} from "drizzle-orm";
 import {db} from "@/lib/db";
-import {tournaments,players,registrations,tournamentOperations,tournamentOperationAudit,tournamentPlayerEliminations} from "@/lib/db/schema";
+import {tournaments,players,registrations,tournamentOperations,tournamentOperationAudit,tournamentPlayerEliminations,results} from "@/lib/db/schema";
 import {parseOperationPatch,validateFormatPatch,normalizeOperationalPatch,usesNumericDefaults} from "@/lib/tournament-operation-fields";
 import type {TournamentType} from "@/types/domain";
 
@@ -9,6 +9,8 @@ export class OperationsError extends Error {
 }
 export class PostgresTournamentOperationsRepository {
  async read(tournamentId:string){return db.select().from(tournamentOperations).where(eq(tournamentOperations.tournamentId,tournamentId));}
+ // Raw nullable values: unlike public result DTOs, never coalesce unknown history.
+ async readFrozenResults(tournamentId:string){return db.select({playerId:results.playerId,place:results.place,reentries:results.reentries,addons:results.addons,knockouts:results.knockouts,bossKnockouts:results.bossKnockouts,freeReentries:results.freeReentries,mysteryPoints:results.mysteryBountyPoints,ratingPoints:results.ratingPoints}).from(results).where(eq(results.tournamentId,tournamentId));}
  async patch(input:{tournamentId:string;playerId:string;actorId:string;expectedVersion:number;patch:unknown}){
   const parsed=parseOperationPatch(input.patch);
   return db.transaction(async tx=>{

@@ -19,6 +19,11 @@ vi.mock("@/lib/telegram-web-session", () => ({
 
 import { config, middleware } from "@/middleware";
 
+it.each(["attendance","eliminate"])("retains server-side staff authorization for final %s API",async suffix=>{
+ expect(config.matcher).toContain('/api/admin/:path*');
+ for(const role of [null,'player','operator','admin']){mocks.verifySession.mockReturnValue(role?'caller':null);mocks.findById.mockResolvedValue(role?{id:'caller',role}:null);const response=await middleware(new NextRequest(`https://re-raise.ru/api/admin/tournaments/final/${suffix}`,{method:'POST',headers:role?{cookie:'reraise_session=signed'}:{}}));expect(response.status).toBe(role===null?401:role==='player'?403:200);}
+});
+
 describe("native tournament console operator permissions", () => {
   const base = "/api/admin/tournaments/tournament-1/operations";
   const allowed = [["GET", "/api/admin/tournaments/tournament-1/complete-free"], ["GET", base], ["PATCH", base], ["GET", `${base}/complete`], ["POST", `${base}/complete`]];
