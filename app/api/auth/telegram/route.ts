@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { normalizeInternalReturnTo } from "@/lib/auth-redirect";
 
 export async function GET(request: Request) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -10,7 +11,8 @@ export async function GET(request: Request) {
   const botId = botToken.split(":")[0];
   const url = new URL(request.url);
   const origin = `${url.protocol}//${url.host}`;
-  const returnTo = `${origin}/api/auth/telegram/callback`;
+  const destination = normalizeInternalReturnTo(url.searchParams.get("returnTo"));
+  const returnTo = `${origin}/api/auth/telegram/callback?returnTo=${encodeURIComponent(destination)}`;
 
   const authUrl =
     `https://oauth.telegram.org/auth` +

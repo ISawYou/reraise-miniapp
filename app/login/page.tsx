@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { normalizeInternalReturnTo } from "@/lib/auth-redirect";
+import { invalidateCurrentPlayerCache } from "@/lib/current-player";
 
 type Step = "email" | "code";
 type OtpPurpose = "login";
@@ -14,6 +15,21 @@ function getLoginReturnTo() {
   );
 }
 
+function getLoginErrorMessage() {
+  if (typeof window === "undefined") return null;
+
+  const error = new URLSearchParams(window.location.search).get("error");
+  const messages: Record<string, string> = {
+    bot_not_configured: "Вход через Telegram временно недоступен.",
+    invalid_signature: "Не удалось подтвердить вход через Telegram.",
+    expired: "Ссылка входа через Telegram устарела. Попробуйте ещё раз.",
+    invalid_data: "Telegram вернул неполные данные для входа.",
+    player_error: "Не удалось открыть аккаунт. Попробуйте ещё раз.",
+  };
+
+  return error ? messages[error] ?? "Не удалось выполнить вход." : null;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
@@ -21,10 +37,15 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loginReturnTo, setLoginReturnTo] = useState("/");
   const [resendCooldown, setResendCooldown] = useState(0);
   const codeInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    const destination = getLoginReturnTo();
+    setLoginReturnTo(destination);
+    setError(getLoginErrorMessage());
+
     fetch("/api/auth/me", {
       credentials: "include",
       cache: "no-store",
@@ -141,6 +162,7 @@ export default function LoginPage() {
         throw new Error(payload?.error ?? "Не удалось проверить код.");
       }
 
+      invalidateCurrentPlayerCache();
       router.replace(getLoginReturnTo());
       router.refresh();
     } catch (verifyError) {
@@ -190,6 +212,21 @@ export default function LoginPage() {
         </div>
 
         <div className="rounded-[20px] border border-white/8 bg-white/4 p-6">
+          <div className="mb-5 flex flex-col gap-3">
+            <a
+              data-testid="telegram-login"
+              href={`/api/auth/telegram?returnTo=${encodeURIComponent(loginReturnTo)}`}
+              className="flex min-h-12 w-full items-center justify-center rounded-[14px] border border-[#d5b867]/40 bg-[#d5b867]/10 px-4 py-3 text-base font-semibold text-[#f0d98a] transition-colors hover:bg-[#d5b867]/20"
+            >
+              Продолжить с Telegram
+            </a>
+            <div className="flex items-center gap-3 text-xs text-white/30">
+              <span className="h-px flex-1 bg-white/10" />
+              <span>или email</span>
+              <span className="h-px flex-1 bg-white/10" />
+            </div>
+          </div>
+
           {step === "email" ? (
             <form onSubmit={handleRequestCode} className="flex flex-col gap-4">
               <p className="text-sm leading-relaxed text-white/60">

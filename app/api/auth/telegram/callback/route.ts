@@ -4,6 +4,7 @@ import { ensurePlayerFromTelegramUser } from "@/features/auth";
 import type { TelegramWebAppUser } from "@/lib/telegram";
 import { signSession, COOKIE_NAME } from "@/lib/telegram-web-session";
 import { syncTelegramAvatar } from "@/lib/avatar-sync";
+import { normalizeInternalReturnTo } from "@/lib/auth-redirect";
 
 function verifyTelegramHash(params: URLSearchParams, botToken: string): boolean {
   const hash = params.get("hash");
@@ -11,7 +12,7 @@ function verifyTelegramHash(params: URLSearchParams, botToken: string): boolean 
 
   const fields: string[] = [];
   for (const [key, value] of params.entries()) {
-    if (key !== "hash") {
+    if (key !== "hash" && key !== "returnTo") {
       fields.push(`${key}=${value}`);
     }
   }
@@ -35,10 +36,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const params = url.searchParams;
   const origin = `${url.protocol}//${url.host}`;
+  const returnTo = normalizeInternalReturnTo(params.get("returnTo"));
 
   function fail(reason: string) {
     console.error("[TG callback] FAIL:", reason);
-    return NextResponse.redirect(`${origin}/login?error=${reason}`);
+    const loginUrl = new URL("/login", origin);
+    loginUrl.searchParams.set("error", reason);
+    loginUrl.searchParams.set("returnTo", returnTo);
+    return NextResponse.redirect(loginUrl);
   }
 
   const receivedKeys = [...params.keys()].filter((k) => k !== "hash");
@@ -83,7 +88,7 @@ export async function GET(request: Request) {
   await syncTelegramAvatar(player, telegramUser.photo_url);
 
   const cookieValue = signSession(player.id);
-  const response = NextResponse.redirect(`${origin}/`);
+  const response = NextResponse.redirect(new URL(returnTo, origin));
 
   response.cookies.set(COOKIE_NAME, cookieValue, {
     httpOnly: true,

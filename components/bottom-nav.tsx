@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { resolveCurrentPlayer } from "@/lib/current-player";
+import { resolveCurrentPlayer, subscribeToAuthState } from "@/lib/current-player";
 import type { Player } from "@/types/domain";
 
 function HomeIcon() {
@@ -43,6 +43,15 @@ function AcademyIcon() {
 export function BottomNav() {
   const pathname = usePathname();
   const [player, setPlayer] = useState<Player | null>(null);
+  const [authVersion, setAuthVersion] = useState(0);
+
+  useEffect(
+    () => subscribeToAuthState(() => {
+      setPlayer(null);
+      setAuthVersion((value) => value + 1);
+    }),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +75,7 @@ export function BottomNav() {
     return () => {
       cancelled = true;
     };
-  }, []); // player загружается один раз; pathname реактивен через usePathname()
+  }, [authVersion]);
 
   if (!player || player.is_blocked) {
     return null;
