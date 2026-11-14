@@ -11,6 +11,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Give Next.js/Turbopack enough heap in the GitHub Actions Docker builder.
+# Build-time only; the production runner does not inherit this setting.
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
 # NEXT_PUBLIC_* vars are baked into the client JS bundle at build time.
 # They MUST be supplied here — runtime injection does not affect the client.
 ARG NEXT_PUBLIC_SUPABASE_URL
