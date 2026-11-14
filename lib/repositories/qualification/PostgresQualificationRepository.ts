@@ -229,9 +229,10 @@ export class PostgresQualificationRepository {
           if(!t||t.tournamentType!=="qualification_final"||t.status==="completed"||t.maxPlayers!==18||t.isFinal)fail("Нужен незавершённый закрытый финал отбора");
           if(now<t.startAt)fail("Финал ещё не начался");
           const accepted=s.invitations.filter(i=>i.status==="accepted").map(i=>i.playerId);
-          if(accepted.length!==18||new Set(accepted).size!==18||accepted.includes(e.winnerPlayerId!))fail("Нужны 18 разных подтверждённых финалистов без прямого победителя");
+          if(accepted.length<3||accepted.length>t.maxPlayers||new Set(accepted).size!==accepted.length||accepted.includes(e.winnerPlayerId!))fail("Нужны от 3 до 18 разных подтверждённых финалистов без прямого победителя");
+          await canonical(tx,accepted);
           const regs=await tx.select().from(registrations).where(eq(registrations.tournamentId,t.id));
-          if(regs.length!==18||regs.some(r=>!accepted.includes(r.playerId)||!["registered","attended"].includes(r.status)))fail("Состав регистраций не совпадает с зафиксированным финалом");
+          if(regs.length!==accepted.length||new Set(regs.map(r=>r.playerId)).size!==accepted.length||regs.some(r=>!accepted.includes(r.playerId)||!["registered","attended"].includes(r.status)))fail("Состав регистраций не совпадает с зафиксированным финалом");
           const attendance=await tx.select().from(tournamentAttendance).where(and(eq(tournamentAttendance.tournamentId,t.id),eq(tournamentAttendance.arrived,true)));
           if(attendance.some(a=>!accepted.includes(a.playerId)))fail("В финале присутствует недопущенный игрок");
           const eliminated=await tx.select().from(tournamentPlayerEliminations).where(and(eq(tournamentPlayerEliminations.tournamentId,t.id),eq(tournamentPlayerEliminations.eliminated,true)));
@@ -239,7 +240,7 @@ export class PostgresQualificationRepository {
           if(eliminated.some(a=>!accepted.includes(a.playerId)))fail("Есть выбытие недопущенного игрока");
           const survivorIds=accepted.filter(id=>!eliminated.some(a=>a.playerId===id)).sort();
           if(survivorIds.length!==3||survivorIds.some(id=>!arrivedIds.includes(id)))fail("Для завершения должны оставаться ровно три пришедших допущенных игрока");
-          if(finished.some(a=>!a.eliminatedAt)||new Set(finished.map(a=>a.eliminatedAt!.toISOString())).size!==finished.length)fail("Уточните уникальное время выбывания перед фиксацией мест");
+          if(eliminated.some(a=>!a.eliminatedAt||!Number.isFinite(a.eliminatedAt.getTime())||a.eliminatedAt<t.startAt||a.eliminatedAt>now)||new Set(eliminated.map(a=>a.eliminatedAt!.toISOString())).size!==eliminated.length)fail("Уточните уникальное время выбывания перед фиксацией мест");
           if((await tx.select({id:results.id}).from(results).where(eq(results.tournamentId,t.id))).length)fail("Существующие результаты нельзя перезаписывать специальным завершением");
           await canonical(tx,arrivedIds);
           finished.sort((a,b)=>b.eliminatedAt!.getTime()-a.eliminatedAt!.getTime());
