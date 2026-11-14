@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   playerId: "p1",
   viewer: { id: "p1", is_blocked: false },
   detectTelegramMiniAppContext: vi.fn(),
+  subscribeToTelegramContext: vi.fn(),
   resolveCurrentPlayer: vi.fn(),
   invalidateCurrentPlayerCache: vi.fn(),
   fetchAdminJson: vi.fn(),
@@ -22,7 +23,10 @@ vi.mock("@/lib/current-player", () => ({ resolveCurrentPlayer: mocks.resolveCurr
 vi.mock("@/lib/client-request", () => ({ fetchAdminJson: mocks.fetchAdminJson, getAdminHeaders: mocks.getAdminHeaders }));
 vi.mock("@/lib/follows-client", () => ({ fetchFollowSummary: mocks.fetchFollowSummary, followPlayerRequest: vi.fn(), unfollowPlayerRequest: vi.fn() }));
 vi.mock("@/lib/player-avatar-client", () => ({ uploadPlayerAvatar: vi.fn() }));
-vi.mock("@/lib/telegram", () => ({ detectTelegramMiniAppContext: mocks.detectTelegramMiniAppContext }));
+vi.mock("@/lib/telegram", () => ({
+  detectTelegramMiniAppContext: mocks.detectTelegramMiniAppContext,
+  subscribeToTelegramContext: mocks.subscribeToTelegramContext,
+}));
 vi.mock("@/lib/activity-client", () => ({ logEvent: vi.fn() }));
 vi.mock("@/lib/tournament-visuals-client", () => ({ fetchTournamentVisualConfigs: vi.fn().mockResolvedValue({}) }));
 vi.mock("@/components/ui/back-button", () => ({ BackButton: ({ href }: { href: string }) => <a href={href}>Назад</a> }));
@@ -86,6 +90,7 @@ beforeEach(() => {
   mocks.viewer = { id: "p1", is_blocked: false };
   mocks.resolveCurrentPlayer.mockReset().mockResolvedValue(mocks.viewer);
   mocks.detectTelegramMiniAppContext.mockReset().mockResolvedValue(false);
+  mocks.subscribeToTelegramContext.mockReset().mockImplementation(() => vi.fn());
   mocks.fetchAdminJson.mockReset().mockResolvedValue({ pending_invitations: [], pending_outgoing_join_requests: [] });
   mocks.getAdminHeaders.mockReset().mockResolvedValue({});
   mocks.fetchFollowSummary.mockReset().mockResolvedValue({ followers: 0, following: 0, isFollowing: null });
@@ -123,6 +128,21 @@ describe("profile logout visibility", () => {
   it("keeps logout hidden when delayed Telegram SDK detection resolves Mini App", async () => {
     mocks.detectTelegramMiniAppContext.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(true), 5)));
     await renderPage();
+    expect(container.querySelector('[data-testid="logout-open"]')).toBeNull();
+  });
+
+  it("hides an already visible logout when Telegram signals late after a web timeout", async () => {
+    let signal: (() => void) | undefined;
+    mocks.subscribeToTelegramContext.mockImplementation((listener: () => void) => {
+      signal = listener;
+      return vi.fn();
+    });
+    mocks.detectTelegramMiniAppContext.mockResolvedValue(false);
+
+    await renderPage();
+    expect(container.querySelector('[data-testid="logout-open"]')).not.toBeNull();
+
+    await act(async () => signal?.());
     expect(container.querySelector('[data-testid="logout-open"]')).toBeNull();
   });
 });

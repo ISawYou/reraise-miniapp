@@ -20,7 +20,7 @@ import {
   type FollowSummary,
 } from "@/lib/follows-client";
 import { uploadPlayerAvatar } from "@/lib/player-avatar-client";
-import { detectTelegramMiniAppContext } from "@/lib/telegram";
+import { detectTelegramMiniAppContext, subscribeToTelegramContext } from "@/lib/telegram";
 import { ProfileLogout } from "@/components/profile/profile-logout";
 import { PlayerAvatarImage } from "@/components/profile/player-avatar-image";
 import { logEvent } from "@/lib/activity-client";
@@ -213,6 +213,9 @@ export default function PlayerProfilePage() {
 
   useEffect(() => {
     let cancelled = false;
+    const unsubscribe = subscribeToTelegramContext(() => {
+      if (!cancelled) setIsMiniApp(true);
+    });
 
     void detectTelegramMiniAppContext().then((isTelegram) => {
       if (!cancelled) setIsMiniApp(isTelegram);
@@ -220,6 +223,7 @@ export default function PlayerProfilePage() {
 
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, []);
 
