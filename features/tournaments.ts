@@ -11,7 +11,6 @@ import {
   tournamentLateRegistrationRepository,
   resultRepository,
 } from "@/lib/repositories";
-import type { LiveEntryPatch } from "@/lib/repositories";
 import { syncPlayersAchievementsIfEnabled } from "@/features/achievements";
 import { publishTournamentWinnerEvent } from "@/features/club-activity";
 import { resolveSeasonForTournamentDate } from "@/features/seasons";
@@ -81,21 +80,6 @@ export type TournamentNotificationRecipient = {
   telegram_id: number;
   display_name: string;
   registration_status: RegistrationStatus | null;
-};
-
-export type TournamentLiveSheetRow = {
-  player_id: string;
-  registration_id: string;
-  display_name: string;
-  username: string | null;
-  registration_status: "registered" | "attended";
-  arrived: boolean;
-  rebuys: number;
-  addons: number;
-  knockouts: number;
-  boss_knockouts?: number;
-  place: number | null;
-  sheet_row_number: number | null;
 };
 
 export type AdminTournamentParticipant = {
@@ -256,12 +240,7 @@ export async function getVisibleTournamentsForPlayer(player: {
 }
 
 export async function getTournamentById(tournamentId: string) {
-  const tournament=await tournamentRepository.findById(tournamentId);
-  if(process.env.DATABASE_PROVIDER==="postgres"){
-    const {getTournamentSource}=await import("@/lib/tournament-source");
-    if(await getTournamentSource(tournamentId)==="POSTGRESQL")return {...tournament,google_sheet_tab_name:null};
-  }
-  return tournament;
+  return tournamentRepository.findById(tournamentId);
 }
 
 export async function getVisibleTournamentByIdForPlayer(
@@ -467,41 +446,6 @@ export async function getMyTournaments(playerId: string) {
       registration: Registration;
       tournament: Tournament;
     }>;
-}
-
-export async function getTournamentSheetExportData(tournamentId: string) {
-  const tournament = await getTournamentById(tournamentId);
-
-  const [rows, resultsData] = await Promise.all([
-    registrationRepository.findExportParticipants(tournamentId),
-    resultRepository.findRatingPointsByTournamentId(tournamentId),
-  ]);
-
-  const ratingMap = new Map(
-    resultsData.map((r) => [r.player_id, r.rating_points])
-  );
-
-  return {
-    tournament,
-    rows: rows.map((row) => {
-      const player = row.players;
-
-      return {
-        player_id: row.player_id,
-        display_name: getPreferredPlayerDisplayName(player ?? {}),
-        username: player?.username ?? null,
-        registration_status: row.status,
-        rating_points: ratingMap.get(row.player_id) ?? null,
-      };
-    }),
-  };
-}
-
-export async function setTournamentGoogleSheetTabName(
-  tournamentId: string,
-  tabName: string
-) {
-  await tournamentRepository.patch(tournamentId, { google_sheet_tab_name: tabName });
 }
 
 export async function getMyTournamentHistory(playerId: string, page?: { limit: number; offset: number }) {
@@ -913,116 +857,6 @@ export async function getTournamentLiveEntries(
   });
 }
 
-export async function updateTournamentLiveEntries(
-  tournamentId: string,
-  rows: Array<{
-    player_id: string;
-    arrived: boolean;
-    rebuys: number;
-    addons: number;
-    knockouts: number;
-    boss_knockouts?: number;
-    place: number | null;
-  }>
-) {
-  const tournament = await getTournamentById(tournamentId);
-
-  if (tournament.kind === "free") {
-    throw new Error("Live-режим доступен только для платных турниров и кэш-игр");
-  }
-
-  if (rows.length === 0) {
-    return getTournamentLiveEntries(tournamentId);
-  }
-
-  await ensureTournamentLiveEntries(tournamentId);
-
-  for (const row of rows) {
-    await tournamentLiveStateRepository.updateLiveEntry(tournamentId, row.player_id, {
-      arrived: row.arrived,
-      rebuys: row.rebuys,
-      addons: row.addons,
-      knockouts: row.knockouts,
-      boss_knockouts: row.boss_knockouts ?? 0,
-      place: row.place,
-      updated_at: new Date().toISOString(),
-    });
-  }
-
-  return getTournamentLiveEntries(tournamentId);
-}
-
-export async function getTournamentLiveSheetData(
-  tournamentId: string
-): Promise<{
-  tournament: Tournament;
-  rows: TournamentLiveSheetRow[];
-}> {
-  const tournament = await getTournamentById(tournamentId);
-  const rows = await getTournamentLiveEntries(tournamentId);
-
-  return {
-    tournament,
-    rows: rows.map((row, index) => ({
-      player_id: row.player_id,
-      registration_id: row.registration_id,
-      display_name: row.display_name,
-      username: row.username,
-      registration_status: row.registration_status,
-      arrived: row.arrived,
-      rebuys: row.rebuys,
-      addons: row.addons,
-      knockouts: row.knockouts,
-      boss_knockouts: row.boss_knockouts ?? 0,
-      place: row.place,
-      sheet_row_number: row.sheet_row_number ?? index + 8,
-    })),
-  };
-}
-
-export async function applyTournamentLiveSheetRows(...args:Parameters<typeof applyTournamentLiveSheetRowsImpl>){
- await assertServerActorRole(["admin","operator"]);
- const {withLegacySheetFence}=await import("@/lib/tournament-source");
- return withLegacySheetFence(args[0],()=>applyTournamentLiveSheetRowsImpl(...args));
-}
-async function applyTournamentLiveSheetRowsImpl(
-  tournamentId: string,
-  rows: Array<{
-    player_id: string;
-    arrived: boolean;
-    rebuys: number;
-    addons: number;
-    knockouts: number;
-    boss_knockouts?: number;
-    place: number | null;
-    sheet_row_number?: number | null;
-  }>
-) {
-  if (rows.length === 0) {
-    return getTournamentLiveEntries(tournamentId);
-  }
-
-  for (const row of rows) {
-    const payload: LiveEntryPatch = {
-      arrived: row.arrived,
-      rebuys: row.rebuys,
-      addons: row.addons,
-      knockouts: row.knockouts,
-      boss_knockouts: row.boss_knockouts ?? 0,
-      place: row.place,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (row.sheet_row_number != null) {
-      payload.sheet_row_number = row.sheet_row_number;
-    }
-
-    await tournamentLiveStateRepository.updateLiveEntry(tournamentId, row.player_id, payload);
-  }
-
-  return getTournamentLiveEntries(tournamentId);
-}
-
 // CLUB DISCOUNTS -- the freeze rule (see lib/db/schema/results.ts's
 // clubDiscountPercent doc comment). For each player about to receive a
 // (re)written results row for this tournament: if a results row ALREADY
@@ -1416,8 +1250,7 @@ export async function setTournamentPlayerElimination(
   eliminated: boolean
 ): Promise<{ eliminated: boolean; eliminated_at: string | null }> {
   // The single low-level elimination toggle every path goes through (admin
-  // checkbox / "Вернуть в игру" via setTournamentPlayerEliminationThroughSheet,
-  // the GS poller, pull-sheet) -- so seat capacity is enforced here, once.
+  // checkbox / "Вернуть в игру") -- so seat capacity is enforced here, once.
   if (!eliminated) {
     // Returning a player re-occupies a seat: capacity-checked and written
     // under the tournament-row lock; throws TournamentSeatUnavailableError
@@ -1535,8 +1368,8 @@ export async function reorderTournamentEliminations(
 // the algorithm itself. fieldSize = count(tournament_attendance.arrived
 // === true) (never total sheet rows/registrations/waitlist); eliminated
 // players are ordered by tournament_player_eliminations.eliminated_at.
-// Every consumer that needs a derived place (the GS live-sync's Место
-// write-back, the ReRaise admin elimination action, tournament completion,
+// Every consumer that needs a derived place (the ReRaise admin elimination
+// action, tournament completion,
 // the Poker Clock integration contract) goes through this one function --
 // see getArrivedPlayersForIntegration below for the one deliberate
 // exception (it already has both maps in hand and inlines the same pure
@@ -1584,9 +1417,8 @@ export async function getTournamentAttendance(
 // No-show policy: this is ALSO the one canonical place where confirmed
 // physical attendance clears players.online_registration_restricted_at --
 // every arrival path goes through here (the admin attendance route, the
-// Google Sheets live sync's applyLiveFieldsFromSheetSnapshot, pull-sheet's
-// commit), so a Sheet "Пришел = TRUE" lifts the restriction exactly like
-// the admin checkbox does, with no separate "unblock" action. Only
+// admin checkbox), so an arrival lifts the restriction exactly like the
+// admin checkbox does, with no separate "unblock" action. Only
 // arrived=true on a seat-holding (registered/attended) registration
 // clears it; arrived=false never creates or restores a restriction, and
 // no_show_at history is never touched (see
@@ -1692,7 +1524,7 @@ export async function setTournamentPlayerRebuyState(
 // whenever an arrived player's raw Re-buy is 0 (arrived but not yet staked)
 // while other players have rebuys >= 2 -- see that same doc, §9, for the
 // worked counterexample. A player with no live rebuy-state row at all
-// (never touched, whether via direct UI edit or a Google Sheets pull) is
+  // (never touched, whether via direct UI edit or an imported historical row) is
 // treated as raw Re-buy = 0 -- initialStackTaken: false, rebuys: 0 -- same
 // "absence means the not-yet-happened default" convention already used for
 // `eliminated` above.
@@ -1703,8 +1535,8 @@ export type IntegrationPlayer = {
   ratingPoints: number | null;
   eliminated: boolean;
   // Backwards-compatible addition: the SAME derived placement algorithm
-  // used for Google Sheets' Место write-back (see
-  // lib/tournament-placement.ts / getDerivedEliminationPlaces above) --
+  // used for derived placement (see lib/tournament-placement.ts /
+  // getDerivedEliminationPlaces above) --
   // never a second calculator. `null` while the player is still in the
   // game; a finishing place (1..fieldSize) once eliminated. No existing
   // field's semantics change.

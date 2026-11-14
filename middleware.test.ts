@@ -158,8 +158,6 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
       ["POST", "/api/admin/tournaments/t1/attendance"],
       ["POST", "/api/admin/tournaments/t1/eliminate"],
       ["POST", "/api/admin/tournaments/t1/rebuy-state"],
-      ["POST", "/api/admin/tournaments/t1/pull-sheet"],
-      ["POST", "/api/admin/tournaments/t1/export-sheet"],
       ["GET", "/api/admin/tournaments/t1/late-registration"],
       ["POST", "/api/admin/tournaments/t1/late-registration"],
       ["POST", "/api/admin/tournaments/t1/mystery-bounty/activate"],
@@ -191,6 +189,16 @@ describe("admin middleware -- operator role (fail-closed allowlist)", () => {
     for (const [method, path] of allowed) {
       const response = await middleware(requestFor(method, path));
       expect(response.status, `${method} ${path}`).toBe(200);
+    }
+  });
+
+  it("keeps retired Google Sheets operations denied to operators", async () => {
+    for (const path of [
+      "/api/admin/tournaments/t1/pull-sheet",
+      "/api/admin/tournaments/t1/export-sheet",
+      "/api/admin/tournaments/t1/live-sync",
+    ]) {
+      expect((await middleware(requestFor("POST", path))).status).toBe(403);
     }
   });
 
