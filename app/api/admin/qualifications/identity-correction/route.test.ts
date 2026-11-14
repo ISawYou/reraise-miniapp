@@ -1,16 +1,17 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
-const h = vi.hoisted(() => ({ auth: vi.fn(), preview: vi.fn(), apply: vi.fn() }));
+const h = vi.hoisted(() => ({ auth: vi.fn(), preview: vi.fn(), apply: vi.fn(), reverse: vi.fn() }));
 vi.mock("@/lib/admin-auth", () => ({ assertServerActorRole: h.auth }));
 vi.mock("@/lib/repositories/qualification/completed-identity-correction", () => ({
   IdentityCorrectionError: class IdentityCorrectionError extends Error { status = 409; },
   previewCompletedIdentityCorrection: h.preview,
   applyCompletedIdentityCorrection: h.apply,
+  reverseCompletedIdentityCorrection: h.reverse,
 }));
 
 import { GET, POST } from "./route";
 
-beforeEach(() => { h.auth.mockReset(); h.preview.mockReset(); h.apply.mockReset(); h.auth.mockResolvedValue({ id: "admin", role: "admin" }); });
+beforeEach(() => { h.auth.mockReset(); h.preview.mockReset(); h.apply.mockReset(); h.reverse.mockReset(); h.auth.mockResolvedValue({ id: "admin", role: "admin" }); });
 
 it("allows only the Super Admin server guard to preview", async () => {
   h.preview.mockResolvedValue({ event: { status: "completed", version: 39 } });
