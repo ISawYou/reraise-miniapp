@@ -255,40 +255,39 @@ export default function AdminTournamentsPage() {
                       </span>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 gap-2 border-t border-white/6 pt-4 sm:grid-cols-2">
-                      <Link
-                        href={`/tournaments/${tournament.id}`}
-                        className="rounded-xl border border-white/8 px-3 py-2.5 text-center text-[13px] font-medium text-white/60 transition-colors active:bg-white/5"
-                      >
-                        Открыть турнир
-                      </Link>
+                    <div className="mt-4 space-y-2 border-t border-white/6 pt-4">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <Link
+                          href={`/tournaments/${tournament.id}`}
+                          className="rounded-xl border border-white/8 px-3 py-2.5 text-center text-[13px] font-medium text-white/60 transition-colors active:bg-white/5"
+                        >
+                          Открыть турнир
+                        </Link>
+
+                        <Link
+                          href={`/admin/tournaments/${tournament.id}/edit`}
+                          className="rounded-xl border border-amber-500/25 bg-amber-500/8 px-3 py-2.5 text-center text-[13px] font-medium text-amber-300/80 transition-colors active:bg-amber-500/15"
+                        >
+                          Редактировать турнир
+                        </Link>
+                      </div>
 
                       <Link
-                        href={`/admin/tournaments/${tournament.id}/edit`}
-                        className="rounded-xl border border-amber-500/25 bg-amber-500/8 px-3 py-2.5 text-center text-[13px] font-medium text-amber-300/80 transition-colors active:bg-amber-500/15"
+                        href={`/admin/tournaments/${tournament.id}/control`}
+                        className="block rounded-xl bg-yellow-500 px-3 py-2.5 text-center text-[13px] font-semibold text-black transition-colors active:bg-yellow-400"
                       >
-                        Редактировать турнир
+                        Управление турниром
                       </Link>
-                      <Link href={`/admin/tournaments/${tournament.id}/control`} className="block rounded border border-emerald-600 px-3 py-2 text-sm">Управление турниром</Link>
 
                       {isCompleted ? (
                         <button
                           type="button"
                           onClick={() => handleOpenCompletedEditor(tournament)}
-                          className="rounded-xl bg-yellow-500 px-3 py-2.5 text-center text-[13px] font-semibold text-black transition-colors active:bg-yellow-400"
+                          className="w-full rounded-xl border border-yellow-500/35 px-3 py-2.5 text-center text-[13px] font-semibold text-yellow-300 transition-colors active:bg-yellow-500/10"
                         >
                           Редактировать результаты
                         </button>
-                      ) : (
-                        <Link
-                          href={`/admin/results/${tournament.id}`}
-                          className="rounded-xl bg-yellow-500 px-3 py-2.5 text-center text-[13px] font-semibold text-black transition-colors active:bg-yellow-400"
-                        >
-                          {tournament.google_sheet_tab_name
-                            ? "Внести данные"
-                            : "Создать таблицу"}
-                        </Link>
-                      )}
+                      ) : null}
 
                       {isSuperAdmin(player?.role) ? (
                         <button
@@ -297,7 +296,7 @@ export default function AdminTournamentsPage() {
                             handleDeleteTournament(tournament.id, tournament.title)
                           }
                           disabled={actionLoading}
-                          className="rounded-xl bg-red-600/90 px-3 py-2.5 text-center text-[13px] font-semibold text-white transition-colors active:bg-red-500 disabled:opacity-60"
+                          className="w-full rounded-xl bg-red-600/90 px-3 py-2.5 text-center text-[13px] font-semibold text-white transition-colors active:bg-red-500 disabled:opacity-60"
                         >
                           Удалить турнир
                         </button>
