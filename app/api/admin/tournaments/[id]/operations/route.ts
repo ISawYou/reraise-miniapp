@@ -1,3 +1,4 @@
+import {completedConsoleResults} from "@/lib/completed-console-results";
 import {NextResponse} from "next/server";
 import {assertServerActorRole,ForbiddenActionError,UnauthorizedActionError} from "@/lib/admin-auth";
 import {OperationsError,tournamentOperationsRepository} from "@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository";
@@ -15,7 +16,9 @@ export async function GET(_request:Request,{params}:Context){try{
  const [rows,players,a,b,e]=await Promise.all([tournamentOperationsRepository.read(id),f.getAdminTournamentParticipants(id),f.getTournamentAttendance(id),f.getTournamentRebuyState(id),f.getTournamentEliminations(id)]);
  const derived=await f.getDerivedEliminationPlaces(id);
  const liveRows=players.map(p=>({id:p.player_id,name:p.admin_nick,status:p.status,arrived:a.get(p.player_id)?.arrived??false,eliminated:e.get(p.player_id)?.eliminated??false,time:e.get(p.player_id)?.eliminated_at??null,rebuys:b.get(p.player_id)?.rebuys??0,addons:b.get(p.player_id)?.addons??0,derivedPlace:derived.get(p.player_id)??null,attendanceKnown:a.has(p.player_id),entriesKnown:b.has(p.player_id)}));
- return NextResponse.json({rows,liveRows},{headers:{"Cache-Control":"no-store"}});
+ const tournament=await f.getTournamentById(id);
+ const display=tournament.status==="completed"?completedConsoleResults(liveRows,rows,await tournamentOperationsRepository.readFrozenResults(id)):{rows:liveRows,operations:rows};
+ return NextResponse.json({rows:display.operations,liveRows:display.rows},{headers:{"Cache-Control":"no-store"}});
 }catch(e){return failure(e);}}
 export async function PATCH(request:Request,{params}:Context){try{
  const actor=await assertServerActorRole(["admin","operator"]);

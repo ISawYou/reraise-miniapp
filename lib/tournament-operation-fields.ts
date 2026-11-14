@@ -10,7 +10,20 @@ export type OperationFields = {
   mysteryEnvelopesWon: number | null;
   place: number | null;
 };
-// Missing values mean unknown, not a confirmed zero/payment.
+export const defaultZeroFields=["freeReentries","knockouts","bossKnockouts","mysteryPoints","mysteryEnvelopesWon"] as const;
+export function usesNumericDefaults(status:string|undefined,source:string|undefined){return (status==="open"||status==="closed")&&source==="POSTGRESQL";}
+// Effective values only: never backfill storage or treat payment/place as zero.
+export function resolveOperationalNumbers(type:TournamentType,raw:(Partial<Omit<OperationFields,"paymentMethod">>&{paymentMethod?:string|null})|null|undefined,enabled:boolean){
+ const result={...raw};
+ if(enabled){const applicable=operationFieldsFor(type);for(const field of defaultZeroFields)if(applicable.includes(field)&&result[field]==null)result[field]=0;}
+ return result;
+}
+export function normalizeOperationalPatch(type:TournamentType,patch:Partial<OperationFields>,enabled:boolean){
+ const effective=resolveOperationalNumbers(type,patch,enabled),result={...patch};
+ for(const field of defaultZeroFields)if(Object.hasOwn(patch,field))result[field]=effective[field];
+ return result;
+}
+// Raw nulls remain nullable; effective defaults are scoped at their use sites.
 export function parseOperationPatch(value: unknown): Partial<OperationFields> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("Некорректные поля");
   const patch = value as Record<string, unknown>;
@@ -37,7 +50,7 @@ export function validateFormatPatch(type:TournamentType,patch:Partial<OperationF
  const allowed=operationFieldsFor(type);
  if(Object.keys(patch).some(key=>!allowed.includes(key as keyof OperationFields)&&!(type==="phoenix"&&key==="freeReentries")))throw Error("Поле недоступно для этого формата турнира");
 }
-export function validateMysteryAllocation(rows:Partial<OperationFields>[],snapshot:{envelope_count:number;mystery_pool:number}|null){
+export function validateMysteryAllocation(rows:Pick<Partial<OperationFields>,"mysteryEnvelopesWon"|"mysteryPoints">[],snapshot:{envelope_count:number;mystery_pool:number}|null){
  if(!snapshot)throw Error("Mystery: сначала зафиксируйте пул и конверты");
  if(rows.some(r=>r.mysteryEnvelopesWon==null||r.mysteryPoints==null))throw Error("Mystery: заполните конверты и очки каждого участника; неизвестное значение не равно нулю");
  const envelopes=rows.reduce((s,r)=>s+r.mysteryEnvelopesWon!,0),points=rows.reduce((s,r)=>s+r.mysteryPoints!,0);

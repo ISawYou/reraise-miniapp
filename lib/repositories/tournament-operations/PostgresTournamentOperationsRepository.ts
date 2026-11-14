@@ -1,7 +1,7 @@
 import {and,eq} from "drizzle-orm";
 import {db} from "@/lib/db";
-import {tournaments,players,registrations,tournamentOperations,tournamentOperationAudit,tournamentPlayerEliminations} from "@/lib/db/schema";
-import {parseOperationPatch,validateFormatPatch} from "@/lib/tournament-operation-fields";
+import {tournaments,players,registrations,tournamentOperations,tournamentOperationAudit,tournamentPlayerEliminations,results} from "@/lib/db/schema";
+import {parseOperationPatch,validateFormatPatch,normalizeOperationalPatch,usesNumericDefaults} from "@/lib/tournament-operation-fields";
 import type {TournamentType} from "@/types/domain";
 
 export class OperationsError extends Error {
@@ -9,13 +9,16 @@ export class OperationsError extends Error {
 }
 export class PostgresTournamentOperationsRepository {
  async read(tournamentId:string){return db.select().from(tournamentOperations).where(eq(tournamentOperations.tournamentId,tournamentId));}
+ // Raw nullable values: unlike public result DTOs, never coalesce unknown history.
+ async readFrozenResults(tournamentId:string){return db.select({playerId:results.playerId,place:results.place,reentries:results.reentries,addons:results.addons,knockouts:results.knockouts,bossKnockouts:results.bossKnockouts,freeReentries:results.freeReentries,mysteryPoints:results.mysteryBountyPoints,ratingPoints:results.ratingPoints}).from(results).where(eq(results.tournamentId,tournamentId));}
  async patch(input:{tournamentId:string;playerId:string;actorId:string;expectedVersion:number;patch:unknown}){
-  const patch=parseOperationPatch(input.patch);
+  const parsed=parseOperationPatch(input.patch);
   return db.transaction(async tx=>{
    const [t]=await tx.select().from(tournaments).where(eq(tournaments.id,input.tournamentId)).for("update");
    if(!t)throw new OperationsError("Турнир не найден",404);
    if(t.status==="completed")throw new OperationsError("Завершённый турнир доступен только для просмотра",409);
    if(t.sourceMode!=="POSTGRESQL")throw new OperationsError("Турнир управляется через Google Sheets; требуется проверенное переключение источника",409);
+   const patch=normalizeOperationalPatch(t.tournamentType as TournamentType,parsed,usesNumericDefaults(t.status,t.sourceMode));
    try{validateFormatPatch(t.tournamentType as TournamentType,patch);}catch(e){throw new OperationsError((e as Error).message,400);}
    const [actor]=await tx.select().from(players).where(eq(players.id,input.actorId)).for("share");
    if(!actor||!["admin","operator"].includes(actor.role)||actor.isBlocked||actor.mergedIntoPlayerId)throw new OperationsError("Недостаточно прав",403);
