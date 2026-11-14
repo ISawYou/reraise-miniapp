@@ -91,3 +91,14 @@
 @media (max-width:389px) { .tab { font-size:10.5px; } .hero { padding:19px; } .heroArt { right:-65px; opacity:.6; } .promoTitle { font-size:29px; } .promoDescription { font-size:10.5px; } .rankMain { gap:7px; } }
 @media (min-width:600px) { .hero { padding:30px; } .heroArt { width:330px; height:300px; right:12px; top:-20px; } .tab { min-height:48px; flex-direction:row; font-size:12px; gap:9px; } .sectionTitle { font-size:23px; } .rankRow { padding:17px; } .rankMain { grid-template-columns:30px 40px minmax(0,1fr) auto; gap:12px; } .avatar { width:40px; height:40px; } .playerName { font-size:15px; } .rankBottom { margin-left:54px; } .total { font-size:26px; } .promo { padding:22px; } }
 @media (prefers-reduced-motion:reduce) { .promo { transition:none; } }
+
+.completedHero.completedHero { padding:16px 18px; border-radius:18px; }
+.completedHero .heroTitle { margin-top:7px; font-size:clamp(23px,5vw,30px); line-height:1.15; }
+.completedHero .titleAccent { display:inline; }
+.completedHero .heroArt { width:170px; height:150px; right:-30px; opacity:.35; }
+.completedHero .finalLink { min-height:36px; margin-top:3px; }
+.confirmedSquad { grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); margin-top:12px; }
+.confirmedSquad .member { padding:16px; min-height:88px; }
+.confirmedSquad .avatar { width:52px; height:52px; font-size:18px; }
+.confirmedSquad .playerName { font-size:16px; }
+.confirmedSquad .memberRole { font-size:12px; line-height:1.5; }

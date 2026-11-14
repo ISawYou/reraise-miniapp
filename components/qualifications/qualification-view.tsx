@@ -68,22 +68,26 @@ const sourceLabels: Record<string, string> = { qualification_winner: "Побед
 const tournamentStatuses: Record<string, string> = { draft: "Турнир готовится", open: "Регистрация открыта", closed: "Регистрация закрыта", completed: "Завершён" };
 
 export function QualificationView({ model }: { model: QualificationPublicModel }) {
-  const [active, setActive] = useState<Tab>("about"), [limit, setLimit] = useState(30);
+  const [selected, setActive] = useState<Tab|null>(null), [limit, setLimit] = useState(30);
   const id = useId().replace(/:/g, "");
   const { event, schedule, ranking, members } = model;
+  const confirmedSquad = event.status === "completed" && members.length === 5 && members.every(member => !!member.confirmedAt) && new Set(members.map(member => member.player_id)).size === 5;
+  const tabs = confirmedSquad ? [TABS[3], ...TABS.slice(0, 3)] : TABS;
+  const active = selected ?? (confirmedSquad ? "squad" : "about");
   const amber = event.slug === KALININGRAD_SLUG;
   const provisional = event.status === "draft" || event.status === "qualifying";
   function activate(tab: Tab, focus = false) { setActive(tab); if (focus) document.getElementById(`${id}-${tab}-tab`)?.focus(); }
   function tabKeys(e: KeyboardEvent<HTMLDivElement>) {
-    const index = TABS.findIndex(t => t.key === active);
+    const index = tabs.findIndex(t => t.key === active);
     const next = e.key === "ArrowRight" ? (index + 1) % 4 : e.key === "ArrowLeft" ? (index + 3) % 4 : e.key === "Home" ? 0 : e.key === "End" ? 3 : null;
-    if (next !== null) { e.preventDefault(); activate(TABS[next].key, true); }
+    if (next !== null) { e.preventDefault(); activate(tabs[next].key, true); }
   }
   return <div className={`${styles.root} ${amber ? "" : styles.neutral}`} data-qualification-view="">
-    <header className={styles.hero}>
+    <header className={`${styles.hero} ${confirmedSquad ? styles.completedHero : ""}`} data-completed-squad={confirmedSquad || undefined}>
       {amber ? <AmberArtwork className={styles.heroArt}/> : null}
-      <p className={styles.eyebrow}>ОТБОР В СБОРНУЮ RERAISE</p>
+      <p className={styles.eyebrow}>{confirmedSquad ? "СБОРНАЯ RERAISE ПОДТВЕРЖДЕНА" : "ОТБОР В СБОРНУЮ RERAISE"}</p>
       <h1 className={styles.heroTitle}><EventTitle title={event.title}/></h1>
+      {!confirmedSquad ? <>
       <p className={styles.heroIntro}>Играем за свой клуб. От квалификаций — к финалу и сборной из пяти человек.</p>
       <div className={styles.heroFacts}>
         <span className={styles.pill}><Icon kind="calendar"/>{schedule.length} квалификаций</span>
@@ -91,12 +95,13 @@ export function QualificationView({ model }: { model: QualificationPublicModel }
         <span className={styles.pill}><Icon kind="cup"/>Финал {model.finalTournament?qualificationFinalLabel(model.finalTournament.startAt,event.timezone):qualificationDate(event.finalDate)} · бесплатно</span>
         <span className={styles.pill}><Icon kind="people"/>18 приглашённых</span>
       </div>
+      </> : null}
       {event.finalTournamentId ? <Link className={styles.finalLink} href={`/tournaments/${event.finalTournamentId}`}>Финальный турнир →</Link> : null}
     </header>
     {ranking.hasUnresolvedTie ? <aside role="status" className={styles.warning}>Ничья на проходной границе. Места не распределяются до решения Super Admin.</aside> : null}
     {model.needsReconciliation ? <aside role="status" className={styles.warning}>Результаты изменились после приглашений. Администратор должен сверить состав.</aside> : null}
     <div role="tablist" aria-label="Разделы отбора" className={styles.tabs} onKeyDown={tabKeys}>
-      {TABS.map(tab => <button type="button" role="tab" id={`${id}-${tab.key}-tab`} key={tab.key} aria-selected={active === tab.key} aria-controls={`${id}-${tab.key}-panel`} tabIndex={active === tab.key ? 0 : -1} onClick={() => activate(tab.key)} className={styles.tab}><Icon kind={tab.icon}/><span>{tab.label}</span></button>)}
+      {tabs.map(tab => <button type="button" role="tab" id={`${id}-${tab.key}-tab`} key={tab.key} aria-selected={active === tab.key} aria-controls={`${id}-${tab.key}-panel`} tabIndex={active === tab.key ? 0 : -1} onClick={() => activate(tab.key)} className={styles.tab}><Icon kind={tab.icon}/><span>{tab.label}</span></button>)}
     </div>
     <section role="tabpanel" id={`${id}-${active}-panel`} aria-labelledby={`${id}-${active}-tab`} tabIndex={0} className={styles.panel}>
       {active === "about" ? <>
@@ -142,8 +147,8 @@ export function QualificationView({ model }: { model: QualificationPublicModel }
         </li>)}</ol>
       </> : null}
       {active === "squad" ? <>
-        <h2 className={styles.sectionTitle}>Сборная ReRaise</h2>{model.finalSurvivors?.length?<div className={styles.surface}><h3>Прошли через закрытый финал</h3><p className={styles.subtle}>Трое оставшихся, без распределения мест 1–3 и без рейтинговых очков.</p>{model.finalSurvivors.map(p=><Link className={styles.member} key={p.player_id} href={`/players/${p.player_id}`}>{p.display_name}</Link>)}</div>:null}
-        {members.length ? <div className={styles.squadGrid}>{members.map(player => <Link className={styles.member} key={player.player_id} href={`/players/${player.player_id}`}><QualificationAvatar player={player}/><div className="min-w-0"><p className={styles.playerName}>{player.display_name}</p><p className={styles.memberRole}>{sourceLabels[player.source] ?? player.source}</p></div></Link>)}</div> : <div className={`${styles.surface} ${styles.empty}`}><div className={styles.emptyIcon}><Icon kind="people"/></div><h3>Состав сборной формируется</h3><p>Пять человек, один клуб. Имена появятся после завершения отбора и подтверждения состава.</p><div className={styles.squadSteps}><div><strong>1</strong><span>Прямой квалифаер</span></div><div><strong>3</strong><span>Оставшихся в финале</span></div><div><strong>1</strong><span>Капитан</span></div></div></div>}
+        <h2 className={styles.sectionTitle}>Сборная ReRaise</h2>{!confirmedSquad && model.finalSurvivors?.length?<div className={styles.surface}><h3>Прошли через закрытый финал</h3><p className={styles.subtle}>Трое оставшихся, без распределения мест 1–3 и без рейтинговых очков.</p>{model.finalSurvivors.map(p=><Link className={styles.member} key={p.player_id} href={`/players/${p.player_id}`}>{p.display_name}</Link>)}</div>:null}
+        {members.length ? <div className={`${styles.squadGrid} ${confirmedSquad ? styles.confirmedSquad : ""}`}>{members.map(player => <Link className={styles.member} key={player.player_id} href={`/players/${player.player_id}`}><QualificationAvatar player={player}/><div className="min-w-0"><p className={styles.playerName}>{player.display_name}</p><p className={styles.memberRole}>{sourceLabels[player.source] ?? player.source}</p></div></Link>)}</div> : <div className={`${styles.surface} ${styles.empty}`}><div className={styles.emptyIcon}><Icon kind="people"/></div><h3>Состав сборной формируется</h3><p>Пять человек, один клуб. Имена появятся после завершения отбора и подтверждения состава.</p><div className={styles.squadSteps}><div><strong>1</strong><span>Прямой квалифаер</span></div><div><strong>3</strong><span>Оставшихся в финале</span></div><div><strong>1</strong><span>Капитан</span></div></div></div>}
       </> : null}
     </section>
   </div>;
