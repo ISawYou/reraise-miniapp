@@ -4,7 +4,7 @@ import { TournamentAlreadyCompletedError } from "@/lib/tournament-errors";
 const mocks = vi.hoisted(() => ({
   getTournamentById: vi.fn(),
   completeTournamentFromLiveEntries: vi.fn(),
-  syncTournamentLiveSheet: vi.fn(),
+  auth: vi.fn(async () => ({ id: "staff", role: "operator" })),
 }));
 
 vi.mock("@/features/tournaments", () => ({
@@ -12,8 +12,10 @@ vi.mock("@/features/tournaments", () => ({
   completeTournamentFromLiveEntries: mocks.completeTournamentFromLiveEntries,
 }));
 
-vi.mock("@/app/api/admin/tournaments/[id]/live-sync/route", () => ({
-  syncTournamentLiveSheet: mocks.syncTournamentLiveSheet,
+vi.mock("@/lib/admin-auth", () => ({
+  assertServerActorRole: mocks.auth,
+  UnauthorizedActionError: class UnauthorizedActionError extends Error {},
+  ForbiddenActionError: class ForbiddenActionError extends Error {},
 }));
 
 const { POST } = await import("@/app/api/admin/tournaments/[id]/complete-live/route");
@@ -38,39 +40,33 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getTournamentById.mockResolvedValue({ id: "t1", status: "open", kind: "cash" });
   mocks.completeTournamentFromLiveEntries.mockResolvedValue({ completedCount: 1 });
-  mocks.syncTournamentLiveSheet.mockResolvedValue(undefined);
 });
 
 describe("POST /api/admin/tournaments/[id]/complete-live -- re-completion guard", () => {
-  it("an already-completed tournament is rejected with 409 BEFORE the pre-completion live/Sheets sync and with no completion call", async () => {
+  it("an already-completed tournament is rejected with 409 before completion", async () => {
     mocks.getTournamentById.mockResolvedValue({ id: "t1", status: "completed", kind: "cash" });
 
     const response = await POST(request({ rows }), context());
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "Турнир уже завершён" });
-    expect(mocks.syncTournamentLiveSheet).not.toHaveBeenCalled();
     expect(mocks.completeTournamentFromLiveEntries).not.toHaveBeenCalled();
   });
 
-  it("race loser: the locked check inside completion rejects -> 409, and the post-completion Sheets sync does not run", async () => {
+  it("race loser: the locked check inside completion rejects -> 409", async () => {
     mocks.completeTournamentFromLiveEntries.mockRejectedValue(new TournamentAlreadyCompletedError());
 
     const response = await POST(request({ rows }), context());
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "Турнир уже завершён" });
-    // Only the pre-completion sync ran (the loser had already passed the
-    // unlocked pre-check); the post-completion one never does.
-    expect(mocks.syncTournamentLiveSheet).toHaveBeenCalledTimes(1);
   });
 
-  it("an open tournament still completes normally: pre-sync, completion, post-sync", async () => {
+  it("an open tournament completes from PostgreSQL live state", async () => {
     const response = await POST(request({ rows }), context());
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, completedCount: 1 });
     expect(mocks.completeTournamentFromLiveEntries).toHaveBeenCalledWith("t1");
-    expect(mocks.syncTournamentLiveSheet).toHaveBeenCalledTimes(2);
   });
 });

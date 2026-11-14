@@ -9,7 +9,6 @@ import {
   updateStatements,
   type FakeResultRow,
 } from "./helpers/fake-results-db";
-import { getFreeSheetColumnLayout } from "@/lib/tournament-sheet-parsing";
 
 // Exercises the REAL logic of features/completed-tournament-place-correction.ts
 // against ./helpers/fake-results-db.ts, which enforces the real `results`
@@ -55,12 +54,6 @@ const activityMocks = vi.hoisted(() => ({
   publishLegendaryAchievementEvent: vi.fn(),
 }));
 vi.mock("@/features/club-activity", () => activityMocks);
-
-const sheetMocks = vi.hoisted(() => ({
-  readSpreadsheetTabValues: vi.fn(),
-  batchUpdateSpreadsheetValues: vi.fn(),
-}));
-vi.mock("@/lib/google-sheets", () => sheetMocks);
 
 const ratingMocks = vi.hoisted(() => ({
   calculateRatingPoints: vi.fn(),
@@ -137,7 +130,6 @@ beforeEach(() => {
   resetFakeResultsDb();
   vi.clearAllMocks();
   authMocks.assertServerActorRole.mockResolvedValue({ id: "admin-1", role: "admin" });
-  sheetMocks.batchUpdateSpreadsheetValues.mockResolvedValue(undefined);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -461,7 +453,6 @@ describe("transaction atomicity", () => {
     expect(resultsSnapshot()).toEqual(before);
     expect(fakeResults.state.log.at(-1)).toBe("tx:rollback");
     expect(achievementMocks.syncPlayerAchievements).not.toHaveBeenCalled();
-    expect(sheetMocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
   });
 });
 
@@ -533,90 +524,10 @@ describe("post-commit side effects", () => {
     expect(achievementMocks.syncPlayerAchievements).toHaveBeenCalledTimes(2);
   });
 
-  it("no sheet sync when the tournament has no linked tab", async () => {
+  it("completed place correction remains PostgreSQL-only", async () => {
     seedEight();
     const result = await correctCompletedTournamentPlaces("t1", withSwap("p7", "p8"));
-    expect(sheetMocks.readSpreadsheetTabValues).not.toHaveBeenCalled();
-    expect(result.sheet_sync_warning).toBeUndefined();
-  });
-});
-
-describe("Google Sheets best-effort sync", () => {
-  function sheetValues(tournamentType: "classic" | "boss_bounty", playerIds: string[]) {
-    const layout = getFreeSheetColumnLayout(tournamentType);
-    const meta = Array.from({ length: 6 }, () => [] as string[]);
-    // Data rows in a different order from places, to prove lookup by player_id.
-    const data = playerIds.map((id) => {
-      const row = layout.headers.map(() => "x");
-      row[0] = id;
-      return row;
-    });
-    return [...meta, layout.headers, ...data];
-  }
-
-  it("writes ONLY Место and Рейтинг cells of changed players, matched by player_id", async () => {
-    resetFakeResultsDb({ googleSheetTabName: "Tab A", tournamentType: "classic" });
-    seedEight();
-    // Sheet row order: p8, p1, p2, ..., p7  -> p8 at sheet row 8, p7 at row 15.
-    sheetMocks.readSpreadsheetTabValues.mockResolvedValue(
-      sheetValues("classic", ["p8", "p1", "p2", "p3", "p4", "p5", "p6", "p7"])
-    );
-
-    const result = await correctCompletedTournamentPlaces("t1", withSwap("p7", "p8"));
-
-    expect(result.sheet_sync_warning).toBeUndefined();
-    expect(sheetMocks.batchUpdateSpreadsheetValues).toHaveBeenCalledTimes(1);
-    const updates = sheetMocks.batchUpdateSpreadsheetValues.mock.calls[0][0] as {
-      range: string;
-      values: unknown[][];
-    }[];
-    // classic layout: Место = column M (index 12), Рейтинг = column N (index 13).
-    expect(updates).toEqual([
-      { range: "Tab A!M15", values: [[8]] },
-      { range: "Tab A!N15", values: [[rowOf("p7").ratingPoints]] },
-      { range: "Tab A!M8", values: [[7]] },
-      { range: "Tab A!N8", values: [[rowOf("p8").ratingPoints]] },
-    ]);
-  });
-
-  it("boss_bounty layout targets the shifted Место/Рейтинг columns", async () => {
-    resetFakeResultsDb({ googleSheetTabName: "Boss", tournamentType: "boss_bounty" });
-    seedEight();
-    sheetMocks.readSpreadsheetTabValues.mockResolvedValue(
-      sheetValues("boss_bounty", ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"])
-    );
-    await correctCompletedTournamentPlaces("t1", withSwap("p7", "p8"));
-    const ranges = (
-      sheetMocks.batchUpdateSpreadsheetValues.mock.calls[0][0] as { range: string }[]
-    ).map((u) => u.range);
-    expect(ranges.sort()).toEqual(["Boss!N14", "Boss!N15", "Boss!O14", "Boss!O15"]);
-  });
-
-  it("a sheet write failure never rolls back the committed DB correction", async () => {
-    resetFakeResultsDb({ googleSheetTabName: "Tab A" });
-    seedEight();
-    sheetMocks.readSpreadsheetTabValues.mockResolvedValue(
-      sheetValues("classic", ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"])
-    );
-    sheetMocks.batchUpdateSpreadsheetValues.mockRejectedValue(new Error("quota exceeded"));
-
-    const result = await correctCompletedTournamentPlaces("t1", withSwap("p7", "p8"));
-
     expect(result.changed).toHaveLength(2);
-    expect(result.sheet_sync_warning).toBeTruthy();
-    expect(rowOf("p7").place).toBe(8);
-    expect(rowOf("p8").place).toBe(7);
-    expect(fakeResults.state.log).not.toContain("tx:rollback");
-  });
-
-  it("a sheet read failure / unexpected layout also just warns", async () => {
-    resetFakeResultsDb({ googleSheetTabName: "Tab A" });
-    seedEight();
-    sheetMocks.readSpreadsheetTabValues.mockResolvedValue([["garbage"]]);
-    const result = await correctCompletedTournamentPlaces("t1", withSwap("p7", "p8"));
-    expect(result.sheet_sync_warning).toBeTruthy();
-    expect(sheetMocks.batchUpdateSpreadsheetValues).not.toHaveBeenCalled();
-    expect(rowOf("p7").place).toBe(8);
   });
 });
 

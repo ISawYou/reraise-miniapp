@@ -1,13 +1,12 @@
 // Data-access boundary for the *operational* state of a live tournament —
 // deliberately combines two tables, tournament_live_entries and
 // tournament_player_eliminations, per the agreed architecture (both are
-// read/written together during live play, feeding the Google Sheets
-// live-sync; splitting them would fragment one operational concern across
+// read/written together during live play; splitting them would fragment one
+// operational concern across
 // two repositories for no benefit).
 //
-// Deciding *whether* live mode applies (`kind === "free"` checks),
-// building the rows to insert, and all Google Sheets sync stay in
-// features/tournaments.ts, exactly as before.
+// Deciding whether live mode applies (`kind === "free"` checks) and building
+// the rows to insert stay in features/tournaments.ts.
 import type { db } from "@/lib/db/client";
 
 // A Drizzle Postgres executor (the global `db` or an open transaction).

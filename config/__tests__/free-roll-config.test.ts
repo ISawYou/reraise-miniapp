@@ -23,7 +23,6 @@ import {
   supportsTournamentBossKnockouts,
   supportsTournamentKnockouts,
 } from "@/lib/tournament-helpers";
-import { getFreeSheetColumnLayout } from "@/lib/tournament-sheet-parsing";
 import type { TournamentType } from "@/types/domain";
 
 const FREE_ROLL_DESCRIPTION =
@@ -82,10 +81,6 @@ describe("FREE-ROLL -- no special rating mechanics", () => {
     expect(getBoostRatingBadge({ tournament_type: "free_roll", placement_points_multiplier: 2 })).toBeNull();
   });
 
-  it("uses the ordinary (classic) free sheet layout -- no Boss Nok / Mystery columns", () => {
-    expect(getFreeSheetColumnLayout("free_roll")).toEqual(getFreeSheetColumnLayout("classic"));
-    expect(getFreeSheetColumnLayout("free_roll").mysteryBountyPointsIndex).toBeNull();
-  });
 });
 
 describe("FREE-ROLL -- built-in artwork", () => {

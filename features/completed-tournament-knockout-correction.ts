@@ -8,8 +8,6 @@ import { assertServerActorRole } from "@/lib/admin-auth";
 import { TournamentNotFoundError } from "@/lib/tournament-errors";
 import { syncPlayerAchievements } from "@/features/achievements";
 import { BOSS_KNOCKOUT_POINTS, KNOCKOUT_POINTS } from "@/features/rating";
-import { batchUpdateSpreadsheetValues, readSpreadsheetTabValues } from "@/lib/google-sheets";
-import { getFreeSheetColumnLayout, parseFreeSheetValues } from "@/lib/tournament-sheet-parsing";
 import { isKnockoutCount, POSTGRES_INTEGER_MAX, type CompletedKnockoutCommand, type CompletedKnockoutSnapshot, type CompletedKnockoutResponse } from "@/lib/completed-knockout-correction";
 
 export class KnockoutCorrectionRejectedError extends Error {}
@@ -19,7 +17,7 @@ export class KnockoutCorrectionUnavailableError extends Error {}
 type ResultRow = typeof results.$inferSelect;
 const tournamentColumns = {
   id: tournaments.id, status: tournaments.status, kind: tournaments.kind,
-  tournamentType: tournaments.tournamentType, googleSheetTabName: tournaments.googleSheetTabName,
+  tournamentType: tournaments.tournamentType,
   isFinal: tournaments.isFinal, ratingFormulaVersion: tournaments.ratingFormulaVersion,
 };
 type TournamentInfo = { [K in keyof typeof tournamentColumns]: (typeof tournaments.$inferSelect)[K] };
@@ -100,39 +98,6 @@ export async function correctCompletedTournamentKnockouts(tournamentId: string, 
   if (committed.changed) {
     try { await syncPlayerAchievements(command.player_id); }
     catch { warnings.push("KO сохранены, но достижения не синхронизированы — требуется повторная синхронизация."); }
-    const warning = await syncSheet(committed.tournament, command.player_id);
-    if (warning) warnings.push(warning);
   }
   return { result: committed.result, warnings };
-}
-
-function column(index: number) {
-  let n = index + 1, value = "";
-  while (n > 0) { n--; value = String.fromCharCode(65 + n % 26) + value; n = Math.floor(n / 26); }
-  return value;
-}
-// Bound network waits while holding the post-commit tournament lock.
-const SHEET_REQUEST_OPTIONS = { timeout: 10_000, retry: false };
-const SHEET_WARNING = "KO сохранены в PostgreSQL, но Google-таблица не синхронизирована — требуется синхронизация вручную.";
-async function syncSheet(t: TournamentInfo, playerId: string): Promise<string | undefined> {
-  if(await (await import("@/lib/tournament-source")).getTournamentSource(t.id)==="POSTGRESQL")return;
-  if (!t.googleSheetTabName?.trim()) return;
-  if (t.kind !== "free") return SHEET_WARNING;
-  try {
-    // A second, post-COMMIT transaction serializes the external push with
-    // subsequent corrections. Read the LATEST row under the same tournament
-    // lock, so slower post-commit tasks cannot overwrite Sheets with old KO.
-    await lockedResult(t.id, playerId, async (current, row) => {
-      const tab = current.googleSheetTabName?.trim();
-      if (!tab || current.kind !== "free") throw new Error("Sheet configuration changed");
-      const type = current.tournamentType as "bounty" | "boss_bounty";
-      const parsed = parseFreeSheetValues(await readSpreadsheetTabValues(tab, SHEET_REQUEST_OPTIONS), type);
-      if (!parsed.ok || parsed.rowNumbersByPlayerId.get(playerId)?.length !== 1) throw new Error("Sheet player mapping is missing or ambiguous");
-      const sheetRow = parsed.rows.get(playerId)!;
-      const layout = getFreeSheetColumnLayout(type);
-      const cells = [[layout.knockoutsIndex, row.knockouts], [layout.ratingIndex, row.ratingPoints]];
-      if (layout.bossKnockoutsIndex != null) cells.push([layout.bossKnockoutsIndex, row.bossKnockouts]);
-      await batchUpdateSpreadsheetValues(cells.map(([index, value]) => ({ range: `'${tab.replace(/'/g, "''")}'!${column(index)}${sheetRow.rowNumber}`, values: [[value]] })), SHEET_REQUEST_OPTIONS);
-    });
-  } catch { return SHEET_WARNING; }
 }

@@ -18,11 +18,11 @@ export class CompletionReadinessError extends OperationsError{
 export async function previewPostgresCompletion(id:string){
  const fingerprint=await postgresCompletionFingerprint(id);
  const [t,participants,attendance,entries,eliminations,operations,frozen,mystery]=await Promise.all([getTournamentById(id),getAdminTournamentParticipants(id),getTournamentAttendance(id),getTournamentRebuyState(id),getTournamentEliminations(id),tournamentOperationsRepository.read(id),getTournamentLateRegistrationSnapshot(id),getMysteryBountySnapshot(id)]);
- if(t.google_sheet_tab_name?.trim())throw new OperationsError("Требуется явное переключение турнира с Google Sheets",409);
+ if(t.google_sheet_tab_name?.trim())throw new OperationsError("Турнир связан с архивной Google Sheets-вкладкой и не может быть завершён этим способом",409);
  if(t.status==="completed")throw new OperationsError("Турнир уже завершён",409);
  if(t.tournament_type==="qualification_final")throw new OperationsError("Завершите финал на трёх оставшихся игроках в редакторе отбора",409);
  const source=await getTournamentSource(id);
- if(source!=="POSTGRESQL")throw new OperationsError("Требуется явное переключение турнира с Google Sheets",409);
+ if(source!=="POSTGRESQL")throw new OperationsError("Для нового завершения нужен PostgreSQL-источник",409);
  const defaults=usesNumericDefaults(t.status,source);
  const roster=participants.filter(p=>["registered","attended"].includes(p.status));
  if(!roster.length)throw new OperationsError("Нет участников",409);

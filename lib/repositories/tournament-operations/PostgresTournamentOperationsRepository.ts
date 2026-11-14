@@ -17,7 +17,7 @@ export class PostgresTournamentOperationsRepository {
    const [t]=await tx.select().from(tournaments).where(eq(tournaments.id,input.tournamentId)).for("update");
    if(!t)throw new OperationsError("Турнир не найден",404);
    if(t.status==="completed")throw new OperationsError("Завершённый турнир доступен только для просмотра",409);
-   if(t.sourceMode!=="POSTGRESQL")throw new OperationsError("Турнир управляется через Google Sheets; требуется проверенное переключение источника",409);
+   if(t.sourceMode!=="POSTGRESQL")throw new OperationsError("Операционные поля доступны только для PostgreSQL-источника",409);
    const patch=normalizeOperationalPatch(t.tournamentType as TournamentType,parsed,usesNumericDefaults(t.status,t.sourceMode));
    try{validateFormatPatch(t.tournamentType as TournamentType,patch);}catch(e){throw new OperationsError((e as Error).message,400);}
    const [actor]=await tx.select().from(players).where(eq(players.id,input.actorId)).for("share");

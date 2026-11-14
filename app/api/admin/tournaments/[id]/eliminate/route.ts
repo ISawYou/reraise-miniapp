@@ -1,11 +1,5 @@
 import { NextResponse } from "next/server";
-import { setTournamentPlayerEliminationThroughSheet } from "@/features/tournament-sheet-sync";
-
-// For a GS-linked active free tournament, Google Sheets owns "Выбыл" --
-// this write-through's job is exactly to make sure a ReRaise-side click
-// can never be silently reverted by the next ~15s poller tick (see
-// setTournamentPlayerEliminationThroughSheet's own doc comment). For a
-// tournament with no linked sheet, behavior is unchanged from before.
+import { setTournamentPlayerElimination } from "@/features/tournaments";
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -23,7 +17,7 @@ export async function POST(
       );
     }
 
-    const result = await setTournamentPlayerEliminationThroughSheet(
+    const result = await setTournamentPlayerElimination(
       id,
       body.player_id,
       body.eliminated
