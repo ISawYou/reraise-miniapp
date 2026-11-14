@@ -15,7 +15,10 @@ const player: Player = {
   is_blocked: false,
 } as Player;
 
-vi.mock("@/lib/current-player", () => ({ resolveCurrentPlayer: () => Promise.resolve(player) }));
+vi.mock("@/lib/current-player", () => ({
+  resolveCurrentPlayer: () => Promise.resolve(player),
+  subscribeToAuthState: () => () => undefined,
+}));
 
 const { BottomNav } = await import("@/components/bottom-nav");
 

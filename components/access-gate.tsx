@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { resolveCurrentPlayer } from "@/lib/current-player";
+import { resolveCurrentPlayer, subscribeToAuthState } from "@/lib/current-player";
 import { usePathname } from "next/navigation";
 import { BlockedScreen } from "@/components/blocked-screen";
 
@@ -25,6 +25,15 @@ type AccessGateProps = {
 export function AccessGate({ children }: AccessGateProps) {
   const pathname=usePathname();
   const [blocked, setBlocked] = useState(false);
+  const [authVersion, setAuthVersion] = useState(0);
+
+  useEffect(
+    () => subscribeToAuthState(() => {
+      setBlocked(false);
+      setAuthVersion((value) => value + 1);
+    }),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +52,7 @@ export function AccessGate({ children }: AccessGateProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authVersion]);
 
   if (blocked && pathname !== "/support") {
     return <BlockedScreen />;

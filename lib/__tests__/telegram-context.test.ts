@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // lib/client-request.ts all branch on it). Its decision must hold for the
 // environments Re-Raise runs in: a plain browser must be `false` even when a
 // PARTIAL window.Telegram exists (e.g. the Login widget script, or
-// telegram-web-app.js loaded outside Telegram); real Mini App launches must be
-// `true`, including after SPA navigation dropped the launch params.
+// telegram-web-app.js loaded outside Telegram); real Mini App launches must
+// be `true`, including after SPA navigation dropped the launch params.
 //
 // The module keeps sticky module-level state, so every test loads a fresh copy.
 
@@ -119,5 +119,33 @@ describe("isTelegramMiniAppContext", () => {
     window.sessionStorage.clear();
 
     expect(isTelegramMiniAppContext()).toBe(true);
+  });
+});
+
+describe("delayed Telegram Mini App detection", () => {
+  beforeEach(() => {
+    window.Telegram = undefined;
+    window.sessionStorage.clear();
+  });
+
+  it("detects a delayed SDK/initData signal", async () => {
+    const { detectTelegramMiniAppContext } = await freshModule();
+
+    window.setTimeout(() => {
+      window.Telegram = {
+        WebApp: {
+          initData: "delayed-init-data",
+          initDataUnsafe: { user: { id: 42 } },
+        },
+      };
+    }, 20);
+
+    await expect(detectTelegramMiniAppContext(500)).resolves.toBe(true);
+  });
+
+  it("resolves normal web browsing as non-Mini App after the probe", async () => {
+    const { detectTelegramMiniAppContext } = await freshModule();
+
+    await expect(detectTelegramMiniAppContext(20)).resolves.toBe(false);
   });
 });

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/current-player", () => ({
   resolveCurrentPlayer: mocks.resolveCurrentPlayer,
+  subscribeToAuthState: () => () => undefined,
 }));
 
 vi.mock("@/lib/support", () => ({

@@ -20,6 +20,8 @@ import {
   type FollowSummary,
 } from "@/lib/follows-client";
 import { uploadPlayerAvatar } from "@/lib/player-avatar-client";
+import { detectTelegramMiniAppContext, subscribeToTelegramContext } from "@/lib/telegram";
+import { ProfileLogout } from "@/components/profile/profile-logout";
 import { PlayerAvatarImage } from "@/components/profile/player-avatar-image";
 import { logEvent } from "@/lib/activity-client";
 import { AchievementVisual } from "@/components/achievements/achievement-visual";
@@ -193,6 +195,7 @@ export default function PlayerProfilePage() {
     Array<{ request_id: string; team_id: string; team_name: string; team_emblem: string }>
   >([]);
   const [teamStatusBusy, setTeamStatusBusy] = useState(false);
+  const [isMiniApp, setIsMiniApp] = useState<boolean | null>(null);
   // Player following -- an auxiliary block that loads and fails on its own
   // (never part of loadPage's Promise.all). The summary and the error are
   // tagged with the profile they belong to, so a response that lands after
@@ -207,6 +210,22 @@ export default function PlayerProfilePage() {
   const followBusyRef = useRef(false);
   const activePlayerIdRef = useRef<string | undefined>(playerId);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unsubscribe = subscribeToTelegramContext(() => {
+      if (!cancelled) setIsMiniApp(true);
+    });
+
+    void detectTelegramMiniAppContext().then((isTelegram) => {
+      if (!cancelled) setIsMiniApp(isTelegram);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     async function loadPage() {
@@ -608,6 +627,8 @@ export default function PlayerProfilePage() {
         {isOwnProfile && (player.free_reentries_balance ?? 0) > 0 ? (
           <p data-testid="free-reentries-balance" className="mt-2 px-1 text-xs text-[#d5b867]">Бесплатные re-entry: {player.free_reentries_balance}</p>
         ) : null}
+
+        <ProfileLogout enabled={isOwnProfile && isMiniApp === false} />
 
         {player.nickname_status === "pending" && player.pending_display_name ? (
           <div className="mt-4 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white/60">
