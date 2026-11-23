@@ -82,14 +82,18 @@ describe.runIf(!!url)("PKO real transaction ledger on disposable PostgreSQL", ()
     const finished = await append({ kind: "finish", eventId: "finish", winnerEntryId: "a1" }, 5);
     expect(finished.snapshot).toMatchObject({ totalBountyCreated: 18, distributedRatingPoints: 18, outstandingBounty: 0, finished: true });
     expect(finished.snapshot.players.find(x => x.playerId === a)?.totalPkoRatingPoints).toBe(18);
-    await expect(append({ kind: "finish", eventId: "again", winnerEntryId: "a1" }, 6)).rejects.toThrow(/уже завершён/);
+    const undone = await append({ kind: "void_finish", eventId: "undo-finish", targetEventId: "finish" }, 6);
+    expect(undone.snapshot).toMatchObject({ finished: false, distributedRatingPoints: 9, outstandingBounty: 9 });
+    const reclosed = await append({ kind: "finish", eventId: "finish-2", winnerEntryId: "a1" }, 7);
+    expect(reclosed.snapshot).toMatchObject({ finished: true, distributedRatingPoints: 18, outstandingBounty: 0 });
+    await expect(append({ kind: "finish", eventId: "again", winnerEntryId: "a1" }, 8)).rejects.toThrow(/уже завершён/);
   });
 
   it("blocks writes after completed tournament and never changes other formats", async () => {
     await h.db.update(schema.tournaments).set({ status: "completed" }).where(eq(schema.tournaments.id, id));
-    await expect(append(entry(b, "b3"), 6)).rejects.toThrow(/нельзя менять/);
+    await expect(append(entry(b, "b3"), 8)).rejects.toThrow(/нельзя менять/);
     await h.db.update(schema.tournaments).set({ status: "open", tournamentType: "classic" }).where(eq(schema.tournaments.id, id));
-    await expect(append(entry(b, "b3"), 6)).rejects.toThrow(/только в турнире/);
+    await expect(append(entry(b, "b3"), 8)).rejects.toThrow(/только в турнире/);
     await h.db.update(schema.tournaments).set({ tournamentType: "progressive_knockout" }).where(eq(schema.tournaments.id, id));
   });
 });
