@@ -64,7 +64,9 @@ function resolveVisual(raw: Record<string, unknown>, type: TournamentType): Tour
     // as an absent override so read/reset/upload all recover to the built-in
     // original and derivative instead of failing closed on an invalid URL.
     const normalizedEntry = { ...entry };
-    if (normalizedEntry.assetUrl === "" && defaults.assetUrl) delete normalizedEntry.assetUrl;
+    if (type === "omaha_holdem_mix" && normalizedEntry.assetUrl === "" && defaults.assetUrl) {
+      delete normalizedEntry.assetUrl;
+    }
     const config = { ...defaults, ...normalizedEntry, tournamentType: type } as TournamentVisualConfig;
     if (normalizedEntry.assetUrl !== undefined && normalizedEntry.assetUrl !== defaults.assetUrl && normalizedEntry.cardAssetUrl === undefined) delete config.cardAssetUrl;
     if (typeof config.assetUrl !== "string" || !isValidPublicAssetUrl(config.assetUrl)) throw new InvalidStoredSettingError();

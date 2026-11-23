@@ -52,6 +52,12 @@ describe("tournament visual read compatibility", () => {
     expect(reset).toMatchObject({ assetUrl: "/tournament-assets/omaha-holdem-mix.png", cardAssetUrl: "/tournament-assets/omaha-holdem-mix-card.png", scale: 100 });
     expect((mocks.store as { omaha_holdem_mix: Record<string, unknown> }).omaha_holdem_mix).toMatchObject({ assetUrl: "/tournament-assets/omaha-holdem-mix.png", cardAssetUrl: "/tournament-assets/omaha-holdem-mix-card.png" });
   });
+  it("rejects an empty asset URL for every non-MIX tournament type", async () => {
+    mocks.store = { bounty: { assetUrl: "", scale: 100, offsetX: 0, offsetY: 0, opacity: 100 } };
+    const before = structuredClone(mocks.store);
+    await expect(f.getTournamentVisualConfigs()).rejects.toThrow("повреждены");
+    expect(mocks.store).toEqual(before);
+  });
   it.each(["invalid", [], { bounty: null }, { bounty: { assetUrl: 2 } }, { bounty: { list: null } }, { bounty: { profile: { scale: "bad" } } }])("rejects corrupt stored data without overwriting it: %s", async (raw) => {
     mocks.store = raw; const before = structuredClone(raw);
     await expect(f.getTournamentVisualConfigs()).rejects.toThrow("повреждены");

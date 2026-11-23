@@ -149,6 +149,11 @@ export function TournamentCard({
   const isInteractive = Boolean(onAction) && !(tournament.is_final || tournament.tournament_type === "qualification_final") && !lockedLabel;
   const boostBadge = getBoostRatingBadge(tournament);
   const hasArtwork = Boolean(configs[tournament.tournament_type]?.assetUrl);
+  const mixClockUnavailableAfterStart =
+    tournament.tournament_type === "omaha_holdem_mix" &&
+    showAction &&
+    !isLive &&
+    countdownText === "Уже начался";
 
   return (
     <div
@@ -209,7 +214,7 @@ export function TournamentCard({
           />
         ) : showAction ? (
           <>
-            {tournament.tournament_type === "omaha_holdem_mix" ? (
+            {mixClockUnavailableAfterStart ? (
               <p
                 data-testid="mix-clock-unavailable-fallback"
                 className="mt-3 text-sm font-semibold text-[#e8cd7f]"
