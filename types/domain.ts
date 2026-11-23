@@ -27,7 +27,8 @@ export type TournamentType =
   | "bomb_pot"
   | "boost_rating"
   | "free_roll"
-  | "omaha_holdem_mix";
+  | "omaha_holdem_mix"
+  | "progressive_knockout";
 
 export type Player = {
   id: string;
