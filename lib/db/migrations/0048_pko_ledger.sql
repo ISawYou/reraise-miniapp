@@ -13,7 +13,7 @@ CREATE TABLE "tournament_pko_events" (
   CONSTRAINT "tournament_pko_events_payload_check" CHECK (
     jsonb_typeof("event_data") = 'object'
     AND "event_data"->>'eventId' = "event_id"
-    AND "event_data"->>'kind' IN ('entry', 'knockout', 'void_knockout', 'finish')
+    AND "event_data"->>'kind' IN ('entry', 'knockout', 'void_knockout', 'finish', 'void_finish')
   )
 );--> statement-breakpoint
 CREATE UNIQUE INDEX "tournament_pko_events_event_id_uk" ON "tournament_pko_events" USING btree ("tournament_id", "event_id");
