@@ -2162,7 +2162,7 @@ export default function AdminTournamentResultsPage() {
               <span>Entries: {ratingEngineV2Summary.totalEntries}</span>
               <span>Повторные входы: {ratingEngineV2Summary.rebuys}</span>
               <span>Дополнительный вход: {ratingEngineV2Summary.totalAddons}</span>
-              <span>Free повторный вход: {ratingEngineV2Summary.freeReentries}</span>
+              <span>Бесплатные повторные входы: {ratingEngineV2Summary.freeReentries}</span>
             </div>
             {formatRatingEngineMetaLines(ratingEngineV2Summary.meta).length > 0 ? (
               <p className="mt-1.5 text-xs text-white/60">
@@ -2369,7 +2369,7 @@ export default function AdminTournamentResultsPage() {
               />
             </div>
             <div>
-              <p className="mb-1 text-[11px] font-medium text-white/50">Дополнительный вход price</p>
+              <p className="mb-1 text-[11px] font-medium text-white/50">Стоимость дополнительного входа</p>
               <input
                 type="number"
                 min="0"
@@ -2632,7 +2632,7 @@ export default function AdminTournamentResultsPage() {
                   <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
-                        Free повторный вход
+                        Бесплатные повторные входы
                       </p>
                       <input
                         type="number"
@@ -2838,7 +2838,7 @@ export default function AdminTournamentResultsPage() {
                   <span>Пришел</span>
                   <span>Оплатил</span>
                   <span>Нал/карта</span>
-                  <span>Беспл. повторный вход</span>
+                  <span>Бесплатные повторные входы</span>
                   <span>Всего входов</span>
                   <span>Дополнительный вход</span>
                   <span>Nok</span>

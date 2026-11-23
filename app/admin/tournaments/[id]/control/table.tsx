@@ -74,7 +74,7 @@ export function TournamentConsole({id,title,locked,rows:initial,type="classic",o
  const entryMetric=(sum:number)=>counted.some(r=>r.entriesKnown===false)?`${sum} + ?`:sum;
  const metrics:[string,number|string][]=[['Игроки',counted.length],['Пришли',counted.filter(r=>r.arrived).length],['В игре',counted.filter(r=>r.arrived&&!r.eliminated).length],['Выбыли',counted.filter(r=>r.arrived&&r.eliminated).length],['Первые входы',entryMetric(counted.reduce((s,r)=>s+Math.min(r.rebuys,1),0))],['Входы',entryMetric(counted.reduce((s,r)=>s+r.rebuys,0))],...(type!=='qualification_final'?[['повторный вход',entryMetric(counted.reduce((s,r)=>s+Math.max(0,r.rebuys-1),0))] as [string,number|string]]:[]),...(!['phoenix','qualification_final'].includes(type)?[['Дополнительный вход',entryMetric(counted.reduce((s,r)=>s+r.addons,0))] as [string,number|string]]:[])];
  const knownTotal=(field:'knockouts'|'bossKnockouts'|'freeReentries')=>{const known=applicable.filter(o=>o[field]!=null);return `${known.reduce((s,o)=>s+o[field]!,0)}${known.length<counted.length?' + ?':''}`;};
- if(operationFieldsFor(type).includes('freeReentries'))metrics.push(['Беспл. повторный вход',knownTotal('freeReentries')]);
+ if(operationFieldsFor(type).includes('freeReentries'))metrics.push(['Бесплатные повторные входы',knownTotal('freeReentries')]);
  if(['bounty','boss_bounty'].includes(type))metrics.push(['KO',knownTotal('knockouts')]);
  if(type==='boss_bounty')metrics.push(['Boss KO',knownTotal('bossKnockouts')]);
  if(type==='mystery_bounty')metrics.push(['Конверты',`${assignedEnvelopes} / ${mystery?.envelope_count??'?'}`],['Mystery очки',`${assignedPoints} / ${mystery?.mystery_pool??'?'}`]);

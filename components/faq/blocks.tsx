@@ -18,11 +18,16 @@ function Inline({ text }: { text: string }) {
   );
 }
 export function Blocks({ text }: { text: string }) {
+  if (text.includes('### ')) {
+    const [intro, ...formats] = text.split(/^### /m);
+    return <div className="space-y-4"><Blocks text={intro}/><p className="text-sm text-white/65">Выберите формат, чтобы открыть правила.</p><div className="grid gap-3 sm:grid-cols-2">{formats.map(format => {const line=format.indexOf('\n');const title=format.slice(0,line);return <details key={title} className="min-w-0 rounded-2xl border border-[#d7b55a]/25 bg-[#10271e] p-4"><summary className="cursor-pointer py-2 text-lg font-semibold text-[#f0d38a]">{title}</summary><div className="mt-3"><Blocks text={format.slice(line+1)}/></div></details>;})}</div></div>;
+  }
   return (
     <div className="space-y-4 text-[15px] leading-7 text-white/80">
       {text.split(/\n\s*\n/).map((block, i) => {
         const lines = block.trim().split("\n");
         if (!block.trim() || block.trim() === "---") return null;
+        if (lines.every(line => /^\s*- /.test(line))) return <ul key={i} className="list-disc space-y-2 pl-5">{lines.map((line,n)=><li key={n}><Inline text={line.replace(/^\s*- /,'')}/></li>)}</ul>;
         if (lines[0].startsWith("|")) {
           const rows = lines
             .filter((l) => !/^\|[-:\s|]+$/.test(l))
