@@ -109,7 +109,7 @@ export class PostgresPkoLedgerRepository {
       if (current.revision !== input.expectedRevision) {
         throw new PkoLedgerError("PKO изменился в другой вкладке; обновите данные", 409);
       }
-      if (current.snapshot.finished) throw new PkoLedgerError("PKO уже завершён", 409);
+      if (current.snapshot.finished && event.kind !== "void_finish") throw new PkoLedgerError("PKO уже завершён", 409);
 
       if (event.kind === "entry") {
         // Re-entry must refer to the real registered player, never an
