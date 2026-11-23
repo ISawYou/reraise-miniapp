@@ -39,7 +39,7 @@ jobs:
           config/__tests__/tournament-presets.test.ts
           config/__tests__/tournament-visuals.test.ts
           app/admin/tournaments/create/__tests__/tournament-type-options.test.ts
-          app/admin/tournaments/\\[id\\]/edit/__tests__/tournament-type-options.test.ts
+          app/admin/tournaments/\[id\]/edit/__tests__/tournament-type-options.test.ts
           lib/__tests__/tournament-helpers.test.ts
           lib/__tests__/season-recap-copy.test.ts
           features/__tests__/rating-v2.test.ts
