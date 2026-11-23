@@ -33,6 +33,17 @@ jobs:
         run: npm ci
       - name: PKO focused tests
         run: npx vitest run lib/__tests__/progressive-knockout-core.test.ts app/api/admin/tournaments/\[id\]/pko-ledger/__tests__/route.test.ts
+      - name: Tournament type, visual, rating and UI regressions
+        run: >-
+          npx vitest run
+          config/__tests__/tournament-presets.test.ts
+          config/__tests__/tournament-visuals.test.ts
+          app/admin/tournaments/create/__tests__/tournament-type-options.test.ts
+          app/admin/tournaments/\\[id\\]/edit/__tests__/tournament-type-options.test.ts
+          lib/__tests__/tournament-helpers.test.ts
+          lib/__tests__/season-recap-copy.test.ts
+          features/__tests__/rating-v2.test.ts
+          features/__tests__/postgres-tournament-completion.test.ts
       - name: Typecheck
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
@@ -69,3 +80,14 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key-public-only
         run: npx vitest run lib/repositories/pko/__tests__/pko-ledger.postgres.test.ts lib/repositories/pko/__tests__/pko-completion.postgres.test.ts
+
+      - name: Drizzle snapshot and migration journal check
+        run: npx drizzle-kit check
+      - name: Build PKO preview app (no deploy)
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key-public-only
+          NEXT_PUBLIC_APP_URL: https://preview.invalid
+          NEXT_PUBLIC_TELEGRAM_BOT_ID: "123456"
+        run: npm run build
