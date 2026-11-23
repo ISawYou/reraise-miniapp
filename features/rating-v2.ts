@@ -216,6 +216,7 @@ export const VOLUME_FORMATS: ReadonlySet<TournamentType> = new Set<TournamentTyp
   // features/finance-export.ts -- rating math is identical to classic.
   "free_roll",
   "omaha_holdem_mix",
+  "progressive_knockout",
 ]);
 
 // Formats that exist only under Rating Engine v2 -- never valid with
@@ -230,6 +231,7 @@ export const V2_ONLY_TOURNAMENT_TYPES: ReadonlySet<TournamentType> = new Set<Tou
   // boost_rating -- a legacy tournament must never be switched to it.
   "free_roll",
   "omaha_holdem_mix",
+  "progressive_knockout",
 ]);
 
 export function assertTournamentTypeSupportsFormula(

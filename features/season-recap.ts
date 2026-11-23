@@ -98,6 +98,7 @@ const TOURNAMENT_TYPES: TournamentType[] = [
   "qualification_final",
   "free_roll",
   "omaha_holdem_mix",
+  "progressive_knockout",
 ];
 
 function ruSort(a: string, b: string): number {

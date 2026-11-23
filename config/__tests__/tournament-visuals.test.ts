@@ -31,12 +31,13 @@ const ALL_TOURNAMENT_TYPES = [
   "boost_rating",
   "free_roll",
   "omaha_holdem_mix",
+  "progressive_knockout",
 ];
 
-describe("13 tournament visual types", () => {
-  it("recognizes exactly the 13 current TournamentType visual entries", () => {
+describe("14 tournament visual types", () => {
+  it("recognizes exactly the 14 current TournamentType visual entries", () => {
     expect(TOURNAMENT_VISUAL_TYPES.slice().sort()).toEqual(ALL_TOURNAMENT_TYPES.slice().sort());
-    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(13);
+    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(14);
   });
 
   it("crazy_pineapple remains recognized as a valid tournament visual type", () => {
@@ -148,9 +149,16 @@ describe("Omaha / Hold'em Mix approved artwork", () => {
 });
 
 describe("Progressive Knockout artwork preparation", () => {
-  it("ships approved assets without adding an unfinished TournamentType mapping", () => {
+  it("ships approved assets and maps the completed PKO artwork configuration", () => {
     expect(pngDimensions(join(process.cwd(), "public/tournament-assets/progressive-knockout.png"))).toEqual({ width: 1024, height: 1024 });
     expect(pngDimensions(join(process.cwd(), "public/tournament-assets/progressive-knockout-card.png"))).toEqual({ width: 512, height: 512 });
-    expect(TOURNAMENT_VISUAL_TYPES).not.toContain("progressive_knockout");
+    expect(TOURNAMENT_VISUAL_TYPES).toContain("progressive_knockout");
+    expect(DEFAULT_TOURNAMENT_VISUALS.progressive_knockout).toBe("/tournament-assets/progressive-knockout.png");
+    expect(DEFAULT_TOURNAMENT_CARD_VISUALS.progressive_knockout).toBe("/tournament-assets/progressive-knockout-card.png");
+    expect(getDefaultTournamentVisual("progressive_knockout")).toMatchObject({
+      tournamentType: "progressive_knockout",
+      assetUrl: "/tournament-assets/progressive-knockout.png",
+      cardAssetUrl: "/tournament-assets/progressive-knockout-card.png",
+    });
   });
 });

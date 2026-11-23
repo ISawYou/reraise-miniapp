@@ -1,0 +1,93 @@
+name: PKO Draft Verification
+
+on:
+  push:
+    branches: [feature/progressive-knockout-core]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reraise
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: reraise
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U reraise -d reraise"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DATABASE_URL: postgres://reraise:test-only-password@localhost:5432/reraise
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: PKO focused tests
+        run: npx vitest run lib/__tests__/progressive-knockout-core.test.ts app/api/admin/tournaments/\[id\]/pko-ledger/__tests__/route.test.ts app/admin/tournaments/\[id\]/control/__tests__/pko-ledger-panel.test.tsx
+      - name: Tournament type, visual, rating and UI regressions
+        run: >-
+          npx vitest run
+          config/__tests__/tournament-presets.test.ts
+          config/__tests__/tournament-visuals.test.ts
+          app/admin/tournaments/create/__tests__/tournament-type-options.test.ts
+          app/admin/tournaments/\[id\]/edit/__tests__/tournament-type-options.test.ts
+          lib/__tests__/tournament-helpers.test.ts
+          lib/__tests__/season-recap-copy.test.ts
+          features/__tests__/rating-v2.test.ts
+          features/__tests__/postgres-tournament-completion.test.ts
+      - name: Typecheck
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: npx tsc --noEmit
+      - name: Lint PKO code
+        run: npx eslint lib/progressive-knockout-core.ts lib/__tests__/progressive-knockout-core.test.ts lib/db/schema/tournamentPkoEvents.ts lib/repositories/pko/PostgresPkoLedgerRepository.ts app/api/admin/tournaments/\[id\]/pko-ledger/route.ts app/api/admin/tournaments/\[id\]/pko-ledger/__tests__/route.test.ts
+      - name: Disposable PostgreSQL migration chain + 0048 verification
+        run: |
+          npm run db:migrate
+          node --input-type=module <<'NODE'
+          import postgres from "postgres";
+          import { readFileSync } from "node:fs";
+          const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+          const journal = JSON.parse(readFileSync("lib/db/migrations/meta/_journal.json", "utf8"));
+          try {
+            const [row] = await sql`SELECT COUNT(*)::int AS count FROM drizzle.__drizzle_migrations`;
+            if (row.count !== journal.entries.length) throw new Error(`Applied migrations ${row.count} != journal entries ${journal.entries.length}`);
+            const [table] = await sql`SELECT to_regclass('public.tournament_pko_events')::text AS name`;
+            if (table.name !== "tournament_pko_events") throw new Error("PKO event ledger table missing");
+            const constraints = await sql`SELECT conname FROM pg_constraint WHERE conrelid='public.tournament_pko_events'::regclass`;
+            const names = new Set(constraints.map(row => row.conname));
+            for (const name of ["tournament_pko_events_pk", "tournament_pko_events_payload_check", "tournament_pko_events_sequence_check"]) {
+              if (!names.has(name)) throw new Error(`PKO constraint missing: ${name}`);
+            }
+            console.log(`DISPOSABLE POSTGRES PASS: ${row.count} migrations, PKO table + constraints present`);
+          } finally { await sql.end(); }
+          NODE
+          npm run db:migrate
+          git status --short lib/db/migrations
+      - name: PKO real PostgreSQL transactional integration tests
+        env:
+          PKO_DISPOSABLE_DATABASE: "true"
+          RERAISE_PKO_TEST_DATABASE_URL: postgres://reraise:test-only-password@localhost:5432/reraise
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key-public-only
+        run: npx vitest run lib/repositories/pko/__tests__/pko-ledger.postgres.test.ts lib/repositories/pko/__tests__/pko-completion.postgres.test.ts
+
+      - name: Drizzle snapshot and migration journal check
+        run: npx drizzle-kit check
+      - name: Build PKO preview app (no deploy)
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key-public-only
+          NEXT_PUBLIC_APP_URL: https://preview.invalid
+          NEXT_PUBLIC_TELEGRAM_BOT_ID: "123456"
+        run: npm run build

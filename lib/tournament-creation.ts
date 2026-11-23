@@ -19,7 +19,7 @@ export type TournamentCreationInput = {
   // publicly self-registerable tournaments unchanged.
   is_final?: boolean;
 };
-export function assertTournamentCreationShape(input:TournamentCreationInput) { if (input.tournament_type === "qualification_final" && (input.max_players !== 18 || input.is_final)) throw new Error("Финал отбора: ровно 18 мест, отдельный от Финала месяца тип"); }
+export function assertTournamentCreationShape(input:TournamentCreationInput) { if (input.tournament_type === "qualification_final" && (input.max_players !== 18 || input.is_final)) throw new Error("Финал отбора: ровно 18 мест, отдельный от Финала месяца тип"); if(input.tournament_type==="progressive_knockout"&&input.is_final) throw new Error("Progressive Knockout не может быть финалом месяца без рейтинга"); }
 export function prepareTournamentCreation(input:TournamentCreationInput,seasonId:string):TournamentInsert {
   assertTournamentCreationShape(input);
   return {

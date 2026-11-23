@@ -71,6 +71,9 @@ const OPERATOR_ALLOWED_ROUTES: OperatorRoute[] = [
   route("PATCH", "/api/admin/tournaments/:id/operations"),
   route("GET", "/api/admin/tournaments/:id/operations/complete"),
   route("POST", "/api/admin/tournaments/:id/operations/complete"),
+  // PKO ledger writes enforce tournament type, staff identity and revision again inside a DB transaction.
+  route("GET", "/api/admin/tournaments/:id/pko-ledger"),
+  route("POST", "/api/admin/tournaments/:id/pko-ledger"),
   // Retry ONLY the Poker Clock finish side effect of an already-completed
   // tournament (see app/api/admin/tournaments/[id]/poker-clock/finish/route.ts)
   // -- same permission class as completing the tournament itself, since it's

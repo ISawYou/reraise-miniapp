@@ -605,6 +605,17 @@ export async function updateTournament(
 
   if (input.tournament_type === "qualification_final" && (input.max_players !== 18 || input.is_final)) throw new Error("Финал отбора: ровно 18 мест, отдельный от Финала месяца тип");
   const current = await tournamentRepository.findById(tournamentId);
+  if (input.tournament_type === "progressive_knockout" && (input.is_final || current.kind !== "free")) {
+    throw new Error("PKO допускается только в обычном рейтинговом free-турнире");
+  }
+  // PKO stores a permanent per-entry ledger. Format conversion is forbidden
+  // outright, including before gameplay, so a concurrent entry cannot race
+  // a non-transactional tournament type edit and orphan the event ledger.
+  // Staff may still edit the title/date/description of a PKO tournament.
+  if ((input.tournament_type === "progressive_knockout" || current.tournament_type === "progressive_knockout") &&
+      input.tournament_type !== current.tournament_type) {
+    throw new Error("Формат PKO нельзя менять у существующего турнира: создайте отдельный турнир");
+  }
   // Fail closed: a historical legacy-formula tournament must never become a
   // v2-only format (bomb_pot / boost_rating) and then get legacy math.
   assertTournamentTypeSupportsFormula(input.tournament_type, current.rating_formula_version);
@@ -1646,6 +1657,16 @@ export async function setTournamentPlayerRebuyState(
 ): Promise<{ rebuys: number; addons: number }> {
   const tournament = await getTournamentById(tournamentId);
   if (tournament.status === "completed") throw new Error("Завершённый турнир нельзя редактировать");
+  if (tournament.tournament_type === "progressive_knockout") {
+    // The event ledger owns total entries. Only Add-on edits are permitted,
+    // serialized behind the exact same tournament lock as KO/entry writes.
+    if (authorization?.source !== "staff") throw new Error("PKO: только подтверждённые изменения сотрудника");
+    const { pkoLedgerRepository } = await import("@/lib/repositories/pko/PostgresPkoLedgerRepository");
+    return pkoLedgerRepository.updateAddons({
+      tournamentId, playerId, actorId: authorization.actorId,
+      expectedEntries: rebuys, addons,
+    });
+  }
   const maxEntries = tournament.tournament_type === "qualification_final" ? 1 : tournament.tournament_type === "phoenix" ? 2 : null;
   if (maxEntries !== null && (addons !== 0 || !Number.isInteger(rebuys) || rebuys < 0 || rebuys > maxEntries)) throw new Error("Для этого формата запрещены Add-on и превышение лимита входов");
   return tournamentLiveStateRepository.upsertRebuyState({

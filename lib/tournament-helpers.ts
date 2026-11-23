@@ -57,6 +57,8 @@ export function getTournamentTypeLabel(type: TournamentType): string {
       return "Boost Rating";
     case "free_roll":
       return "Free-roll";
+    case "progressive_knockout":
+      return "Progressive Knockout";
     case "omaha_holdem_mix":
       return "Omaha / Hold'em Mix";
     case "classic":
@@ -113,6 +115,9 @@ export function getTournamentTypeBonusLines(type: TournamentType, formula: "lega
     lines.push(`Бонус рейтинга x${multiplier.toFixed(2)}`);
   }
 
+  if (type === "progressive_knockout") {
+    lines.push("PKO: 6 очков за каждый вход; 50% KO в рейтинг, 50% растущий баунти");
+  }
   if (supportsTournamentKnockouts(type)) {
     lines.push("Нокауты: +5 очков");
   }
@@ -125,6 +130,11 @@ export function getTournamentTypeBonusLines(type: TournamentType, formula: "lega
 }
 
 export function getTournamentTypeInstructionLines(type: TournamentType): string[] {
+  if (type === "progressive_knockout") return [
+    "Каждый вход создаёт 6 очков баунти; нокаут делится: половина в рейтинг, половина увеличивает ваше баунти.",
+    "При нечётном числе очков остаток идёт в растущий баунти. После Re-entry баунти сбрасывается до 6, заработанные очки сохраняются.",
+    "Победитель получает оставшееся собственное баунти после завершения. Совместные нокауты распределяет судья.",
+  ];
   if (type !== "omaha_holdem_mix") return [];
   return [
     "Уровень 1 — Texas Hold'em, уровень 2 — Pot-Limit Omaha; затем форматы чередуются на каждом уровне.",

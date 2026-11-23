@@ -9,6 +9,8 @@ import {calculateRatingPointsForTournament} from "@/features/rating-v2";
 import {isRatingEligibleTournament} from "@/lib/tournament-helpers";
 import {postgresCompletionFingerprint} from "./postgres-completion-fingerprint";
 import {finishPokerClockTournament} from "@/lib/poker-clock-client";
+import {pkoLedgerRepository} from "@/lib/repositories/pko/PostgresPkoLedgerRepository";
+import {validatePkoCompletion,addPkoRatingPoints} from "@/lib/pko-completion";
 
 export type CompletionBlocker={player_id:string;display_name:string;fields:string[]};
 export class CompletionReadinessError extends OperationsError{
@@ -21,6 +23,7 @@ export async function previewPostgresCompletion(id:string){
  if(t.google_sheet_tab_name?.trim())throw new OperationsError("Требуется явное переключение турнира с Google Sheets",409);
  if(t.status==="completed")throw new OperationsError("Турнир уже завершён",409);
  if(t.tournament_type==="qualification_final")throw new OperationsError("Завершите финал на трёх оставшихся игроках в редакторе отбора",409);
+ if(t.tournament_type==="progressive_knockout"&&!isRatingEligibleTournament(t))throw new OperationsError("PKO не может быть финалом месяца вне рейтинга",409);
  const source=await getTournamentSource(id);
  if(source!=="POSTGRESQL")throw new OperationsError("Требуется явное переключение турнира с Google Sheets",409);
  const defaults=usesNumericDefaults(t.status,source);
@@ -63,9 +66,16 @@ export async function previewPostgresCompletion(id:string){
  });
  const places=rows.map(r=>r.place).sort((a,b)=>a-b);if(places.some((p,i)=>p!==i+1))throw new OperationsError("Места должны быть уникальными и последовательными от 1 до числа участников",409);
  if(t.tournament_type==="mystery_bounty")validateMysteryAllocation(roster.map(p=>resolveOperationalNumbers(t.tournament_type,operations.find(o=>o.playerId===p.player_id),defaults)),mystery);
- const rating=calculateRatingPointsForTournament(rows,t.tournament_type,t.rating_formula_version,{ratingGuarantee:t.rating_guarantee,placementPointsMultiplier:t.placement_points_multiplier,ratingPlaces:frozen?.rating_places},isRatingEligibleTournament(t));
+ // PKO uses the event ledger, never a manually-entered numeric KO counter.
+ // All physical entry counts and the winner must reconcile BEFORE rating is frozen.
+ const allocation=t.tournament_type==="progressive_knockout"
+  ? validatePkoCompletion(rows, (await pkoLedgerRepository.read(id)).events)
+  : null;
+ const effectiveRows=allocation?rows.map(row=>({...row,knockouts:allocation.perPlayer.get(row.player_id)?.soloKnockouts??0})):rows;
+ const rating=calculateRatingPointsForTournament(effectiveRows,t.tournament_type,t.rating_formula_version,{ratingGuarantee:t.rating_guarantee,placementPointsMultiplier:t.placement_points_multiplier,ratingPlaces:frozen?.rating_places},isRatingEligibleTournament(t));
+ const finalRating=allocation?addPkoRatingPoints(rating.results,allocation):rating.results;
  if(await postgresCompletionFingerprint(id)!==fingerprint)throw new OperationsError("Данные изменились; повторите предварительный расчёт",409);
- return {fingerprint,rows,rating:rating.results,frozenPool:frozen?.rating_places.reduce((s,p)=>s+p.points,0)??null};
+ return {fingerprint,rows:effectiveRows,rating:finalRating,frozenPool:frozen?.rating_places.reduce((s,p)=>s+p.points,0)??null};
 }
 export async function completePostgresTournament(id:string,expectedFingerprint:string){
  const preview=await previewPostgresCompletion(id);

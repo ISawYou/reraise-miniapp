@@ -59,6 +59,7 @@ export const DEFAULT_TOURNAMENT_VISUALS = {
   free_roll: "/tournament-assets/free-roll.png",
   // Owner-approved built-in artwork.
   omaha_holdem_mix: "/tournament-assets/omaha-holdem-mix.png",
+  progressive_knockout: "/tournament-assets/progressive-knockout.png",
 } as const satisfies Record<TournamentType, string>;
 
 export const TOURNAMENT_VISUAL_TYPES = Object.keys(
@@ -84,6 +85,7 @@ export const DEFAULT_TOURNAMENT_CARD_VISUALS: Partial<Record<TournamentType, str
   boost_rating: "/tournament-assets/boost-rating-card.png",
   free_roll: "/tournament-assets/free-roll-card.png",
   omaha_holdem_mix: "/tournament-assets/omaha-holdem-mix-card.png",
+  progressive_knockout: "/tournament-assets/progressive-knockout-card.png",
 };
 
 export function getDefaultTournamentVisual(

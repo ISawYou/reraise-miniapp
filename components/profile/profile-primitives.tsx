@@ -60,7 +60,7 @@ export function TournamentArtworkIcon({
 const TYPE_MARKS: Record<TournamentType, string> = {
   classic: "♠", phoenix: "PH", deep_stack: "DS", bounty: "KO",
   boss_bounty: "BOSS", win_the_button: "BTN", mystery_bounty: "?",
-  qualification_final: "ОТБОР", crazy_pineapple: "CP", bomb_pot: "BP", boost_rating: "↑", free_roll: "FR", omaha_holdem_mix: "MIX",
+  qualification_final: "ОТБОР", crazy_pineapple: "CP", bomb_pot: "BP", boost_rating: "↑", free_roll: "FR", omaha_holdem_mix: "MIX", progressive_knockout: "PKO",
 };
 
 function CompactArtwork({ tournamentType, configs }: { tournamentType: TournamentType; configs: Record<string, TournamentVisualConfig> }) {
