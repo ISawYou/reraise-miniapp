@@ -43,8 +43,8 @@ export function PkoLedgerPanel({ id, players, locked, onChanged }: Props) {
       setLedger(response); setVictimId(""); setEntryPlayerId(""); setShares({}); setVoidId("");
       onChanged();
     } catch (error) {
-      setMessage((error as Error).message + ". Проверьте журнал перед повтором.");
       await reload();
+      setMessage((error as Error).message + ". Проверьте журнал перед повтором.");
     } finally { setBusy(false); }
   }
   function addEntry() {
