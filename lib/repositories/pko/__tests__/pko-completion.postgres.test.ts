@@ -17,6 +17,7 @@ vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get(_target, key) {
   const value = Reflect.get(h.db, key);
   return typeof value === "function" ? value.bind(h.db) : value;
 }}) }));
+vi.mock("@/lib/admin-auth", () => ({ assertServerActorRole: vi.fn().mockResolvedValue({ id: "test-operator", role: "operator" }) }));
 vi.mock("@/features/achievements", () => ({ syncPlayersAchievementsIfEnabled: vi.fn() }));
 vi.mock("@/features/club-activity", () => ({ publishTournamentWinnerEvent: vi.fn() }));
 vi.mock("@/lib/poker-clock-client", () => ({ finishPokerClockTournament: vi.fn().mockResolvedValue({status:"not_linked"}) }));
