@@ -61,7 +61,7 @@ describe.runIf(!!url)("PKO real transaction ledger on disposable PostgreSQL", ()
     expect((await append(next, 1)).revision).toBe(2);
     expect((await append(next, 0)).duplicate).toBe(true);
     await expect(append({ ...next, playerId: outsider }, 2)).rejects.toThrow(/другим содержимым/);
-    expect((await h.db.select().from(schema.tournamentRebuyState).where(eq(schema.tournamentRebuyState.tournamentId, id)).map(x => x.rebuys)).toEqual([1, 1]);
+    expect((await h.db.select().from(schema.tournamentRebuyState).where(eq(schema.tournamentRebuyState.tournamentId, id))).map(x => x.rebuys).sort()).toEqual([1, 1]);
   });
 
   it("rejects invalid KO and actors without any partial writes", async () => {
