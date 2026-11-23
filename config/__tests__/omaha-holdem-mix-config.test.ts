@@ -55,9 +55,12 @@ describe("omaha_holdem_mix format", () => {
     ]);
   });
 
-  it("has a text-only visual fallback until approved artwork is supplied", () => {
-    expect(DEFAULT_TOURNAMENT_VISUALS.omaha_holdem_mix).toBe("");
-    expect(getDefaultTournamentVisual("omaha_holdem_mix").assetUrl).toBe("");
+  it("uses the approved built-in visual with its card derivative", () => {
+    expect(DEFAULT_TOURNAMENT_VISUALS.omaha_holdem_mix).toBe("/tournament-assets/omaha-holdem-mix.png");
+    expect(getDefaultTournamentVisual("omaha_holdem_mix")).toMatchObject({
+      assetUrl: "/tournament-assets/omaha-holdem-mix.png",
+      cardAssetUrl: "/tournament-assets/omaha-holdem-mix-card.png",
+    });
   });
 
   it("widens only the tournament type check in the additive migration", () => {

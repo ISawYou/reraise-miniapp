@@ -44,6 +44,14 @@ describe("tournament visual read compatibility", () => {
     mocks.store = { crazy_pineapple: { assetUrl: "/custom.png" } };
     expect((await f.getTournamentVisualConfigs()).find(c => c.tournamentType === "crazy_pineapple")?.cardAssetUrl).toBeUndefined();
   });
+  it("recovers a legacy empty MIX asset URL and resets it to the approved built-in pair", async () => {
+    mocks.store = { omaha_holdem_mix: { assetUrl: "", scale: 110, offsetX: 0, offsetY: 0, opacity: 100 } };
+    const before = (await f.getTournamentVisualConfigs()).find(c => c.tournamentType === "omaha_holdem_mix")!;
+    expect(before).toMatchObject({ assetUrl: "/tournament-assets/omaha-holdem-mix.png", cardAssetUrl: "/tournament-assets/omaha-holdem-mix-card.png", scale: 110 });
+    const reset = await f.resetTournamentVisualConfig("omaha_holdem_mix");
+    expect(reset).toMatchObject({ assetUrl: "/tournament-assets/omaha-holdem-mix.png", cardAssetUrl: "/tournament-assets/omaha-holdem-mix-card.png", scale: 100 });
+    expect((mocks.store as { omaha_holdem_mix: Record<string, unknown> }).omaha_holdem_mix).toMatchObject({ assetUrl: "/tournament-assets/omaha-holdem-mix.png", cardAssetUrl: "/tournament-assets/omaha-holdem-mix-card.png" });
+  });
   it.each(["invalid", [], { bounty: null }, { bounty: { assetUrl: 2 } }, { bounty: { list: null } }, { bounty: { profile: { scale: "bad" } } }])("rejects corrupt stored data without overwriting it: %s", async (raw) => {
     mocks.store = raw; const before = structuredClone(raw);
     await expect(f.getTournamentVisualConfigs()).rejects.toThrow("повреждены");
@@ -106,6 +114,19 @@ describe("upload failure and preservation", () => {
     const original = mocks.upload.mock.calls[0][0] as string;
     expect(mocks.upload.mock.calls[1][0]).toBe(original.replace(".png", "-card.png"));
     expect(mocks.derivative.mock.invocationCallOrder[0]).toBeLessThan(mocks.upload.mock.invocationCallOrder[0]);
+  });
+  it("uploads and re-uploads MIX as one original/derivative pair", async () => {
+    mocks.store = { omaha_holdem_mix: getDefaultTournamentVisual("omaha_holdem_mix") };
+    const first = await f.uploadTournamentVisualPng("omaha_holdem_mix", file());
+    expect(first.assetUrl).toMatch(/^\/storage\/omaha_holdem_mix-/);
+    expect(first.cardAssetUrl).toMatch(/-card\.png$/);
+    const firstUrl = first.assetUrl;
+    mocks.upload.mockReset().mockImplementation(async (name: string) => `/storage/reupload/${name}`);
+    const second = await f.uploadTournamentVisualPng("omaha_holdem_mix", file());
+    expect(second.assetUrl).not.toBe(firstUrl);
+    expect(second.assetUrl).toMatch(/^\/storage\/reupload\/omaha_holdem_mix-/);
+    expect(second.cardAssetUrl).toMatch(/-card\.png$/);
+    expect(mocks.upload).toHaveBeenCalledTimes(2);
   });
   it.each(["derivative", "original", "card"])("does not change config on %s failure", async (stage) => {
     const before = structuredClone(mocks.store);

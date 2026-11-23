@@ -59,8 +59,14 @@ function resolveVisual(raw: Record<string, unknown>, type: TournamentType): Tour
   try {
     const entry = storedObject(raw[type]);
     if (entry.tournamentType !== undefined && entry.tournamentType !== type) throw new InvalidStoredSettingError();
-    const config = { ...defaults, ...entry, tournamentType: type } as TournamentVisualConfig;
-    if (entry.assetUrl !== undefined && entry.assetUrl !== defaults.assetUrl && entry.cardAssetUrl === undefined) delete config.cardAssetUrl;
+    // Older MIX settings could contain the empty placeholder asset URL from
+    // before the approved built-in artwork was wired. Treat that placeholder
+    // as an absent override so read/reset/upload all recover to the built-in
+    // original and derivative instead of failing closed on an invalid URL.
+    const normalizedEntry = { ...entry };
+    if (normalizedEntry.assetUrl === "" && defaults.assetUrl) delete normalizedEntry.assetUrl;
+    const config = { ...defaults, ...normalizedEntry, tournamentType: type } as TournamentVisualConfig;
+    if (normalizedEntry.assetUrl !== undefined && normalizedEntry.assetUrl !== defaults.assetUrl && normalizedEntry.cardAssetUrl === undefined) delete config.cardAssetUrl;
     if (typeof config.assetUrl !== "string" || !isValidPublicAssetUrl(config.assetUrl)) throw new InvalidStoredSettingError();
     if (config.cardAssetUrl !== undefined && (typeof config.cardAssetUrl !== "string" || !isValidPublicAssetUrl(config.cardAssetUrl))) throw new InvalidStoredSettingError();
     validateGeometry(config);

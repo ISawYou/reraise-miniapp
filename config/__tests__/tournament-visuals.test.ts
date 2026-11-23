@@ -137,3 +137,20 @@ describe("crazy_pineapple built-in 512px card derivative (Phase 2B.2)", () => {
     expect(cardSize).toBeLessThan(originalSize);
   });
 });
+
+describe("Omaha / Hold'em Mix approved artwork", () => {
+  it("ships the 1024px original and 512px card derivative", () => {
+    expect(DEFAULT_TOURNAMENT_VISUALS.omaha_holdem_mix).toBe("/tournament-assets/omaha-holdem-mix.png");
+    expect(DEFAULT_TOURNAMENT_CARD_VISUALS.omaha_holdem_mix).toBe("/tournament-assets/omaha-holdem-mix-card.png");
+    expect(pngDimensions(join(process.cwd(), "public/tournament-assets/omaha-holdem-mix.png"))).toEqual({ width: 1024, height: 1024 });
+    expect(pngDimensions(join(process.cwd(), "public/tournament-assets/omaha-holdem-mix-card.png"))).toEqual({ width: 512, height: 512 });
+  });
+});
+
+describe("Progressive Knockout artwork preparation", () => {
+  it("ships approved assets without adding an unfinished TournamentType mapping", () => {
+    expect(pngDimensions(join(process.cwd(), "public/tournament-assets/progressive-knockout.png"))).toEqual({ width: 1024, height: 1024 });
+    expect(pngDimensions(join(process.cwd(), "public/tournament-assets/progressive-knockout-card.png"))).toEqual({ width: 512, height: 512 });
+    expect(TOURNAMENT_VISUAL_TYPES).not.toContain("progressive_knockout");
+  });
+});

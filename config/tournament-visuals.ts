@@ -57,10 +57,8 @@ export const DEFAULT_TOURNAMENT_VISUALS = {
   bomb_pot: "/tournament-assets/bomb-pot.png",
   boost_rating: "/tournament-assets/boost-rating.png",
   free_roll: "/tournament-assets/free-roll.png",
-  // Owner-approved artwork is not available yet. Keep the format selectable
-  // and render the normal text card until an asset is supplied; do not invent
-  // or download a permanent image.
-  omaha_holdem_mix: "",
+  // Owner-approved built-in artwork.
+  omaha_holdem_mix: "/tournament-assets/omaha-holdem-mix.png",
 } as const satisfies Record<TournamentType, string>;
 
 export const TOURNAMENT_VISUAL_TYPES = Object.keys(
@@ -85,6 +83,7 @@ export const DEFAULT_TOURNAMENT_CARD_VISUALS: Partial<Record<TournamentType, str
   bomb_pot: "/tournament-assets/bomb-pot-card.png",
   boost_rating: "/tournament-assets/boost-rating-card.png",
   free_roll: "/tournament-assets/free-roll-card.png",
+  omaha_holdem_mix: "/tournament-assets/omaha-holdem-mix-card.png",
 };
 
 export function getDefaultTournamentVisual(
