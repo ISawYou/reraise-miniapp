@@ -115,3 +115,29 @@ describe("PKO untrusted JSON boundary", () => {
     expect(() => parsePkoEvent({ kind: "knockout", eventId: "x", eliminatedEntryId: "a", shares: Array(101).fill({ recipientEntryId: "b", points: 1 }) })).toThrow();
   });
 });
+
+describe("PKO reversible winner payout", () => {
+  const preFinish = [
+    { kind: "entry", eventId: "e1", entryId: "a", playerId: "a" },
+    { kind: "entry", eventId: "e2", entryId: "b", playerId: "b" },
+    { kind: "knockout", eventId: "k1", eliminatedEntryId: "b", shares: [{ recipientEntryId: "a", points: 6 }] },
+  ] as const;
+  const finish = { kind: "finish", eventId: "winner-1", winnerEntryId: "a" } as const;
+  const undo = { kind: "void_finish", eventId: "undo-winner", targetEventId: "winner-1" } as const;
+  it("restores the surviving bounty on explicit staff correction and can finish again exactly once", () => {
+    const closed = replayPkoEvents([...preFinish, finish]);
+    expect(closed).toMatchObject({ finished: true, distributedRatingPoints: 12, outstandingBounty: 0 });
+    const restored = replayPkoEvents([...preFinish, finish, undo]);
+    expect(restored).toMatchObject({ finished: false, distributedRatingPoints: 3, outstandingBounty: 9, voidedFinishIds: ["winner-1"] });
+    expect(restored.entries.find(e => e.entryId === "a")).toMatchObject({ status: "active", bounty: 9, winnerBountyPoints: 0 });
+    expect(replayPkoEvents([...preFinish, finish, undo, { kind: "finish", eventId: "winner-2", winnerEntryId: "a" }])).toMatchObject({
+      finished: true, distributedRatingPoints: 12, outstandingBounty: 0,
+    });
+  });
+  it("rejects repeated or forged winner-void events", () => {
+    expect(() => replayPkoEvents([...preFinish, finish, undo, { ...undo, eventId: "undo-twice" }])).toThrow(/already voided/);
+    expect(() => replayPkoEvents([...preFinish, { ...undo, targetEventId: "missing" }])).toThrow(/earlier finish/);
+    expect(() => parsePkoEvent({ kind: "void_finish", eventId: "x", targetEventId: "winner-1", bonus: 5 })).toThrow(/Unexpected/);
+    expect(parsePkoEvent({ kind: "void_finish", eventId: "x", targetEventId: "winner-1" })).toEqual({ kind: "void_finish", eventId: "x", targetEventId: "winner-1" });
+  });
+});
