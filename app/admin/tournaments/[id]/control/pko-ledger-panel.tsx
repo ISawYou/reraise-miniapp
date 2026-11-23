@@ -142,7 +142,7 @@ export function PkoLedgerPanel({ id, players, locked, onChanged }: Props) {
         <p>Журнал закрыт, все {snapshot.totalBountyCreated} очков баунти распределены. Проверьте места и завершите турнир.</p>
         {!locked && <button className="mt-2 rounded border border-amber-500 px-3 py-2 text-sm text-amber-200 disabled:opacity-50" disabled={busy} onClick={() => {
           const undone = new Set(snapshot.voidedFinishIds);
-          const finish = ledger?.events.findLast(e => e.kind === "finish" && !undone.has(e.eventId));
+          const finish = ledger?.events.slice().reverse().find(e => e.kind === "finish" && !undone.has(e.eventId));
           if (finish && window.confirm("Отменить ошибочное закрытие PKO-журнала? До официального завершения турнира баунти победителя вернётся в его активный стек.")) {
             void send({ kind: "void_finish", eventId: crypto.randomUUID(), targetEventId: finish.eventId });
           }
