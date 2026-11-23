@@ -36,6 +36,10 @@ jobs:
         run: npm run lint
 
       - name: Typecheck
+        # MIX expanded the TS program past Node's default ~2 GiB V8 heap on the runner.
+        # Raise ONLY this check's heap, not the production image or VPS memory.
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: npx tsc --noEmit
 
   # Builds the production image ONCE, on the runner's own isolated
