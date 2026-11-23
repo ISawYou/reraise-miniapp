@@ -605,6 +605,27 @@ export async function updateTournament(
 
   if (input.tournament_type === "qualification_final" && (input.max_players !== 18 || input.is_final)) throw new Error("Финал отбора: ровно 18 мест, отдельный от Финала месяца тип");
   const current = await tournamentRepository.findById(tournamentId);
+  if (input.tournament_type === "progressive_knockout" && (input.is_final || current.kind !== "free")) {
+    throw new Error("PKO допускается только в обычном рейтинговом free-турнире");
+  }
+  if ((input.tournament_type === "progressive_knockout" || current.tournament_type === "progressive_knockout") &&
+      input.tournament_type !== current.tournament_type) {
+    if (current.status === "completed") throw new Error("Нельзя менять формат завершённого турнира на PKO или обратно");
+    const [attendance, rebuys, eliminated] = await Promise.all([
+      getTournamentAttendance(tournamentId), getTournamentRebuyState(tournamentId), getTournamentEliminations(tournamentId),
+    ]);
+    if ([...attendance.values()].some(a => a.arrived) ||
+        [...rebuys.values()].some(b => b.rebuys > 0 || b.addons > 0) ||
+        [...eliminated.values()].some(e => e.eliminated)) {
+      throw new Error("Нельзя менять формат PKO после начала игровых операций");
+    }
+    if (current.tournament_type === "progressive_knockout") {
+      const { pkoLedgerRepository } = await import("@/lib/repositories/pko/PostgresPkoLedgerRepository");
+      if ((await pkoLedgerRepository.read(tournamentId)).revision !== 0) {
+        throw new Error("Нельзя менять формат PKO при существующем журнале");
+      }
+    }
+  }
   // Fail closed: a historical legacy-formula tournament must never become a
   // v2-only format (bomb_pot / boost_rating) and then get legacy math.
   assertTournamentTypeSupportsFormula(input.tournament_type, current.rating_formula_version);
