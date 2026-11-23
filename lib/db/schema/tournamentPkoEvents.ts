@@ -20,5 +20,5 @@ export const tournamentPkoEvents = pgTable("tournament_pko_events", {
   check("tournament_pko_events_event_id_check", sql`char_length(${table.eventId}) BETWEEN 1 AND 128`),
   check("tournament_pko_events_payload_check", sql`jsonb_typeof(${table.eventData}) = 'object'
     AND ${table.eventData}->>'eventId' = ${table.eventId}
-    AND ${table.eventData}->>'kind' IN ('entry', 'knockout', 'void_knockout', 'finish')`),
+    AND ${table.eventData}->>'kind' IN ('entry', 'knockout', 'void_knockout', 'finish', 'void_finish')`),
 ]);
