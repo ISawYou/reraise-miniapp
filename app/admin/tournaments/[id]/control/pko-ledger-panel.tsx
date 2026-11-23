@@ -33,7 +33,7 @@ export function PkoLedgerPanel({ id, players, locked, onChanged }: Props) {
   const winner = active.length === 1 ? active[0] : null;
 
   async function send(event: PkoEvent) {
-    if (!ledger || busy || locked || snapshot?.finished) return;
+    if (!ledger || busy || locked || (snapshot?.finished && event.kind !== "void_finish")) return;
     setBusy(true); setMessage("");
     try {
       const response = await fetchAdminJson<Ledger>(url, {
@@ -138,7 +138,16 @@ export function PkoLedgerPanel({ id, players, locked, onChanged }: Props) {
           <p className="mt-2 text-xs text-zinc-400">Затем проверьте места и рейтинг в стандартном завершении турнира ниже.</p>
         </div>
       </div>}
-      {snapshot.finished && <p className="rounded bg-emerald-950 p-3 text-emerald-200">Журнал закрыт, все {snapshot.totalBountyCreated} очков баунти распределены. Проверяйте места и завершайте турнир.</p>}
+      {snapshot.finished && <div className="rounded bg-emerald-950 p-3 text-emerald-200">
+        <p>Журнал закрыт, все {snapshot.totalBountyCreated} очков баунти распределены. Проверьте места и завершите турнир.</p>
+        {!locked && <button className="mt-2 rounded border border-amber-500 px-3 py-2 text-sm text-amber-200 disabled:opacity-50" disabled={busy} onClick={() => {
+          const undone = new Set(snapshot.voidedFinishIds);
+          const finish = ledger?.events.findLast(e => e.kind === "finish" && !undone.has(e.eventId));
+          if (finish && window.confirm("Отменить ошибочное закрытие PKO-журнала? До официального завершения турнира баунти победителя вернётся в его активный стек.")) {
+            void send({ kind: "void_finish", eventId: crypto.randomUUID(), targetEventId: finish.eventId });
+          }
+        }}>Отменить ошибочное закрытие журнала</button>}
+      </div>}
     </>}
   </section>;
 }
