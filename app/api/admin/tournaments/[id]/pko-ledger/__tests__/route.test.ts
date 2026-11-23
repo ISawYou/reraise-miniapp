@@ -83,3 +83,11 @@ describe("PKO admin-only ledger endpoint", () => {
     expect(JSON.stringify(await response.json())).not.toContain("secret");
   });
 });
+
+it("allows staff ledger GET/POST and keeps unrelated admin paths denied", async () => {
+  const { isAdminRouteAllowedForOperator } = await import("@/lib/admin-permissions");
+  expect(isAdminRouteAllowedForOperator("GET", "/api/admin/tournaments/t/pko-ledger")).toBe(true);
+  expect(isAdminRouteAllowedForOperator("POST", "/api/admin/tournaments/t/pko-ledger")).toBe(true);
+  expect(isAdminRouteAllowedForOperator("PATCH", "/api/admin/tournaments/t/pko-ledger")).toBe(false);
+  expect(isAdminRouteAllowedForOperator("POST", "/api/admin/tournaments/t/pko-ledger/audit")).toBe(false);
+});
