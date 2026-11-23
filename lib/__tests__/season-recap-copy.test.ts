@@ -28,6 +28,7 @@ function baseRecap(overrides: Partial<SeasonRecap> = {}): SeasonRecap {
         boost_rating: 0,
         qualification_final: 0,
         free_roll: 0,
+      omaha_holdem_mix: 0,
       },
     },
     official: {

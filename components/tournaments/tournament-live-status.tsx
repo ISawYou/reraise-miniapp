@@ -1,4 +1,6 @@
 import type { TournamentLiveSummary } from "@/types/poker-clock-live-state";
+import type { TournamentType } from "@/types/domain";
+import { getOmahaHoldemMixPhase } from "@/lib/omaha-holdem-mix";
 
 // Shared by the Home tournament card and the tournament detail hero so the
 // two never drift apart on wording/order. Fact of LIVE comes only from
@@ -57,15 +59,20 @@ export function TournamentLiveStatusLines({
   clock,
   attendance,
   lateRegistration,
+  tournamentType,
 }: {
   clock: TournamentLiveSummary["clock"] | null | undefined;
   attendance: TournamentLiveSummary["attendance"] | null | undefined;
   lateRegistration: TournamentLiveSummary["lateRegistration"] | null | undefined;
+  tournamentType?: TournamentType;
 }) {
   const lateRegistrationLine = resolveLateRegistrationLine(
     lateRegistration ?? null,
     clock?.lateRegistrationRemainingSeconds
   );
+  const mixPhase = tournamentType === "omaha_holdem_mix"
+    ? getOmahaHoldemMixPhase(clock?.currentLevel ?? null, clock?.isBreak ?? null)
+    : null;
 
   return (
     <>
@@ -84,6 +91,9 @@ export function TournamentLiveStatusLines({
       ) : null}
       {lateRegistrationLine ? (
         <p className="mt-1 text-sm text-white/55">{lateRegistrationLine}</p>
+      ) : null}
+      {mixPhase ? (
+        <p className="mt-1 text-sm font-semibold text-[#e8cd7f]">{mixPhase.label}</p>
       ) : null}
     </>
   );

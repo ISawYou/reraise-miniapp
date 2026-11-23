@@ -25,6 +25,7 @@ const TOURNAMENT_TYPE_LABEL: Record<string, string> = {
   mystery_bounty: "Mystery Bounty",
   qualification_final: "Финал отбора",
   free_roll: "Free-roll",
+  omaha_holdem_mix: "Omaha / Hold'em Mix",
 };
 
 function Stat({ label, value }: { label: string; value: string | number }) {

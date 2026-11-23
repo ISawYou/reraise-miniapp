@@ -7,7 +7,7 @@ import {
   isTournamentLive,
   TournamentLiveStatusLines,
 } from "@/components/tournaments/tournament-live-status";
-import { getBoostRatingBadge, getExpectedPrizePlaces } from "@/lib/tournament-helpers";
+import { getBoostRatingBadge, getExpectedPrizePlaces, getTournamentTypeLabel } from "@/lib/tournament-helpers";
 import { getFinalRegistrationLabel } from "@/lib/tournament-final-policy";
 
 function UserIcon() {
@@ -148,6 +148,12 @@ export function TournamentCard({
 
   const isInteractive = Boolean(onAction) && !(tournament.is_final || tournament.tournament_type === "qualification_final") && !lockedLabel;
   const boostBadge = getBoostRatingBadge(tournament);
+  const hasArtwork = Boolean(configs[tournament.tournament_type]?.assetUrl);
+  const mixClockUnavailableAfterStart =
+    tournament.tournament_type === "omaha_holdem_mix" &&
+    showAction &&
+    !isLive &&
+    countdownText === "Уже начался";
 
   return (
     <div
@@ -177,6 +183,14 @@ export function TournamentCard({
             {boostBadge}
           </p>
         ) : null}
+        {tournament.tournament_type === "omaha_holdem_mix" && !hasArtwork ? (
+          <p
+            data-testid="tournament-text-artwork-fallback"
+            className="mt-1.5 inline-flex rounded-full border border-[#d7b55a]/35 bg-[#d7b55a]/10 px-2.5 py-1 text-[11px] font-semibold text-[#e8cd7f]"
+          >
+            {getTournamentTypeLabel(tournament.tournament_type)}
+          </p>
+        ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2 text-sm text-white/75">
           <div className="inline-flex rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium">
@@ -196,9 +210,18 @@ export function TournamentCard({
             clock={clock}
             attendance={attendance}
             lateRegistration={liveSummary?.lateRegistration ?? null}
+            tournamentType={tournament.tournament_type}
           />
         ) : showAction ? (
           <>
+            {mixClockUnavailableAfterStart ? (
+              <p
+                data-testid="mix-clock-unavailable-fallback"
+                className="mt-3 text-sm font-semibold text-[#e8cd7f]"
+              >
+                MIX · текущий формат уточняется по объявлению дилера
+              </p>
+            ) : null}
             <p className="mt-3 text-sm font-semibold text-white/70">
               {(tournament.is_final || tournament.tournament_type === "qualification_final")
                 ? countdownText === "Уже начался"

@@ -6,8 +6,9 @@
 // parameters ever change).
 //
 // Committed built-in originals: Crazy Pineapple (pineapple.png), Boost
-// Rating (boost-rating.png), Bomb Pot (bomb-pot.png) and Free-roll
-// (free-roll.png). The seven
+// Rating (boost-rating.png), Bomb Pot (bomb-pot.png), Free-roll
+// (free-roll.png), Omaha / Hold'em Mix (omaha-holdem-mix.png) and the
+// prepared Progressive Knockout artwork (progressive-knockout.png). The seven
 // legacy tournament types have no source PNG checked into this repo at all
 // (their originals live only in production's uploaded storage) -- this
 // script deliberately does NOT fabricate derivatives for them; that backfill
@@ -32,6 +33,8 @@ const FILES = [
   ["boost-rating.png", "boost-rating-card.png"],
   ["bomb-pot.png", "bomb-pot-card.png"],
   ["free-roll.png", "free-roll-card.png"],
+  ["omaha-holdem-mix.png", "omaha-holdem-mix-card.png"],
+  ["progressive-knockout.png", "progressive-knockout-card.png"],
 ];
 
 for (const [original, derivative] of FILES) {

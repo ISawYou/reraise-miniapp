@@ -87,7 +87,7 @@ export function TournamentVisual({
 }: TournamentVisualProps) {
   const config = configs[tournamentType];
 
-  if (!config) {
+  if (!config || !config.assetUrl) {
     return null;
   }
 

@@ -18,6 +18,7 @@ function pngDimensions(path: string): { width: number; height: number } {
 }
 
 const ALL_TOURNAMENT_TYPES = [
+  "qualification_final",
   "classic",
   "phoenix",
   "deep_stack",
@@ -29,12 +30,13 @@ const ALL_TOURNAMENT_TYPES = [
   "bomb_pot",
   "boost_rating",
   "free_roll",
+  "omaha_holdem_mix",
 ];
 
-describe("11 tournament visual types", () => {
-  it("recognizes exactly the 11 current TournamentType visual entries", () => {
+describe("13 tournament visual types", () => {
+  it("recognizes exactly the 13 current TournamentType visual entries", () => {
     expect(TOURNAMENT_VISUAL_TYPES.slice().sort()).toEqual(ALL_TOURNAMENT_TYPES.slice().sort());
-    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(11);
+    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(13);
   });
 
   it("crazy_pineapple remains recognized as a valid tournament visual type", () => {
@@ -133,5 +135,22 @@ describe("crazy_pineapple built-in 512px card derivative (Phase 2B.2)", () => {
       join(process.cwd(), "public/tournament-assets/pineapple-card.png"),
     ).length;
     expect(cardSize).toBeLessThan(originalSize);
+  });
+});
+
+describe("Omaha / Hold'em Mix approved artwork", () => {
+  it("ships the 1024px original and 512px card derivative", () => {
+    expect(DEFAULT_TOURNAMENT_VISUALS.omaha_holdem_mix).toBe("/tournament-assets/omaha-holdem-mix.png");
+    expect(DEFAULT_TOURNAMENT_CARD_VISUALS.omaha_holdem_mix).toBe("/tournament-assets/omaha-holdem-mix-card.png");
+    expect(pngDimensions(join(process.cwd(), "public/tournament-assets/omaha-holdem-mix.png"))).toEqual({ width: 1024, height: 1024 });
+    expect(pngDimensions(join(process.cwd(), "public/tournament-assets/omaha-holdem-mix-card.png"))).toEqual({ width: 512, height: 512 });
+  });
+});
+
+describe("Progressive Knockout artwork preparation", () => {
+  it("ships approved assets without adding an unfinished TournamentType mapping", () => {
+    expect(pngDimensions(join(process.cwd(), "public/tournament-assets/progressive-knockout.png"))).toEqual({ width: 1024, height: 1024 });
+    expect(pngDimensions(join(process.cwd(), "public/tournament-assets/progressive-knockout-card.png"))).toEqual({ width: 512, height: 512 });
+    expect(TOURNAMENT_VISUAL_TYPES).not.toContain("progressive_knockout");
   });
 });

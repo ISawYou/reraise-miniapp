@@ -15,6 +15,12 @@ beforeEach(async () => {
   el = document.createElement("div"); document.body.append(el); root = createRoot(el);
   mocks.request.mockReset().mockResolvedValue({ visuals: [getDefaultTournamentVisual("classic")] });
   await act(async () => root.render(<Editor />));
+  // The production visual order begins with qualification_final. Select the
+  // classic fixture explicitly so these editor tests exercise the intended
+  // persisted config instead of relying on array order.
+  await act(async () => {
+    (Array.from(el.querySelectorAll("button")).find((button) => button.textContent === "Texas Classic") as HTMLButtonElement).click();
+  });
 });
 afterEach(async () => { await act(async () => root.unmount()); el.remove(); });
 async function profileTab() {

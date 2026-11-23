@@ -258,3 +258,24 @@ describe("TournamentCard -- Boost Rating badge", () => {
     expect(container.querySelector('[data-testid="boost-rating-badge"]')).toBeNull();
   });
 });
+
+describe("TournamentCard -- MIX clock fallback", () => {
+  it("does not show an unknown-current-format message before the tournament starts", async () => {
+    await renderCard({
+      tournament: tournament({ tournament_type: "omaha_holdem_mix" }),
+      liveSummary: null,
+    });
+
+    expect(container.querySelector('[data-testid="mix-clock-unavailable-fallback"]')).toBeNull();
+  });
+
+  it("shows an honest manual fallback after start when the clock is unavailable", async () => {
+    await renderCard({
+      tournament: tournament({ tournament_type: "omaha_holdem_mix", start_at: "2020-01-01T00:00:00.000Z" }),
+      liveSummary: null,
+    });
+
+    expect(container.querySelector('[data-testid="mix-clock-unavailable-fallback"]')?.textContent)
+      .toContain("формат уточняется по объявлению дилера");
+  });
+});
