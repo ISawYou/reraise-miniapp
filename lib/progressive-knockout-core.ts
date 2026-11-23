@@ -19,7 +19,8 @@ export type PkoEvent =
   | { eventId: string; kind: "entry"; entryId: string; playerId: string }
   | { eventId: string; kind: "knockout"; eliminatedEntryId: string; shares: readonly { recipientEntryId: string; points: number }[] }
   | { eventId: string; kind: "finish"; winnerEntryId: string }
-  | { eventId: string; kind: "void_knockout"; targetEventId: string };
+  | { eventId: string; kind: "void_knockout"; targetEventId: string }
+  | { eventId: string; kind: "void_finish"; targetEventId: string };
 
 export type PkoPlayerTotals = {
   playerId: string;
@@ -37,6 +38,7 @@ export type PkoSnapshot = {
   outstandingBounty: number;
   finished: boolean;
   voidedKnockoutIds: string[];
+  voidedFinishIds: string[];
 };
 
 export class PkoAccountingError extends Error {
@@ -69,6 +71,7 @@ export function splitPkoBounty(share: number): { earnedPoints: number; growingBo
 export function replayPkoEvents(events: readonly PkoEvent[]): PkoSnapshot {
   const seen = new Map<string, PkoEvent>();
   const voided = new Set<string>();
+  const voidedFinishes = new Set<string>();
 
   for (const event of events) {
     nonemptyId(event.eventId, "eventId");
@@ -80,6 +83,13 @@ export function replayPkoEvents(events: readonly PkoEvent[]): PkoSnapshot {
       if (voided.has(event.targetEventId)) throw new PkoAccountingError("Knockout already voided");
       voided.add(event.targetEventId);
     }
+    if (event.kind === "void_finish") {
+      nonemptyId(event.targetEventId, "targetEventId");
+      const target = seen.get(event.targetEventId);
+      if (!target || target.kind !== "finish") throw new PkoAccountingError("Can void only an earlier finish event");
+      if (voidedFinishes.has(event.targetEventId)) throw new PkoAccountingError("Finish already voided");
+      voidedFinishes.add(event.targetEventId);
+    }
     seen.set(event.eventId, event);
   }
 
@@ -89,7 +99,8 @@ export function replayPkoEvents(events: readonly PkoEvent[]): PkoSnapshot {
 
   for (const event of events) {
     if (finished) throw new PkoAccountingError("No events allowed after tournament finish");
-    if (event.kind === "void_knockout") continue;
+    if (event.kind === "void_knockout" || event.kind === "void_finish") continue;
+    if (event.kind === "finish" && voidedFinishes.has(event.eventId)) continue;
     if (event.kind === "knockout" && voided.has(event.eventId)) continue;
 
     if (event.kind === "entry") {
@@ -169,7 +180,7 @@ export function replayPkoEvents(events: readonly PkoEvent[]): PkoSnapshot {
   return {
     entries: all, players: [...byPlayer.values()], totalBountyCreated: created,
     distributedRatingPoints, outstandingBounty, finished,
-    voidedKnockoutIds: [...voided],
+    voidedKnockoutIds: [...voided], voidedFinishIds: [...voidedFinishes],
   };
 }
 /** Parse an untrusted staff API payload. The replay engine accepts typed events;
@@ -209,6 +220,9 @@ export function parsePkoEvent(raw: unknown): PkoEvent {
     case "void_knockout":
       only(["kind", "eventId", "targetEventId"]);
       return { kind: "void_knockout", eventId, targetEventId: id(obj.targetEventId, "targetEventId") };
+    case "void_finish":
+      only(["kind", "eventId", "targetEventId"]);
+      return { kind: "void_finish", eventId, targetEventId: id(obj.targetEventId, "targetEventId") };
     case "finish":
       only(["kind", "eventId", "winnerEntryId"]);
       return { kind: "finish", eventId, winnerEntryId: id(obj.winnerEntryId, "winnerEntryId") };
