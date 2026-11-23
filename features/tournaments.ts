@@ -1646,6 +1646,16 @@ export async function setTournamentPlayerRebuyState(
 ): Promise<{ rebuys: number; addons: number }> {
   const tournament = await getTournamentById(tournamentId);
   if (tournament.status === "completed") throw new Error("Завершённый турнир нельзя редактировать");
+  if (tournament.tournament_type === "progressive_knockout") {
+    // The event ledger owns total entries. Only Add-on edits are permitted,
+    // serialized behind the exact same tournament lock as KO/entry writes.
+    if (authorization?.source !== "staff") throw new Error("PKO: только подтверждённые изменения сотрудника");
+    const { pkoLedgerRepository } = await import("@/lib/repositories/pko/PostgresPkoLedgerRepository");
+    return pkoLedgerRepository.updateAddons({
+      tournamentId, playerId, actorId: authorization.actorId,
+      expectedEntries: rebuys, addons,
+    });
+  }
   const maxEntries = tournament.tournament_type === "qualification_final" ? 1 : tournament.tournament_type === "phoenix" ? 2 : null;
   if (maxEntries !== null && (addons !== 0 || !Number.isInteger(rebuys) || rebuys < 0 || rebuys > maxEntries)) throw new Error("Для этого формата запрещены Add-on и превышение лимита входов");
   return tournamentLiveStateRepository.upsertRebuyState({
