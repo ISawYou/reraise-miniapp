@@ -1,9 +1,10 @@
 import "server-only";
 import {postgresCompletionFingerprint} from "@/features/postgres-completion-fingerprint";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { registrations, results, tournaments } from "@/lib/db/schema";
+import { registrations, results, tournaments, tournamentPkoEvents } from "@/lib/db/schema";
+import { validatePkoCompletion } from "@/lib/pko-completion";
 import type { Executor } from "@/features/tournament-row-lock";
 import type { ResultInsert } from "@/lib/repositories/result/ResultRepository";
 import {
@@ -83,6 +84,28 @@ export async function commitTournamentCompletion(input: {
       throw new TournamentAlreadyCompletedError();
     }
     if(input.expectedFingerprint && await postgresCompletionFingerprint(tournamentId,tx)!==input.expectedFingerprint)throw new Error("Данные турнира изменились во время завершения; проверьте таблицу и повторите");
+
+    // Every completion path (including legacy/paid routes) is forced through
+    // the SAME PKO ledger/frozen-rating safety check while holding the
+    // tournament row lock. No future endpoint can silently award ordinary
+    // KO points or finish a PKO without the winner payout.
+    if (locked.tournamentType === "progressive_knockout") {
+      if (!input.expectedFingerprint) throw new Error("PKO требует подтверждённый fingerprint предпросмотра");
+      const eventRows = await tx.select({ eventData: tournamentPkoEvents.eventData })
+        .from(tournamentPkoEvents)
+        .where(eq(tournamentPkoEvents.tournamentId, tournamentId))
+        .orderBy(asc(tournamentPkoEvents.sequence));
+      const allocation = validatePkoCompletion(
+        rows.map(row => ({ player_id: row.player_id, place: row.place, entries: row.reentries, arrived: row.arrived })),
+        eventRows.map(row => row.eventData)
+      );
+      for (const row of rows) {
+        const award = allocation.perPlayer.get(row.player_id);
+        if (!award || row.knockout_points !== award.points || row.knockouts !== award.soloKnockouts) {
+          throw new Error("PKO: frozen KO points / statistics do not reconcile with ledger");
+        }
+      }
+    }
 
     // Same statements, same values as PostgresResultRepository's
     // deleteByTournamentId + insertMany and
