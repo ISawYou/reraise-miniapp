@@ -608,23 +608,13 @@ export async function updateTournament(
   if (input.tournament_type === "progressive_knockout" && (input.is_final || current.kind !== "free")) {
     throw new Error("PKO допускается только в обычном рейтинговом free-турнире");
   }
+  // PKO stores a permanent per-entry ledger. Format conversion is forbidden
+  // outright, including before gameplay, so a concurrent entry cannot race
+  // a non-transactional tournament type edit and orphan the event ledger.
+  // Staff may still edit the title/date/description of a PKO tournament.
   if ((input.tournament_type === "progressive_knockout" || current.tournament_type === "progressive_knockout") &&
       input.tournament_type !== current.tournament_type) {
-    if (current.status === "completed") throw new Error("Нельзя менять формат завершённого турнира на PKO или обратно");
-    const [attendance, rebuys, eliminated] = await Promise.all([
-      getTournamentAttendance(tournamentId), getTournamentRebuyState(tournamentId), getTournamentEliminations(tournamentId),
-    ]);
-    if ([...attendance.values()].some(a => a.arrived) ||
-        [...rebuys.values()].some(b => b.rebuys > 0 || b.addons > 0) ||
-        [...eliminated.values()].some(e => e.eliminated)) {
-      throw new Error("Нельзя менять формат PKO после начала игровых операций");
-    }
-    if (current.tournament_type === "progressive_knockout") {
-      const { pkoLedgerRepository } = await import("@/lib/repositories/pko/PostgresPkoLedgerRepository");
-      if ((await pkoLedgerRepository.read(tournamentId)).revision !== 0) {
-        throw new Error("Нельзя менять формат PKO при существующем журнале");
-      }
-    }
+    throw new Error("Формат PKO нельзя менять у существующего турнира: создайте отдельный турнир");
   }
   // Fail closed: a historical legacy-formula tournament must never become a
   // v2-only format (bomb_pot / boost_rating) and then get legacy math.
