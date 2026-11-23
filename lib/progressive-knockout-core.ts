@@ -172,3 +172,47 @@ export function replayPkoEvents(events: readonly PkoEvent[]): PkoSnapshot {
     voidedKnockoutIds: [...voided],
   };
 }
+/** Parse an untrusted staff API payload. The replay engine accepts typed events;
+ * this parser is the mandatory JSON boundary so unknown kinds/keys cannot
+ * silently become no-op ledger records. */
+export function parsePkoEvent(raw: unknown): PkoEvent {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new PkoAccountingError("PKO event must be an object");
+  const obj = raw as Record<string, unknown>;
+  const id = (value: unknown, label: string): string => {
+    if (typeof value !== "string" || value.trim() !== value || value.length < 1 || value.length > 128) {
+      throw new PkoAccountingError(`${label} must be a nonempty ID (max 128 characters)`);
+    }
+    return value;
+  };
+  const only = (keys: readonly string[]) => {
+    if (Object.keys(obj).some(key => !keys.includes(key))) throw new PkoAccountingError("Unexpected PKO event field");
+  };
+  const eventId = id(obj.eventId, "eventId");
+  switch (obj.kind) {
+    case "entry":
+      only(["kind", "eventId", "entryId", "playerId"]);
+      return { kind: "entry", eventId, entryId: id(obj.entryId, "entryId"), playerId: id(obj.playerId, "playerId") };
+    case "knockout": {
+      only(["kind", "eventId", "eliminatedEntryId", "shares"]);
+      if (!Array.isArray(obj.shares) || obj.shares.length < 1 || obj.shares.length > 100) {
+        throw new PkoAccountingError("PKO knockout requires 1..100 explicit recipient shares");
+      }
+      const shares = obj.shares.map((rawShare: unknown) => {
+        if (!rawShare || typeof rawShare !== "object" || Array.isArray(rawShare)) throw new PkoAccountingError("Invalid PKO share");
+        const share = rawShare as Record<string, unknown>;
+        if (Object.keys(share).some(key => !["recipientEntryId", "points"].includes(key))) throw new PkoAccountingError("Unexpected PKO share field");
+        if (!Number.isSafeInteger(share.points) || (share.points as number) <= 0) throw new PkoAccountingError("Invalid PKO share points");
+        return { recipientEntryId: id(share.recipientEntryId, "recipientEntryId"), points: share.points as number };
+      });
+      return { kind: "knockout", eventId, eliminatedEntryId: id(obj.eliminatedEntryId, "eliminatedEntryId"), shares };
+    }
+    case "void_knockout":
+      only(["kind", "eventId", "targetEventId"]);
+      return { kind: "void_knockout", eventId, targetEventId: id(obj.targetEventId, "targetEventId") };
+    case "finish":
+      only(["kind", "eventId", "winnerEntryId"]);
+      return { kind: "finish", eventId, winnerEntryId: id(obj.winnerEntryId, "winnerEntryId") };
+    default:
+      throw new PkoAccountingError("Unknown PKO event kind");
+  }
+}
