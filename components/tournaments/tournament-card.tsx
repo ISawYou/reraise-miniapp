@@ -209,6 +209,14 @@ export function TournamentCard({
           />
         ) : showAction ? (
           <>
+            {tournament.tournament_type === "omaha_holdem_mix" ? (
+              <p
+                data-testid="mix-clock-unavailable-fallback"
+                className="mt-3 text-sm font-semibold text-[#e8cd7f]"
+              >
+                MIX · текущий формат уточняется по объявлению дилера
+              </p>
+            ) : null}
             <p className="mt-3 text-sm font-semibold text-white/70">
               {(tournament.is_final || tournament.tournament_type === "qualification_final")
                 ? countdownText === "Уже начался"

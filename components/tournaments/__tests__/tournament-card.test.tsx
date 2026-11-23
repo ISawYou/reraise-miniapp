@@ -258,3 +258,15 @@ describe("TournamentCard -- Boost Rating badge", () => {
     expect(container.querySelector('[data-testid="boost-rating-badge"]')).toBeNull();
   });
 });
+
+describe("TournamentCard -- MIX clock fallback", () => {
+  it("shows an honest manual format fallback when no active Poker Clock exists", async () => {
+    await renderCard({
+      tournament: tournament({ tournament_type: "omaha_holdem_mix" }),
+      liveSummary: null,
+    });
+
+    expect(container.querySelector('[data-testid="mix-clock-unavailable-fallback"]')?.textContent)
+      .toContain("формат уточняется по объявлению дилера");
+  });
+});

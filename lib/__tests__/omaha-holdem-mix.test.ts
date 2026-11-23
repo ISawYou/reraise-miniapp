@@ -15,6 +15,16 @@ describe("Omaha / Hold'em Mix clock phase", () => {
     });
   });
 
+  it("matches Poker Clock display levels before, during and after a break", () => {
+    // Poker Clock's producer contract numbers only playable blind levels:
+    // [Hold'em, Omaha, break, Hold'em] is exposed as display levels
+    // [1, 2, 2, 3], with isBreak=true only for the middle snapshot.
+    expect(getOmahaHoldemMixPhase(1, false).phase).toBe("holdem");
+    expect(getOmahaHoldemMixPhase(2, false).phase).toBe("omaha");
+    expect(getOmahaHoldemMixPhase(2, true).phase).toBe("omaha");
+    expect(getOmahaHoldemMixPhase(3, false).phase).toBe("holdem");
+  });
+
   it("fails closed when Poker Clock has no usable current level", () => {
     expect(getOmahaHoldemMixPhase(null, null)).toEqual({
       phase: "unknown",
