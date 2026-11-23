@@ -2,7 +2,7 @@ import "server-only";
 
 import { asc, and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { players, registrations, tournaments, tournamentPkoEvents } from "@/lib/db/schema";
+import { players, registrations, tournaments, tournamentPkoEvents, tournamentAttendance, tournamentRebuyState } from "@/lib/db/schema";
 import {
   parsePkoEvent,
   replayPkoEvents,
@@ -32,8 +32,8 @@ export type PkoLedgerRead = {
  * server-assigned and the client must pass expectedRevision for every write.
  * Same eventId + same normalized payload is idempotent, not awarded twice.
  *
- * This is intentionally NOT wired to ratings/completion yet. The future
- * completion implementation must freeze replayed PKO totals atomically.
+ * PKO completion independently revalidates and freezes ledger totals
+ * under the same tournament row lock before writing results.
  */
 export class PostgresPkoLedgerRepository {
   private assertPkoTournament(t: { tournamentType: string; sourceMode: string; status: string; ratingFormulaVersion: string } | undefined) {
@@ -120,6 +120,19 @@ export class PostgresPkoLedgerRepository {
         if (!registration || !["registered", "attended"].includes(registration.status)) {
           throw new PkoLedgerError("Игрок не зарегистрирован в турнире", 409);
         }
+        const [attendance] = await tx.select({ arrived: tournamentAttendance.arrived })
+          .from(tournamentAttendance).where(and(
+            eq(tournamentAttendance.tournamentId, input.tournamentId),
+            eq(tournamentAttendance.playerId, event.playerId),
+          ));
+        if (!attendance?.arrived) throw new PkoLedgerError("Сначала отметьте игрока как «Пришёл»", 409);
+        const [state] = await tx.select({ rebuys: tournamentRebuyState.rebuys, addons: tournamentRebuyState.addons })
+          .from(tournamentRebuyState).where(and(
+            eq(tournamentRebuyState.tournamentId, input.tournamentId),
+            eq(tournamentRebuyState.playerId, event.playerId),
+          )).for("update");
+        const recordedEntries = current.snapshot.entries.filter(e => e.playerId === event.playerId).length;
+        if ((state?.rebuys ?? 0) !== recordedEntries) throw new PkoLedgerError("Количество входов расходится с журналом PKO", 409);
       }
 
       // All points/conservation/share rules validate BEFORE touching storage.
@@ -131,9 +144,60 @@ export class PostgresPkoLedgerRepository {
         eventData: event,
         actorId: input.actorId,
       });
+      if (event.kind === "entry") {
+        // A PKO entry and its ordinary total-entries counter are one atomic
+        // fact. No separate manual re-buy edit or two-step UI race.
+        const totalEntries = next.entries.filter(e => e.playerId === event.playerId).length;
+        await tx.insert(tournamentRebuyState).values({
+          tournamentId: input.tournamentId, playerId: event.playerId, rebuys: totalEntries, addons: 0,
+        }).onConflictDoUpdate({
+          target: [tournamentRebuyState.tournamentId, tournamentRebuyState.playerId],
+          set: { rebuys: totalEntries, updatedAt: new Date() },
+        });
+      }
       return { revision: current.revision + 1, events: [...current.events, event], snapshot: next };
     });
   }
+
+  /** Allow Add-on corrections without ever editing ledger-owned entry counts. */
+  async updateAddons(input: {
+    tournamentId: string; playerId: string; actorId: string;
+    expectedEntries: number; addons: number;
+  }): Promise<{ rebuys: number; addons: number }> {
+    if (![input.expectedEntries, input.addons].every(n => Number.isSafeInteger(n) && n >= 0 && n <= 2147483647)) {
+      throw new PkoLedgerError("Некорректные входы или Add-on", 400);
+    }
+    return db.transaction(async tx => {
+      const [t] = await tx.select().from(tournaments).where(eq(tournaments.id, input.tournamentId)).for("update");
+      this.assertPkoTournament(t);
+      if (t!.status === "completed" || t!.status === "draft") throw new PkoLedgerError("Турнир не редактируется", 409);
+      const [actor] = await tx.select().from(players).where(eq(players.id, input.actorId)).for("share");
+      if (!actor || !["admin", "operator"].includes(actor.role) || actor.isBlocked || actor.mergedIntoPlayerId) {
+        throw new PkoLedgerError("Недостаточно прав", 403);
+      }
+      const [registration] = await tx.select({ status: registrations.status }).from(registrations).where(and(
+        eq(registrations.tournamentId, input.tournamentId), eq(registrations.playerId, input.playerId),
+      ));
+      if (!registration || !["registered", "attended"].includes(registration.status)) throw new PkoLedgerError("Игрок не зарегистрирован", 409);
+      const eventRows = await tx.select({ eventData: tournamentPkoEvents.eventData }).from(tournamentPkoEvents)
+        .where(eq(tournamentPkoEvents.tournamentId, input.tournamentId)).orderBy(asc(tournamentPkoEvents.sequence));
+      const snapshot = replayPkoEvents(eventRows.map(x => x.eventData));
+      const totalEntries = snapshot.entries.filter(entry => entry.playerId === input.playerId).length;
+      if (input.expectedEntries !== totalEntries) throw new PkoLedgerError("Входы изменились в PKO — обновите страницу", 409);
+      const [current] = await tx.select({ rebuys: tournamentRebuyState.rebuys }).from(tournamentRebuyState)
+        .where(and(eq(tournamentRebuyState.tournamentId, input.tournamentId), eq(tournamentRebuyState.playerId, input.playerId)))
+        .for("update");
+      if ((current?.rebuys ?? 0) !== totalEntries) throw new PkoLedgerError("Счётчик входов расходится с журналом", 409);
+      await tx.insert(tournamentRebuyState).values({
+        tournamentId: input.tournamentId, playerId: input.playerId, rebuys: totalEntries, addons: input.addons,
+      }).onConflictDoUpdate({
+        target: [tournamentRebuyState.tournamentId, tournamentRebuyState.playerId],
+        set: { addons: input.addons, updatedAt: new Date() },
+      });
+      return { rebuys: totalEntries, addons: input.addons };
+    });
+  }
+
 }
 
 export const pkoLedgerRepository = new PostgresPkoLedgerRepository();
