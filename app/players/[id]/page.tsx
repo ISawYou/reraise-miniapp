@@ -628,7 +628,7 @@ export default function PlayerProfilePage() {
 
         <p className="mt-2 px-1 text-[11px] leading-relaxed text-white/60">Место и очки — сезон · Турниры и нокауты — всё время</p>
         {isOwnProfile && (player.free_reentries_balance ?? 0) > 0 ? (
-          <p data-testid="free-reentries-balance" className="mt-2 px-1 text-xs text-[#d5b867]">Бесплатные re-entry: {player.free_reentries_balance}</p>
+          <p data-testid="free-reentries-balance" className="mt-2 px-1 text-xs text-[#d5b867]">Бесплатные повторные входы: {player.free_reentries_balance}</p>
         ) : null}
 
         {player.nickname_status === "pending" && player.pending_display_name ? (

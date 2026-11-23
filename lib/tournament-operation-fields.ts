@@ -43,7 +43,7 @@ export function operationFieldsFor(type:TournamentType): (keyof OperationFields)
  return ["paid",...(type==="phoenix"?[]:["freeReentries" as const]),"place",...(type==="bounty"?["knockouts" as const]:type==="boss_bounty"?["knockouts" as const,"bossKnockouts" as const]:type==="mystery_bounty"?["mysteryEnvelopesWon" as const,"mysteryPoints" as const]:[]),"comment"];
 }
 export function assertPhoenixFreeReentries(type:TournamentType,value:number|null|undefined){
- if(type==="phoenix"&&value!=null&&value!==0)throw Error("PHOENIX: бесплатные re-entry запрещены");
+ if(type==="phoenix"&&value!=null&&value!==0)throw Error("PHOENIX: бесплатные повторные входы запрещены");
 }
 export function validateFormatPatch(type:TournamentType,patch:Partial<OperationFields>){
  assertPhoenixFreeReentries(type,patch.freeReentries);

@@ -132,7 +132,7 @@ export function getTournamentTypeBonusLines(type: TournamentType, formula: "lega
 export function getTournamentTypeInstructionLines(type: TournamentType): string[] {
   if (type === "progressive_knockout") return [
     "Каждый вход создаёт 6 очков баунти; нокаут делится: половина в рейтинг, половина увеличивает ваше баунти.",
-    "При нечётном числе очков остаток идёт в растущий баунти. После Re-entry баунти сбрасывается до 6, заработанные очки сохраняются.",
+    "При нечётном числе очков остаток идёт в растущий баунти. После повторного входа баунти сбрасывается до 6, заработанные очки сохраняются.",
     "Победитель получает оставшееся собственное баунти после завершения. Совместные нокауты распределяет судья.",
   ];
   if (type !== "omaha_holdem_mix") return [];

@@ -325,7 +325,7 @@ function ResultCardView({
     ["Место", card.place],
     ["Очки рейтинга", card.rating_points],
     ["Входы", card.entries],
-    ["Аддоны", card.addons],
+    ["Дополнительные входы", card.addons],
   ];
   if (card.knockouts > 0) rows.push(["KO", card.knockouts]);
   if (card.boss_knockouts > 0) rows.push(["Boss KO", card.boss_knockouts]);
@@ -855,7 +855,7 @@ function ConflictPlayerCard({ title, player }: { title: string; player: Conflict
           <dd>{player.referral_count}</dd>
         </div>
         <div className="flex justify-between gap-2">
-          <dt className="text-white/40">Бесплатные ре-энтри</dt>
+          <dt className="text-white/40">Бесплатные повторные входы</dt>
           <dd>{player.free_reentries_balance}</dd>
         </div>
         <div className="flex justify-between gap-2">

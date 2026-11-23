@@ -1668,7 +1668,7 @@ export async function setTournamentPlayerRebuyState(
     });
   }
   const maxEntries = tournament.tournament_type === "qualification_final" ? 1 : tournament.tournament_type === "phoenix" ? 2 : null;
-  if (maxEntries !== null && (addons !== 0 || !Number.isInteger(rebuys) || rebuys < 0 || rebuys > maxEntries)) throw new Error("Для этого формата запрещены Add-on и превышение лимита входов");
+  if (maxEntries !== null && (addons !== 0 || !Number.isInteger(rebuys) || rebuys < 0 || rebuys > maxEntries)) throw new Error("Для этого формата запрещены дополнительные входы и превышение лимита входов");
   return tournamentLiveStateRepository.upsertRebuyState({
     tournament_id: tournamentId,
     player_id: playerId,

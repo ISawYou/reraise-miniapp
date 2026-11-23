@@ -193,7 +193,7 @@ export default function SeasonRecapPage() {
             <Stat label="Очков" value={summary.totalRatingPointsAwarded} />
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Re-entry" value={summary.totalReentries} />
+            <Stat label="повторный вход" value={summary.totalReentries} />
             <Stat label="KO" value={summary.totalKnockouts} />
             <Stat label="Среднее поле" value={summary.averageFieldSize.toFixed(1)} />
             <Stat

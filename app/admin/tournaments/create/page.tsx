@@ -18,7 +18,6 @@ import {
 import type { Player } from "@/types/domain";
 
 export const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: string }> = [
-  { value: "qualification_final", label: "ФИНАЛ ОТБОРА (закрытый, без рейтинга)" },
   { value: "classic", label: "Classic" },
   { value: "phoenix", label: "Phoenix" },
   { value: "deep_stack", label: "Deep Stack" },
@@ -244,7 +243,7 @@ export default function AdminTournamentCreatePage() {
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Например, bounty, re-entry, поздняя регистрация 60 минут"
+            placeholder="Например, bounty, повторный вход, поздняя регистрация 60 минут"
             className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 outline-none"
             rows={4}
           />

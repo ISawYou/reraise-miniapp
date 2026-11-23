@@ -39,7 +39,7 @@ export function buildSeasonRecapCopyText(recap: SeasonRecap): string {
     `Турниров: ${summary.completedTournaments}`,
     `Уникальных игроков: ${summary.uniquePlayers}`,
     `Участий: ${summary.totalParticipations}`,
-    `Re-entry: ${summary.totalReentries}`,
+    `повторный вход: ${summary.totalReentries}`,
     `Начислено рейтинговых очков: ${summary.totalRatingPointsAwarded}`,
     `KO: ${summary.totalKnockouts}`,
     `Boss KO: ${summary.totalBossKnockouts}`,
