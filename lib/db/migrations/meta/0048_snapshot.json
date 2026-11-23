@@ -6761,7 +6761,7 @@
         },
         "tournament_pko_events_payload_check": {
           "name": "tournament_pko_events_payload_check",
-          "value": "jsonb_typeof(\"tournament_pko_events\".\"event_data\") = 'object'\n    AND \"tournament_pko_events\".\"event_data\"->>'eventId' = \"tournament_pko_events\".\"event_id\"\n    AND \"tournament_pko_events\".\"event_data\"->>'kind' IN ('entry', 'knockout', 'void_knockout', 'finish')"
+          "value": "jsonb_typeof(\"tournament_pko_events\".\"event_data\") = 'object'\n    AND \"tournament_pko_events\".\"event_data\"->>'eventId' = \"tournament_pko_events\".\"event_id\"\n    AND \"tournament_pko_events\".\"event_data\"->>'kind' IN ('entry', 'knockout', 'void_knockout', 'finish', 'void_finish')"
         }
       },
       "isRLSEnabled": false
