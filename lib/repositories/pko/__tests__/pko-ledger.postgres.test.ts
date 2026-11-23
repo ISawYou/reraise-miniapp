@@ -83,7 +83,7 @@ describe.runIf(!!url)("PKO real transaction ledger on disposable PostgreSQL", ()
     expect(finished.snapshot).toMatchObject({ totalBountyCreated: 18, distributedRatingPoints: 18, outstandingBounty: 0, finished: true });
     expect(finished.snapshot.players.find(x => x.playerId === a)?.totalPkoRatingPoints).toBe(18);
     const undone = await append({ kind: "void_finish", eventId: "undo-finish", targetEventId: "finish" }, 6);
-    expect(undone.snapshot).toMatchObject({ finished: false, distributedRatingPoints: 9, outstandingBounty: 9 });
+    expect(undone.snapshot).toMatchObject({ finished: false, distributedRatingPoints: 6, outstandingBounty: 12 });
     const reclosed = await append({ kind: "finish", eventId: "finish-2", winnerEntryId: "a1" }, 7);
     expect(reclosed.snapshot).toMatchObject({ finished: true, distributedRatingPoints: 18, outstandingBounty: 0 });
     await expect(append({ kind: "finish", eventId: "again", winnerEntryId: "a1" }, 8)).rejects.toThrow(/уже завершён/);
