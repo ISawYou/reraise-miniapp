@@ -1,0 +1,28 @@
+name: PKO Draft Verification
+
+on:
+  push:
+    branches: [feature/progressive-knockout-core]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: PKO focused tests
+        run: npx vitest run lib/__tests__/progressive-knockout-core.test.ts app/api/admin/tournaments/\[id\]/pko-ledger/__tests__/route.test.ts
+      - name: Typecheck
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: npx tsc --noEmit
+      - name: Lint PKO code
+        run: npx eslint lib/progressive-knockout-core.ts lib/__tests__/progressive-knockout-core.test.ts lib/db/schema/tournamentPkoEvents.ts lib/repositories/pko/PostgresPkoLedgerRepository.ts app/api/admin/tournaments/\[id\]/pko-ledger/route.ts app/api/admin/tournaments/\[id\]/pko-ledger/__tests__/route.test.ts
