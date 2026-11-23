@@ -16,6 +16,7 @@ import type {
   SeasonRecapResultRow,
   TeamScoringResultRow,
   PlayerClubDiscountHistoryRow,
+  IntegrationCompletedResultRow,
 } from "./ResultRepository";
 
 const CLUB_DISCOUNT_POSTGRES_ONLY_MESSAGE =
@@ -319,6 +320,44 @@ export class SupabaseResultRepository implements ResultRepository {
         display_name: player?.display_name ?? "Игрок",
       };
     });
+  }
+
+  async findByTournamentIdForIntegration(tournamentId: string): Promise<IntegrationCompletedResultRow[]> {
+    const supabase = getSupabaseServer();
+    const { data, error } = await supabase
+      .from("results")
+      .select(
+        `
+        player_id,
+        place,
+        knockouts,
+        boss_knockouts,
+        mystery_bounty_points,
+        rating_points,
+        arrived,
+        players (
+          display_name
+        )
+      `
+      )
+      .eq("tournament_id", tournamentId)
+      .order("place", { ascending: true });
+
+    if (error) throw new Error(error.message);
+
+    type Row = Omit<IntegrationCompletedResultRow, "display_name"> & {
+      players: { display_name: string } | { display_name: string }[] | null;
+    };
+    return ((data ?? []) as Row[]).map((row) => ({
+      player_id: row.player_id,
+      display_name: flattenEmbedded(row.players)?.display_name ?? "Игрок",
+      place: row.place,
+      rating_points: row.rating_points,
+      knockouts: row.knockouts,
+      boss_knockouts: row.boss_knockouts,
+      mystery_bounty_points: row.mystery_bounty_points,
+      arrived: row.arrived,
+    }));
   }
 
   async findWithPlayerBySeasonId(seasonId: string) {
