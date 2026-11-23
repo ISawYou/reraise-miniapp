@@ -35,6 +35,7 @@ import type { TournamentVisualConfig } from "@/config/tournament-visuals";
 import {
   getExpectedPrizePlaces,
   getTournamentTypeBonusLines,
+  getTournamentTypeInstructionLines,
   getTournamentTypeLabel,
   sortParticipantsByRating,
   splitTournamentLiveRoster,
@@ -411,7 +412,9 @@ export default function TournamentDetailsPage() {
   const tournamentTypeBonusLines = tournament
     ? getTournamentTypeBonusLines(tournament.tournament_type, tournament.rating_formula_version)
     : [];
-
+  const tournamentTypeInstructionLines = tournament
+    ? getTournamentTypeInstructionLines(tournament.tournament_type)
+    : [];
   // Results tab: KO column only for formats that actually have ordinary
   // knockouts -- elsewhere it's a column of zeros. Full literal class
   // strings so Tailwind picks both layouts up.
@@ -883,9 +886,18 @@ const waitlistParticipants = participants.filter(
               </div>
             </section>
 
-            {tournament.description ? (
+            {tournament.description || tournamentTypeInstructionLines.length > 0 ? (
               <section className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4">
-                <TournamentDescription text={tournament.description}>{renderDescription(tournament.description)}</TournamentDescription>
+                <TournamentDescription text={tournament.description ?? ""}>
+                  {tournament.description ? renderDescription(tournament.description) : null}
+                </TournamentDescription>
+                {tournamentTypeInstructionLines.length > 0 ? (
+                  <div className="space-y-1.5 border-t border-white/10 pt-3 text-sm text-[#e8cd7f]">
+                    {tournamentTypeInstructionLines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </div>
+                ) : null}
               </section>
             ) : null}
           </div>

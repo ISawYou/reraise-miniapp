@@ -26,7 +26,8 @@ export type TournamentType =
   | "crazy_pineapple"
   | "bomb_pot"
   | "boost_rating"
-  | "free_roll";
+  | "free_roll"
+  | "omaha_holdem_mix";
 
 export type Player = {
   id: string;

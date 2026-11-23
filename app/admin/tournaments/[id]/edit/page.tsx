@@ -53,6 +53,7 @@ export const TOURNAMENT_TYPE_OPTIONS: Array<{ value: TournamentPreset; label: st
   { value: "bomb_pot", label: "Bomb Pot" },
   { value: "boost_rating", label: "Boost Rating" },
   { value: "free_roll", label: "Free-roll" },
+  { value: "omaha_holdem_mix", label: "Omaha / Hold'em Mix" },
   { value: FINAL_MONTH_PRESET, label: FINAL_MONTH_LABEL },
 ];
 

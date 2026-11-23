@@ -215,6 +215,7 @@ export const VOLUME_FORMATS: ReadonlySet<TournamentType> = new Set<TournamentTyp
   // first entry is free) is a Finance/money fact handled in
   // features/finance-export.ts -- rating math is identical to classic.
   "free_roll",
+  "omaha_holdem_mix",
 ]);
 
 // Formats that exist only under Rating Engine v2 -- never valid with
@@ -228,6 +229,7 @@ export const V2_ONLY_TOURNAMENT_TYPES: ReadonlySet<TournamentType> = new Set<Tou
   // Introduced after the legacy formula was retired, same as bomb_pot /
   // boost_rating -- a legacy tournament must never be switched to it.
   "free_roll",
+  "omaha_holdem_mix",
 ]);
 
 export function assertTournamentTypeSupportsFormula(

@@ -97,6 +97,7 @@ const TOURNAMENT_TYPES: TournamentType[] = [
   "boost_rating",
   "qualification_final",
   "free_roll",
+  "omaha_holdem_mix",
 ];
 
 function ruSort(a: string, b: string): number {

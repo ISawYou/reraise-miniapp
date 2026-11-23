@@ -57,6 +57,8 @@ export function getTournamentTypeLabel(type: TournamentType): string {
       return "Boost Rating";
     case "free_roll":
       return "Free-roll";
+    case "omaha_holdem_mix":
+      return "Omaha / Hold'em Mix";
     case "classic":
     default:
       return "Texas Classic";
@@ -120,6 +122,15 @@ export function getTournamentTypeBonusLines(type: TournamentType, formula: "lega
   }
 
   return lines;
+}
+
+export function getTournamentTypeInstructionLines(type: TournamentType): string[] {
+  if (type !== "omaha_holdem_mix") return [];
+  return [
+    "Уровень 1 — Texas Hold'em, уровень 2 — Pot-Limit Omaha; затем форматы чередуются на каждом уровне.",
+    "Перерыв не меняет порядок чередования. Если текущий уровень или состояние часов неизвестны, ориентируйтесь на объявление дилера.",
+    "В Omaha: 4 закрытые карты, ровно 2 из руки и ровно 3 с доски.",
+  ];
 }
 
 // Display-only "По рейтингу" convenience sort for the Registration tab's

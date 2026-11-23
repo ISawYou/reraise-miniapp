@@ -18,6 +18,7 @@ function pngDimensions(path: string): { width: number; height: number } {
 }
 
 const ALL_TOURNAMENT_TYPES = [
+  "qualification_final",
   "classic",
   "phoenix",
   "deep_stack",
@@ -29,12 +30,13 @@ const ALL_TOURNAMENT_TYPES = [
   "bomb_pot",
   "boost_rating",
   "free_roll",
+  "omaha_holdem_mix",
 ];
 
-describe("11 tournament visual types", () => {
-  it("recognizes exactly the 11 current TournamentType visual entries", () => {
+describe("13 tournament visual types", () => {
+  it("recognizes exactly the 13 current TournamentType visual entries", () => {
     expect(TOURNAMENT_VISUAL_TYPES.slice().sort()).toEqual(ALL_TOURNAMENT_TYPES.slice().sort());
-    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(11);
+    expect(TOURNAMENT_VISUAL_TYPES).toHaveLength(13);
   });
 
   it("crazy_pineapple remains recognized as a valid tournament visual type", () => {
