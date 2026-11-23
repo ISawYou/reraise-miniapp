@@ -66,4 +66,4 @@ jobs:
         env:
           PKO_DISPOSABLE_DATABASE: "true"
           RERAISE_PKO_TEST_DATABASE_URL: postgres://reraise:test-only-password@localhost:5432/reraise
-        run: npx vitest run lib/repositories/pko/__tests__/pko-ledger.postgres.test.ts
+        run: npx vitest run lib/repositories/pko/__tests__/pko-ledger.postgres.test.ts lib/repositories/pko/__tests__/pko-completion.postgres.test.ts
