@@ -38,13 +38,13 @@ export async function previewPostgresCompletion(id:string){
   const place=e?.eliminated?derivedPlaces.get(p.player_id)??op?.place:op?.place;
   const missing:string[]=[];
   if(!a)missing.push("Приход");
-  if(!b)missing.push("Входы / Add-on");
+  if(!b)missing.push("Входы / дополнительный вход");
   if(place==null)missing.push("Место / порядок выбытия");else effectivePlaces.set(p.player_id,place);
   if(a?.arrived){
    if(b&&b.rebuys<1)missing.push("Минимум один вход для пришедшего игрока");
   }
   try{assertPhoenixFreeReentries(t.tournament_type,op?.freeReentries);}catch(error){missing.push((error as Error).message);}
-  if(t.tournament_type==="phoenix"&&b&&(b.rebuys>2||b.addons!==0))missing.push("PHOENIX: максимум два входа и без Add-on");
+  if(t.tournament_type==="phoenix"&&b&&(b.rebuys>2||b.addons!==0))missing.push("PHOENIX: максимум два входа и без дополнительных входов");
   if(missing.length)blockers.push({player_id:p.player_id,display_name:p.admin_nick,fields:missing});
  }
  // Keep canonical derived places and the existing 1..N rule; report all
@@ -61,7 +61,7 @@ export async function previewPostgresCompletion(id:string){
   const place=eliminated?derivedPlaces.get(p.player_id)??op?.place:op?.place;
   if(place==null||!a||!b)throw new OperationsError(`${p.admin_nick}: заполните место, приход и входы`,409);
   if(a.arrived&&b.rebuys<1)throw new OperationsError(`${p.admin_nick}: пришедшему игроку нужен минимум один вход`,409);
-  if(t.tournament_type==="phoenix"&&(b.rebuys>2||b.addons!==0))throw new OperationsError("PHOENIX: максимум два входа и без Add-on",409);
+  if(t.tournament_type==="phoenix"&&(b.rebuys>2||b.addons!==0))throw new OperationsError("PHOENIX: максимум два входа и без дополнительных входов",409);
   return {player_id:p.player_id,display_name:p.admin_nick,place,arrived:a.arrived,entries:b.rebuys,addons:b.addons,knockouts:fields.includes("knockouts")?op.knockouts??0:0,boss_knockouts:fields.includes("bossKnockouts")?op.bossKnockouts??0:0,mystery_bounty_points:fields.includes("mysteryPoints")?op.mysteryPoints??0:0,free_reentries:op.freeReentries??0,eliminated};
  });
  const places=rows.map(r=>r.place).sort((a,b)=>a-b);if(places.some((p,i)=>p!==i+1))throw new OperationsError("Места должны быть уникальными и последовательными от 1 до числа участников",409);

@@ -39,7 +39,7 @@ vi.mock("@/lib/client-request", () => ({
   getAdminHeaders: async () => ({ "X-Telegram-Init-Data": "signed-profile-test" }),
 }));
 
-vi.mock("@/lib/telegram", () => ({ getTelegramWebApp: vi.fn(() => null) }));
+vi.mock("@/lib/telegram", () => ({ getTelegramWebApp: vi.fn(() => null), subscribeToTelegramContext: vi.fn(() => () => {}), detectTelegramMiniAppContext: vi.fn(async () => false) }));
 vi.mock("@/lib/activity-client", () => ({ logEvent: vi.fn() }));
 vi.mock("@/lib/tournament-visuals-client", () => ({ fetchTournamentVisualConfigs: vi.fn().mockResolvedValue([]) }));
 
@@ -159,7 +159,7 @@ describe("Profile V2 composition", () => {
   it("shows the authorized positive legacy balance only on the own profile", async () => {
     useReadModel(true, 2);
     await render();
-    expect(container.querySelector('[data-testid="free-reentries-balance"]')?.textContent).toBe("Бесплатные re-entry: 2");
+    expect(container.querySelector('[data-testid="free-reentries-balance"]')?.textContent).toBe("Бесплатные повторные входы: 2");
     expect(fetch).toHaveBeenCalledWith("/api/players/viewer-1/profile-v2", {
       headers: { "X-Telegram-Init-Data": "signed-profile-test" },
       credentials: "include",

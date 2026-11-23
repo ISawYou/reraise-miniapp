@@ -92,7 +92,7 @@ function setValue(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
 }
 
 const FREE_ROLL_DESCRIPTION =
-  "Классический фриролл по Texas Hold'em. Первый вход в турнир бесплатный для каждого игрока. Re-entry и Add-on оплачиваются по обычным правилам и продолжают увеличивать рейтинговый пул турнира. Стартовый стек — 30 000 фишек. Add-on — 60 000 фишек.";
+  "Классический фриролл по Texas Hold'em. Первый вход в турнир бесплатный для каждого игрока. Повторные и дополнительные входы оплачиваются по обычным правилам и продолжают увеличивать рейтинговый пул турнира. Стартовый стек — 30 000 фишек. Дополнительный вход — 60 000 фишек.";
 
 function titleInput(): HTMLInputElement {
   return container.querySelector('input[type="text"]') as HTMLInputElement;

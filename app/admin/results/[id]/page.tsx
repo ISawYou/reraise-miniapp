@@ -454,7 +454,7 @@ export default function AdminTournamentResultsPage() {
         // echo of what was just sent) -- nothing to reconcile into state.
       },
       (_playerId, err) => {
-        setError(err instanceof Error ? err.message : "Не удалось сохранить Re-buy/Add-on");
+        setError(err instanceof Error ? err.message : "Не удалось сохранить Всего входов/Дополнительный вход");
       }
     );
   }
@@ -2160,9 +2160,9 @@ export default function AdminTournamentResultsPage() {
             <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-white/70 sm:grid-cols-5">
               <span>Players: {ratingEngineV2Summary.players}</span>
               <span>Entries: {ratingEngineV2Summary.totalEntries}</span>
-              <span>Rebuys: {ratingEngineV2Summary.rebuys}</span>
-              <span>Add-ons: {ratingEngineV2Summary.totalAddons}</span>
-              <span>Free re-entry: {ratingEngineV2Summary.freeReentries}</span>
+              <span>Повторные входы: {ratingEngineV2Summary.rebuys}</span>
+              <span>Дополнительный вход: {ratingEngineV2Summary.totalAddons}</span>
+              <span>Free повторный вход: {ratingEngineV2Summary.freeReentries}</span>
             </div>
             {formatRatingEngineMetaLines(ratingEngineV2Summary.meta).length > 0 ? (
               <p className="mt-1.5 text-xs text-white/60">
@@ -2179,7 +2179,7 @@ export default function AdminTournamentResultsPage() {
               <span>Игроков: {completionSummary.playersCount}</span>
               <span>Входов: {completionSummary.totalEntries}</span>
               <span>Rebuy: {completionSummary.rebuysCount}</span>
-              <span>Add-on: {completionSummary.addonsCount}</span>
+              <span>Дополнительный вход: {completionSummary.addonsCount}</span>
               <span>Free entry: {completionSummary.freeEntriesCount}</span>
               <span>Дилеры: {completionSummary.dealersCount}</span>
               <span>Дилерам: {formatRub(completionSummary.dealerPayoutRub)}</span>
@@ -2262,13 +2262,13 @@ export default function AdminTournamentResultsPage() {
                     </p>
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
-                    <p className="text-white/45">Rebuys</p>
+                    <p className="text-white/45">Повторные входы</p>
                     <p className="text-sm font-semibold text-white">
                       {mysteryBountySnapshot.rebuys_count}
                     </p>
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
-                    <p className="text-white/45">Add-ons</p>
+                    <p className="text-white/45">Дополнительный вход</p>
                     <p className="text-sm font-semibold text-white">
                       {mysteryBountySnapshot.addons_count}
                     </p>
@@ -2369,7 +2369,7 @@ export default function AdminTournamentResultsPage() {
               />
             </div>
             <div>
-              <p className="mb-1 text-[11px] font-medium text-white/50">Addon price</p>
+              <p className="mb-1 text-[11px] font-medium text-white/50">Дополнительный вход price</p>
               <input
                 type="number"
                 min="0"
@@ -2506,8 +2506,8 @@ export default function AdminTournamentResultsPage() {
                     </p>
                   </div>
                   <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-white/60">
-                    <span>Re-buy: {result.reentries}</span>
-                    <span>Addon: {result.addons ?? 0}</span>
+                    <span>Всего входов: {result.reentries}</span>
+                    <span>Дополнительный вход: {result.addons ?? 0}</span>
                     {supportsTournamentKnockouts(tournament.tournament_type) ? (
                       <span>KO: {result.knockouts}</span>
                     ) : null}
@@ -2632,7 +2632,7 @@ export default function AdminTournamentResultsPage() {
                   <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
-                        Free re-entry
+                        Free повторный вход
                       </p>
                       <input
                         type="number"
@@ -2661,7 +2661,7 @@ export default function AdminTournamentResultsPage() {
 
                     <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
-                        Re-buy
+                        Всего входов
                       </p>
                       <input
                         type="number"
@@ -2686,7 +2686,7 @@ export default function AdminTournamentResultsPage() {
 
                     <div className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-white/45">
-                        Addon
+                        Дополнительный вход
                       </p>
                       <input
                         type="number"
@@ -2838,9 +2838,9 @@ export default function AdminTournamentResultsPage() {
                   <span>Пришел</span>
                   <span>Оплатил</span>
                   <span>Нал/карта</span>
-                  <span>Беспл. re-entry</span>
-                  <span>Re-buy</span>
-                  <span>Addon</span>
+                  <span>Беспл. повторный вход</span>
+                  <span>Всего входов</span>
+                  <span>Дополнительный вход</span>
                   <span>Nok</span>
                   {isBossBountyTournament ? <span>Boss Nok</span> : null}
                 </div>

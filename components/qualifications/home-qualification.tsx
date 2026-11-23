@@ -12,7 +12,7 @@ export function HomeQualification() {
     // Eligibility remains the existing public event list. Dates come from the
     // existing detail DTO, never from the visual references or a new API.
     fetch("/api/qualifications").then(response => response.ok ? response.json() : Promise.reject()).then(async data => {
-      const listed = (data.events as PromoEvent[] | undefined) ?? [];
+      const listed = ((data.events as (PromoEvent & {status?: string})[] | undefined) ?? []).filter(event => !(event.slug === 'put-v-kaliningrad-2026' && event.status === 'completed'));
       if (live) setEvents(listed);
       const promos = await Promise.all(listed.map(async event => {
         try {

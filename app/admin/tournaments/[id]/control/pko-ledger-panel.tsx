@@ -92,10 +92,10 @@ export function PkoLedgerPanel({ id, players, locked, onChanged }: Props) {
       </div>
       {!locked && !snapshot.finished && <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded border border-zinc-700 p-3">
-          <h3 className="mb-2 font-semibold">Первый вход / Re-entry</h3>
+          <h3 className="mb-2 font-semibold">Первый вход / повторный вход</h3>
           <select aria-label="Игрок PKO для нового входа" className="w-full rounded bg-zinc-800 p-2" value={entryPlayerId} onChange={e => setEntryPlayerId(e.target.value)}>
             <option value="">Выбрать игрока</option>
-            {candidates.map(p => <option key={p.id} value={p.id}>{p.name} · {p.rebuys ? "Re-entry" : "первый вход"}</option>)}
+            {candidates.map(p => <option key={p.id} value={p.id}>{p.name} · {p.rebuys ? "повторный вход" : "первый вход"}</option>)}
           </select>
           <button className="mt-2 rounded bg-amber-600 px-3 py-2 font-semibold text-black disabled:opacity-50" disabled={busy || !candidates.length} onClick={addEntry}>Зафиксировать вход (+6)</button>
           <p className="mt-2 text-xs text-zinc-400">Входы в общей таблице обновляются автоматически. Сначала отметьте «Пришёл».</p>
