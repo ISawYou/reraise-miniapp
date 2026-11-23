@@ -3,6 +3,7 @@ import {
   PKO_STARTING_BOUNTY,
   replayPkoEvents,
   splitPkoBounty,
+  parsePkoEvent,
   type PkoEvent,
 } from "../progressive-knockout-core";
 
@@ -90,5 +91,27 @@ describe("pure PKO accounting (intentionally not wired to production)", () => {
     expect(() => replayPkoEvents([entry("a"), {
       kind: "finish", eventId: "f", winnerEntryId: "a",
     }, entry("b")])).toThrow(/after tournament finish/);
+  });
+});
+
+describe("PKO untrusted JSON boundary", () => {
+  it("accepts a strict entry event", () => {
+    expect(parsePkoEvent({ kind: "entry", eventId: "request-1", entryId: "entry-1", playerId: "player-1" }))
+      .toEqual({ kind: "entry", eventId: "request-1", entryId: "entry-1", playerId: "player-1" });
+  });
+  it.each(["surprise", null, undefined])("fails closed on unknown kinds (%s)", kind => {
+    expect(() => parsePkoEvent({ kind, eventId: "x" })).toThrow();
+  });
+  it("rejects forged extra event and share fields", () => {
+    expect(() => parsePkoEvent({ kind: "entry", eventId: "x", entryId: "a", playerId: "p", actorId: "forged" })).toThrow(/Unexpected/);
+    expect(() => parsePkoEvent({ kind: "knockout", eventId: "k", eliminatedEntryId: "a", shares: [{ recipientEntryId: "b", points: 6, bonus: 600 }] })).toThrow(/Unexpected/);
+  });
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "6", null])("rejects invalid share points (%s)", points => {
+    expect(() => parsePkoEvent({ kind: "knockout", eventId: "k", eliminatedEntryId: "a", shares: [{ recipientEntryId: "b", points }] })).toThrow();
+  });
+  it("rejects empty IDs and oversized allocations", () => {
+    expect(() => parsePkoEvent({ kind: "entry", eventId: " ", entryId: "a", playerId: "p" })).toThrow();
+    expect(() => parsePkoEvent({ kind: "entry", eventId: "x", entryId: "a", playerId: "p".repeat(129) })).toThrow();
+    expect(() => parsePkoEvent({ kind: "knockout", eventId: "x", eliminatedEntryId: "a", shares: Array(101).fill({ recipientEntryId: "b", points: 1 }) })).toThrow();
   });
 });
