@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: PKO focused tests
-        run: npx vitest run lib/__tests__/progressive-knockout-core.test.ts app/api/admin/tournaments/\[id\]/pko-ledger/__tests__/route.test.ts
+        run: npx vitest run lib/__tests__/progressive-knockout-core.test.ts app/api/admin/tournaments/\[id\]/pko-ledger/__tests__/route.test.ts app/admin/tournaments/\[id\]/control/__tests__/pko-ledger-panel.test.tsx
       - name: Tournament type, visual, rating and UI regressions
         run: >-
           npx vitest run
