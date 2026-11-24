@@ -9,6 +9,40 @@ vi.mock("@/components/ui/back-button", () => ({
 }));
 let cleanup = () => {};
 afterEach(() => cleanup());
+it("search opens the full answer and popstate restores the overview", async () => {
+  window.history.replaceState(null, "", "/faq");
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  const el = document.createElement("div");
+  document.body.append(el);
+  const root = createRoot(el);
+  cleanup = () => {
+    act(() => root.unmount());
+    el.remove();
+    vi.restoreAllMocks();
+  };
+  await act(async () => root.render(<FaqPage />));
+  const input = el.querySelector<HTMLInputElement>('input[type="search"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input, "Phoenix");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(el.querySelector('[aria-label="Результаты поиска"]')).not.toBeNull();
+  const answer = Array.from(
+    el.querySelectorAll<HTMLAnchorElement>(".guide-result"),
+  ).find((a) => a.querySelector("h3")?.textContent === "Phoenix")!;
+  await act(async () => answer.click());
+  expect(el.querySelector("h1")?.textContent).toBe("Phoenix");
+  expect(el.querySelector("article")?.textContent).toContain("1 500 ₽");
+  expect(el.querySelector("article details")).toBeNull();
+  await act(async () => {
+    window.history.replaceState(null, "", "/faq");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(el.querySelector("h1")?.textContent).toBe("Гид по РЕРЕЙЗ");
+});
 it.each(["general", "common-rules", "tournament-rules", "rating-rules"])(
   "opens deep link %s and supports navigation",
   async (tab) => {
@@ -21,11 +55,10 @@ it.each(["general", "common-rules", "tournament-rules", "rating-rules"])(
       el.remove();
     };
     await act(async () => root.render(<FaqPage />));
-    expect(el.querySelector("button[aria-pressed=true]")).not.toBeNull();
-    expect(el.querySelectorAll("nav button")).toHaveLength(4);
-    expect(el.querySelectorAll("details").length).toBeGreaterThan(0);
+    expect(el.querySelector("h1")?.textContent).toBeTruthy();
+    window.history.pushState(null, "", "/faq?tab=rating-rules");
     await act(async () => {
-      el.querySelectorAll<HTMLButtonElement>("nav button")[3].click();
+      window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(window.location.search).toBe("?tab=rating-rules");
     expect(el.querySelectorAll("table")).toHaveLength(2);
