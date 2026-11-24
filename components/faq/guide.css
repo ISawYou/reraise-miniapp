@@ -284,6 +284,12 @@
 .guide table {
   font-variant-numeric: tabular-nums;
 }
+.guide th {
+  overflow-wrap: normal;
+}
+.guide input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
 .guide td,
 .guide th {
   padding: 12px !important;
