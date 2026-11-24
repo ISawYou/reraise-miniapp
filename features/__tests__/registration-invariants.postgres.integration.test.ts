@@ -348,8 +348,8 @@ describePostgres("Registration invariants: arrival-cancel + Late Registration cl
     await register(2, "cancelled");
     await closeLateRegistrationDirect();
 
-    await expect(tournaments.addExistingPlayerToTournament(T1, pid(1))).rejects.toThrow(LATE_REG_MESSAGE);
-    await expect(tournaments.addExistingPlayerToTournament(T1, pid(2))).rejects.toThrow(LATE_REG_MESSAGE);
+    await expect(tournaments.addExistingPlayerToTournament(T1, pid(1))).resolves.toMatchObject({ ok: false, error: LATE_REG_MESSAGE });
+    await expect(tournaments.addExistingPlayerToTournament(T1, pid(2))).resolves.toMatchObject({ ok: false, error: LATE_REG_MESSAGE });
 
     expect(await regRowsOf(1)).toHaveLength(0);
     expect((await regRowsOf(2))[0].status).toBe("cancelled");
@@ -361,7 +361,7 @@ describePostgres("Registration invariants: arrival-cancel + Late Registration cl
 
     await expect(
       tournaments.addAdminTournamentParticipant(T1, `${WALK_IN_PREFIX} 10`)
-    ).rejects.toThrow(LATE_REG_MESSAGE);
+    ).resolves.toMatchObject({ ok: false, error: LATE_REG_MESSAGE });
 
     expect(await walkInPlayers()).toHaveLength(0);
     const [count] = await client`SELECT count(*)::int AS n FROM registrations WHERE tournament_id = ${T1}::uuid`;
@@ -398,7 +398,7 @@ describePostgres("Registration invariants: arrival-cancel + Late Registration cl
       await closeLateRegistrationDirect(sql as unknown as Sql);
     });
 
-    await expect(walkIn!).rejects.toThrow(LATE_REG_MESSAGE);
+    await expect(walkIn!).resolves.toMatchObject({ ok: false, error: LATE_REG_MESSAGE });
     await expect(selfRegister!).rejects.toThrow(LATE_REG_MESSAGE);
     expect(await walkInPlayers()).toHaveLength(0);
     expect(await regRowsOf(1)).toHaveLength(0);

@@ -24,6 +24,12 @@ vi.mock("@/lib/db", () => ({
     },
   }),
 }));
+vi.mock("@/lib/admin-auth", () => ({
+  assertServerActorRole: vi.fn(async () => ({ id: "operations-staff", role: "operator" })),
+}));
+vi.mock("@/features/achievements", () => ({ syncPlayersAchievementsIfEnabled: vi.fn() }));
+vi.mock("@/features/club-activity", () => ({ publishTournamentWinnerEvent: vi.fn() }));
+vi.mock("@/lib/poker-clock-client", () => ({ finishPokerClockTournament: vi.fn(async () => ({ status: "not_linked" })) }));
 
 const { tournamentOperationsRepository } = await import("@/lib/repositories/tournament-operations/PostgresTournamentOperationsRepository");
 
@@ -88,12 +94,61 @@ describePostgres("PostgreSQL-owned tournament operations", () => {
 
     await holder.db.update(schema.tournaments).set({ sourceMode: "LEGACY_GOOGLE_SHEETS" }).where(eq(schema.tournaments.id, tournamentId));
     await expect(tournamentOperationsRepository.patch({ ...base, expectedVersion: 2, patch: { paid: false } }))
-      .rejects.toThrow("Google Sheets");
+      .rejects.toThrow("PostgreSQL-источника");
     await holder.db.update(schema.tournaments).set({ sourceMode: "POSTGRESQL", status: "completed" }).where(eq(schema.tournaments.id, tournamentId));
     await expect(tournamentOperationsRepository.patch({ ...base, expectedVersion: 2, patch: { paid: false } }))
       .rejects.toThrow("Завершённый");
 
     expect(await holder.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId, tournamentId))).toEqual(frozenBefore);
     expect(await holder.db.select().from(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId, tournamentId))).toHaveLength(2);
+  });
+
+  it("completes a PostgreSQL-owned tournament from canonical rows and preserves the frozen snapshot", async () => {
+    const { previewPostgresCompletion, completePostgresTournament } = await import("@/features/postgres-tournament-completion");
+    const id = randomUUID();
+    const participant = randomUUID();
+    const snapshot = { place: 1, points: 50 };
+    await holder.db.insert(schema.players).values({ id: participant, displayName: "Completion fixture" });
+    await holder.db.insert(schema.tournaments).values({
+      id,
+      title: "Completion fixture",
+      kind: "free",
+      status: "open",
+      tournamentType: "bounty",
+      sourceMode: "POSTGRESQL",
+      googleSheetTabName: "archive-only",
+      startAt: new Date(),
+      maxPlayers: 10,
+    });
+    await holder.db.insert(schema.registrations).values({ tournamentId: id, playerId: participant, status: "registered" });
+    await holder.db.insert(schema.tournamentAttendance).values({ tournamentId: id, playerId: participant, arrived: true });
+    await holder.db.insert(schema.tournamentRebuyState).values({ tournamentId: id, playerId: participant, rebuys: 1, addons: 0 });
+    await holder.db.insert(schema.tournamentOperations).values({ tournamentId: id, playerId: participant, updatedBy: actorId, paid: false, place: 1, knockouts: 2 });
+    await holder.db.insert(schema.tournamentLateRegistration).values({
+      tournamentId: id,
+      arrivedPlayersCount: 1,
+      initialStacksCount: 1,
+      totalEntriesCount: 1,
+      rebuysCount: 0,
+      addonsCount: 0,
+      tournamentType: "bounty",
+      ratingFormulaVersion: "v2",
+      ratingPlaces: [snapshot],
+    });
+    try {
+      const before = await holder.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId, id));
+      const preview = await previewPostgresCompletion(id);
+      await expect(completePostgresTournament(id, preview.fingerprint)).resolves.toMatchObject({ ok: true, completedCount: 1 });
+      const [tournament] = await holder.db.select().from(schema.tournaments).where(eq(schema.tournaments.id, id));
+      const [result] = await holder.db.select().from(schema.results).where(eq(schema.results.tournamentId, id));
+      expect(tournament.status).toBe("completed");
+      expect(result).toMatchObject({ playerId: participant, place: 1, knockouts: 2, ratingPoints: 62 });
+      expect(await holder.db.select().from(schema.tournamentLateRegistration).where(eq(schema.tournamentLateRegistration.tournamentId, id))).toEqual(before);
+      await expect(completePostgresTournament(id, preview.fingerprint)).rejects.toThrow("уже завершён");
+    } finally {
+      await holder.db.delete(schema.tournamentOperationAudit).where(eq(schema.tournamentOperationAudit.tournamentId, id));
+      await holder.db.delete(schema.tournaments).where(eq(schema.tournaments.id, id));
+      await holder.db.delete(schema.players).where(eq(schema.players.id, participant));
+    }
   });
 });
