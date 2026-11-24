@@ -17,10 +17,6 @@ import {
   markRegistrationNoShowWithinCapacity,
   TournamentRosterActionError,
 } from "@/features/tournament-waitlist-capacity";
-import {
-  syncAdmittedPlayerToSheet,
-  syncOperationalRosterToSheet,
-} from "@/features/tournament-sheet-sync";
 
 export type RosterActionResult =
   | { ok: true; promotedCount: number; warning?: string }
@@ -33,18 +29,13 @@ function toRejection(error: unknown): { ok: false; error: string } {
   throw error;
 }
 
-const NO_SHOW_SHEET_WARNING =
-  "Игрок отмечен как «Не пришёл», но Google Таблицу обновить не удалось — строка будет удалена при следующей синхронизации";
-
 // "Не пришёл" -- see markRegistrationNoShowWithinCapacity for the exact
 // atomic semantics. Distinct from removeAdminTournamentParticipant
 // ("Удалить"), which stays a penalty-free technical correction.
 //
-// Postgres is authoritative and commits FIRST. Only then, best-effort, the
-// operational roster is pushed to the linked Google Sheet so the no-show
-// row disappears promptly (and a just-promoted player's row appears). A
-// Sheets failure never rolls back the no-show; it is returned as a warning,
-// and the periodic sheet reconciler removes the row on its next pass.
+// PostgreSQL is authoritative and commits the roster action directly. There
+// is no external Sheet side effect: historical spreadsheets are archives and
+// cannot block or alter active-tournament operations.
 export async function markTournamentPlayerNoShow(
   tournamentId: string,
   registrationId: string
@@ -59,51 +50,22 @@ export async function markTournamentPlayerNoShow(
     return toRejection(error);
   }
 
-  try {
-    await syncOperationalRosterToSheet(tournamentId);
-  } catch (error) {
-    console.error(
-      "[markTournamentPlayerNoShow] Google Sheet cleanup failed (no-show kept):",
-      error instanceof Error ? error.name : "unknown error"
-    );
-    return { ok: true, promotedCount, warning: NO_SHOW_SHEET_WARNING };
-  }
-
   return { ok: true, promotedCount };
 }
 
 // "Допустить в игру" -- see admitWaitlistedRegistrationWithinCapacity
-// (incl. the documented staff-override-vs-FIFO exception). After the
-// Postgres admission commits, the linked Google Sheet is brought in line
-// (Статус регистрации = registered, Пришел = TRUE). A sheet failure never
-// undoes the admission; it is surfaced as a warning instead.
+// (incl. the documented staff-override-vs-FIFO exception). The PostgreSQL
+// admission is the complete operation; no archive synchronization follows.
 export async function admitTournamentPlayerFromWaitlist(
   tournamentId: string,
   registrationId: string
 ): Promise<RosterActionResult> {
   await assertServerActorRole(["admin", "operator"]);
 
-  let playerId: string;
   try {
-    const result = await admitWaitlistedRegistrationWithinCapacity(tournamentId, registrationId);
-    playerId = result.playerId;
+    await admitWaitlistedRegistrationWithinCapacity(tournamentId, registrationId);
   } catch (error) {
     return toRejection(error);
-  }
-
-  try {
-    await syncAdmittedPlayerToSheet(tournamentId, playerId);
-  } catch (error) {
-    console.error(
-      "[admitTournamentPlayerFromWaitlist] Google Sheet update failed (admission kept):",
-      error instanceof Error ? error.name : "unknown error"
-    );
-    return {
-      ok: true,
-      promotedCount: 0,
-      warning:
-        "Игрок допущен, но Google Таблицу обновить не удалось — отметьте «Пришел» в таблице вручную",
-    };
   }
 
   return { ok: true, promotedCount: 0 };

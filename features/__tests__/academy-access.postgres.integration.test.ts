@@ -27,11 +27,6 @@ vi.mock("@/lib/telegram-bot-notify", () => ({
   sendTournamentPromotionTelegramNotification: vi.fn(async () => true),
   sendTeamsTelegramNotification: vi.fn(),
 }));
-vi.mock("@/lib/google-sheets", () => ({
-  readSpreadsheetTabValues: vi.fn(),
-  batchUpdateSpreadsheetValues: vi.fn(async () => undefined),
-  applyNewRosterRowsFormatting: vi.fn(async () => undefined),
-}));
 vi.mock("@/lib/admin-auth", () => ({
   assertServerActorRole: vi.fn(async () => ({ id: "admin", role: "admin" })),
   resolveCurrentServerActor: vi.fn(async () => null),

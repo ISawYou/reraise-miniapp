@@ -29,9 +29,6 @@ vi.mock("@/lib/telegram-bot-notify", () => ({
   sendTournamentPromotionTelegramNotification: vi.fn(async () => true),
   sendTeamsTelegramNotification: vi.fn(),
 }));
-vi.mock("@/features/tournament-sheet-sync", () => ({
-  syncAdmittedPlayerToSheet: vi.fn(async () => ({ arrivedWritten: true })),
-}));
 
 function toRow(row: { id: string; playerId: string; tournamentId: string; status: string; createdAt: Date }) {
   return {

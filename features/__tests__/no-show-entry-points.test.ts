@@ -20,8 +20,6 @@ const mocks = vi.hoisted(() => ({
   assertPlayerActive: vi.fn(),
   assertServerActorRole: vi.fn(),
   resolveCurrentServerActor: vi.fn(),
-  syncAdmittedPlayerToSheet: vi.fn(),
-  syncOperationalRosterToSheet: vi.fn(),
   tournament: { id: "t1", max_players: 40, is_final: false, status: "open", kind: "free" },
 }));
 
@@ -40,11 +38,6 @@ vi.mock("@/lib/telegram-bot-notify", () => ({
   sendTournamentPromotionTelegramNotification: vi.fn(async () => true),
   sendTeamsTelegramNotification: vi.fn(),
 }));
-vi.mock("@/features/tournament-sheet-sync", () => ({
-  syncAdmittedPlayerToSheet: mocks.syncAdmittedPlayerToSheet,
-  syncOperationalRosterToSheet: mocks.syncOperationalRosterToSheet,
-}));
-
 function toRow(row: { id: string; playerId: string; tournamentId: string; status: string; createdAt: Date }) {
   return {
     id: row.id,
@@ -140,16 +133,6 @@ beforeEach(() => {
   mocks.assertServerActorRole.mockReset();
   mocks.assertServerActorRole.mockResolvedValue({ id: "staff", role: "operator" });
   mocks.resolveCurrentServerActor.mockReset();
-  mocks.syncAdmittedPlayerToSheet.mockReset();
-  mocks.syncAdmittedPlayerToSheet.mockResolvedValue({ arrivedWritten: true });
-  mocks.syncOperationalRosterToSheet.mockReset();
-  mocks.syncOperationalRosterToSheet.mockResolvedValue({
-    synced: true,
-    appended: 0,
-    identityUpdated: 0,
-    removed: 1,
-    staleRowsPending: 0,
-  });
 });
 
 afterEach(() => {
@@ -270,7 +253,7 @@ describe("Server Action authorization (operator/admin only)", () => {
 });
 
 describe("admitTournamentPlayerFromWaitlist (Server Action)", () => {
-  it("no free seat => { ok: false } with the exact message, nothing changes, no sheet write", async () => {
+  it("no free seat => { ok: false } with the exact message, nothing changes", async () => {
     seedRegistrations("p", 40, "registered");
     addRegistration("w", "waitlist");
     restrict("w");
@@ -280,29 +263,25 @@ describe("admitTournamentPlayerFromWaitlist (Server Action)", () => {
     expect(result).toEqual({ ok: false, error: ADMISSION_NO_SEAT_MESSAGE });
     expect(statusOf("w")).toBe("waitlist");
     expect(isRestricted("w")).toBe(true);
-    expect(mocks.syncAdmittedPlayerToSheet).not.toHaveBeenCalled();
   });
 
-  it("success => admitted, then mirrored to the sheet for that player", async () => {
+  it("success => admitted without an external Sheet side effect", async () => {
     seedRegistrations("p", 39, "registered");
     addRegistration("w", "waitlist");
 
     const result = await actions.admitTournamentPlayerFromWaitlist("t1", "reg-w");
 
     expect(result).toEqual({ ok: true, promotedCount: 0 });
-    expect(mocks.syncAdmittedPlayerToSheet).toHaveBeenCalledWith("t1", "w");
     expect(seatedCount()).toBe(40);
   });
 
-  it("a sheet failure never undoes the admission -- surfaced as a warning", async () => {
-    mocks.syncAdmittedPlayerToSheet.mockRejectedValue(new Error("Sheets down"));
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("admission does not depend on an external Sheet", async () => {
     addRegistration("w", "waitlist");
 
     const result = await actions.admitTournamentPlayerFromWaitlist("t1", "reg-w");
 
     expect(result.ok).toBe(true);
-    expect(result).toHaveProperty("warning");
+    expect(result).not.toHaveProperty("warning");
     expect(statusOf("w")).toBe("registered");
   });
 

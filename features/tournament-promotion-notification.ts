@@ -139,8 +139,8 @@ export async function dispatchWaitlistPromotionNotifications(
   }
 }
 
-// A hung Telegram request must never stall the caller (the Google Sheets
-// poller tick, an admin action) indefinitely. The underlying fetch is not
+// A hung Telegram request must never stall the caller (an admin action)
+// indefinitely. The underlying fetch is not
 // retried either way.
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
