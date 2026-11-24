@@ -21,7 +21,6 @@ vi.mock("@/lib/admin-auth", () => ({ assertServerActorRole: vi.fn().mockResolved
 vi.mock("@/features/achievements", () => ({ syncPlayersAchievementsIfEnabled: vi.fn() }));
 vi.mock("@/features/club-activity", () => ({ publishTournamentWinnerEvent: vi.fn() }));
 vi.mock("@/lib/poker-clock-client", () => ({ finishPokerClockTournament: vi.fn().mockResolvedValue({status:"not_linked"}) }));
-vi.mock("@/lib/google-sheets", () => ({ readSpreadsheetTabValues: vi.fn(() => { throw Error("No Google reads allowed"); }) }));
 const { pkoLedgerRepository } = await import("@/lib/repositories/pko/PostgresPkoLedgerRepository");
 const tournamentId = randomUUID(), a = randomUUID(), b = randomUUID(), actor = randomUUID();
 let client: ReturnType<typeof postgres>;

@@ -264,13 +264,10 @@ export class PostgresRegistrationRepository implements RegistrationRepository {
     })) as RegistrationWithTournamentRow[];
   }
 
-  // The OPERATIONAL Google Sheet roster: only registrations currently
-  // admitted to play (registered/attended). Ordinary waitlist rows and
-  // quarantined no-show rows (status waitlist + no_show_at) are never
-  // exported -- the waitlist is managed in ReRaise, and the sheet is for
-  // admitted players only (see lib/tournament-sheet-readme.ts and
-  // features/tournament-sheet-sync.ts, which also REMOVES rows that drop
-  // out of this set).
+  // Operational roster data: only registrations currently admitted to play
+  // (registered/attended). Ordinary waitlist rows and quarantined no-show
+  // rows (status waitlist + no_show_at) are never included; the waitlist is
+  // managed in ReRaise and the external archive is not operational.
   async findExportParticipants(tournamentId: string): Promise<ExportParticipantRow[]> {
     const rows = await db
       .select({

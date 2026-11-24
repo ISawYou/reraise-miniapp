@@ -5,7 +5,6 @@ import { calculateRatingPointsForTournament } from "@/features/rating-v2";
 vi.mock("@/lib/db", () => ({ db: {} }));
 vi.mock("@/lib/admin-auth", () => ({ assertServerActorRole: vi.fn() }));
 vi.mock("@/features/achievements", () => ({ syncPlayerAchievements: vi.fn() }));
-vi.mock("@/lib/google-sheets", () => ({ readSpreadsheetTabValues: vi.fn(), batchUpdateSpreadsheetValues: vi.fn() }));
 const { planKnockoutCorrection: plan, LEGACY_KO_MESSAGE } = await import("@/features/completed-tournament-knockout-correction");
 const t = { id: "t", status: "completed", kind: "free", tournamentType: "bounty", googleSheetTabName: null, isFinal: false, ratingFormulaVersion: "v2" };
 function row(overrides: Partial<typeof results.$inferSelect> = {}): typeof results.$inferSelect {

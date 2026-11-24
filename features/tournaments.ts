@@ -1308,10 +1308,8 @@ export type ReorderEliminationsResult =
 //
 // `orderedPlayerIds` must be validated by the caller to be exactly the
 // currently-eliminated set (this function re-checks it itself, fail-closed,
-// so a stale admin client can never silently corrupt state) -- see
-// features/tournament-sheet-sync.ts's reorderTournamentEliminationsThroughSheet,
-// the actual entry point that also pushes the recomputed places to Google
-// Sheets afterward.
+// so a stale admin client can never silently corrupt state). The correction
+// is persisted in PostgreSQL and has no external archive side effect.
 //
 // Preserves the existing SET of eliminated_at timestamps rather than
 // fabricating new ones: sorts them ascending, then reassigns them to

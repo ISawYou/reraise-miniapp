@@ -20,7 +20,6 @@ export class CompletionReadinessError extends OperationsError{
 export async function previewPostgresCompletion(id:string){
  const fingerprint=await postgresCompletionFingerprint(id);
  const [t,participants,attendance,entries,eliminations,operations,frozen,mystery]=await Promise.all([getTournamentById(id),getAdminTournamentParticipants(id),getTournamentAttendance(id),getTournamentRebuyState(id),getTournamentEliminations(id),tournamentOperationsRepository.read(id),getTournamentLateRegistrationSnapshot(id),getMysteryBountySnapshot(id)]);
- if(t.google_sheet_tab_name?.trim())throw new OperationsError("Турнир связан с архивной Google Sheets-вкладкой и не может быть завершён этим способом",409);
  if(t.status==="completed")throw new OperationsError("Турнир уже завершён",409);
  if(t.tournament_type==="qualification_final")throw new OperationsError("Завершите финал на трёх оставшихся игроках в редакторе отбора",409);
  if(t.tournament_type==="progressive_knockout"&&!isRatingEligibleTournament(t))throw new OperationsError("PKO не может быть финалом месяца вне рейтинга",409);

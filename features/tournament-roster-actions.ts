@@ -33,11 +33,9 @@ function toRejection(error: unknown): { ok: false; error: string } {
 // atomic semantics. Distinct from removeAdminTournamentParticipant
 // ("Удалить"), which stays a penalty-free technical correction.
 //
-// Postgres is authoritative and commits FIRST. Only then, best-effort, the
-// operational roster is pushed to the linked Google Sheet so the no-show
-// row disappears promptly (and a just-promoted player's row appears). A
-// Sheets failure never rolls back the no-show; it is returned as a warning,
-// and the periodic sheet reconciler removes the row on its next pass.
+// PostgreSQL is authoritative and commits the roster action directly. There
+// is no external Sheet side effect: historical spreadsheets are archives and
+// cannot block or alter active-tournament operations.
 export async function markTournamentPlayerNoShow(
   tournamentId: string,
   registrationId: string
@@ -56,10 +54,8 @@ export async function markTournamentPlayerNoShow(
 }
 
 // "Допустить в игру" -- see admitWaitlistedRegistrationWithinCapacity
-// (incl. the documented staff-override-vs-FIFO exception). After the
-// Postgres admission commits, the linked Google Sheet is brought in line
-// (Статус регистрации = registered, Пришел = TRUE). A sheet failure never
-// undoes the admission; it is surfaced as a warning instead.
+// (incl. the documented staff-override-vs-FIFO exception). The PostgreSQL
+// admission is the complete operation; no archive synchronization follows.
 export async function admitTournamentPlayerFromWaitlist(
   tournamentId: string,
   registrationId: string

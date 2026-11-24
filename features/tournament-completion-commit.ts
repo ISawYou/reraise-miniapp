@@ -44,7 +44,7 @@ import {
 // Everything upstream (canonical PostgreSQL reads, rating math,
 // club-discount resolution, validation) stays OUTSIDE this transaction --
 // no lock is ever held across external network IO. Post-commit side effects
-// (winner Activity event, achievements, Sheets export, Poker Clock finish)
+// (winner Activity event, achievements, Poker Clock finish)
 // stay with the callers and only run after this returns.
 
 function assertPostgresMode() {

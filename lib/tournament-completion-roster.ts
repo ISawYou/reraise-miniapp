@@ -4,8 +4,8 @@
 //
 // COMPLETION ROSTER AUTHORITY
 // ---------------------------
-// The submitted completion rows (`freeRows` on the admin results page, or
-// a stale Google Sheet behind them) are NEVER the roster authority. The
+// The submitted completion rows (`freeRows` on the admin results page) are
+// NEVER the roster authority. The
 // canonical set of participants who must have a result is derived
 // server-side from Postgres: registrations with status registered/attended
 // (getTournamentResultsDraft). Reconciling against it:

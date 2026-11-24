@@ -112,7 +112,7 @@ export const tournamentAttendance = pgTable("tournament_attendance", {
 // specific to paid/cash tournaments (registration_id FK, knockouts, place,
 // sheet_row_number -- none of which exist for a free-tournament's result
 // row until completion). Before this table existed, both fields lived only
-// in React state and Google Sheets for free tournaments -- there was no
+// in React state before PostgreSQL ownership -- there was no
 // Postgres row at all until "Завершить турнир" wrote the final, frozen
 // results.reentries/results.addons (see
 // docs/POKER_CLOCK_REBUY_ADDON_INVESTIGATION.md §3-6 for the read-only
@@ -130,7 +130,7 @@ export const tournamentAttendance = pgTable("tournament_attendance", {
 // happens in features/tournaments.ts::getArrivedPlayersForIntegration, at
 // the boundary where the value leaves Re-Raise for the Poker Clock
 // integration contract -- never baked into storage, so the raw admin-facing
-// number (the one Google Sheets round-trips) stays the one source of truth
+// number stays the one PostgreSQL source of truth
 // on this side.
 export const tournamentRebuyState = pgTable("tournament_rebuy_state", {
   tournamentId: uuid("tournament_id").notNull().references(() => tournaments.id, { onDelete: "cascade" }),

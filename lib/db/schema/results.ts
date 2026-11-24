@@ -22,7 +22,7 @@ export const results = pgTable("results", {
 
   // Rating Engine v2: per-player add-on count, mirrors
   // tournament_live_entries.addons for free tournaments. Previously
-  // collected by the admin UI and synced to Google Sheets but never
+  // collected by the admin UI but never
   // persisted here (features/rating.ts's legacy formula never reads it).
   // 0 for every pre-v2 row -- an honest placeholder, not a fabricated
   // historical fact, since the legacy formula never consulted this value.
@@ -34,10 +34,8 @@ export const results = pgTable("results", {
   bossKnockouts: integer("boss_knockouts").notNull().default(0),
 
   // Free entry: how many free re-entries this player USED in this specific
-  // tournament -- an existing per-player, per-tournament admin/Google-Sheets
-  // field (see lib/tournament-sheet-parsing.ts's NormalizedFreeSheetRow and
-  // the admin results form) that was previously only ever synced to the
-  // Google Sheet export, never persisted here. Unrelated to
+  // tournament -- an existing per-player operational field that was
+  // previously not persisted here. Unrelated to
   // players.free_reentries_balance (a player's own running referral-credit
   // balance, consumed/granted independently in features/admin.ts) -- same
   // name, different concept, never conflated. 0 for every pre-existing row,

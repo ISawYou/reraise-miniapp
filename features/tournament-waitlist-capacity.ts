@@ -670,11 +670,9 @@ export async function unEliminateTournamentPlayerWithinCapacity(
   });
 }
 
-// ADVISORY, lock-free version of the same check, for callers that must
-// refuse BEFORE an external side effect they can't roll back (the Google
-// Sheets write-through in setTournamentPlayerEliminationThroughSheet). Not a
-// substitute for the locked check in unEliminateTournamentPlayerWithinCapacity,
-// which remains authoritative.
+// ADVISORY, lock-free version of the same check for callers that need a
+// read-only preflight. Not a substitute for the locked check in
+// unEliminateTournamentPlayerWithinCapacity, which remains authoritative.
 export async function assertTournamentSeatAvailableForReturn(
   tournamentId: string,
   playerId: string
