@@ -25,7 +25,7 @@ import {
 //
 // Business rule confirmed explicitly: an add-on carries 2x the weight of a
 // plain entry/rebuy in every volume/share calculation below (Weighted
-// Volume, Extra Volume, Bounty/Boss Addon Share, and the Mystery Pool
+// Volume, Extra Volume, Bounty/Boss/PKO Addon Share, and the Mystery Pool
 // formula in lib/mystery-bounty.ts) -- not 1x.
 
 export type PlayerRatingInputV2 = {
@@ -216,7 +216,6 @@ export const VOLUME_FORMATS: ReadonlySet<TournamentType> = new Set<TournamentTyp
   // features/finance-export.ts -- rating math is identical to classic.
   "free_roll",
   "omaha_holdem_mix",
-  "progressive_knockout",
 ]);
 
 // Formats that exist only under Rating Engine v2 -- never valid with
@@ -278,7 +277,10 @@ export function calculateRatingPointsV2(
   const hasKnockouts = supportsTournamentKnockouts(tournamentType);
   const hasBossKnockouts = supportsTournamentBossKnockouts(tournamentType);
   const isMystery = tournamentType === "mystery_bounty";
-  const isKnockoutFormat = tournamentType === "bounty" || tournamentType === "boss_bounty";
+  const isAddonShareFormat =
+    tournamentType === "bounty" ||
+    tournamentType === "boss_bounty" ||
+    tournamentType === "progressive_knockout";
   const isVolumeFormat = VOLUME_FORMATS.has(tournamentType);
   const placementPointsMultiplier = effectivePlacementPointsMultiplier(
     tournamentType,
@@ -295,8 +297,8 @@ export function calculateRatingPointsV2(
   const volumeMultiplier = computeVolumeMultiplier(volumeShare);
 
   // Rebuys are deliberately excluded here (spec §9) -- only the 2x-weighted
-  // addon term contributes to Bounty/Boss Bounty's placement multiplier, so
-  // an extra entry doesn't get counted twice (once via a knockout bonus,
+  // addon term contributes to Bounty/Boss Bounty/PKO's placement multiplier,
+  // so an extra entry doesn't get counted twice (once via a knockout bonus,
   // once via a placement multiplier).
   const addonShare = weightedVolume > 0 ? (2 * totalAddons) / weightedVolume : 0;
   const placementMultiplier = computeAddonPlacementMultiplier(addonShare);
@@ -315,7 +317,7 @@ export function calculateRatingPointsV2(
       );
     }
 
-    if (isKnockoutFormat) {
+    if (isAddonShareFormat) {
       return roundHalfUp(base * fieldCoefficient * placementMultiplier);
     }
 
@@ -365,7 +367,7 @@ export function calculateRatingPointsV2(
   if (tournamentType !== "phoenix") {
     const meta: RatingPointsV2Meta = isMystery
       ? { kind: "mystery" }
-      : isKnockoutFormat
+      : isAddonShareFormat
         ? { kind: "addon_share", weightedVolume, addonShare, placementMultiplier }
         : {
             kind: "volume",
