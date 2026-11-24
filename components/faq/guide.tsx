@@ -8,62 +8,57 @@ import {
   plainText,
   searchGuide,
   topics,
-  type GuideArticle,
+  legacyFormatIds,
 } from "./content";
-import { DEFAULT_TOURNAMENT_CARD_VISUALS } from "@/config/tournament-visuals";
-import Image from "next/image";
+import {
+  isTournamentVisualType,
+  type TournamentVisualConfig,
+} from "@/config/tournament-visuals";
+import { Artwork } from "./artwork";
 import "./guide.css";
 
-const assets: Record<string, string | undefined> = {
-  "Free-Roll": DEFAULT_TOURNAMENT_CARD_VISUALS.free_roll,
-  "Crazy Pineapple": DEFAULT_TOURNAMENT_CARD_VISUALS.crazy_pineapple,
-  "Bomb Pot": DEFAULT_TOURNAMENT_CARD_VISUALS.bomb_pot,
-  "Omaha / Hold'em Mix": DEFAULT_TOURNAMENT_CARD_VISUALS.omaha_holdem_mix,
-  "Progressive Knockout": DEFAULT_TOURNAMENT_CARD_VISUALS.progressive_knockout,
-  "RERAISE Main Event": DEFAULT_TOURNAMENT_CARD_VISUALS.boost_rating,
-};
-function Artwork({ article }: { article: GuideArticle }) {
-  const [failed, setFailed] = useState(false);
-  const asset = assets[article.title];
-  // The remaining legacy originals are stored on production, not bundled locally.
-  return (
-    <div className="guide-art" aria-hidden="true">
-      {asset && !failed ? (
-        <Image
-          unoptimized
-          src={asset}
-          alt=""
-          width={160}
-          height={160}
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <span>
-          {article.title
-            .split(/\s+/)
-            .map((w) => w[0])
-            .slice(0, 3)
-            .join("")}
-        </span>
-      )}
-    </div>
-  );
-}
 export function Guide() {
   const [location, setLocation] = useState({ topic: "", article: "" });
   const [query, setQuery] = useState("");
+  const [visuals, setVisuals] = useState<TournamentVisualConfig[]>([]);
   useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/tournament-visuals", { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (Array.isArray(data?.visuals))
+          setVisuals(
+            data.visuals.filter(
+              (v: TournamentVisualConfig) =>
+                v &&
+                isTournamentVisualType(v.tournamentType) &&
+                typeof v.assetUrl === "string",
+            ),
+          );
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
     const update = () => {
       const p = new URLSearchParams(window.location.search);
       setLocation({
         topic: p.get("tab") || "",
-        article: p.get("article") || "",
+        article:
+          legacyFormatIds[p.get("article") || ""] || p.get("article") || "",
       });
       setQuery("");
+      const top = window.history.state?.guideScroll || 0;
+      requestAnimationFrame(() => window.scrollTo({ top }));
     };
     update();
     window.addEventListener("popstate", update);
-    return () => window.removeEventListener("popstate", update);
+    return () => {
+      window.removeEventListener("popstate", update);
+      window.history.scrollRestoration = previous;
+    };
   }, []);
   const topic = topics.find((t) => t.id === location.topic);
   const article = articles.find(
@@ -79,7 +74,11 @@ export function Guide() {
         onClick={(e) => {
           if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
             e.preventDefault();
-            window.history.pushState(null, "", href);
+            window.history.replaceState(
+              { ...window.history.state, guideScroll: window.scrollY },
+              "",
+            );
+            window.history.pushState({ guideScroll: 0 }, "", href);
             window.dispatchEvent(new PopStateEvent("popstate"));
             window.scrollTo({ top: 0 });
           }
@@ -93,15 +92,17 @@ export function Guide() {
   return (
     <main className="guide">
       <div className="guide-wrap">
-        <div className="guide-back">
+        <nav aria-label="Путь по гиду" className="guide-back">
           <BackButton href="/" />
           {topic && link("/faq", "Гид по РЕРЕЙЗ /")}
           {article && link(guideHref(topic?.id), topic?.title)}
-        </div>
+        </nav>
         <header className="guide-header">
           <p className="guide-eyebrow">РЕРЕЙЗ / ЗНАНИЕ ИГРЫ</p>
           <h1>{article?.title || topic?.title || "Гид по РЕРЕЙЗ"}</h1>
-          <p>{topic ? topic.note : "Всё об игре, турнирах и рейтинге"}</p>
+          {!article && (
+            <p>{topic ? topic.note : "Всё об игре, турнирах и рейтинге"}</p>
+          )}
         </header>
         <div className="guide-search">
           <span aria-hidden="true">⌕</span>
@@ -168,7 +169,7 @@ export function Guide() {
                     ["Как записаться на турнир?", "general-5"],
                     ["Что такое повторный вход?", "general-6"],
                     ["Что такое дополнительный вход?", "general-7"],
-                    ["Как начисляются рейтинговые очки?", "rating-rules-1"],
+                    ["Как начисляются рейтинговые очки?", "rating-rules-5"],
                     [
                       "За что дают очки в Bounty?",
                       articles.find((a) => a.title === "Bounty Hunters")!.id,
@@ -199,7 +200,11 @@ export function Guide() {
                 </aside>
                 <article className="guide-article">
                   {article.format && (
-                    <Artwork key={article.id} article={article} />
+                    <Artwork
+                      key={article.id}
+                      article={article}
+                      visuals={visuals}
+                    />
                   )}
                   <Blocks text={article.text} />
                   <footer>
@@ -225,6 +230,16 @@ export function Guide() {
                 </nav>
                 {topic.id === "tournament-rules" ? (
                   <>
+                    <nav
+                      className="guide-rules-links"
+                      aria-label="Общие материалы турниров"
+                    >
+                      {items
+                        .filter((a) => !a.format && a.text.trim())
+                        .map((a) =>
+                          link(guideHref(a.topic, a.id), <>{a.title} ↗</>),
+                        )}
+                    </nav>
                     <div className="guide-catalog">
                       {items
                         .filter((a) => a.format)
@@ -232,7 +247,7 @@ export function Guide() {
                           link(
                             guideHref(a.topic, a.id),
                             <>
-                              <Artwork article={a} />
+                              <Artwork article={a} visuals={visuals} />
                               <div>
                                 <h2>{a.title}</h2>
                                 <p>{plainText(a.text).slice(0, 155)}…</p>
