@@ -75,6 +75,13 @@ it("preserves detailed formulas and approved formats without editorial notes", (
     /Перед публикацией|ПРЕДПУБЛИКАЦИОННЫЕ|до её утверждения|### Финал отбора/,
   );
 });
+it("documents the PKO placement policy separately from progressive KO points", () => {
+  const text = FAQ_CONTENT.join("\n");
+  expect(text).toContain("Для Bounty Hunters, Boss Bounty и Progressive Knockout");
+  expect(text).toContain("повторные входы сами по себе коэффициент не увеличивают");
+  expect(text).toContain("Стандартные +5 очков за нокаут в этом формате **не действуют**");
+  expect(text).not.toContain("Progressive Knockout, RERAISE Main Event и естественного расчёта Phoenix");
+});
 it("keeps Phoenix and monthly final in ordinary create options, excluding qualification final", () => {
   const source = readFileSync("app/admin/tournaments/create/page.tsx", "utf8");
   const options = source.split("TOURNAMENT_TYPE_OPTIONS:")[1].split("];")[0];
