@@ -21,6 +21,15 @@ const events: PkoEvent[] = [
   { kind: "entry", eventId: "first", entryId: "a1", playerId: "a" },
   { kind: "entry", eventId: "second", entryId: "b1", playerId: "b" },
 ];
+const historyEvents: PkoEvent[] = [
+  { kind: "entry", eventId: "entry-a1", entryId: "a1", playerId: "a" },
+  { kind: "entry", eventId: "entry-b1", entryId: "b1", playerId: "b" },
+  { kind: "entry", eventId: "entry-c1", entryId: "c1", playerId: "c" },
+  { kind: "knockout", eventId: "ko-1", eliminatedEntryId: "b1", shares: [{ recipientEntryId: "a1", points: 6 }] },
+  { kind: "entry", eventId: "entry-b2", entryId: "b2", playerId: "b" },
+  { kind: "knockout", eventId: "ko-2", eliminatedEntryId: "a1", shares: [{ recipientEntryId: "b2", points: 3 }, { recipientEntryId: "c1", points: 6 }] },
+  { kind: "knockout", eventId: "ko-3", eliminatedEntryId: "c1", shares: [{ recipientEntryId: "b2", points: 9 }] },
+];
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -62,6 +71,55 @@ describe("PKO console ledger UI", () => {
     expect(element.textContent).toContain("6");
     const recipient = element.querySelector<HTMLSelectElement>('select[aria-label="Игрок PKO для нового входа"]')!;
     expect(Array.from(recipient.options).map(option => option.value)).toEqual([""]);
+  });
+
+  it("renders KO history from entry IDs, including joint shares and later re-entry recipients", async () => {
+    h.request.mockReset().mockResolvedValue(snapshot(historyEvents));
+    await mount();
+    await act(async () => element.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    const history = element.querySelector<HTMLElement>("[data-ko-history]")!;
+    expect(history.textContent).toContain("KO #1");
+    expect(history.textContent).toContain("Alpha выбил Bravo");
+    expect(history.textContent).toContain("Выбыл Alpha");
+    expect(history.textContent).toContain("Bravo — 3 очков");
+    expect(history.textContent).toContain("Charlie — 6 очков");
+    expect(history.textContent).toContain("Bravo выбил Charlie");
+    expect(history.textContent).not.toContain("ko-1");
+  });
+
+  it("confirms a human-readable undo and sends the exact knockout event ID", async () => {
+    const voided = [...historyEvents.slice(0, 4), { kind: "void_knockout", eventId: "void-1", targetEventId: "ko-1" } satisfies PkoEvent];
+    h.request.mockReset().mockResolvedValueOnce(snapshot(historyEvents.slice(0, 4))).mockResolvedValueOnce(snapshot(voided));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      await mount();
+      await act(async () => element.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+      const row = element.querySelector<HTMLElement>('[data-ko-event-id="ko-1"]')!;
+      await act(async () => row.querySelector<HTMLButtonElement>("button")!.click());
+      expect(confirm.mock.calls[0][0]).toContain("Alpha выбил Bravo");
+      expect(JSON.parse(h.request.mock.calls[1][1].body).event).toMatchObject({ kind: "void_knockout", targetEventId: "ko-1" });
+      expect(row.textContent).toContain("Отменён");
+      expect(row.querySelector("button")).toBeNull();
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("keeps history visible and explains a dependent undo rejection", async () => {
+    h.request.mockReset().mockResolvedValueOnce(snapshot(historyEvents.slice(0, 4)))
+      .mockRejectedValueOnce(new Error("Зависимое событие"))
+      .mockResolvedValueOnce(snapshot(historyEvents.slice(0, 4)));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      await mount();
+      await act(async () => element.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+      await act(async () => element.querySelector<HTMLElement>('[data-ko-event-id="ko-1"] button')!.click());
+      expect(element.querySelector<HTMLElement>("[data-ko-history]")?.textContent).toContain("Alpha выбил Bravo");
+      expect(element.textContent).toContain("Другие KO не изменены");
+      expect(element.textContent).toContain("Зависимое событие");
+    } finally {
+      confirm.mockRestore();
+    }
   });
 
   it("never exposes mutating controls in a locked console", async () => {
