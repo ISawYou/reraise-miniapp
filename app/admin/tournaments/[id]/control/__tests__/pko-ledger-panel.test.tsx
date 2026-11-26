@@ -38,6 +38,21 @@ async function mount(locked = false) {
 }
 
 describe("PKO console ledger UI", () => {
+  it("starts collapsed and preserves the ledger when toggled", async () => {
+    await act(async () => root.render(<PkoLedgerPanel id="tour" players={players} locked={false} onChanged={vi.fn()} />));
+    const toggle = element.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    const content = element.querySelector<HTMLElement>('[id="pko-ledger-content-tour"]')!;
+    expect(toggle.textContent).toContain("Показать журнал PKO");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(content.hidden).toBe(true);
+    await act(async () => toggle.click());
+    expect(toggle.textContent).toContain("Свернуть журнал PKO");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(content.hidden).toBe(false);
+    await act(async () => toggle.click());
+    expect(content.hidden).toBe(true);
+  });
+
   it("reads the live ledger and shows per-entry bounties and active recipients", async () => {
     await mount();
     expect(h.request).toHaveBeenCalledWith("/api/admin/tournaments/tour/pko-ledger", undefined, { retries: 0 });
@@ -52,7 +67,7 @@ describe("PKO console ledger UI", () => {
   it("never exposes mutating controls in a locked console", async () => {
     await mount(true);
     expect(element.querySelector('select[aria-label="Выбывший вход PKO"]')).toBeNull();
-    expect(element.querySelector('button')?.textContent).toBe("Обновить");
+    expect(Array.from(element.querySelectorAll("button")).find(button => button.textContent === "Обновить")).not.toBeUndefined();
     expect(h.request).toHaveBeenCalledTimes(1);
   });
 

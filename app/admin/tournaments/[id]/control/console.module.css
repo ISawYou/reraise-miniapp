@@ -60,6 +60,7 @@
 .workspace td[data-missing] { box-shadow: inset 3px 0 #b59352; }
 .workspace [data-completion] details { max-width: min(850px, 85vw); }
 .workspace [data-mobile-players], .workspace [data-mobile-switch] { display: none; }
+@media (min-width: 901px) { .workspace[data-pko="true"] { overflow-y: auto; overflow-x: hidden; } }
 @media (max-width: 900px) {
  .workspace { position: relative; inset: auto; width: 100%; min-height: 100dvh; overflow: visible; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
  .workspace header { gap: 10px; }
