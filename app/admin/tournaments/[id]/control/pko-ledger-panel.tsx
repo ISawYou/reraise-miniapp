@@ -8,6 +8,7 @@ type Ledger = { revision: number; events: PkoEvent[]; snapshot: PkoSnapshot; dup
 type Props = { id: string; players: Roster[]; locked: boolean; onChanged: () => void };
 export function PkoLedgerPanel({ id, players, locked, onChanged }: Props) {
   const [ledger, setLedger] = useState<Ledger | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [entryPlayerId, setEntryPlayerId] = useState("");
@@ -64,14 +65,20 @@ export function PkoLedgerPanel({ id, players, locked, onChanged }: Props) {
     if (!window.confirm("Записать нокаут " + name(victim.playerId) + "?")) return;
     void send({ kind: "knockout", eventId: crypto.randomUUID(), eliminatedEntryId: victim.entryId, shares: allocation });
   }
-  return <section aria-label="Журнал Progressive Knockout" className="my-6 rounded-xl border border-amber-700 bg-zinc-900 p-4 text-zinc-100">
+  return <section aria-label="Журнал Progressive Knockout" data-pko-ledger data-expanded={expanded} className="my-6 rounded-xl border border-amber-700 bg-zinc-900 p-4 text-zinc-100">
     <div className="mb-4 flex flex-wrap justify-between gap-3">
       <div><h2 className="text-lg font-bold text-amber-200">PROGRESSIVE KNOCKOUT · журнал</h2>
         <p className="text-sm text-zinc-400">6 очков за вход · 50% KO в рейтинг, 50% увеличивает баунти (остаток в баунти)</p></div>
-      <button className="rounded border border-zinc-500 px-3 py-1 text-sm" onClick={() => void reload()} disabled={busy}>Обновить</button>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" aria-expanded={expanded} aria-controls={`pko-ledger-content-${id}`} className="rounded border border-amber-600 px-3 py-1 text-sm text-amber-200" onClick={() => setExpanded(value => !value)}>
+          {expanded ? "Свернуть журнал PKO" : "Показать журнал PKO"}
+        </button>
+        <button type="button" className="rounded border border-zinc-500 px-3 py-1 text-sm" onClick={() => void reload()} disabled={busy}>Обновить</button>
+      </div>
     </div>
-    {message && <p role="alert" className="mb-3 rounded bg-red-950 p-3 text-red-200">{message}</p>}
-    {!snapshot ? <p>Чтение журнала…</p> : <>
+    <div id={`pko-ledger-content-${id}`} hidden={!expanded}>
+      {message && <p role="alert" className="mb-3 rounded bg-red-950 p-3 text-red-200">{message}</p>}
+      {!snapshot ? <p>Чтение журнала…</p> : <>
       <div className="mb-3 grid gap-2 text-sm sm:grid-cols-4">
         <span>Версия: <strong>{ledger?.revision}</strong></span>
         <span>В игре: <strong>{active.length}</strong></span>
@@ -148,6 +155,7 @@ export function PkoLedgerPanel({ id, players, locked, onChanged }: Props) {
           }
         }}>Отменить ошибочное закрытие журнала</button>}
       </div>}
-    </>}
+      </>}
+    </div>
   </section>;
 }
