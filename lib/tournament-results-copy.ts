@@ -60,6 +60,13 @@ function formatResultLine(result: TournamentResult, tournamentType: TournamentTy
     parts.push(`KO: ${result.knockouts}`);
   }
 
+  // PKO points are a frozen rating component already included in
+  // rating_points. Read the persisted value only; never derive it from KO
+  // count and never turn an unknown legacy NULL into a claimed zero.
+  if (tournamentType === "progressive_knockout" && (result.knockout_points ?? 0) > 0) {
+    parts.push(`PKO: ${result.knockout_points} ${pluralizePoints(result.knockout_points!)}`);
+  }
+
   if (supportsTournamentBossKnockouts(tournamentType) && (result.boss_knockouts ?? 0) > 0) {
     parts.push(`Boss KO: ${result.boss_knockouts}`);
   }
