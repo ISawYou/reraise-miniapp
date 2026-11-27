@@ -186,6 +186,9 @@ export type TournamentResult = {
   player_id: string;
   place: number;
   knockouts: number;
+  // Frozen progressive-knockout rating component. Nullable is intentional:
+  // legacy results may not have a known breakdown value.
+  knockout_points?: number | null;
   boss_knockouts?: number;
   mystery_bounty_points?: number;
   itm_points?: number | null;

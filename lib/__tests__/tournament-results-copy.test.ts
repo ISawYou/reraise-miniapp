@@ -54,6 +54,45 @@ describe("formatTournamentResultsForCopy", () => {
     expect(text).toContain("3. Player Three — 37 очков");
   });
 
+  it("shows persisted PKO rating points with Russian pluralization and does not duplicate rating points", () => {
+    const text = formatTournamentResultsForCopy(
+      tournament({ tournament_type: "progressive_knockout" }),
+      [
+        result({ place: 1, display_name: "Player A", rating_points: 205, knockouts: 4, knockout_points: 38 }),
+        result({ place: 2, display_name: "Player B", rating_points: 151, knockout_points: 16 }),
+        result({ place: 3, display_name: "Player C", rating_points: 112, knockout_points: 6 }),
+        result({ place: 4, display_name: "One", rating_points: 41, knockout_points: 1 }),
+        result({ place: 5, display_name: "Two", rating_points: 42, knockout_points: 2 }),
+        result({ place: 6, display_name: "Five", rating_points: 45, knockout_points: 5 }),
+      ]
+    );
+
+    expect(text).toContain("1. Player A — 205 очков — PKO: 38 очков");
+    expect(text).toContain("2. Player B — 151 очко — PKO: 16 очков");
+    expect(text).toContain("3. Player C — 112 очков — PKO: 6 очков");
+    expect(text).toContain("4. One — 41 очко — PKO: 1 очко");
+    expect(text).toContain("5. Two — 42 очка — PKO: 2 очка");
+    expect(text).toContain("6. Five — 45 очков — PKO: 5 очков");
+    expect(text).not.toMatch(/ — KO:/);
+    expect(text).not.toContain("243");
+  });
+
+  it("omits unknown and zero PKO points without inventing a value", () => {
+    const text = formatTournamentResultsForCopy(
+      tournament({ tournament_type: "progressive_knockout" }),
+      [
+        result({ place: 1, display_name: "Zero", rating_points: 20, knockouts: 3, knockout_points: 0 }),
+        result({ place: 2, display_name: "Legacy", rating_points: 21, knockouts: 2, knockout_points: null }),
+      ]
+    );
+
+    expect(text).not.toContain("PKO:");
+    expect(text).not.toContain("undefined");
+    expect(text).not.toContain("NaN");
+    expect(text).toContain("1. Zero — 20 очков");
+    expect(text).toContain("2. Legacy — 21 очко");
+  });
+
   it("orders lines by the ALREADY PERSISTED place, not input array order or rating", () => {
     const results = [
       result({ place: 3, display_name: "Third", rating_points: 10 }),
